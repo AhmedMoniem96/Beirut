@@ -1,0 +1,16 @@
+Beirut Coffee — Receipt
+Table: T09
+Cashier: admin
+Date: 2025-10-10 17:23:11
+--------------------------------
+1.0 x Fresh Orange
+   @ 70.00  -> 70.00 EGP
+1.0 x PS ٢ لاعبين — 1 دقيقة
+   @ 0.83  -> 0.83 EGP
+--------------------------------
+Subtotal: 0.00 EGP
+Discount: 0.00 EGP
+TOTAL:    0.00 EGP
+Method:   نقدي
+--------------------------------
+شكراً لزيارتكم

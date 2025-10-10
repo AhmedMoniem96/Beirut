@@ -1,0 +1,30 @@
+from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import Qt
+from .ui.login_dialog import LoginDialog
+from .ui.main_window import MainWindow
+import sys
+import traceback
+
+def _qt_excepthook(exctype, value, tb):
+    # Show the exception instead of killing the app silently
+    msg = "".join(traceback.format_exception(exctype, value, tb))
+    box = QMessageBox()
+    box.setWindowTitle("Unexpected Error")
+    box.setText("حدث خطأ غير متوقع.\nسيظل البرنامج يعمل.")
+    box.setDetailedText(msg)
+    box.setIcon(QMessageBox.Icon.Critical)
+    box.exec()
+
+def main():
+    sys.excepthook = _qt_excepthook
+
+    app = QApplication(sys.argv)
+    app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+
+    login = LoginDialog()
+    if login.exec() != login.DialogCode.Accepted:
+        sys.exit(0)
+
+    mw = MainWindow(current_user=login.get_user())
+    mw.show()
+    sys.exit(app.exec())

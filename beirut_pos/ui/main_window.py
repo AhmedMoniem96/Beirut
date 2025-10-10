@@ -1,3 +1,4 @@
+# beirut_pos/ui/main_window.py
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QToolBar, QMessageBox,
     QStackedWidget, QHBoxLayout, QPushButton)
 from PyQt6.QtCore import Qt
@@ -7,7 +8,7 @@ from .components.category_grid import CategoryGrid
 from .components.order_list import OrderList
 from .components.payment_panel import PaymentPanel
 from .components.ps_controls import PSControls
-from ..services.orders import order_manager
+from ..services.orders import order_manager, StockError
 from ..services.printer import printer
 from ..core.bus import bus
 from .login_dialog import LoginDialog
@@ -52,6 +53,19 @@ class MainWindow(QMainWindow):
         order_page=QWidget(); ov=QVBoxLayout(order_page)
         head_row=QHBoxLayout()
         self.order_header=QLabel("طلب: —"); self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter); head_row.addWidget(self.order_header,1)
+
+        # --- NEW: Two print buttons (Bar & Cashier) ---
+        self.btn_print_bar = QPushButton("🧾 طباعة البار")
+        self.btn_print_bar.setToolTip("طباعة تذكرة البار للطلبات الجاهزة في المشروبات")
+        self.btn_print_bar.clicked.connect(self._print_bar)
+        head_row.addWidget(self.btn_print_bar, 0)
+
+        self.btn_print_cashier = QPushButton("🧾 طباعة الكاشير")
+        self.btn_print_cashier.setToolTip("طباعة إيصال الكاشير للعميل بدون تحصيل")
+        self.btn_print_cashier.clicked.connect(self._print_cashier)
+        head_row.addWidget(self.btn_print_cashier, 0)
+        # ---------------------------------------------
+
         self.back_big=QPushButton("⬅ رجوع"); self.back_big.clicked.connect(self._go_back); head_row.addWidget(self.back_big,0)
         ov.addLayout(head_row,0)
 
@@ -76,10 +90,43 @@ class MainWindow(QMainWindow):
 
         self.current_table=None
 
+        # Initial state for print buttons
+        self._refresh_print_buttons()
+
+    # ---------------- helpers: printing ----------------
+    def _refresh_print_buttons(self):
+        has_items = bool(self.current_table and order_manager.get_items(self.current_table))
+        self.btn_print_bar.setEnabled(has_items)
+        self.btn_print_cashier.setEnabled(has_items)
+
+    def _print_bar(self):
+        if not self.current_table:
+            return
+        items = order_manager.get_items(self.current_table)
+        if not items:
+            QMessageBox.information(self, "طباعة البار", "لا توجد عناصر في الطلب الحالي.")
+            return
+        printer.print_bar_ticket(self.current_table, items)
+        QMessageBox.information(self, "طباعة البار", "تم إرسال تذكرة البار للطابعة.")
+
+    def _print_cashier(self):
+        if not self.current_table:
+            return
+        items = order_manager.get_items(self.current_table)
+        if not items:
+            QMessageBox.information(self, "طباعة الكاشير", "لا توجد عناصر في الطلب الحالي.")
+            return
+        sub, disc, tot = order_manager.get_totals(self.current_table)
+        # طباعة إيصال يدوي بدون تحصيل/إقفال
+        printer.print_cashier_receipt(self.current_table, items, sub, disc, tot, method="manual", cashier=self.user.username)
+        QMessageBox.information(self, "طباعة الكاشير", "تم إرسال إيصال الكاشير للطابعة.")
+    # ---------------------------------------------------
+
     # Navigation/Admin
     def _go_back(self):
         self.pages.setCurrentIndex(PAGE_TABLES); self.act_back.setVisible(False)
         self.table_map.clear_selection(); self.current_table=None; self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
+        self._refresh_print_buttons()  # NEW
 
     def _switch_user(self):
         dlg=LoginDialog()
@@ -114,18 +161,25 @@ class MainWindow(QMainWindow):
         sub,disc,tot=order_manager.get_totals(code); self.payment.set_totals(sub,disc,tot)
         self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.pages.setCurrentIndex(PAGE_ORDER)
+        self._refresh_print_buttons()  # NEW
 
     def _on_pick(self, label, price_cents):
         if not self.current_table: return
-        order_manager.add_item(self.current_table, label, price_cents, cashier=self.user.username)
+        try:
+            order_manager.add_item(self.current_table, label, price_cents, cashier=self.user.username)
+        except StockError as e:
+            QMessageBox.warning(self, "المخزون", str(e))
+            return
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._refresh_print_buttons()  # NEW
 
     def _on_remove(self, index):
         if not self.current_table: return
         order_manager.remove_item(self.current_table, index)
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._refresh_print_buttons()  # NEW
 
     def _on_discount(self):
         if not self.current_table: return
@@ -133,6 +187,7 @@ class MainWindow(QMainWindow):
         if dlg.exec()==dlg.DialogCode.Accepted:
             order_manager.apply_discount(self.current_table, dlg.amount)
             sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+            self._refresh_print_buttons()  # NEW
 
     def _on_pay(self, method):
         if not self.current_table: return
@@ -141,10 +196,11 @@ class MainWindow(QMainWindow):
         printer.print_bar_ticket(self.current_table, items)
         # settle (persists) & print cashier receipt AFTER totals are final
         if order_manager.settle(self.current_table, "cash" if method=="نقدي" else "visa", cashier=self.user.username):
-            sub,disc,tot=0,0,0
+            # recompute totals after settle if you want; here we print a final receipt with zeroed UI
             printer.print_cashier_receipt(self.current_table, items, 0, 0, 0, method, self.user.username)
             self.order_list.set_items([]); self.payment.set_totals(0,0,0)
             self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
+            self._refresh_print_buttons()  # NEW
 
     # PS controls
     def _ps_start(self, mode):
@@ -155,18 +211,21 @@ class MainWindow(QMainWindow):
         if not self.current_table: return
         order_manager.ps_switch(self.current_table, mode); self.ps_controls.show_running(mode)
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._refresh_print_buttons()  # NEW
 
     def _ps_stop(self):
         if not self.current_table: return
         order_manager.ps_stop(self.current_table); self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._refresh_print_buttons()  # NEW
 
     # Bus handlers
     def _on_table_total_changed(self, table_code, _t):
         self.table_map.update_table(table_code, total_cents=_t)
         if self.current_table==table_code and self.pages.currentIndex()==PAGE_ORDER:
             sub,disc,tot=order_manager.get_totals(table_code); self.payment.set_totals(sub,disc,tot)
+            self._refresh_print_buttons()  # NEW
 
     def _on_table_state_changed(self, table_code, state): self.table_map.update_table(table_code, state=state)
     def _on_catalog_changed(self): self.cat_grid.set_categories(order_manager.categories)

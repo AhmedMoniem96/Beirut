@@ -7,17 +7,26 @@ from ..core.db import get_conn, init_db, log_action
 
 init_db()
 
-# --- ONE-TIME migration to add track_stock if missing -----------------------
-def _ensure_track_stock_column():
+# --- ONE-TIME migration to add inventory columns if missing ----------------
+def _ensure_inventory_columns():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("PRAGMA table_info(products)")
     cols = {r[1] for r in cur.fetchall()}
+
+    if "stock_qty" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN stock_qty REAL DEFAULT 0")
+    if "min_stock" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN min_stock REAL DEFAULT 0")
     if "track_stock" not in cols:
         cur.execute("ALTER TABLE products ADD COLUMN track_stock INTEGER NOT NULL DEFAULT 1")
-        conn.commit()
+
+    conn.commit()
     conn.close()
-_ensure_track_stock_column()
+
+_ensure_inventory_columns()
+# ---------------------------------------------------------------------------
+
 # ---------------------------------------------------------------------------
 
 

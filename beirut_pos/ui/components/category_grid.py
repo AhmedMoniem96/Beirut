@@ -4,8 +4,6 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QScrollArea
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QBrush
-from ...services.orders import order_manager
 
 # English->Arabic display map (DB can stay English internally)
 AR_DISPLAY = {
@@ -66,7 +64,8 @@ class CategoryGrid(QWidget):
           items = [(label, price_cents, track_stock, stock_qty)]
         """
         self.clear()
-        for cat_name, items in order_manager.categories if callable(getattr(order_manager, "categories", None)) else categories:
+        source = categories() if callable(categories) else categories
+        for cat_name, items in source:
             title = AR_DISPLAY.get(cat_name, cat_name)
             box = QGroupBox(title)
             grid = QGridLayout(box)
@@ -89,7 +88,7 @@ class CategoryGrid(QWidget):
                 # Disable if tracked & out of stock
                 if track_stock == 1 and (stock_qty is None or stock_qty <= 0):
                     b.setEnabled(False)
-                    b.setText(f"{label}\n(غير متوفر) — ج.م {price_cents/100:.2f}")
+                    b.setText(f"{label}\n(غير متوفر) ج.م {price_cents/100:.2f}")
                     b.setStyleSheet("color: gray;")
 
                 grid.addWidget(b, i // 3, i % 3)

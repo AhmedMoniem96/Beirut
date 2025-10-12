@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt
 from .ui.login_dialog import LoginDialog
 from .ui.main_window import MainWindow
+from .ui.common.branding import get_logo_icon
 import sys
 import traceback
 
@@ -20,6 +21,9 @@ def main():
 
     app = QApplication(sys.argv)
     app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+    icon = get_logo_icon(128)
+    if icon:
+        app.setWindowIcon(icon)
 
     login = LoginDialog()
     if login.exec() != login.DialogCode.Accepted:

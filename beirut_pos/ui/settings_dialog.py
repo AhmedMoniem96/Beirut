@@ -1,11 +1,16 @@
 # beirut_pos/ui/settings_dialog.py
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QPushButton,
-    QComboBox, QFileDialog, QMessageBox, QTabWidget, QHBoxLayout, QLabel
+    QComboBox, QFileDialog, QMessageBox, QTabWidget, QHBoxLayout, QLabel,
+    QColorDialog, QListWidget, QAbstractItemView
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from ..core.db import setting_get, setting_set
+from ..core.bus import bus
 from .common.big_dialog import BigDialog
+from .common import branding
+from ..services.orders import order_manager, get_category_order, set_category_order
 import sys
 
 def _list_printers():
@@ -68,7 +73,56 @@ class SettingsDialog(BigDialog):
         row = QHBoxLayout(); row.addWidget(self.logo_path, 1); row.addWidget(btn_browse, 0)
         row_w = QWidget(); row_w.setLayout(row)
         br_f.addRow("الشعار:", row_w)
+
+        self.background_path = QLineEdit(setting_get("background_path", ""))
+        btn_bg = QPushButton("اختيار…")
+        def pick_bg():
+            p, _ = QFileDialog.getOpenFileName(self, "اختيار الخلفية", "", "Images (*.png *.jpg *.jpeg)")
+            if p: self.background_path.setText(p)
+        btn_bg.clicked.connect(pick_bg)
+        bg_row = QHBoxLayout(); bg_row.addWidget(self.background_path, 1); bg_row.addWidget(btn_bg, 0)
+        bg_widget = QWidget(); bg_widget.setLayout(bg_row)
+        br_f.addRow("الخلفية:", bg_widget)
+
+        self.accent_color = QLineEdit(setting_get("accent_color", "#C89A5B"))
+        self.accent_color.setMaxLength(7)
+        btn_color = QPushButton("لون…")
+
+        def pick_color():
+            current = QColor(self.accent_color.text() or "#C89A5B")
+            col = QColorDialog.getColor(current, self, "اختر اللون الرئيسي")
+            if col.isValid():
+                self.accent_color.setText(col.name())
+
+        btn_color.clicked.connect(pick_color)
+        color_row = QHBoxLayout(); color_row.addWidget(self.accent_color, 1); color_row.addWidget(btn_color, 0)
+        color_widget = QWidget(); color_widget.setLayout(color_row)
+        br_f.addRow("اللون الرئيسي:", color_widget)
         tabs.addTab(br, "الهوية")
+
+        # --- Category order tab ---
+        cat_tab = QWidget(); cat_v = QVBoxLayout(cat_tab)
+        cat_hint = QLabel("رتّب الأقسام بالسحب والإفلات لتظهر بالترتيب نفسه في شاشة الطلبات.")
+        cat_hint.setWordWrap(True)
+        cat_v.addWidget(cat_hint)
+
+        self.category_list = QListWidget()
+        self.category_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.category_list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.category_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self.category_list.setAlternatingRowColors(True)
+        cat_v.addWidget(self.category_list, 1)
+
+        ordered = get_category_order()
+        existing = [cat for cat, _ in order_manager.categories]
+        seen = set()
+        for name in ordered + [n for n in existing if n not in ordered]:
+            if name in seen:
+                continue
+            seen.add(name)
+            self.category_list.addItem(name)
+
+        tabs.addTab(cat_tab, "ترتيب الأقسام")
 
         # --- Footer buttons ---
         save = QPushButton("حفظ")
@@ -85,8 +139,23 @@ class SettingsDialog(BigDialog):
         setting_set("service_pct", str(self.service.value()))
         setting_set("ps_rate_p2", str(self.ps_p2.value()))
         setting_set("ps_rate_p4", str(self.ps_p4.value()))
-        setting_set("bar_printer", self.bar_prn.currentText().strip())
-        setting_set("cashier_printer", self.cash_prn.currentText().strip())
-        setting_set("logo_path", self.logo_path.text().strip())
+        bar = self.bar_prn.currentText().strip()
+        cash = self.cash_prn.currentText().strip()
+        logo = self.logo_path.text().strip()
+        background = self.background_path.text().strip()
+        accent = self.accent_color.text().strip()
+        setting_set("bar_printer", bar)
+        setting_set("cashier_printer", cash)
+        setting_set("logo_path", logo)
+        setting_set("background_path", background)
+        setting_set("accent_color", accent)
+
+        order = [self.category_list.item(i).text() for i in range(self.category_list.count())]
+        set_category_order(order)
+
+        branding.clear_branding_cache()
+        bus.emit("branding_changed", {"logo": logo, "background": background, "accent": accent})
+        bus.emit("catalog_changed")
+        bus.emit("printers_changed", bar, cash)
         QMessageBox.information(self, "تم", "تم حفظ الإعدادات.")
         self.accept()

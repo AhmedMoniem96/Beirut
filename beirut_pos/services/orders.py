@@ -1,9 +1,12 @@
 # beirut_pos/services/orders.py
+import json
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Optional
 from datetime import datetime
+from typing import Dict, List, Tuple, Optional
+
 from ..core.bus import bus
-from ..core.db import get_conn, init_db, log_action
+
+from ..core.db import get_conn, init_db, log_action, setting_get, setting_set
 
 init_db()
 
@@ -25,16 +28,79 @@ def _ensure_inventory_columns():
     conn.close()
 
 _ensure_inventory_columns()
+
+
+def _ensure_order_item_notes():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(order_items)")
+    cols = {r[1] for r in cur.fetchall()}
+    if "note" not in cols:
+        cur.execute("ALTER TABLE order_items ADD COLUMN note TEXT DEFAULT ''")
+    conn.commit()
+    conn.close()
+
+
+_ensure_order_item_notes()
+
+_CATEGORY_ORDER_KEY = "category_order"
+
+
+def _load_category_order() -> list[str]:
+    raw = setting_get(_CATEGORY_ORDER_KEY, "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[str] = []
+    for item in data:
+        if isinstance(item, str):
+            name = item.strip()
+            if name and name not in out:
+                out.append(name)
+    return out
+
+
+def _store_category_order(names: list[str]) -> None:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        if not isinstance(name, str):
+            continue
+        name = name.strip()
+        if not name or name in seen:
+            continue
+        cleaned.append(name)
+        seen.add(name)
+    setting_set(_CATEGORY_ORDER_KEY, json.dumps(cleaned, ensure_ascii=False))
+
+
+def get_category_order() -> list[str]:
+    """Expose the persisted order for UI consumers (settings dialog)."""
+    return _load_category_order()
+
+
+def set_category_order(order: list[str]) -> None:
+    _store_category_order(order)
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+
+
+StockState = Tuple[Optional[float], Optional[float]]
 
 
 class StockError(Exception):
+    __slots__ = ()
     pass
 
 
 class ProductCatalog:
+    __slots__ = ()
     """
     Products table is assumed:
       id, category_id, name, price_cents, stock_qty, min_stock, track_stock
@@ -51,8 +117,20 @@ class ProductCatalog:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("SELECT id, name FROM categories ORDER BY id")
+        rows = cur.fetchall()
+        preferred = _load_category_order()
+        order_map = {name: idx for idx, name in enumerate(preferred)}
+        if rows:
+            missing = [r["name"] for r in rows if r["name"] not in order_map]
+            if missing:
+                preferred.extend(missing)
+                _store_category_order(preferred)
+                order_map = {name: idx for idx, name in enumerate(preferred)}
+
+        rows.sort(key=lambda r: (order_map.get(r["name"], len(order_map)), r["id"]))
+
         out: List[Tuple[str, List[Tuple[str, int, int, Optional[float]]]]] = []
-        for cat in cur.fetchall():
+        for cat in rows:
             cur.execute(
                 "SELECT name, price_cents, track_stock, stock_qty "
                 "FROM products WHERE category_id=? ORDER BY id",
@@ -70,7 +148,10 @@ class ProductCatalog:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, name, price_cents, track_stock, stock_qty, min_stock FROM products WHERE name=?",
+            """SELECT p.id, p.name, p.price_cents, p.track_stock, p.stock_qty, p.min_stock, c.name as category
+               FROM products p
+               JOIN categories c ON c.id = p.category_id
+               WHERE p.name=?""",
             (name,),
         )
         row = cur.fetchone()
@@ -84,6 +165,7 @@ class ProductCatalog:
             "track_stock": int(row["track_stock"]),
             "stock_qty": row["stock_qty"],
             "min_stock": row["min_stock"],
+            "category": row["category"],
         }
 
     def add_category(self, name: str):
@@ -93,6 +175,10 @@ class ProductCatalog:
         conn.commit()
         conn.close()
         bus.emit("catalog_changed")
+        preferred = _load_category_order()
+        if name not in preferred:
+            preferred.append(name)
+            _store_category_order(preferred)
 
     def add_product(
         self,
@@ -153,20 +239,35 @@ class ProductCatalog:
         bus.emit("catalog_changed")
         return True
 
-    def dec_stock(self, label: str, qty: float = 1.0):
-        """Decrement tracked items only."""
+    def _fetch_stock_state(self, cur, label: str) -> Optional[StockState]:
+        row = cur.execute(
+            "SELECT stock_qty, min_stock FROM products WHERE name=?",
+            (label,),
+        ).fetchone()
+        if not row:
+            return None
+        stock = row["stock_qty"]
+        min_stock = row["min_stock"]
+        return (
+            float(stock) if stock is not None else None,
+            float(min_stock) if min_stock is not None else None,
+        )
+
+    def dec_stock(self, label: str, qty: float = 1.0) -> Optional[StockState]:
+        """Decrement tracked items and return the new stock/min_stock."""
         conn = get_conn()
         cur = conn.cursor()
-        # only for track_stock=1
         cur.execute(
             "UPDATE products SET stock_qty = MAX(0, COALESCE(stock_qty,0) - ?) "
             "WHERE name=? AND track_stock=1",
             (qty, label),
         )
+        state = self._fetch_stock_state(cur, label)
         conn.commit()
         conn.close()
+        return state
 
-    def inc_stock(self, label: str, qty: float = 1.0):
+    def inc_stock(self, label: str, qty: float = 1.0) -> Optional[StockState]:
         """Return stock when removing a line, for tracked items."""
         conn = get_conn()
         cur = conn.cursor()
@@ -175,14 +276,23 @@ class ProductCatalog:
             "WHERE name=? AND track_stock=1",
             (qty, label),
         )
+        state = self._fetch_stock_state(cur, label)
         conn.commit()
         conn.close()
+        return state
 
-    def get_low_stock(self) -> List[Tuple[str, float, float]]:
+    def get_low_stock(self) -> List[Tuple[str, Optional[float], Optional[float]]]:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("SELECT name, stock_qty, min_stock FROM products WHERE track_stock=1 AND stock_qty <= min_stock")
-        res = [(r["name"], r["stock_qty"], r["min_stock"]) for r in cur.fetchall()]
+        res = [
+            (
+                r["name"],
+                float(r["stock_qty"]) if r["stock_qty"] is not None else None,
+                float(r["min_stock"]) if r["min_stock"] is not None else None,
+            )
+            for r in cur.fetchall()
+        ]
         conn.close()
         return res
 
@@ -201,18 +311,19 @@ class ProductCatalog:
         return None if row is None else int(row["price_cents"])
 
 
-@dataclass
+@dataclass(slots=True)
 class OrderItem:
     product: str
     unit_price_cents: int
     qty: float = 1
+    note: str = ""
 
     @property
     def total_cents(self) -> int:
         return int(self.unit_price_cents * self.qty)
 
 
-@dataclass
+@dataclass(slots=True)
 class Order:
     id: int
     table_code: str
@@ -230,7 +341,7 @@ class Order:
         return max(self.subtotal_cents - self.discount_cents, 0)
 
 
-@dataclass
+@dataclass(slots=True)
 class PSSession:
     mode: str
     started_at: datetime
@@ -238,6 +349,8 @@ class PSSession:
 
 
 class OrderManager:
+    __slots__ = ("catalog", "orders", "ps_sessions")
+
     def __init__(self):
         self.catalog = ProductCatalog()
         self.orders: Dict[str, Order] = {}          # table_code -> current open order
@@ -251,9 +364,17 @@ class OrderManager:
         cur.execute("SELECT * FROM orders WHERE status='open'")
         for o in cur.fetchall():
             order = Order(id=o["id"], table_code=o["table_code"], status=o["status"], opened_by=o["opened_by"])
-            cur.execute("SELECT product_name, price_cents, qty FROM order_items WHERE order_id=?", (order.id,))
+            cur.execute(
+                "SELECT product_name, price_cents, qty, note FROM order_items WHERE order_id=?",
+                (order.id,),
+            )
             order.items = [
-                OrderItem(product=r["product_name"], unit_price_cents=r["price_cents"], qty=r["qty"])
+                OrderItem(
+                    product=r["product_name"],
+                    unit_price_cents=r["price_cents"],
+                    qty=r["qty"],
+                    note=r["note"] or "",
+                )
                 for r in cur.fetchall()
             ]
             self.orders[order.table_code] = order
@@ -284,7 +405,15 @@ class OrderManager:
         return order
 
     # ----- add/remove items + inventory -----
-    def add_item(self, table_code: str, product: str, price_cents: int, qty: float = 1.0, cashier: str = "cashier"):
+    def add_item(
+        self,
+        table_code: str,
+        product: str,
+        price_cents: int,
+        qty: float = 1.0,
+        cashier: str = "cashier",
+        note: str = "",
+    ):
         """
         Enforces stock for tracked products; ignores stock for services/unlimited.
         If the 'product' is not found in DB (e.g., PS billing line), treat as non-tracked.
@@ -293,21 +422,40 @@ class OrderManager:
         prod = self.catalog.get_product(product)
 
         if prod and prod["track_stock"] == 1:
-            stock = prod["stock_qty"] if prod["stock_qty"] is not None else 0
+            stock = float(prod["stock_qty"]) if prod["stock_qty"] is not None else 0.0
             if stock < qty:
                 raise StockError(f"المنتج '{product}' غير متوفر في المخزون")
             # decrement immediately so UI reflects new stock
-            self.catalog.dec_stock(product, qty)
+            state = self.catalog.dec_stock(product, qty)
+            new_stock = state[0] if state else None
+            min_stock = state[1] if state else None
+            if new_stock is not None and stock > 0 and new_stock <= 0:
+                bus.emit("catalog_changed")
+            if (
+                new_stock is not None
+                and min_stock is not None
+                and stock >= min_stock
+                and new_stock <= min_stock
+            ):
+                bus.emit("inventory_low", product, stock, new_stock, min_stock)
+                log_action(
+                    cashier,
+                    "inventory_low",
+                    "product",
+                    product,
+                    str(stock),
+                    str(new_stock),
+                )
 
         # ensure order exists and persist line
         order = self._ensure_db_order(table_code, opened_by=cashier)
-        order.items.append(OrderItem(product, price_cents, qty))
+        order.items.append(OrderItem(product, price_cents, qty, note=note))
 
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO order_items(order_id, product_name, price_cents, qty) VALUES(?,?,?,?)",
-            (order.id, product, price_cents, qty),
+            "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
+            (order.id, product, price_cents, qty, note),
         )
         conn.commit()
         conn.close()
@@ -315,7 +463,7 @@ class OrderManager:
         # table total update
         bus.emit("table_total_changed", table_code, order.total_cents)
 
-    def remove_item(self, table_code: str, index: int):
+    def remove_item(self, table_code: str, index: int, username: str = "system"):
         order = self.orders.get(table_code)
         if not order:
             return
@@ -325,7 +473,26 @@ class OrderManager:
             # return stock if tracked
             prod = self.catalog.get_product(item.product)
             if prod and prod["track_stock"] == 1:
-                self.catalog.inc_stock(item.product, item.qty)
+                before = float(prod["stock_qty"]) if prod["stock_qty"] is not None else 0.0
+                state = self.catalog.inc_stock(item.product, item.qty)
+                new_stock = state[0] if state else None
+                min_stock = state[1] if state else None
+                if before <= 0 and new_stock is not None and new_stock > 0:
+                    bus.emit("catalog_changed")
+                if (
+                    new_stock is not None
+                    and min_stock is not None
+                    and before <= min_stock < new_stock
+                ):
+                    bus.emit("inventory_recovered", item.product, before, new_stock, min_stock)
+                    log_action(
+                        username,
+                        "inventory_recovered",
+                        "product",
+                        item.product,
+                        str(before),
+                        str(new_stock),
+                    )
 
             # remove one matching row from DB
             conn = get_conn()
@@ -333,10 +500,10 @@ class OrderManager:
             cur.execute(
                 """DELETE FROM order_items WHERE id IN (
                      SELECT id FROM order_items
-                     WHERE order_id=? AND product_name=? AND price_cents=? AND qty=?
+                     WHERE order_id=? AND product_name=? AND price_cents=? AND qty=? AND COALESCE(note,'')=?
                      LIMIT 1
                    )""",
-                (order.id, item.product, item.unit_price_cents, item.qty),
+                (order.id, item.product, item.unit_price_cents, item.qty, item.note or ""),
             )
             conn.commit()
             conn.close()

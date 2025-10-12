@@ -1,6 +1,17 @@
 # beirut_pos/ui/main_window.py
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QToolBar, QMessageBox,
-    QStackedWidget, QHBoxLayout, QPushButton)
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QLabel,
+    QToolBar,
+    QMessageBox,
+    QStackedWidget,
+    QHBoxLayout,
+    QPushButton,
+    QToolButton,
+)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
 from .components.table_map import TableMap
@@ -30,6 +41,9 @@ class MainWindow(QMainWindow):
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.resize(1366,768)
         self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")  # cashier name on top
+        self._status = self.statusBar()
+        self._status.setSizeGripEnabled(False)
+        self._status.showMessage("جاهز")
 
         bar=QToolBar("Main"); self.addToolBar(bar)
         self.act_back=QAction("رجوع", self); self.act_back.triggered.connect(self._go_back); self.act_back.setVisible(False); bar.addAction(self.act_back)
@@ -64,7 +78,20 @@ class MainWindow(QMainWindow):
         # Order page
         order_page=QWidget(); ov=QVBoxLayout(order_page)
         head_row=QHBoxLayout()
-        self.order_header=QLabel("طلب: —"); self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter); head_row.addWidget(self.order_header,1)
+        header_container = QWidget()
+        header_layout = QHBoxLayout(header_container)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(6)
+        self.order_header=QLabel("طلب:")
+        self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_layout.addWidget(self.order_header, 1)
+        self.copy_code_btn = QToolButton()
+        self.copy_code_btn.setText("📋 نسخ الكود")
+        self.copy_code_btn.setToolTip("نسخ كود الطاولة للحافظة")
+        self.copy_code_btn.setEnabled(False)
+        self.copy_code_btn.clicked.connect(self._copy_table_code)
+        header_layout.addWidget(self.copy_code_btn, 0)
+        head_row.addWidget(header_container,1)
 
         # Two print buttons (Bar & Cashier)
         self.btn_print_bar = QPushButton("🧾 طباعة البار")
@@ -98,11 +125,14 @@ class MainWindow(QMainWindow):
         bus.subscribe("table_state_changed", self._on_table_state_changed)
         bus.subscribe("catalog_changed", self._on_catalog_changed)
         bus.subscribe("ps_state_changed", self._on_ps_state_changed)   # NEW
+        bus.subscribe("inventory_low", self._on_inventory_low)
+        bus.subscribe("inventory_recovered", self._on_inventory_recovered)
 
         self.current_table=None
 
         # Initial state for print buttons
         self._refresh_print_buttons()
+        self._refresh_copy_button()
 
     # ---------------- helpers: printing ----------------
     def _refresh_print_buttons(self):
@@ -153,6 +183,8 @@ class MainWindow(QMainWindow):
     def _go_back(self):
         self.pages.setCurrentIndex(PAGE_TABLES); self.act_back.setVisible(False)
         self.table_map.clear_selection(); self.current_table=None; self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
+        self.order_header.setText("طلب:")
+        self._refresh_copy_button()
         self._refresh_print_buttons()
 
     def _switch_user(self):
@@ -203,6 +235,7 @@ class MainWindow(QMainWindow):
         self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.pages.setCurrentIndex(PAGE_ORDER)
         self._refresh_print_buttons()
+        self._refresh_copy_button()
 
     def _on_pick(self, label, price_cents):
         if not self.current_table: return
@@ -217,7 +250,7 @@ class MainWindow(QMainWindow):
 
     def _on_remove(self, index):
         if not self.current_table: return
-        order_manager.remove_item(self.current_table, index)
+        order_manager.remove_item(self.current_table, index, username=self.user.username)
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
         self._refresh_print_buttons()
@@ -271,3 +304,30 @@ class MainWindow(QMainWindow):
     def _on_table_state_changed(self, table_code, state): self.table_map.update_table(table_code, state=state)
     def _on_catalog_changed(self): self.cat_grid.set_categories(order_manager.categories)
     def _on_ps_state_changed(self, table_code, active): self.table_map.update_table(table_code, ps_active=active)
+    def _on_inventory_low(self, product, prev_stock, new_stock, min_stock):
+        if new_stock is None:
+            return
+        prev_val = 0 if prev_stock is None else prev_stock
+        min_val = 0 if min_stock is None else min_stock
+        msg = f"تنبيه المخزون: {product} {prev_val:g} ➜ {new_stock:g} (حد أدنى {min_val:g})"
+        self._status.showMessage(msg, 10000)
+        if self.user.role == "admin" and new_stock <= 0:
+            QMessageBox.warning(self, "المخزون", msg)
+
+    def _on_inventory_recovered(self, product, prev_stock, new_stock, min_stock):
+        if new_stock is None:
+            return
+        prev_val = 0 if prev_stock is None else prev_stock
+        min_val = 0 if min_stock is None else min_stock
+        msg = f"تمت إعادة توافر {product}: {prev_val:g} ➜ {new_stock:g} (حد أدنى {min_val:g})"
+        self._status.showMessage(msg, 7000)
+
+    def _refresh_copy_button(self):
+        has_table = bool(self.current_table)
+        self.copy_code_btn.setEnabled(has_table)
+
+    def _copy_table_code(self):
+        if not self.current_table:
+            return
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.current_table)

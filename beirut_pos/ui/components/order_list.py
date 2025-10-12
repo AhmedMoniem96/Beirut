@@ -6,7 +6,7 @@ class OrderList(QWidget):
         super().__init__()
         self.on_remove = on_remove
         v = QVBoxLayout(self)
-        self.title = QLabel("طلب: —")
+        self.title = QLabel("طلب:")
         self.list = QListWidget()
         self.total = QLabel("الإجمالي: ج.م 0.00")
         self.remove_btn = QPushButton("حذف المحدد")
@@ -27,7 +27,11 @@ class OrderList(QWidget):
     def set_items(self, items):
         self.list.clear()
         for it in items:
-            self.list.addItem(f"{it.qty}× {it.product} — ج.م {it.unit_price_cents/100:.2f}")
+            text = f"{it.qty}× {it.product} | ج.م {it.unit_price_cents/100:.2f}"
+            note = getattr(it, "note", "") or ""
+            if note:
+                text += f"\n    ملاحظة: {note}"
+            self.list.addItem(text)
 
     def set_total(self, cents):
         self.total.setText(f"الإجمالي: ج.م {cents/100:.2f}")

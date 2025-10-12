@@ -1,7 +1,9 @@
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLineEdit, QPushButton, QLabel, QHBoxLayout
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 from ..core.auth import authenticate
 from .forgot_password_dialog import ForgotPasswordDialog
+from .common.branding import get_logo_pixmap, get_logo_icon
 
 class LoginDialog(QDialog):
     def __init__(self):
@@ -10,7 +12,15 @@ class LoginDialog(QDialog):
         self._user = None
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 
+        icon = get_logo_icon(96)
+        if icon:
+            self.setWindowIcon(icon)
+
         v = QVBoxLayout(self)
+        self.logo = QLabel()
+        self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._apply_logo()
+        v.addWidget(self.logo)
         self.msg = QLabel("من فضلك أدخل بيانات الدخول")
         self.u = QLineEdit(); self.u.setPlaceholderText("اسم المستخدم")
         self.p = QLineEdit(); self.p.setPlaceholderText("كلمة المرور"); self.p.setEchoMode(QLineEdit.EchoMode.Password)
@@ -38,3 +48,14 @@ class LoginDialog(QDialog):
         dlg.exec()
 
     def get_user(self): return self._user
+
+    def _apply_logo(self):
+        pix = get_logo_pixmap(120)
+        if pix:
+            self.logo.setPixmap(pix)
+            self.logo.setText("")
+            self.logo.setStyleSheet("")
+        else:
+            self.logo.clear()
+            self.logo.setText("Beirut POS")
+            self.logo.setStyleSheet("font-size: 20pt; font-weight: 600;")

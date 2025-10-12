@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from .db import get_conn
 
-@dataclass
+@dataclass(slots=True)
 class User:
     username: str
     role: str  # 'admin' | 'cashier'

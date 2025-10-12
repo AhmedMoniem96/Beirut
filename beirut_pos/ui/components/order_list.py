@@ -8,6 +8,8 @@ class OrderList(QWidget):
         v = QVBoxLayout(self)
         self.title = QLabel("طلب:")
         self.list = QListWidget()
+        self.list.setAlternatingRowColors(True)
+        self.list.setObjectName("OrderItems")
         self.total = QLabel("الإجمالي: ج.م 0.00")
         self.remove_btn = QPushButton("حذف المحدد")
         v.addWidget(self.title)

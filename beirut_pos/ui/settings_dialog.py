@@ -1,7 +1,7 @@
 # beirut_pos/ui/settings_dialog.py
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QPushButton,
-    QComboBox, QFileDialog, QMessageBox, QTabWidget, QHBoxLayout, QLabel,
+    QComboBox, QFileDialog, QTabWidget, QHBoxLayout, QLabel,
     QColorDialog, QListWidget, QAbstractItemView
 )
 from PyQt6.QtCore import Qt
@@ -98,6 +98,36 @@ class SettingsDialog(BigDialog):
         color_row = QHBoxLayout(); color_row.addWidget(self.accent_color, 1); color_row.addWidget(btn_color, 0)
         color_widget = QWidget(); color_widget.setLayout(color_row)
         br_f.addRow("اللون الرئيسي:", color_widget)
+
+        self.surface_color = QLineEdit(setting_get("surface_color", "#23140C"))
+        self.surface_color.setMaxLength(7)
+        btn_surface = QPushButton("لون…")
+
+        def pick_surface():
+            current = QColor(self.surface_color.text() or "#23140C")
+            col = QColorDialog.getColor(current, self, "اختر لون لوحة التحكم")
+            if col.isValid():
+                self.surface_color.setText(col.name())
+
+        btn_surface.clicked.connect(pick_surface)
+        surface_row = QHBoxLayout(); surface_row.addWidget(self.surface_color, 1); surface_row.addWidget(btn_surface, 0)
+        surface_widget = QWidget(); surface_widget.setLayout(surface_row)
+        br_f.addRow("لون خلفية الواجهة:", surface_widget)
+
+        self.text_color = QLineEdit(setting_get("text_color", "#F8EFE4"))
+        self.text_color.setMaxLength(7)
+        btn_text = QPushButton("لون…")
+
+        def pick_text():
+            current = QColor(self.text_color.text() or "#F8EFE4")
+            col = QColorDialog.getColor(current, self, "اختر لون النص")
+            if col.isValid():
+                self.text_color.setText(col.name())
+
+        btn_text.clicked.connect(pick_text)
+        text_row = QHBoxLayout(); text_row.addWidget(self.text_color, 1); text_row.addWidget(btn_text, 0)
+        text_widget = QWidget(); text_widget.setLayout(text_row)
+        br_f.addRow("لون النص:", text_widget)
         tabs.addTab(br, "الهوية")
 
         # --- Category order tab ---
@@ -144,11 +174,15 @@ class SettingsDialog(BigDialog):
         logo = self.logo_path.text().strip()
         background = self.background_path.text().strip()
         accent = self.accent_color.text().strip()
+        surface_color = self.surface_color.text().strip()
+        text_color = self.text_color.text().strip()
         setting_set("bar_printer", bar)
         setting_set("cashier_printer", cash)
         setting_set("logo_path", logo)
         setting_set("background_path", background)
         setting_set("accent_color", accent)
+        setting_set("surface_color", surface_color)
+        setting_set("text_color", text_color)
 
         order = [self.category_list.item(i).text() for i in range(self.category_list.count())]
         set_category_order(order)
@@ -157,5 +191,5 @@ class SettingsDialog(BigDialog):
         bus.emit("branding_changed", {"logo": logo, "background": background, "accent": accent})
         bus.emit("catalog_changed")
         bus.emit("printers_changed", bar, cash)
-        QMessageBox.information(self, "تم", "تم حفظ الإعدادات.")
+        bus.emit("settings_saved")
         self.accept()

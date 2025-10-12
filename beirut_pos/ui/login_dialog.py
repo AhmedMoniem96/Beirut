@@ -20,27 +20,36 @@ class LoginDialog(QDialog):
         self.setWindowTitle("تسجيل الدخول — Beirut POS")
         self._user = None
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
-        self.setMinimumSize(480, 420)
+        self.setMinimumSize(720, 520)
+        self.resize(960, 600)
         self.setStyleSheet(build_login_stylesheet())
 
-        icon = get_logo_icon(96)
+        icon = get_logo_icon(128)
         if icon:
             self.setWindowIcon(icon)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 40, 40, 40)
-        root.setSpacing(20)
+        root.setContentsMargins(60, 60, 60, 60)
+        root.setSpacing(32)
         root.addStretch(1)
 
         card = QFrame()
         card.setObjectName("LoginCard")
         card_v = QVBoxLayout(card)
-        card_v.setSpacing(14)
+        card_v.setSpacing(18)
+        card_v.setContentsMargins(10, 10, 10, 10)
 
         self.logo = QLabel()
         self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.logo.setMinimumHeight(160)
         self._apply_logo()
         card_v.addWidget(self.logo, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        hero = QLabel("أهلاً بكم في مقهى بيروت — حيث يلتقي الذوق الرفيع بالخدمة السريعة")
+        hero.setObjectName("LoginHero")
+        hero.setWordWrap(True)
+        hero.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_v.addWidget(hero)
 
         self.msg = QLabel("من فضلك أدخل بيانات الدخول")
         self.msg.setObjectName("LoginHint")
@@ -48,12 +57,13 @@ class LoginDialog(QDialog):
         card_v.addWidget(self.msg)
 
         self.u = QLineEdit(); self.u.setPlaceholderText("اسم المستخدم")
-        self.p = QLineEdit(); self.p.setPlaceholderText("كلمة المرور"); self.p.setEchoMode(QLineEdit.EchoMode.Password)
+        self.p = QLineEdit(); self.p.setPlaceholderText("كلمة المرور")
+        self.p.setEchoMode(QLineEdit.EchoMode.Password)
         card_v.addWidget(self.u)
         card_v.addWidget(self.p)
 
         row = QHBoxLayout()
-        row.setSpacing(12)
+        row.setSpacing(18)
         self.btn = QPushButton("دخول")
         self.forgot = QPushButton("نسيت كلمة المرور؟")
         self.forgot.setFlat(True)
@@ -85,12 +95,13 @@ class LoginDialog(QDialog):
     def get_user(self): return self._user
 
     def _apply_logo(self):
-        pix = get_logo_pixmap(120)
+        pix = get_logo_pixmap(220)
         if pix:
-            self.logo.setPixmap(pix)
+            scaled = pix.scaledToHeight(220, Qt.TransformationMode.SmoothTransformation)
+            self.logo.setPixmap(scaled)
             self.logo.setText("")
             self.logo.setStyleSheet("")
         else:
             self.logo.clear()
             self.logo.setText("Beirut POS")
-            self.logo.setStyleSheet("font-size: 20pt; font-weight: 600;")
+            self.logo.setStyleSheet("font-size: 26pt; font-weight: 700; letter-spacing: 1px;")

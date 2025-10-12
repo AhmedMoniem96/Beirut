@@ -5,7 +5,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from ..core.db import setting_get, setting_set
+from ..core.bus import bus
 from .common.big_dialog import BigDialog
+from .common import branding
 import sys
 
 def _list_printers():
@@ -85,8 +87,14 @@ class SettingsDialog(BigDialog):
         setting_set("service_pct", str(self.service.value()))
         setting_set("ps_rate_p2", str(self.ps_p2.value()))
         setting_set("ps_rate_p4", str(self.ps_p4.value()))
-        setting_set("bar_printer", self.bar_prn.currentText().strip())
-        setting_set("cashier_printer", self.cash_prn.currentText().strip())
-        setting_set("logo_path", self.logo_path.text().strip())
+        bar = self.bar_prn.currentText().strip()
+        cash = self.cash_prn.currentText().strip()
+        logo = self.logo_path.text().strip()
+        setting_set("bar_printer", bar)
+        setting_set("cashier_printer", cash)
+        setting_set("logo_path", logo)
+        branding.clear_logo_cache()
+        bus.emit("branding_changed", logo)
+        bus.emit("printers_changed", bar, cash)
         QMessageBox.information(self, "تم", "تم حفظ الإعدادات.")
         self.accept()

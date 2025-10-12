@@ -1,6 +1,5 @@
 # beirut_pos/ui/main_window.py
 from PyQt6.QtWidgets import (
-    QApplication,
     QMainWindow,
     QWidget,
     QVBoxLayout,
@@ -10,7 +9,6 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QHBoxLayout,
     QPushButton,
-    QToolButton,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
@@ -31,6 +29,9 @@ from .admin_reports_dialog import AdminReportsDialog
 # NEW: settings & daily Z-report dialogs
 from .settings_dialog import SettingsDialog
 from .zreport_dialog import ZReportDialog
+from .coffee_customizer import CoffeeCustomizerDialog
+from .common.branding import get_logo_pixmap, get_logo_icon
+from .common.barista_tips import random_tip
 
 PAGE_TABLES=0; PAGE_ORDER=1
 
@@ -41,11 +42,19 @@ class MainWindow(QMainWindow):
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.resize(1366,768)
         self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")  # cashier name on top
+        icon = get_logo_icon(64)
+        if icon:
+            self.setWindowIcon(icon)
         self._status = self.statusBar()
         self._status.setSizeGripEnabled(False)
-        self._status.showMessage("جاهز")
+        self._status.showMessage(random_tip(), 12000)
 
         bar=QToolBar("Main"); self.addToolBar(bar)
+        self.logo_label = QLabel()
+        self.logo_label.setObjectName("appLogo")
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar.addWidget(self.logo_label)
+        bar.addSeparator()
         self.act_back=QAction("رجوع", self); self.act_back.triggered.connect(self._go_back); self.act_back.setVisible(False); bar.addAction(self.act_back)
         act_switch=QAction("تبديل المستخدم", self); act_switch.triggered.connect(self._switch_user); bar.addAction(act_switch)
         self.act_manage=QAction("إدارة الأصناف (مدير)", self); self.act_manage.triggered.connect(self._open_manage_products)
@@ -78,20 +87,9 @@ class MainWindow(QMainWindow):
         # Order page
         order_page=QWidget(); ov=QVBoxLayout(order_page)
         head_row=QHBoxLayout()
-        header_container = QWidget()
-        header_layout = QHBoxLayout(header_container)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(6)
         self.order_header=QLabel("طلب:")
         self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header_layout.addWidget(self.order_header, 1)
-        self.copy_code_btn = QToolButton()
-        self.copy_code_btn.setText("📋 نسخ الكود")
-        self.copy_code_btn.setToolTip("نسخ كود الطاولة للحافظة")
-        self.copy_code_btn.setEnabled(False)
-        self.copy_code_btn.clicked.connect(self._copy_table_code)
-        header_layout.addWidget(self.copy_code_btn, 0)
-        head_row.addWidget(header_container,1)
+        head_row.addWidget(self.order_header,1)
 
         # Two print buttons (Bar & Cashier)
         self.btn_print_bar = QPushButton("🧾 طباعة البار")
@@ -127,12 +125,14 @@ class MainWindow(QMainWindow):
         bus.subscribe("ps_state_changed", self._on_ps_state_changed)   # NEW
         bus.subscribe("inventory_low", self._on_inventory_low)
         bus.subscribe("inventory_recovered", self._on_inventory_recovered)
+        bus.subscribe("branding_changed", self._on_branding_changed)
 
         self.current_table=None
+        self._coffee_categories = {"Coffee Corner", "Hot Drinks", "Fresh Drinks"}
 
         # Initial state for print buttons
         self._refresh_print_buttons()
-        self._refresh_copy_button()
+        self._refresh_branding()
 
     # ---------------- helpers: printing ----------------
     def _refresh_print_buttons(self):
@@ -184,8 +184,8 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(PAGE_TABLES); self.act_back.setVisible(False)
         self.table_map.clear_selection(); self.current_table=None; self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.order_header.setText("طلب:")
-        self._refresh_copy_button()
         self._refresh_print_buttons()
+        self._status.showMessage(random_tip(), 10000)
 
     def _switch_user(self):
         dlg=LoginDialog()
@@ -235,12 +235,32 @@ class MainWindow(QMainWindow):
         self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.pages.setCurrentIndex(PAGE_ORDER)
         self._refresh_print_buttons()
-        self._refresh_copy_button()
+        self._status.showMessage(random_tip(), 9000)
 
     def _on_pick(self, label, price_cents):
         if not self.current_table: return
+        prod = order_manager.catalog.get_product(label)
+        final_label = label
+        final_price = price_cents
+        note = ""
+        if prod and prod.get("category") in self._coffee_categories:
+            dlg = CoffeeCustomizerDialog(label, price_cents, self)
+            if dlg.exec() != dlg.DialogCode.Accepted:
+                return
+            selection = dlg.get_result()
+            if not selection:
+                return
+            final_label = selection.label
+            final_price = price_cents + selection.price_delta
+            note = selection.note
         try:
-            order_manager.add_item(self.current_table, label, price_cents, cashier=self.user.username)
+            order_manager.add_item(
+                self.current_table,
+                final_label,
+                final_price,
+                cashier=self.user.username,
+                note=note,
+            )
         except StockError as e:
             QMessageBox.warning(self, "المخزون", str(e))
             return
@@ -322,12 +342,17 @@ class MainWindow(QMainWindow):
         msg = f"تمت إعادة توافر {product}: {prev_val:g} ➜ {new_stock:g} (حد أدنى {min_val:g})"
         self._status.showMessage(msg, 7000)
 
-    def _refresh_copy_button(self):
-        has_table = bool(self.current_table)
-        self.copy_code_btn.setEnabled(has_table)
+    def _refresh_branding(self):
+        pix = get_logo_pixmap(32)
+        if pix:
+            self.logo_label.setPixmap(pix)
+            self.logo_label.setText("")
+        else:
+            self.logo_label.clear()
+            self.logo_label.setText("Beirut POS")
+        icon = get_logo_icon(64)
+        if icon:
+            self.setWindowIcon(icon)
 
-    def _copy_table_code(self):
-        if not self.current_table:
-            return
-        clipboard = QApplication.clipboard()
-        clipboard.setText(self.current_table)
+    def _on_branding_changed(self, _logo_path):
+        self._refresh_branding()

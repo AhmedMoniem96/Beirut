@@ -57,6 +57,8 @@ def _ensure_inventory_columns():
 def _prime_default_settings(c):
     # Add any defaults you want to exist on a fresh DB
     c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('logo_path','')")
+    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('bar_printer','')")
+    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('cashier_printer','')")
     # You can add more defaults later (currency, service_pct, printers, etc.)
     # c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('currency','EGP')")
     # c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('service_pct','0')")
@@ -117,6 +119,7 @@ def init_db():
         product_name TEXT NOT NULL,
         price_cents INTEGER NOT NULL,
         qty REAL NOT NULL DEFAULT 1,
+        note TEXT DEFAULT '',
         FOREIGN KEY(order_id) REFERENCES orders(id)
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS payments(

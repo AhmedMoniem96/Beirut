@@ -27,7 +27,11 @@ class OrderList(QWidget):
     def set_items(self, items):
         self.list.clear()
         for it in items:
-            self.list.addItem(f"{it.qty}× {it.product} | ج.م {it.unit_price_cents/100:.2f}")
+            text = f"{it.qty}× {it.product} | ج.م {it.unit_price_cents/100:.2f}"
+            note = getattr(it, "note", "") or ""
+            if note:
+                text += f"\n    ملاحظة: {note}"
+            self.list.addItem(text)
 
     def set_total(self, cents):
         self.total.setText(f"الإجمالي: ج.م {cents/100:.2f}")

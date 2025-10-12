@@ -25,6 +25,20 @@ def _ensure_inventory_columns():
     conn.close()
 
 _ensure_inventory_columns()
+
+
+def _ensure_order_item_notes():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(order_items)")
+    cols = {r[1] for r in cur.fetchall()}
+    if "note" not in cols:
+        cur.execute("ALTER TABLE order_items ADD COLUMN note TEXT DEFAULT ''")
+    conn.commit()
+    conn.close()
+
+
+_ensure_order_item_notes()
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -75,7 +89,10 @@ class ProductCatalog:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, name, price_cents, track_stock, stock_qty, min_stock FROM products WHERE name=?",
+            """SELECT p.id, p.name, p.price_cents, p.track_stock, p.stock_qty, p.min_stock, c.name as category
+               FROM products p
+               JOIN categories c ON c.id = p.category_id
+               WHERE p.name=?""",
             (name,),
         )
         row = cur.fetchone()
@@ -89,6 +106,7 @@ class ProductCatalog:
             "track_stock": int(row["track_stock"]),
             "stock_qty": row["stock_qty"],
             "min_stock": row["min_stock"],
+            "category": row["category"],
         }
 
     def add_category(self, name: str):
@@ -235,6 +253,7 @@ class OrderItem:
     product: str
     unit_price_cents: int
     qty: float = 1
+    note: str = ""
 
     @property
     def total_cents(self) -> int:
@@ -282,9 +301,17 @@ class OrderManager:
         cur.execute("SELECT * FROM orders WHERE status='open'")
         for o in cur.fetchall():
             order = Order(id=o["id"], table_code=o["table_code"], status=o["status"], opened_by=o["opened_by"])
-            cur.execute("SELECT product_name, price_cents, qty FROM order_items WHERE order_id=?", (order.id,))
+            cur.execute(
+                "SELECT product_name, price_cents, qty, note FROM order_items WHERE order_id=?",
+                (order.id,),
+            )
             order.items = [
-                OrderItem(product=r["product_name"], unit_price_cents=r["price_cents"], qty=r["qty"])
+                OrderItem(
+                    product=r["product_name"],
+                    unit_price_cents=r["price_cents"],
+                    qty=r["qty"],
+                    note=r["note"] or "",
+                )
                 for r in cur.fetchall()
             ]
             self.orders[order.table_code] = order
@@ -315,7 +342,15 @@ class OrderManager:
         return order
 
     # ----- add/remove items + inventory -----
-    def add_item(self, table_code: str, product: str, price_cents: int, qty: float = 1.0, cashier: str = "cashier"):
+    def add_item(
+        self,
+        table_code: str,
+        product: str,
+        price_cents: int,
+        qty: float = 1.0,
+        cashier: str = "cashier",
+        note: str = "",
+    ):
         """
         Enforces stock for tracked products; ignores stock for services/unlimited.
         If the 'product' is not found in DB (e.g., PS billing line), treat as non-tracked.
@@ -351,13 +386,13 @@ class OrderManager:
 
         # ensure order exists and persist line
         order = self._ensure_db_order(table_code, opened_by=cashier)
-        order.items.append(OrderItem(product, price_cents, qty))
+        order.items.append(OrderItem(product, price_cents, qty, note=note))
 
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO order_items(order_id, product_name, price_cents, qty) VALUES(?,?,?,?)",
-            (order.id, product, price_cents, qty),
+            "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
+            (order.id, product, price_cents, qty, note),
         )
         conn.commit()
         conn.close()
@@ -402,10 +437,10 @@ class OrderManager:
             cur.execute(
                 """DELETE FROM order_items WHERE id IN (
                      SELECT id FROM order_items
-                     WHERE order_id=? AND product_name=? AND price_cents=? AND qty=?
+                     WHERE order_id=? AND product_name=? AND price_cents=? AND qty=? AND COALESCE(note,'')=?
                      LIMIT 1
                    )""",
-                (order.id, item.product, item.unit_price_cents, item.qty),
+                (order.id, item.product, item.unit_price_cents, item.qty, item.note or ""),
             )
             conn.commit()
             conn.close()

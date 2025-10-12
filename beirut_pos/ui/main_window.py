@@ -17,6 +17,10 @@ from .discount_dialog import DiscountDialog
 from .admin_users_dialog import AdminUsersDialog
 from .admin_reports_dialog import AdminReportsDialog
 
+# NEW: settings & daily Z-report dialogs
+from .settings_dialog import SettingsDialog
+from .zreport_dialog import ZReportDialog
+
 PAGE_TABLES=0; PAGE_ORDER=1
 
 class MainWindow(QMainWindow):
@@ -33,12 +37,20 @@ class MainWindow(QMainWindow):
         self.act_manage=QAction("إدارة الأصناف (مدير)", self); self.act_manage.triggered.connect(self._open_manage_products)
         self.act_users=QAction("إدارة المستخدمين", self); self.act_users.triggered.connect(self._open_users)
         self.act_reports=QAction("التقارير", self); self.act_reports.triggered.connect(self._open_reports)
-        for a in (self.act_manage,self.act_users,self.act_reports):
+
+        # NEW: Settings & Daily Z-Report (admin only)
+        self.act_settings=QAction("الإعدادات", self); self.act_settings.triggered.connect(self._open_settings)
+        self.act_zreport=QAction("تقرير يومي (Z)", self); self.act_zreport.triggered.connect(self._open_zreport)
+
+        for a in (self.act_manage,self.act_users,self.act_reports,self.act_settings,self.act_zreport):
             a.setVisible(self.user.role=="admin"); bar.addAction(a)
 
-        # ESC to go back
-        esc = QShortcut(QKeySequence("Esc"), self)
-        esc.activated.connect(self._go_back)
+        # Hotkeys
+        QShortcut(QKeySequence("Esc"), self, activated=self._go_back)
+        QShortcut(QKeySequence("F2"), self, activated=self._print_bar)
+        QShortcut(QKeySequence("F3"), self, activated=self._print_cashier)
+        QShortcut(QKeySequence("Ctrl+D"), self, activated=self._on_discount)
+        QShortcut(QKeySequence("Del"), self, activated=self._remove_selected_or_last)
 
         self.pages=QStackedWidget(); self.setCentralWidget(self.pages)
 
@@ -54,7 +66,7 @@ class MainWindow(QMainWindow):
         head_row=QHBoxLayout()
         self.order_header=QLabel("طلب: —"); self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter); head_row.addWidget(self.order_header,1)
 
-        # --- NEW: Two print buttons (Bar & Cashier) ---
+        # Two print buttons (Bar & Cashier)
         self.btn_print_bar = QPushButton("🧾 طباعة البار")
         self.btn_print_bar.setToolTip("طباعة تذكرة البار للطلبات الجاهزة في المشروبات")
         self.btn_print_bar.clicked.connect(self._print_bar)
@@ -64,7 +76,6 @@ class MainWindow(QMainWindow):
         self.btn_print_cashier.setToolTip("طباعة إيصال الكاشير للعميل بدون تحصيل")
         self.btn_print_cashier.clicked.connect(self._print_cashier)
         head_row.addWidget(self.btn_print_cashier, 0)
-        # ---------------------------------------------
 
         self.back_big=QPushButton("⬅ رجوع"); self.back_big.clicked.connect(self._go_back); head_row.addWidget(self.back_big,0)
         ov.addLayout(head_row,0)
@@ -120,20 +131,37 @@ class MainWindow(QMainWindow):
         # طباعة إيصال يدوي بدون تحصيل/إقفال
         printer.print_cashier_receipt(self.current_table, items, sub, disc, tot, method="manual", cashier=self.user.username)
         QMessageBox.information(self, "طباعة الكاشير", "تم إرسال إيصال الكاشير للطابعة.")
-    # ---------------------------------------------------
+
+    # Quick helper for Del key
+    def _remove_selected_or_last(self):
+        if not self.current_table:
+            return
+        # Try to use selected index if OrderList exposes it; otherwise remove last
+        idx = -1
+        if hasattr(self.order_list, "current_index"):
+            try:
+                idx = int(self.order_list.current_index())
+            except Exception:
+                idx = -1
+        if idx < 0:
+            items = order_manager.get_items(self.current_table)
+            idx = len(items) - 1
+        if idx >= 0:
+            self._on_remove(idx)
 
     # Navigation/Admin
     def _go_back(self):
         self.pages.setCurrentIndex(PAGE_TABLES); self.act_back.setVisible(False)
         self.table_map.clear_selection(); self.current_table=None; self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
-        self._refresh_print_buttons()  # NEW
+        self._refresh_print_buttons()
 
     def _switch_user(self):
         dlg=LoginDialog()
         if dlg.exec()==dlg.DialogCode.Accepted:
             self.user=dlg.get_user()
             self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")
-            for a in (self.act_manage,self.act_users,self.act_reports): a.setVisible(self.user.role=="admin")
+            for a in (self.act_manage,self.act_users,self.act_reports,self.act_settings,self.act_zreport):
+                a.setVisible(self.user.role=="admin")
 
     def _open_manage_products(self):
         if self.user.role!="admin": QMessageBox.warning(self,"الصلاحيات","هذه العملية للمدير فقط."); return
@@ -153,6 +181,19 @@ class MainWindow(QMainWindow):
         from .admin_reports_dialog import AdminReportsDialog
         AdminReportsDialog().exec()
 
+    # NEW: dialogs
+    def _open_settings(self):
+        if self.user.role!="admin":
+            QMessageBox.warning(self,"الصلاحيات","هذه العملية للمدير فقط.")
+            return
+        SettingsDialog(self).exec()
+
+    def _open_zreport(self):
+        if self.user.role!="admin":
+            QMessageBox.warning(self,"الصلاحيات","هذه العملية للمدير فقط.")
+            return
+        ZReportDialog(self).exec()
+
     # POS flow
     def _on_table_select(self, code):
         self.current_table=code; self.act_back.setVisible(True)
@@ -161,7 +202,7 @@ class MainWindow(QMainWindow):
         sub,disc,tot=order_manager.get_totals(code); self.payment.set_totals(sub,disc,tot)
         self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.pages.setCurrentIndex(PAGE_ORDER)
-        self._refresh_print_buttons()  # NEW
+        self._refresh_print_buttons()
 
     def _on_pick(self, label, price_cents):
         if not self.current_table: return
@@ -172,14 +213,14 @@ class MainWindow(QMainWindow):
             return
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
-        self._refresh_print_buttons()  # NEW
+        self._refresh_print_buttons()
 
     def _on_remove(self, index):
         if not self.current_table: return
         order_manager.remove_item(self.current_table, index)
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
-        self._refresh_print_buttons()  # NEW
+        self._refresh_print_buttons()
 
     def _on_discount(self):
         if not self.current_table: return
@@ -187,7 +228,7 @@ class MainWindow(QMainWindow):
         if dlg.exec()==dlg.DialogCode.Accepted:
             order_manager.apply_discount(self.current_table, dlg.amount)
             sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
-            self._refresh_print_buttons()  # NEW
+            self._refresh_print_buttons()
 
     def _on_pay(self, method):
         if not self.current_table: return
@@ -200,7 +241,7 @@ class MainWindow(QMainWindow):
             printer.print_cashier_receipt(self.current_table, items, 0, 0, 0, method, self.user.username)
             self.order_list.set_items([]); self.payment.set_totals(0,0,0)
             self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
-            self._refresh_print_buttons()  # NEW
+            self._refresh_print_buttons()
 
     # PS controls
     def _ps_start(self, mode):
@@ -211,21 +252,21 @@ class MainWindow(QMainWindow):
         if not self.current_table: return
         order_manager.ps_switch(self.current_table, mode); self.ps_controls.show_running(mode)
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
-        self._refresh_print_buttons()  # NEW
+        self._refresh_print_buttons()
 
     def _ps_stop(self):
         if not self.current_table: return
         order_manager.ps_stop(self.current_table); self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
-        self._refresh_print_buttons()  # NEW
+        self._refresh_print_buttons()
 
     # Bus handlers
     def _on_table_total_changed(self, table_code, _t):
         self.table_map.update_table(table_code, total_cents=_t)
         if self.current_table==table_code and self.pages.currentIndex()==PAGE_ORDER:
             sub,disc,tot=order_manager.get_totals(table_code); self.payment.set_totals(sub,disc,tot)
-            self._refresh_print_buttons()  # NEW
+            self._refresh_print_buttons()
 
     def _on_table_state_changed(self, table_code, state): self.table_map.update_table(table_code, state=state)
     def _on_catalog_changed(self): self.cat_grid.set_categories(order_manager.categories)

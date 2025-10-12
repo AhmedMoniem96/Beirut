@@ -1,0 +1,11 @@
+*** CASHIER RECEIPT ***
+Table: Z-REPORT   Cashier: system
+Date: 2025-10-10 21:50:01
+Method: report
+--------------------------------
+--------------------------------
+Subtotal: 0.00 EGP
+Discount: 0.00 EGP
+TOTAL:    0.00 EGP
+--------------------------------
+شكراً لزيارتكم

@@ -1,0 +1,12 @@
+*** DAILY Z-REPORT ***
+Company: Beirut Coffee
+Date: 2025-10-10
+--------------------------------
+By Method:
+  cash       : 493.12 EGP
+--------------------------------
+Orders      : 8
+PS Items    : 14
+Discounts   : 0.00 EGP
+TOTAL       : 493.12 EGP
+--------------------------------

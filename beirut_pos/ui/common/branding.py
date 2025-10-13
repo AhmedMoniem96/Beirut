@@ -119,6 +119,7 @@ def build_login_stylesheet() -> str:
     accent = get_accent_color()
     text = get_text_color()
     bg_path = get_background_path()
+
     parts = [
         "#LoginDialog {",
         f"    background-color: {_FALLBACK_BG};",
@@ -129,26 +130,33 @@ def build_login_stylesheet() -> str:
     else:
         parts.append("    border-image: none;")
         parts.append("    background-image: none;")
-    parts.extend(
-        [
-            "}",
-            "#LoginCard {",
-            "    background-color: rgba(19, 12, 8, 0.84);",
-            "    border-radius: 24px;",
-            f"    color: {text};",
-            "    padding: 40px 48px;",
-            "    border: 1px solid rgba(255,255,255,0.12);",
-            "}",
-            f"#LoginCard QLabel {{ color: {text}; font-size: 13pt; font-weight: 600; }}",
-            f"#LoginCard QLabel#LoginHero {{ font-size: 14pt; font-weight: 700; color: {text}; margin-bottom: 12px; }}",
-            f"#LoginDialog QPushButton {{ background-color: {accent}; color: #1B0F08; border-radius: 18px; padding: 12px 26px; font-weight: 700; letter-spacing: 0.5px; }}",
-            f"#LoginDialog QPushButton[class=\"link\"] {{ background-color: transparent; color: {_FALLBACK_MUTED_TEXT}; border: none; padding: 0; font-weight: 500; text-decoration: underline; }}",
-            "#LoginDialog QPushButton:disabled { background-color: rgba(110, 96, 80, 0.7); color: rgba(27, 15, 8, 0.4); }",
-            f"#LoginDialog QLineEdit {{ border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 12px; padding: 12px 16px; background-color: rgba(255,255,255,0.98); color: #2A170C; font-size: 12pt; }}",
-            f"#LoginDialog QLineEdit:focus {{ border: 2px solid {accent}; }}",
-            f"#LoginDialog QLabel#LoginHint {{ color: {_FALLBACK_MUTED_TEXT}; font-size: 11pt; letter-spacing: 0.4px; }}",
-        ]
-    )
+
+    parts.extend([
+        "}",
+        "#LoginCard {",
+        "    background-color: rgba(19, 12, 8, 0.88);",
+        "    border-radius: 32px;",
+        f"    color: {text};",
+        "    border: 1px solid rgba(255,255,255,0.1);",
+        "}",
+        f"#LoginCard QLabel {{ color: {text}; font-size: 12.5pt; font-weight: 600; }}",
+        f"#LoginCard QLabel#BrandTitle {{ font-size: 22pt; font-weight: 800; letter-spacing: 1.2px; color: {accent}; }}",
+        f"#LoginCard QLabel#LoginHero {{ font-size: 14pt; font-weight: 700; color: {text}; }}",
+        f"#LoginCard QLabel#HeroHint {{ color: {_FALLBACK_MUTED_TEXT}; font-size: 11.5pt; }}",
+        f"#LoginCard QLabel#FormTitle {{ font-size: 16pt; font-weight: 800; margin-bottom: 8px; }}",
+        f"#LoginCard QLabel#LoginHint {{ color: {_FALLBACK_MUTED_TEXT}; font-size: 11.5pt; letter-spacing: 0.4px; }}",
+        "#LoginCard QFrame#BrandColumn { background: transparent; }",
+        "#LoginCard QFrame#LoginForm { background-color: rgba(12, 7, 4, 0.72); border-radius: 26px; border: 1px solid rgba(255,255,255,0.08); }",
+        f"#LoginDialog QPushButton {{ background-color: {accent}; color: #1B0F08; border-radius: 18px; padding: 14px 28px; font-weight: 700; letter-spacing: 0.5px; min-height: 48px; }}",
+        f"#LoginDialog QPushButton:disabled {{ background-color: rgba(110, 96, 80, 0.7); color: rgba(27, 15, 8, 0.4); }}",
+        f"#LoginDialog QPushButton[class=\"link\"] {{ background-color: transparent; color: {accent}; border:none; padding: 4px 8px; font-weight: 600; text-decoration: none; }}",
+        f"#LoginDialog QPushButton[class=\"link\"]:hover {{ color: {text}; text-decoration: underline; }}",
+        f"#LoginDialog QLineEdit {{ border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 14px 18px; background-color: rgba(255,255,255,0.96); color: #2A170C; font-size: 12.5pt; }}",
+        f"#LoginDialog QLineEdit:focus {{ border: 2px solid {accent}; background-color: rgba(255,255,255,0.99); }}",
+        f"#LoginDialog QLabel#LoginHero, #LoginDialog QLabel#HeroHint {{ max-width: 320px; }}",
+        "#LoginDialog QPushButton[class=\"link\"] { border-radius: 12px; }",
+    ])
+
     return "\n".join(parts)
 
 

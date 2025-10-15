@@ -6,7 +6,8 @@ venv/
 *.spec
 dist/
 build/
-receipts/
+beirut_pos/receipts/
+beirut_pos/*.db
 bar_tickets/
 *.db
 .DS_Store

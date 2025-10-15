@@ -6,33 +6,21 @@ application is deployed.
 
 ## Activation workflow
 
-1. Launch Beirut POS. When no valid license is stored, the activation dialog appears
-   before the login window. The dialog lists the **device fingerprint**, which is a
-   hash of the machine name, operating system, architecture, and primary network
-   interface address.
-2. Click **Copy fingerprint** (or manually select the text) and send it to the vendor.
-3. The vendor issues a signed activation string using the helper exposed in
-   `beirut_pos.core.license.issue_license()`. Keys may include an optional expiry.
-4. Paste the activation string into the dialog and press **تفعيل**. On success the
-   license is stored in both the SQLite database and a cache file under
-   `C:\ProgramData\BeirutPOS\license\license.sig.json` so it survives reinstalls.
-5. Administrators can revisit the license status from **الإعدادات → عام → إدارة
-   الترخيص…**. The dialog allows replacing the key or copying the fingerprint again.
+1. Launch Beirut POS. On first run, a voucher dialog appears before the login window.
+   Enter the code supplied by the vendor in the format `BEIRUT-XXXX-XXXX-XXXX-X`.
+2. Vouchers are case-insensitive and accept optional hyphens. The dialog validates the
+   checksum locally and shows a confirmation message on success.
+3. Once activated, the status is persisted in the SQLite database (only a hash of the
+   voucher is stored). Administrators can revisit the status from **الإعدادات → عام →
+   حالة التفعيل** and deactivate the current voucher if the license needs to move to
+   a different site.
 
-### Issuing vendor keys
+### Issuing vendor vouchers
 
-```python
-from datetime import datetime, timedelta, timezone
-from beirut_pos.core.license import issue_license
-
-fingerprint = "<copied from customer>"
-expires = datetime.now(timezone.utc) + timedelta(days=365)
-key = issue_license("Beirut Coffee Hamra", fingerprint, expires=expires)
-print(key)
-```
-
-Send the resulting string to the customer. All verification happens locally inside the
-POS client, so the secret used to sign keys must remain private to the vendor.
+Use the helper script `python tools/make_vouchers.py 50` to generate printable codes
+for customers. The script writes `vouchers-YYYYMMDD-HHMM.txt` to the chosen output
+folder. Each line already includes the checksum and formatting required by the dialog.
+For more details see [activation-simple-vouchers](activation-simple-vouchers.md).
 
 ## XP-58 thermal printer setup
 

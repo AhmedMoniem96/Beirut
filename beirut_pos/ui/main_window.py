@@ -23,7 +23,7 @@ from ..services.orders import order_manager, StockError
 from ..services.printer import printer
 from ..core.bus import bus
 from .login_dialog import LoginDialog
-from .admin_products_dialog import AdminProductsDialog
+from .catalog_manager_dialog import CatalogManagerDialog
 from .discount_dialog import DiscountDialog
 from .admin_users_dialog import AdminUsersDialog
 from .admin_reports_dialog import AdminReportsDialog
@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         self.user=current_user
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.resize(1440,900)
+        self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
         self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")  # cashier name on top
         self.setStyleSheet(build_main_window_stylesheet())
         icon = get_logo_icon(64)
@@ -102,8 +103,8 @@ class MainWindow(QMainWindow):
         container = QWidget()
         container.setObjectName("MainContainer")
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(32, 28, 32, 28)
-        container_layout.setSpacing(18)
+        container_layout.setContentsMargins(16, 16, 16, 16)
+        container_layout.setSpacing(12)
 
         self.banner = QFrame()
         self.banner.setObjectName("ToastBanner")
@@ -137,7 +138,7 @@ class MainWindow(QMainWindow):
         tv.addWidget(self.table_map,1)
 
         # Order page
-        order_page=QWidget(); order_page.setObjectName("OrderPage"); ov=QVBoxLayout(order_page)
+        order_page=QWidget(); order_page.setObjectName("OrderPage"); ov=QVBoxLayout(order_page); ov.setSpacing(12)
         head_row=QHBoxLayout()
         self.order_header=QLabel("طلب:")
         self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -158,14 +159,14 @@ class MainWindow(QMainWindow):
         ov.addLayout(head_row,0)
 
         row=QHBoxLayout()
-        self.cat_grid=CategoryGrid(order_manager.categories, self._on_pick); row.addWidget(self.cat_grid,3)
+        self.cat_grid=CategoryGrid(order_manager.categories, self._on_pick); row.addWidget(self.cat_grid,4)
         self.ps_controls=PSControls(on_start_p2=lambda: self._ps_start("P2"),
                                     on_start_p4=lambda: self._ps_start("P4"),
                                     on_switch_p2=lambda: self._ps_switch("P2"),
                                     on_switch_p4=lambda: self._ps_switch("P4"),
                                     on_stop=self._ps_stop)
-        row.addWidget(self.ps_controls,1); ov.addLayout(row,3)
-        self.order_list=OrderList(self._on_remove); ov.addWidget(self.order_list,2)
+        row.addWidget(self.ps_controls,1); ov.addLayout(row,2)
+        self.order_list=OrderList(self._on_remove); self.order_list.list.setMinimumHeight(260); ov.addWidget(self.order_list,4)
         self.payment=PaymentPanel(self._on_pay, self._on_discount); ov.addWidget(self.payment,0)
 
         self.pages.addWidget(tables_page); self.pages.addWidget(order_page); self.pages.setCurrentIndex(PAGE_TABLES)
@@ -257,11 +258,7 @@ class MainWindow(QMainWindow):
         if self.user.role!="admin":
             self._show_banner("هذه العملية للمدير فقط.", "warn")
             return
-        cats=[c for c,_ in order_manager.categories]
-        AdminProductsDialog(cats,
-            on_add_category=lambda name: order_manager.catalog.add_category(name),
-            on_add_product=lambda cat,name,price: order_manager.catalog.add_product(cat,name,price,username=self.user.username),
-            current_admin=self.user.username).exec()
+        CatalogManagerDialog(actor=self.user.username, parent=self).exec()
 
     def _open_users(self):
         if self.user.role!="admin":

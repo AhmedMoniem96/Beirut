@@ -42,51 +42,6 @@ def _ensure_order_item_notes():
 
 
 _ensure_order_item_notes()
-
-_CATEGORY_ORDER_KEY = "category_order"
-_TABLE_CODES_KEY = "table_codes"
-
-
-def _load_category_order() -> list[str]:
-    raw = setting_get(_CATEGORY_ORDER_KEY, "").strip()
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-    except Exception:
-        return []
-    if not isinstance(data, list):
-        return []
-    out: list[str] = []
-    for item in data:
-        if isinstance(item, str):
-            name = item.strip()
-            if name and name not in out:
-                out.append(name)
-    return out
-
-
-def _store_category_order(names: list[str]) -> None:
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for name in names:
-        if not isinstance(name, str):
-            continue
-        name = name.strip()
-        if not name or name in seen:
-            continue
-        cleaned.append(name)
-        seen.add(name)
-    setting_set(_CATEGORY_ORDER_KEY, json.dumps(cleaned, ensure_ascii=False))
-
-
-def get_category_order() -> list[str]:
-    """Expose the persisted order for UI consumers (settings dialog)."""
-    return _load_category_order()
-
-
-def set_category_order(order: list[str]) -> None:
-    _store_category_order(order)
 # ---------------------------------------------------------------------------
 
 
@@ -130,6 +85,9 @@ def _store_table_codes(codes: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+
+
+StockState = Tuple[Optional[float], Optional[float]]
 
 
 StockState = Tuple[Optional[float], Optional[float]]
@@ -294,11 +252,9 @@ class ProductCatalog:
             float(min_stock) if min_stock is not None else None,
         )
 
-    def dec_stock(self, label: str, qty: float = 1.0, conn=None) -> Optional[StockState]:
+    def dec_stock(self, label: str, qty: float = 1.0) -> Optional[StockState]:
         """Decrement tracked items and return the new stock/min_stock."""
-        own_conn = conn is None
-        if own_conn:
-            conn = get_conn()
+        conn = get_conn()
         cur = conn.cursor()
         cur.execute(
             "UPDATE products SET stock_qty = MAX(0, COALESCE(stock_qty,0) - ?) "
@@ -306,12 +262,11 @@ class ProductCatalog:
             (qty, label),
         )
         state = self._fetch_stock_state(cur, label)
-        if own_conn:
-            conn.commit()
-            conn.close()
+        conn.commit()
+        conn.close()
         return state
 
-    def inc_stock(self, label: str, qty: float = 1.0, conn=None) -> Optional[StockState]:
+    def inc_stock(self, label: str, qty: float = 1.0) -> Optional[StockState]:
         """Return stock when removing a line, for tracked items."""
         own_conn = conn is None
         if own_conn:
@@ -323,9 +278,8 @@ class ProductCatalog:
             (qty, label),
         )
         state = self._fetch_stock_state(cur, label)
-        if own_conn:
-            conn.commit()
-            conn.close()
+        conn.commit()
+        conn.close()
         return state
 
     def get_low_stock(self) -> List[Tuple[str, Optional[float], Optional[float]]]:
@@ -396,7 +350,7 @@ class PSSession:
 
 
 class OrderManager:
-    __slots__ = ("catalog", "orders", "ps_sessions", "table_codes")
+    __slots__ = ("catalog", "orders", "ps_sessions")
 
     def __init__(self):
         self.catalog = ProductCatalog()
@@ -526,41 +480,40 @@ class OrderManager:
             stock = float(prod["stock_qty"]) if prod["stock_qty"] is not None else 0.0
             if stock < qty:
                 raise StockError(f"المنتج '{product}' غير متوفر في المخزون")
+            # decrement immediately so UI reflects new stock
+            state = self.catalog.dec_stock(product, qty)
+            new_stock = state[0] if state else None
+            min_stock = state[1] if state else None
+            if new_stock is not None and stock > 0 and new_stock <= 0:
+                bus.emit("catalog_changed")
+            if (
+                new_stock is not None
+                and min_stock is not None
+                and stock >= min_stock
+                and new_stock <= min_stock
+            ):
+                bus.emit("inventory_low", product, stock, new_stock, min_stock)
+                log_action(
+                    cashier,
+                    "inventory_low",
+                    "product",
+                    product,
+                    str(stock),
+                    str(new_stock),
+                )
 
-            def _check_state(state):
-                nonlocal low_stock_event, catalog_refresh
-                new_stock = state[0] if state else None
-                min_stock = state[1] if state else None
-                if new_stock is not None and stock > 0 and new_stock <= 0:
-                    catalog_refresh = True
-                if (
-                    new_stock is not None
-                    and min_stock is not None
-                    and stock >= min_stock
-                    and new_stock <= min_stock
-                ):
-                    low_stock_event = (product, stock, new_stock, min_stock)
-            with db_transaction() as conn:
-                order, created = self._ensure_db_order_tx(conn, table_code, opened_by=cashier)
-                state = self.catalog.dec_stock(product, qty, conn=conn)
-                _check_state(state)
-                order.items.append(OrderItem(product, price_cents, qty, note=note))
-                conn.execute(
-                    "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
-                    (order.id, product, price_cents, qty, note),
-                )
-            if created:
-                bus.emit("table_state_changed", table_code, "occupied")
-        else:
-            with db_transaction() as conn:
-                order, created = self._ensure_db_order_tx(conn, table_code, opened_by=cashier)
-                order.items.append(OrderItem(product, price_cents, qty, note=note))
-                conn.execute(
-                    "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
-                    (order.id, product, price_cents, qty, note),
-                )
-            if created:
-                bus.emit("table_state_changed", table_code, "occupied")
+        # ensure order exists and persist line
+        order = self._ensure_db_order(table_code, opened_by=cashier)
+        order.items.append(OrderItem(product, price_cents, qty, note=note))
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
+            (order.id, product, price_cents, qty, note),
+        )
+        conn.commit()
+        conn.close()
 
         bus.emit("table_total_changed", table_code, order.total_cents)
         if catalog_refresh:
@@ -590,43 +543,39 @@ class OrderManager:
             recovery_event = None
             if prod and prod["track_stock"] == 1:
                 before = float(prod["stock_qty"]) if prod["stock_qty"] is not None else 0.0
+                state = self.catalog.inc_stock(item.product, item.qty)
+                new_stock = state[0] if state else None
+                min_stock = state[1] if state else None
+                if before <= 0 and new_stock is not None and new_stock > 0:
+                    bus.emit("catalog_changed")
+                if (
+                    new_stock is not None
+                    and min_stock is not None
+                    and before <= min_stock < new_stock
+                ):
+                    bus.emit("inventory_recovered", item.product, before, new_stock, min_stock)
+                    log_action(
+                        username,
+                        "inventory_recovered",
+                        "product",
+                        item.product,
+                        str(before),
+                        str(new_stock),
+                    )
 
-            with db_transaction() as conn:
-                if prod and prod["track_stock"] == 1:
-                    state = self.catalog.inc_stock(item.product, item.qty, conn=conn)
-                    new_stock = state[0] if state else None
-                    min_stock = state[1] if state else None
-                    if before is not None and before <= 0 and new_stock is not None and new_stock > 0:
-                        refresh_catalog = True
-                    if (
-                        before is not None
-                        and new_stock is not None
-                        and min_stock is not None
-                        and before <= min_stock < new_stock
-                    ):
-                        recovery_event = (item.product, before, new_stock, min_stock)
-                conn.execute(
-                    """DELETE FROM order_items WHERE id IN (
-                         SELECT id FROM order_items
-                         WHERE order_id=? AND product_name=? AND price_cents=? AND qty=? AND COALESCE(note,'')=?
-                         LIMIT 1
-                       )""",
-                    (order.id, item.product, item.unit_price_cents, item.qty, item.note or ""),
-                )
-
-            if refresh_catalog:
-                bus.emit("catalog_changed")
-            if recovery_event:
-                prod_name, prev, new_stock, min_stock = recovery_event
-                bus.emit("inventory_recovered", prod_name, prev, new_stock, min_stock)
-                log_action(
-                    username,
-                    "inventory_recovered",
-                    "product",
-                    prod_name,
-                    str(prev),
-                    str(new_stock),
-                )
+            # remove one matching row from DB
+            conn = get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                """DELETE FROM order_items WHERE id IN (
+                     SELECT id FROM order_items
+                     WHERE order_id=? AND product_name=? AND price_cents=? AND qty=? AND COALESCE(note,'')=?
+                     LIMIT 1
+                   )""",
+                (order.id, item.product, item.unit_price_cents, item.qty, item.note or ""),
+            )
+            conn.commit()
+            conn.close()
             bus.emit("table_total_changed", table_code, order.total_cents)
 
     def get_items(self, table_code: str):

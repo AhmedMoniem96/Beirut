@@ -74,134 +74,113 @@ def get_synchronous_mode() -> str:
     return _current_sync()
 
 
-def set_synchronous_mode(mode: str) -> str:
-    desired = (mode or _DEFAULT_SYNC).upper()
-    if desired not in _VALID_SYNC:
-        desired = _DEFAULT_SYNC
-    set_config_value("sqlite_synchronous", desired)
-    conn = get_conn()
-    try:
-        conn.execute(f"PRAGMA synchronous={desired};")
-    finally:
-        conn.close()
-    return desired
+def _prime_default_settings(c):
+    # Add any defaults you want to exist on a fresh DB
+    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('logo_path','')")
+    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('bar_printer','')")
+    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('cashier_printer','')")
+    # You can add more defaults later (currency, service_pct, printers, etc.)
+    # c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('currency','EGP')")
+    # c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('service_pct','0')")
 
 
 def init_db() -> None:
     ensure_storage_dirs()
     first_time = not DB_PATH.exists()
     conn = get_conn()
-    cur = conn.cursor()
+    c = conn.cursor()
 
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS settings(
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS users(
-                username TEXT PRIMARY KEY,
-                password TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role in ('admin','cashier')),
-                secret_key TEXT
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS categories(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS products(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                category_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                price_cents INTEGER NOT NULL,
-                stock_qty REAL DEFAULT 0,
-                min_stock REAL DEFAULT 0,
-                track_stock INTEGER NOT NULL DEFAULT 1,
-                FOREIGN KEY(category_id) REFERENCES categories(id),
-                UNIQUE(category_id, name)
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS orders(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                table_code TEXT NOT NULL,
-                opened_at TEXT NOT NULL,
-                closed_at TEXT,
-                status TEXT NOT NULL CHECK(status in ('open','paid','void')),
-                opened_by TEXT NOT NULL,
-                closed_by TEXT
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS order_items(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id INTEGER NOT NULL,
-                product_name TEXT NOT NULL,
-                price_cents INTEGER NOT NULL,
-                qty REAL NOT NULL DEFAULT 1,
-                note TEXT DEFAULT '',
-                FOREIGN KEY(order_id) REFERENCES orders(id)
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS payments(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id INTEGER NOT NULL,
-                method TEXT NOT NULL,
-                amount_cents INTEGER NOT NULL,
-                paid_at TEXT NOT NULL,
-                cashier TEXT NOT NULL,
-                FOREIGN KEY(order_id) REFERENCES orders(id)
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS expenses(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts TEXT NOT NULL,
-                category TEXT NOT NULL,
-                amount_cents INTEGER NOT NULL,
-                notes TEXT
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS shifts(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                opened_at TEXT NOT NULL,
-                closed_at TEXT,
-                opened_by TEXT NOT NULL,
-                closed_by TEXT,
-                notes TEXT
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS audit_log(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts TEXT NOT NULL,
-                username TEXT NOT NULL,
-                action TEXT NOT NULL,
-                entity_type TEXT,
-                entity_name TEXT,
-                old_value TEXT,
-                new_value TEXT,
-                extra TEXT
-            )"""
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS ps_sessions(
-                table_code TEXT PRIMARY KEY,
-                mode TEXT NOT NULL,
-                started_at TEXT NOT NULL,
-                total_seconds INTEGER NOT NULL DEFAULT 0
-            )"""
-    )
+    # --- settings (e.g., logo path, printers, currency, etc.) ---
+    c.execute("""CREATE TABLE IF NOT EXISTS settings(
+        key TEXT PRIMARY KEY, value TEXT
+    )""")
 
-    _ensure_inventory_columns(cur)
-    _ensure_default_settings(cur)
+    # --- users (NOTE: plaintext for now; switch to hashed later) ---
+    c.execute("""CREATE TABLE IF NOT EXISTS users(
+        username TEXT PRIMARY KEY,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role in ('admin','cashier')),
+        secret_key TEXT
+    )""")
+
+    # --- catalog ---
+    c.execute("""CREATE TABLE IF NOT EXISTS categories(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    )""")
+    # Include track_stock in the fresh schema
+    c.execute("""CREATE TABLE IF NOT EXISTS products(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        price_cents INTEGER NOT NULL,
+        stock_qty REAL DEFAULT 0,          -- inventory
+        min_stock REAL DEFAULT 0,          -- low stock threshold
+        track_stock INTEGER NOT NULL DEFAULT 1, -- 1 tracked, 0 unlimited/service
+        FOREIGN KEY(category_id) REFERENCES categories(id),
+        UNIQUE(category_id,name)
+    )""")
+
+    # --- orders & items & payments ---
+    c.execute("""CREATE TABLE IF NOT EXISTS orders(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        table_code TEXT NOT NULL,
+        opened_at TEXT NOT NULL,
+        closed_at TEXT,
+        status TEXT NOT NULL CHECK(status in ('open','paid','void')),
+        opened_by TEXT NOT NULL,
+        closed_by TEXT
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS order_items(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        product_name TEXT NOT NULL,
+        price_cents INTEGER NOT NULL,
+        qty REAL NOT NULL DEFAULT 1,
+        note TEXT DEFAULT '',
+        FOREIGN KEY(order_id) REFERENCES orders(id)
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS payments(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        method TEXT NOT NULL,        -- cash/visa
+        amount_cents INTEGER NOT NULL,
+        paid_at TEXT NOT NULL,
+        cashier TEXT NOT NULL,
+        FOREIGN KEY(order_id) REFERENCES orders(id)
+    )""")
+
+    # --- expenses (for monthly reports) ---
+    c.execute("""CREATE TABLE IF NOT EXISTS expenses(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        category TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        notes TEXT
+    )""")
+
+    # --- shifts (optional daily close) ---
+    c.execute("""CREATE TABLE IF NOT EXISTS shifts(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        opened_at TEXT NOT NULL,
+        closed_at TEXT,
+        opened_by TEXT NOT NULL,
+        closed_by TEXT,
+        notes TEXT
+    )""")
+
+    # --- audit log (immutable) ---
+    c.execute("""CREATE TABLE IF NOT EXISTS audit_log(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        username TEXT NOT NULL,
+        action TEXT NOT NULL,
+        entity_type TEXT,
+        entity_name TEXT,
+        old_value TEXT,
+        new_value TEXT,
+        extra TEXT
+    )""")
 
     conn.commit()
 

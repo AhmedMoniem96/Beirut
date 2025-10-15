@@ -5,14 +5,10 @@ from PyQt6.QtWidgets import (
     QColorDialog, QListWidget, QAbstractItemView, QMessageBox
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
-from ..core.db import setting_get, setting_set, get_synchronous_mode, set_synchronous_mode
-from ..core.license import license_status
+from ..core.db import setting_get, setting_set
 from ..core.bus import bus
 from .common.big_dialog import BigDialog
 from .common import branding
-from ..services.orders import order_manager, get_category_order, set_category_order
-from .license_dialog import LicenseDialog
 import sys
 from pathlib import Path
 
@@ -240,53 +236,13 @@ class SettingsDialog(BigDialog):
         bar = self.bar_prn.currentText().strip()
         cash = self.cash_prn.currentText().strip()
         logo = self.logo_path.text().strip()
-        background = self.background_path.text().strip()
-        accent = self.accent_color.text().strip()
-        surface_color = self.surface_color.text().strip()
-        text_color = self.text_color.text().strip()
-        muted_text = self.muted_text_color.text().strip()
-        menu_card_color = self.menu_card_color.text().strip()
-        menu_header_color = self.menu_header_color.text().strip()
-        menu_button_color = self.menu_button_color.text().strip()
-        menu_button_text = self.menu_button_text_color.text().strip()
-        menu_button_hover = self.menu_button_hover_color.text().strip()
         setting_set("bar_printer", bar)
         setting_set("cashier_printer", cash)
         setting_set("logo_path", logo)
-        setting_set("background_path", background)
-        setting_set("accent_color", accent)
-        setting_set("surface_color", surface_color)
-        setting_set("text_color", text_color)
-        setting_set("muted_text_color", muted_text)
-        setting_set("menu_card_color", menu_card_color)
-        setting_set("menu_header_color", menu_header_color)
-        setting_set("menu_button_color", menu_button_color)
-        setting_set("menu_button_text_color", menu_button_text)
-        setting_set("menu_button_hover_color", menu_button_hover)
-
-        order = [self.category_list.item(i).text() for i in range(self.category_list.count())]
-        set_category_order(order)
-
-        branding.clear_branding_cache()
-        bus.emit(
-            "branding_changed",
-            {
-                "logo": logo,
-                "background": background,
-                "accent": accent,
-                "surface": surface_color,
-                "text": text_color,
-                "muted": muted_text,
-                "menu_card": menu_card_color,
-                "menu_header": menu_header_color,
-                "menu_button": menu_button_color,
-                "menu_button_text": menu_button_text,
-                "menu_button_hover": menu_button_hover,
-            },
-        )
-        bus.emit("catalog_changed")
+        branding.clear_logo_cache()
+        bus.emit("branding_changed", logo)
         bus.emit("printers_changed", bar, cash)
-        bus.emit("settings_saved")
+        QMessageBox.information(self, "تم", "تم حفظ الإعدادات.")
         self.accept()
 
     def _reset_palette_fields(self):

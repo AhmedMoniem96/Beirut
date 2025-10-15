@@ -8,6 +8,9 @@ from typing import Iterable, List
 from ..core.db import setting_get
 from ..core.bus import bus
 
+from ..core.db import setting_get
+from ..core.bus import bus
+
 # ---- Set your Windows printer names EXACTLY as shown in Control Panel ----
 # Default fallback names; overridable via settings dialog
 BAR_PRINTER_NAME = r"Your-Bar-Printer-Name"
@@ -65,56 +68,19 @@ def _print_text(printer_name: str, text: str, fallback_folder: str, fallback_bas
         # On Linux/mac, just save to file (you can add CUPS here if needed)
         _FILE.write(fallback_folder, f"{fallback_basename}.txt", text)
 
-def _collapse_items(items) -> List[dict]:
-    grouped = OrderedDict()
-    for it in items:
-        product = getattr(it, "product", str(it))
-        note = (getattr(it, "note", "") or "").strip()
-        try:
-            qty = float(getattr(it, "qty", 1))
-        except Exception:
-            qty = 1.0
-        unit_price = int(getattr(it, "unit_price_cents", 0))
-        try:
-            total_cents = int(getattr(it, "total_cents"))
-        except Exception:
-            total_cents = int(round(unit_price * qty))
-        key = (product, note, unit_price)
-        if key not in grouped:
-            grouped[key] = {
-                "product": product,
-                "note": note,
-                "qty": qty,
-                "unit_price": unit_price,
-                "total_cents": total_cents,
-            }
-        else:
-            entry = grouped[key]
-            entry["qty"] += qty
-            entry["total_cents"] += total_cents
-    return list(grouped.values())
-
-
-def _fmt_qty(qty: float) -> str:
-    if abs(qty - round(qty)) < 1e-6:
-        return str(int(round(qty)))
-    return f"{qty:g}"
-
-
 def _format_bar_ticket(table_code: str, items) -> str:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [
-        "********** BAR TICKET **********",
-        f"TABLE: {table_code.upper()}",
-        f"TIME : {ts}",
-        "-" * 34,
+        "*** BAR TICKET ***",
+        f"TABLE #{table_code.upper()}  {ts}",
+        "-" * 30,
     ]
-    for entry in _collapse_items(items):
-        lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
-        note = entry["note"]
+    for it in items:
+        lines.append(f"{it.qty} x {it.product}")
+        note = getattr(it, "note", "") or ""
         if note:
             lines.append(f"   ملاحظة: {note}")
-    lines.append("-" * 34)
+    lines.append("-"*30)
     return "\n".join(lines)
 
 def _format_cashier_receipt(table_code: str, items, subtotal, discount, total, method, cashier) -> str:
@@ -124,12 +90,10 @@ def _format_cashier_receipt(table_code: str, items, subtotal, discount, total, m
              f"Date: {ts}",
              f"Method: {method}",
              "-"*32]
-    for entry in _collapse_items(items):
-        lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
-        lines.append(
-            f"   @ {entry['unit_price']/100:.2f}  -> {entry['total_cents']/100:.2f} EGP"
-        )
-        note = entry["note"]
+    for it in items:
+        lines.append(f"{it.qty} x {it.product}")
+        lines.append(f"   @ {it.unit_price_cents/100:.2f}  -> {it.total_cents/100:.2f} EGP")
+        note = getattr(it, "note", "") or ""
         if note:
             lines.append(f"   ملاحظة: {note}")
     lines += ["-"*32,

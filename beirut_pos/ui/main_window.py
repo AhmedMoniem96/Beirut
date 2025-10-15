@@ -1,18 +1,16 @@
 # beirut_pos/ui/main_window.py
-from datetime import datetime
-
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
     QLabel,
     QToolBar,
+    QMessageBox,
     QStackedWidget,
     QHBoxLayout,
     QPushButton,
-    QFrame,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
 from .components.table_map import TableMap
 from .components.category_grid import CategoryGrid
@@ -32,9 +30,8 @@ from .admin_reports_dialog import AdminReportsDialog
 from .settings_dialog import SettingsDialog
 from .zreport_dialog import ZReportDialog
 from .coffee_customizer import CoffeeCustomizerDialog
-from .common.branding import get_logo_pixmap, get_logo_icon, build_main_window_stylesheet
+from .common.branding import get_logo_pixmap, get_logo_icon
 from .common.barista_tips import random_tip
-from .admin_tables_dialog import AdminTablesDialog
 
 PAGE_TABLES=0; PAGE_ORDER=1
 
@@ -45,25 +42,12 @@ class MainWindow(QMainWindow):
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.resize(1440,900)
         self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")  # cashier name on top
-        self.setStyleSheet(build_main_window_stylesheet())
         icon = get_logo_icon(64)
         if icon:
             self.setWindowIcon(icon)
         self._status = self.statusBar()
         self._status.setSizeGripEnabled(False)
         self._status.showMessage(random_tip(), 12000)
-        self._session_started = datetime.now()
-        self._session_label = QLabel()
-        self._session_label.setObjectName("sessionTimer")
-        self._status.addPermanentWidget(self._session_label)
-        self._session_timer = QTimer(self)
-        self._session_timer.timeout.connect(self._update_session_timer)
-        self._session_timer.start(1000)
-        self._update_session_timer()
-        self._ps_snapshot_timer = QTimer(self)
-        self._ps_snapshot_timer.setInterval(5000)
-        self._ps_snapshot_timer.timeout.connect(order_manager.snapshot_ps_sessions)
-        self._ps_snapshot_timer.start()
 
         bar=QToolBar("Main"); self.addToolBar(bar)
         self.logo_label = QLabel()
@@ -178,8 +162,6 @@ class MainWindow(QMainWindow):
         bus.subscribe("inventory_low", self._on_inventory_low)
         bus.subscribe("inventory_recovered", self._on_inventory_recovered)
         bus.subscribe("branding_changed", self._on_branding_changed)
-        bus.subscribe("settings_saved", self._on_settings_saved)
-        bus.subscribe("tables_changed", self._on_tables_changed)
 
         self.current_table=None
         self._coffee_categories = {"Coffee Corner", "Hot Drinks", "Fresh Drinks"}
@@ -308,9 +290,7 @@ class MainWindow(QMainWindow):
         self._status.showMessage(random_tip(), 9000)
 
     def _on_pick(self, label, price_cents):
-        if not self.current_table:
-            self._show_banner("اختر طاولة لإضافة الطلب.", "warn")
-            return
+        if not self.current_table: return
         prod = order_manager.catalog.get_product(label)
         final_label = label
         final_price = price_cents
@@ -341,9 +321,7 @@ class MainWindow(QMainWindow):
         self._refresh_print_buttons()
 
     def _on_remove(self, index):
-        if not self.current_table:
-            self._show_banner("اختر طاولة لإزالة العناصر.", "warn")
-            return
+        if not self.current_table: return
         order_manager.remove_item(self.current_table, index, username=self.user.username)
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
@@ -411,7 +389,7 @@ class MainWindow(QMainWindow):
         msg = f"تنبيه المخزون: {product} {prev_val:g} ➜ {new_stock:g} (حد أدنى {min_val:g})"
         self._status.showMessage(msg, 10000)
         if self.user.role == "admin" and new_stock <= 0:
-            self._show_banner(msg, "warn", duration=10000)
+            QMessageBox.warning(self, "المخزون", msg)
 
     def _on_inventory_recovered(self, product, prev_stock, new_stock, min_stock):
         if new_stock is None:
@@ -420,15 +398,11 @@ class MainWindow(QMainWindow):
         min_val = 0 if min_stock is None else min_stock
         msg = f"تمت إعادة توافر {product}: {prev_val:g} ➜ {new_stock:g} (حد أدنى {min_val:g})"
         self._status.showMessage(msg, 7000)
-        if self.user.role == "admin":
-            self._show_banner(msg, "success", duration=6000)
 
     def _refresh_branding(self):
-        self.setStyleSheet(build_main_window_stylesheet())
-        pix = get_logo_pixmap(64)
+        pix = get_logo_pixmap(32)
         if pix:
-            scaled = pix.scaledToHeight(56, Qt.TransformationMode.SmoothTransformation)
-            self.logo_label.setPixmap(scaled)
+            self.logo_label.setPixmap(pix)
             self.logo_label.setText("")
         else:
             self.logo_label.clear()
@@ -436,62 +410,6 @@ class MainWindow(QMainWindow):
         icon = get_logo_icon(64)
         if icon:
             self.setWindowIcon(icon)
-        # re-polish banner styling with new palette
-        if self.banner.isVisible():
-            self.banner.style().unpolish(self.banner)
-            self.banner.style().polish(self.banner)
 
-    def _on_branding_changed(self, payload):
-        # payload may be dict or legacy path string
+    def _on_branding_changed(self, _logo_path):
         self._refresh_branding()
-        self._show_banner("تم تحديث الهوية البصرية للتطبيق.", "success", duration=6000)
-
-    def _on_settings_saved(self, _payload=None):
-        self._status.showMessage("تم حفظ الإعدادات بنجاح.", 6000)
-        self._show_banner("تم حفظ الإعدادات وتحديث التطبيق فوراً.", "success", duration=6000)
-
-    def _on_tables_changed(self, codes):
-        if not isinstance(codes, (list, tuple)):
-            return
-        cleaned = [str(code).strip().upper() for code in codes if str(code).strip()]
-        if not cleaned:
-            cleaned = order_manager.get_table_codes()
-        self.table_codes = cleaned
-        self.table_map.set_table_codes(cleaned)
-        if self.current_table and self.current_table not in cleaned:
-            self._show_banner("تمت إزالة الطاولة الحالية من القائمة. تم الرجوع إلى شاشة الطاولات.", "warn", duration=8000)
-            self._go_back()
-
-    def _hide_banner(self):
-        self.banner_timer.stop()
-        self.banner.setVisible(False)
-
-    def _show_banner(self, text: str, kind: str = "info", duration: int | None = 6000):
-        self.banner.setProperty("kind", kind)
-        self.banner_label.setText(text)
-        self.banner.setVisible(True)
-        self.banner_timer.stop()
-        if duration and duration > 0:
-            self.banner_timer.start(duration)
-        self.banner.style().unpolish(self.banner)
-        self.banner.style().polish(self.banner)
-
-    def _update_session_timer(self):
-        elapsed = datetime.now() - self._session_started
-        seconds = int(elapsed.total_seconds())
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        secs = seconds % 60
-        self._session_label.setText(f"⏱ {hours:02d}:{minutes:02d}:{secs:02d}")
-
-    def _show_hotkeys_help(self):
-        help_text = (
-            "F2 طباعة البار · F3 طباعة الكاشير · Ctrl+D خصم · Ctrl+L تبديل المستخدم · "
-            "Ctrl+Shift+R التقارير · Ctrl+Shift+S الإعدادات · Ctrl+Shift+T إدارة الطاولات"
-        )
-        self._show_banner(help_text, "info", duration=10000)
-
-    def closeEvent(self, event):
-        if self._session_timer.isActive():
-            self._session_timer.stop()
-        super().closeEvent(event)

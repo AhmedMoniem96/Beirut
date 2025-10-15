@@ -1,15 +1,6 @@
 from dataclasses import dataclass
 from .db import db_transaction, get_conn
 
-
-class UsernameExistsError(Exception):
-    """Raised when attempting to create a user with an existing username."""
-
-
-def _user_exists(cur, username: str) -> bool:
-    cur.execute("SELECT 1 FROM users WHERE username=?", (username,))
-    return cur.fetchone() is not None
-
 @dataclass(slots=True)
 class User:
     username: str

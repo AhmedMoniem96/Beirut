@@ -22,3 +22,13 @@ dist/
 build/
 *.spec
 .env
+
+venv/
+__pycache__/
+beirut_pos/*.db
+beirut_pos/receipts/
+*.log
+dist/
+build/
+*.spec
+.env

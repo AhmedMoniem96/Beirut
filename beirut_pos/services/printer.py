@@ -1,10 +1,15 @@
 # beirut_pos/services/printer.py
 import sys
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List
+
+from ..core.db import setting_get
+from ..core.bus import bus
 
 # ---- Set your Windows printer names EXACTLY as shown in Control Panel ----
+# Default fallback names; overridable via settings dialog
 BAR_PRINTER_NAME = r"Your-Bar-Printer-Name"
 CASHIER_PRINTER_NAME = r"Your-Cashier-Printer-Name"
 # --------------------------------------------------------------------------
@@ -60,13 +65,56 @@ def _print_text(printer_name: str, text: str, fallback_folder: str, fallback_bas
         # On Linux/mac, just save to file (you can add CUPS here if needed)
         _FILE.write(fallback_folder, f"{fallback_basename}.txt", text)
 
-def _format_bar_ticket(table_code: str, items) -> str:
-    lines = [f"*** BAR TICKET ***",
-             f"Table: {table_code}",
-             "-"*30]
+def _collapse_items(items) -> List[dict]:
+    grouped = OrderedDict()
     for it in items:
-        lines.append(f"{it.qty} x {it.product}")
-    lines.append("-"*30)
+        product = getattr(it, "product", str(it))
+        note = (getattr(it, "note", "") or "").strip()
+        try:
+            qty = float(getattr(it, "qty", 1))
+        except Exception:
+            qty = 1.0
+        unit_price = int(getattr(it, "unit_price_cents", 0))
+        try:
+            total_cents = int(getattr(it, "total_cents"))
+        except Exception:
+            total_cents = int(round(unit_price * qty))
+        key = (product, note, unit_price)
+        if key not in grouped:
+            grouped[key] = {
+                "product": product,
+                "note": note,
+                "qty": qty,
+                "unit_price": unit_price,
+                "total_cents": total_cents,
+            }
+        else:
+            entry = grouped[key]
+            entry["qty"] += qty
+            entry["total_cents"] += total_cents
+    return list(grouped.values())
+
+
+def _fmt_qty(qty: float) -> str:
+    if abs(qty - round(qty)) < 1e-6:
+        return str(int(round(qty)))
+    return f"{qty:g}"
+
+
+def _format_bar_ticket(table_code: str, items) -> str:
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = [
+        "********** BAR TICKET **********",
+        f"TABLE: {table_code.upper()}",
+        f"TIME : {ts}",
+        "-" * 34,
+    ]
+    for entry in _collapse_items(items):
+        lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
+        note = entry["note"]
+        if note:
+            lines.append(f"   ملاحظة: {note}")
+    lines.append("-" * 34)
     return "\n".join(lines)
 
 def _format_cashier_receipt(table_code: str, items, subtotal, discount, total, method, cashier) -> str:
@@ -76,9 +124,14 @@ def _format_cashier_receipt(table_code: str, items, subtotal, discount, total, m
              f"Date: {ts}",
              f"Method: {method}",
              "-"*32]
-    for it in items:
-        lines.append(f"{it.qty} x {it.product}")
-        lines.append(f"   @ {it.unit_price_cents/100:.2f}  -> {it.total_cents/100:.2f} EGP")
+    for entry in _collapse_items(items):
+        lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
+        lines.append(
+            f"   @ {entry['unit_price']/100:.2f}  -> {entry['total_cents']/100:.2f} EGP"
+        )
+        note = entry["note"]
+        if note:
+            lines.append(f"   ملاحظة: {note}")
     lines += ["-"*32,
               f"Subtotal: {subtotal/100:.2f} EGP",
               f"Discount: {discount/100:.2f} EGP",
@@ -88,26 +141,54 @@ def _format_cashier_receipt(table_code: str, items, subtotal, discount, total, m
 
 class PrinterService:
     """
-    Dual-printer support (Windows 10):
-      - Bar printer: BAR_PRINTER_NAME
-      - Cashier printer: CASHIER_PRINTER_NAME
-    Always falls back to file write so the POS never crashes due to printing.
+    Dual-printer support:
+      - Configurable printer names stored in the settings table.
+      - Falls back to writing files so printing failures never crash the POS.
     """
+
+    __slots__ = ("bar_printer", "cashier_printer")
+
+    def __init__(self) -> None:
+        self.bar_printer = BAR_PRINTER_NAME
+        self.cashier_printer = CASHIER_PRINTER_NAME
+        self.reload_from_settings()
+
+    def reload_from_settings(self) -> None:
+        bar = setting_get("bar_printer", "").strip()
+        cash = setting_get("cashier_printer", "").strip()
+        if bar:
+            self.bar_printer = bar
+        if cash:
+            self.cashier_printer = cash
+
+    def update_printers(self, bar: str | None, cashier: str | None) -> None:
+        if bar is not None:
+            self.bar_printer = bar.strip() or BAR_PRINTER_NAME
+        if cashier is not None:
+            self.cashier_printer = cashier.strip() or CASHIER_PRINTER_NAME
+
     def print_bar_ticket(self, table_code: str, items: Iterable):
         # Only bar-prepared items (heuristic)
         keywords = ("drinks","smoothies","coffee","shesha","cocktail","soda","fresh","hot")
-        bar_items = [it for it in items if any(k in it.product.lower() for k in keywords)]
+        bar_items = [it for it in items if any(k in getattr(it, "product", "").lower() for k in keywords)]
         if not bar_items:
             return
         txt = _format_bar_ticket(table_code, bar_items)
         # Print and file-copy
-        _print_text(BAR_PRINTER_NAME, txt, "bar_tickets", f"{datetime.now():%Y%m%d}-{table_code}")
+        _print_text(self.bar_printer or BAR_PRINTER_NAME, txt, "bar_tickets", f"{datetime.now():%Y%m%d}-{table_code}")
         _FILE.write("bar_tickets", f"{datetime.now():%Y%m%d}-{table_code}.txt", txt)
 
     def print_cashier_receipt(self, table_code: str, items, subtotal, discount, total, method, cashier):
         txt = _format_cashier_receipt(table_code, items, subtotal, discount, total, method, cashier)
         # Print and file-copy
-        _print_text(CASHIER_PRINTER_NAME, txt, "receipts", f"{datetime.now():%Y%m%d}-{table_code}")
+        _print_text(self.cashier_printer or CASHIER_PRINTER_NAME, txt, "receipts", f"{datetime.now():%Y%m%d}-{table_code}")
         _FILE.write("receipts", f"{datetime.now():%Y%m%d}-{table_code}.txt", txt)
 
 printer = PrinterService()
+
+
+def _apply_printer_settings(bar: str | None, cashier: str | None) -> None:
+    printer.update_printers(bar, cashier)
+
+
+bus.subscribe("printers_changed", _apply_printer_settings)

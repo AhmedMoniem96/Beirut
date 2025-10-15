@@ -25,14 +25,13 @@ jobs:
       - name: PyInstaller one-dir build
         shell: pwsh
         run: |
-          $icon = Test-Path assets/app.ico
-          if ($icon) {
-            pyinstaller --noconsole --name "BeirutPOS" --icon assets/app.ico `
-              --add-data "assets;assets" beirut_pos/__main__.py
-          } else {
-            pyinstaller --noconsole --name "BeirutPOS" `
-              --add-data "assets;assets" beirut_pos/__main__.py
-          }
+          $extra = ""
+          if (Test-Path "assets") { $extra += ' --add-data "assets;assets"' }
+
+          pyinstaller --noconsole --name "BeirutPOS" `
+            --hidden-import PyQt6.QtPrintSupport `
+            --collect-submodules PyQt6 `
+            beirut_pos/__main__.py $extra
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -1,251 +1,393 @@
-# beirut_pos/core/db.py
-import os
+"""SQLite helpers wired for durable Windows storage."""
+from __future__ import annotations
+
+import json
 import sqlite3
-import shutil
+from contextlib import contextmanager
+from datetime import date, datetime
 from pathlib import Path
-from datetime import datetime
+from typing import Iterator, Tuple
 
-# Allow overriding DB path via env if you want (optional)
-_ENV_DB_PATH = os.getenv("BEIRUT_DB_PATH")
-DB_PATH = Path(_ENV_DB_PATH) if _ENV_DB_PATH else Path(__file__).resolve().parent.parent / "beirut.db"
-BACKUP_DIR = DB_PATH.parent / "backups"
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
 
-# ----------------------------- Connection -----------------------------------
-def get_conn():
-    """
-    Short-lived connections with WAL+journal pragmas to reduce 'database is locked'
-    on Windows and during concurrent reads/writes.
-    """
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False, isolation_level=None)
-    conn.row_factory = sqlite3.Row
+from .config_store import get_config_value, set_config_value
+from .paths import BACKUP_DIR, DB_PATH, ensure_storage_dirs
+
+_VALID_SYNC = {"OFF", "NORMAL", "FULL", "EXTRA"}
+_DEFAULT_SYNC = "FULL"
+
+ensure_storage_dirs()
+
+_ENGINE = create_engine(
+    f"sqlite:///{DB_PATH.as_posix()}",
+    connect_args={"check_same_thread": False},
+)
+
+SessionLocal = sessionmaker(bind=_ENGINE, expire_on_commit=False)
+
+
+def _current_sync() -> str:
+    value = str(get_config_value("sqlite_synchronous", _DEFAULT_SYNC)).upper()
+    if value not in _VALID_SYNC:
+        value = _DEFAULT_SYNC
+        set_config_value("sqlite_synchronous", value)
+    return value
+
+
+@event.listens_for(_ENGINE, "connect")
+def _apply_pragmas(dbapi_conn, _):  # pragma: no cover - exercised via runtime
+    dbapi_conn.row_factory = sqlite3.Row
+    cursor = dbapi_conn.cursor()
     try:
-        conn.execute("PRAGMA foreign_keys = ON;")
-        # WAL is persistent per database file; leaving here is harmless and helpful
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        # Slight perf wins on Windows
-        conn.execute("PRAGMA temp_store = MEMORY;")
-        conn.execute("PRAGMA mmap_size = 134217728;")  # 128MB
-    except Exception:
-        # Pragmas are best-effort; never fail connection because of them
-        pass
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute(f"PRAGMA synchronous={_current_sync()};")
+        cursor.execute("PRAGMA temp_store=MEMORY;")
+    finally:
+        cursor.close()
+
+
+def get_conn() -> sqlite3.Connection:
+    conn = _ENGINE.raw_connection()
+    conn.isolation_level = None  # explicit transactions via BEGIN
     return conn
 
-# ------------------------------ Migrations ----------------------------------
-def _ensure_inventory_columns():
-    """
-    Add columns to 'products' table if this DB was created before inventory features:
-      - stock_qty REAL DEFAULT 0
-      - min_stock REAL DEFAULT 0
-      - track_stock INTEGER NOT NULL DEFAULT 1
-    """
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("PRAGMA table_info(products)")
-    cols = {r[1] for r in c.fetchall()}
 
-    if "stock_qty" not in cols:
-        c.execute("ALTER TABLE products ADD COLUMN stock_qty REAL DEFAULT 0")
-    if "min_stock" not in cols:
-        c.execute("ALTER TABLE products ADD COLUMN min_stock REAL DEFAULT 0")
-    if "track_stock" not in cols:
-        c.execute("ALTER TABLE products ADD COLUMN track_stock INTEGER NOT NULL DEFAULT 1")
+@contextmanager
+def db_transaction(begin_stmt: str = "BEGIN IMMEDIATE"):
+    conn = get_conn()
+    try:
+        conn.execute(begin_stmt)
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def close_engine() -> None:
+    _ENGINE.dispose()
+
+
+def get_synchronous_mode() -> str:
+    return _current_sync()
+
+
+def set_synchronous_mode(mode: str) -> str:
+    desired = (mode or _DEFAULT_SYNC).upper()
+    if desired not in _VALID_SYNC:
+        desired = _DEFAULT_SYNC
+    set_config_value("sqlite_synchronous", desired)
+    conn = get_conn()
+    try:
+        conn.execute(f"PRAGMA synchronous={desired};")
+    finally:
+        conn.close()
+    return desired
+
+
+def init_db() -> None:
+    ensure_storage_dirs()
+    first_time = not DB_PATH.exists()
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS settings(
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS users(
+                username TEXT PRIMARY KEY,
+                password TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role in ('admin','cashier')),
+                secret_key TEXT
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS categories(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS products(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                price_cents INTEGER NOT NULL,
+                stock_qty REAL DEFAULT 0,
+                min_stock REAL DEFAULT 0,
+                track_stock INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY(category_id) REFERENCES categories(id),
+                UNIQUE(category_id, name)
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS orders(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                table_code TEXT NOT NULL,
+                opened_at TEXT NOT NULL,
+                closed_at TEXT,
+                status TEXT NOT NULL CHECK(status in ('open','paid','void')),
+                opened_by TEXT NOT NULL,
+                closed_by TEXT
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS order_items(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                product_name TEXT NOT NULL,
+                price_cents INTEGER NOT NULL,
+                qty REAL NOT NULL DEFAULT 1,
+                note TEXT DEFAULT '',
+                FOREIGN KEY(order_id) REFERENCES orders(id)
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS payments(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                method TEXT NOT NULL,
+                amount_cents INTEGER NOT NULL,
+                paid_at TEXT NOT NULL,
+                cashier TEXT NOT NULL,
+                FOREIGN KEY(order_id) REFERENCES orders(id)
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS expenses(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                category TEXT NOT NULL,
+                amount_cents INTEGER NOT NULL,
+                notes TEXT
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS shifts(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                opened_at TEXT NOT NULL,
+                closed_at TEXT,
+                opened_by TEXT NOT NULL,
+                closed_by TEXT,
+                notes TEXT
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS audit_log(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                username TEXT NOT NULL,
+                action TEXT NOT NULL,
+                entity_type TEXT,
+                entity_name TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                extra TEXT
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS ps_sessions(
+                table_code TEXT PRIMARY KEY,
+                mode TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                total_seconds INTEGER NOT NULL DEFAULT 0
+            )"""
+    )
+
+    _ensure_inventory_columns(cur)
+    _ensure_default_settings(cur)
 
     conn.commit()
-    conn.close()
 
-def _prime_default_settings(c):
-    # Add any defaults you want to exist on a fresh DB
-    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('logo_path','')")
-    # You can add more defaults later (currency, service_pct, printers, etc.)
-    # c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('currency','EGP')")
-    # c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('service_pct','0')")
-
-# -------------------------------- Schema ------------------------------------
-def init_db():
-    first_time = not os.path.exists(DB_PATH)
-    # Ensure parent dir exists
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    conn = get_conn()
-    c = conn.cursor()
-
-    # --- settings (e.g., logo path, printers, currency, etc.) ---
-    c.execute("""CREATE TABLE IF NOT EXISTS settings(
-        key TEXT PRIMARY KEY, value TEXT
-    )""")
-
-    # --- users (NOTE: plaintext for now; switch to hashed later) ---
-    c.execute("""CREATE TABLE IF NOT EXISTS users(
-        username TEXT PRIMARY KEY,
-        password TEXT NOT NULL,
-        role TEXT NOT NULL CHECK(role in ('admin','cashier')),
-        secret_key TEXT
-    )""")
-
-    # --- catalog ---
-    c.execute("""CREATE TABLE IF NOT EXISTS categories(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL
-    )""")
-    # Include track_stock in the fresh schema
-    c.execute("""CREATE TABLE IF NOT EXISTS products(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        price_cents INTEGER NOT NULL,
-        stock_qty REAL DEFAULT 0,          -- inventory
-        min_stock REAL DEFAULT 0,          -- low stock threshold
-        track_stock INTEGER NOT NULL DEFAULT 1, -- 1 tracked, 0 unlimited/service
-        FOREIGN KEY(category_id) REFERENCES categories(id),
-        UNIQUE(category_id,name)
-    )""")
-
-    # --- orders & items & payments ---
-    c.execute("""CREATE TABLE IF NOT EXISTS orders(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        table_code TEXT NOT NULL,
-        opened_at TEXT NOT NULL,
-        closed_at TEXT,
-        status TEXT NOT NULL CHECK(status in ('open','paid','void')),
-        opened_by TEXT NOT NULL,
-        closed_by TEXT
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS order_items(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        order_id INTEGER NOT NULL,
-        product_name TEXT NOT NULL,
-        price_cents INTEGER NOT NULL,
-        qty REAL NOT NULL DEFAULT 1,
-        FOREIGN KEY(order_id) REFERENCES orders(id)
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS payments(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        order_id INTEGER NOT NULL,
-        method TEXT NOT NULL,        -- cash/visa
-        amount_cents INTEGER NOT NULL,
-        paid_at TEXT NOT NULL,
-        cashier TEXT NOT NULL,
-        FOREIGN KEY(order_id) REFERENCES orders(id)
-    )""")
-
-    # --- expenses (for monthly reports) ---
-    c.execute("""CREATE TABLE IF NOT EXISTS expenses(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts TEXT NOT NULL,
-        category TEXT NOT NULL,
-        amount_cents INTEGER NOT NULL,
-        notes TEXT
-    )""")
-
-    # --- shifts (optional daily close) ---
-    c.execute("""CREATE TABLE IF NOT EXISTS shifts(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        opened_at TEXT NOT NULL,
-        closed_at TEXT,
-        opened_by TEXT NOT NULL,
-        closed_by TEXT,
-        notes TEXT
-    )""")
-
-    # --- audit log (immutable) ---
-    c.execute("""CREATE TABLE IF NOT EXISTS audit_log(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts TEXT NOT NULL,
-        username TEXT NOT NULL,
-        action TEXT NOT NULL,
-        entity_type TEXT,
-        entity_name TEXT,
-        old_value TEXT,
-        new_value TEXT,
-        extra TEXT
-    )""")
-
-    conn.commit()
-
-    # Fresh seeds on first run
     if first_time:
-        _prime_default_settings(c)
-
-        # default users (NOTE: plaintext just for seed; move to hashed soon)
-        c.execute("INSERT OR REPLACE INTO users VALUES('admin','admin123','admin','ADMIN-DEFAULT-CHANGE-ME')")
-        c.execute("INSERT OR REPLACE INTO users VALUES('cashier1','1234','cashier','C1-0000')")
-        c.execute("INSERT OR REPLACE INTO users VALUES('cashier2','1234','cashier','C2-0000')")
-
-        # seed catalog
-        seed = {
-            "Food": [("Chicken Plate",12000),("Burger",9500)],
-            "Fresh Drinks":[("Fresh Orange",7000),("Lemon Mint",8000)],
-            "Smoothies":[("Berry Smoothie",11000),("Mango Smoothie",11000)],
-            "Coffee Corner":[("Espresso",4000),("Iced Latte",9000),("Cappuccino",8000)],
-            "Hot Drinks":[("Tea",3000),("Hot Chocolate",8000)],
-            "Desserts":[("Cheesecake",10000),("Brownie",8000)],
-            "Soda Drinks":[("Coca-Cola",4000),("Sprite",4000)],
-            "PlayStation 2 Players":[("PS 2P / hour",5000)],
-            "PlayStation 4 Players":[("PS 4P / hour",8000)],
-            "Sheshaaaa":[("Normal Single",8000),("Normal Double",12000),("Iced Single",9000),("Iced Double",13000),("Special Mix",15000)],
-            "Cocktails":[("Pina Colada (virgin)",12000),("Strawberry Mojito",12000)],
-            "Ice Cream":[("2 Scoops",6000),("3 Scoops",8000)],
-            "Mixes":[("Energy Mix",14000)],
-            "Shakes / Milk":[("Chocolate Shake",11000),("Vanilla Milkshake",10000),("Strawberry Milkshake",10000)],
-        }
-        for cat, items in seed.items():
-            c.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)",(cat,))
-            c.execute("SELECT id FROM categories WHERE name=?",(cat,))
-            cid = c.fetchone()["id"]
-            for n,p in items:
-                # Seed tracked items with stock=100, min=5, track_stock=1
-                c.execute("""INSERT OR IGNORE INTO products(category_id,name,price_cents,stock_qty,min_stock,track_stock)
-                             VALUES(?,?,?,?,?,1)""",(cid,n,p,100,5))
+        _seed_defaults(cur)
         conn.commit()
 
-    # For existing DBs created before inventory/track flags, ensure columns exist
-    _ensure_inventory_columns()
-
     conn.close()
 
-# ------------------------------ Utilities -----------------------------------
+
+def _ensure_inventory_columns(cur) -> None:
+    cur.execute("PRAGMA table_info(products)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "stock_qty" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN stock_qty REAL DEFAULT 0")
+    if "min_stock" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN min_stock REAL DEFAULT 0")
+    if "track_stock" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN track_stock INTEGER NOT NULL DEFAULT 1")
+
+
+def _ensure_default_settings(cur) -> None:
+    defaults = {
+        "logo_path": "",
+        "background_path": "",
+        "accent_color": "#C89A5B",
+        "surface_color": "#23140C",
+        "text_color": "#F8EFE4",
+        "muted_text_color": "#D9C7B5",
+        "menu_card_color": "#28160F",
+        "menu_header_color": "#F1C58F",
+        "menu_button_color": "#F5E1C8",
+        "menu_button_text_color": "#2B130B",
+        "menu_button_hover_color": "#E3C69F",
+        "category_order": "",
+        "bar_printer": "",
+        "cashier_printer": "",
+        "company_name": "Beirut Coffee",
+        "currency": "EGP",
+        "service_pct": "0",
+        "ps_rate_p2": "5000",
+        "ps_rate_p4": "8000",
+        "table_codes": json.dumps([f"T{i:02d}" for i in range(1, 31)], ensure_ascii=False),
+        "license_holder": "",
+        "license_key": "",
+        "license_validated_at": "",
+    }
+    for key, value in defaults.items():
+        cur.execute(
+            "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",
+            (key, value),
+        )
+
+
+def _seed_defaults(cur) -> None:
+    cur.execute(
+        "INSERT OR REPLACE INTO users VALUES('admin','admin123','admin','ADMIN-DEFAULT-CHANGE-ME')"
+    )
+    cur.execute(
+        "INSERT OR REPLACE INTO users VALUES('cashier1','1234','cashier','C1-0000')"
+    )
+    cur.execute(
+        "INSERT OR REPLACE INTO users VALUES('cashier2','1234','cashier','C2-0000')"
+    )
+    catalog_seed = {
+        "Food": [("Chicken Plate", 12000), ("Burger", 9500)],
+        "Fresh Drinks": [("Fresh Orange", 7000), ("Lemon Mint", 8000)],
+        "Smoothies": [("Berry Smoothie", 11000), ("Mango Smoothie", 11000)],
+        "Coffee Corner": [("Espresso", 4000), ("Iced Latte", 9000), ("Cappuccino", 8000)],
+        "Hot Drinks": [("Tea", 3000), ("Hot Chocolate", 8000)],
+        "Desserts": [("Cheesecake", 10000), ("Brownie", 8000)],
+        "Soda Drinks": [("Coca-Cola", 4000), ("Sprite", 4000)],
+        "PlayStation 2 Players": [("PS 2P / hour", 5000)],
+        "PlayStation 4 Players": [("PS 4P / hour", 8000)],
+        "Sheshaaaa": [
+            ("Normal Single", 8000),
+            ("Normal Double", 12000),
+            ("Iced Single", 9000),
+            ("Iced Double", 13000),
+            ("Special Mix", 15000),
+        ],
+        "Cocktails": [("Pina Colada (virgin)", 12000), ("Strawberry Mojito", 12000)],
+        "Ice Cream": [("2 Scoops", 6000), ("3 Scoops", 8000)],
+        "Mixes": [("Energy Mix", 14000)],
+        "Shakes / Milk": [
+            ("Chocolate Shake", 11000),
+            ("Vanilla Milkshake", 10000),
+            ("Strawberry Milkshake", 10000),
+        ],
+    }
+    for cat, items in catalog_seed.items():
+        cur.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)", (cat,))
+        cur.execute("SELECT id FROM categories WHERE name=?", (cat,))
+        row = cur.fetchone()
+        if not row:
+            continue
+        cid = row["id"]
+        for label, price in items:
+            cur.execute(
+                """INSERT OR IGNORE INTO products(category_id,name,price_cents,stock_qty,min_stock,track_stock)
+                       VALUES(?,?,?,?,?,1)""",
+                (cid, label, price, 100, 5),
+            )
+
+
 def log_action(username, action, entity_type=None, entity_name=None, old_value=None, new_value=None, extra=None):
-    conn = get_conn(); c = conn.cursor()
-    c.execute("""INSERT INTO audit_log(ts,username,action,entity_type,entity_name,old_value,new_value,extra)
-                 VALUES(?,?,?,?,?,?,?,?)""",
-              (datetime.utcnow().isoformat(), username, action, entity_type, entity_name, old_value, new_value, extra))
-    conn.commit(); conn.close()
+    with db_transaction() as conn:
+        conn.execute(
+            """INSERT INTO audit_log(ts,username,action,entity_type,entity_name,old_value,new_value,extra)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+            (
+                datetime.utcnow().isoformat(),
+                username,
+                action,
+                entity_type,
+                entity_name,
+                old_value,
+                new_value,
+                extra,
+            ),
+        )
 
-def setting_get(key, default=""):
-    conn = get_conn(); c = conn.cursor()
-    c.execute("SELECT value FROM settings WHERE key=?",(key,))
-    r = c.fetchone(); conn.close()
-    return r["value"] if r else default
 
-def setting_get_int(key, default=0):
-    v = setting_get(key, None)
+def setting_get(key: str, default: str = "") -> str:
+    conn = get_conn()
     try:
-        return int(v)
-    except Exception:
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM settings WHERE key=?", (key,))
+        row = cur.fetchone()
+        return row["value"] if row else default
+    finally:
+        conn.close()
+
+
+def setting_get_int(key: str, default: int = 0) -> int:
+    value = setting_get(key, None)  # type: ignore[arg-type]
+    try:
+        return int(value)
+    except (TypeError, ValueError):
         return default
 
-def setting_set(key, value):
-    conn = get_conn(); c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",(key,value))
-    conn.commit(); conn.close()
 
-# ------------------------------- Backups ------------------------------------
-def backup_now() -> Path:
-    """
-    Make a timestamped SQLite backup using the online backup API.
-    Returns the backup file path.
-    """
-    BACKUP_DIR.mkdir(exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dst = BACKUP_DIR / f"beirut-{ts}.db"
+def setting_set(key: str, value: str) -> None:
+    with db_transaction() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+            (key, value),
+        )
 
-    src = sqlite3.connect(DB_PATH)
-    dst_conn = sqlite3.connect(dst)
+
+def run_integrity_check() -> str:
+    conn = get_conn()
     try:
-        with dst_conn:
-            src.backup(dst_conn)
+        cur = conn.cursor()
+        cur.execute("PRAGMA integrity_check;")
+        row = cur.fetchone()
+        return row[0] if row else "error"
     finally:
-        src.close()
-        dst_conn.close()
-    return dst
+        conn.close()
+
+
+def maybe_run_integrity_check(force: bool = False) -> Tuple[bool, str]:
+    today = date.today()
+    if not force:
+        last = str(get_config_value("last_integrity_check", ""))
+        if last:
+            try:
+                last_date = date.fromisoformat(last)
+                if (today - last_date).days < 7:
+                    return True, ""
+            except ValueError:
+                pass
+    result = run_integrity_check()
+    set_config_value("last_integrity_check", today.isoformat())
+    ok = result.strip().lower() == "ok"
+    return ok, result
+
+
+def iter_backups() -> Iterator[Path]:
+    if not BACKUP_DIR.exists():
+        return
+    for day_dir in sorted(BACKUP_DIR.iterdir()):
+        if not day_dir.is_dir():
+            continue
+        candidate = day_dir / "beirut_pos.db"
+        if candidate.exists():
+            yield candidate

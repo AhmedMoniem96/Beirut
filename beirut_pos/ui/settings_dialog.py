@@ -27,6 +27,8 @@ class SettingsDialog(BigDialog):
     def __init__(self, parent=None):
         super().__init__("الإعدادات", remember_key="settings", parent=parent)
 
+        self._default_palette = branding.default_palette()
+
         tabs = QTabWidget()
         tabs.setTabPosition(QTabWidget.TabPosition.North)
 
@@ -84,50 +86,41 @@ class SettingsDialog(BigDialog):
         bg_widget = QWidget(); bg_widget.setLayout(bg_row)
         br_f.addRow("الخلفية:", bg_widget)
 
-        self.accent_color = QLineEdit(setting_get("accent_color", "#C89A5B"))
-        self.accent_color.setMaxLength(7)
-        btn_color = QPushButton("لون…")
+        palette = self._default_palette
 
-        def pick_color():
-            current = QColor(self.accent_color.text() or "#C89A5B")
-            col = QColorDialog.getColor(current, self, "اختر اللون الرئيسي")
-            if col.isValid():
-                self.accent_color.setText(col.name())
+        def make_color_row(key: str, label: str, dialog_title: str):
+            field = QLineEdit(setting_get(key, palette[key]))
+            field.setMaxLength(7)
+            button = QPushButton("لون…")
 
-        btn_color.clicked.connect(pick_color)
-        color_row = QHBoxLayout(); color_row.addWidget(self.accent_color, 1); color_row.addWidget(btn_color, 0)
-        color_widget = QWidget(); color_widget.setLayout(color_row)
-        br_f.addRow("اللون الرئيسي:", color_widget)
+            def pick():
+                current = QColor(field.text() or palette[key])
+                col = QColorDialog.getColor(current, self, dialog_title)
+                if col.isValid():
+                    field.setText(col.name())
 
-        self.surface_color = QLineEdit(setting_get("surface_color", "#23140C"))
-        self.surface_color.setMaxLength(7)
-        btn_surface = QPushButton("لون…")
+            button.clicked.connect(pick)
+            row = QHBoxLayout()
+            row.addWidget(field, 1)
+            row.addWidget(button, 0)
+            wrapper = QWidget()
+            wrapper.setLayout(row)
+            br_f.addRow(label, wrapper)
+            return field
 
-        def pick_surface():
-            current = QColor(self.surface_color.text() or "#23140C")
-            col = QColorDialog.getColor(current, self, "اختر لون لوحة التحكم")
-            if col.isValid():
-                self.surface_color.setText(col.name())
+        self.accent_color = make_color_row("accent_color", "اللون الرئيسي:", "اختر اللون الرئيسي")
+        self.surface_color = make_color_row("surface_color", "لون خلفية الواجهة:", "اختر لون لوحة التحكم")
+        self.text_color = make_color_row("text_color", "لون النص:", "اختر لون النص")
+        self.muted_text_color = make_color_row("muted_text_color", "لون النص الثانوي:", "اختر لون النص الثانوي")
+        self.menu_card_color = make_color_row("menu_card_color", "لون بطاقات الأقسام:", "اختر لون بطاقات الأقسام")
+        self.menu_header_color = make_color_row("menu_header_color", "لون عناوين الأقسام:", "اختر لون عنوان القسم")
+        self.menu_button_color = make_color_row("menu_button_color", "لون أزرار المنتجات:", "اختر لون زر المنتج")
+        self.menu_button_text_color = make_color_row("menu_button_text_color", "لون خط أزرار المنتجات:", "اختر لون خط زر المنتج")
+        self.menu_button_hover_color = make_color_row("menu_button_hover_color", "لون الزر عند التحويم:", "اختر لون الزر عند التحويم")
 
-        btn_surface.clicked.connect(pick_surface)
-        surface_row = QHBoxLayout(); surface_row.addWidget(self.surface_color, 1); surface_row.addWidget(btn_surface, 0)
-        surface_widget = QWidget(); surface_widget.setLayout(surface_row)
-        br_f.addRow("لون خلفية الواجهة:", surface_widget)
-
-        self.text_color = QLineEdit(setting_get("text_color", "#F8EFE4"))
-        self.text_color.setMaxLength(7)
-        btn_text = QPushButton("لون…")
-
-        def pick_text():
-            current = QColor(self.text_color.text() or "#F8EFE4")
-            col = QColorDialog.getColor(current, self, "اختر لون النص")
-            if col.isValid():
-                self.text_color.setText(col.name())
-
-        btn_text.clicked.connect(pick_text)
-        text_row = QHBoxLayout(); text_row.addWidget(self.text_color, 1); text_row.addWidget(btn_text, 0)
-        text_widget = QWidget(); text_widget.setLayout(text_row)
-        br_f.addRow("لون النص:", text_widget)
+        reset_colors = QPushButton("استعادة الألوان الافتراضية")
+        reset_colors.clicked.connect(self._reset_palette_fields)
+        br_v.addWidget(reset_colors, 0, alignment=Qt.AlignmentFlag.AlignLeft)
         tabs.addTab(br, "الهوية")
 
         # --- Category order tab ---
@@ -176,6 +169,12 @@ class SettingsDialog(BigDialog):
         accent = self.accent_color.text().strip()
         surface_color = self.surface_color.text().strip()
         text_color = self.text_color.text().strip()
+        muted_text = self.muted_text_color.text().strip()
+        menu_card_color = self.menu_card_color.text().strip()
+        menu_header_color = self.menu_header_color.text().strip()
+        menu_button_color = self.menu_button_color.text().strip()
+        menu_button_text = self.menu_button_text_color.text().strip()
+        menu_button_hover = self.menu_button_hover_color.text().strip()
         setting_set("bar_printer", bar)
         setting_set("cashier_printer", cash)
         setting_set("logo_path", logo)
@@ -183,13 +182,46 @@ class SettingsDialog(BigDialog):
         setting_set("accent_color", accent)
         setting_set("surface_color", surface_color)
         setting_set("text_color", text_color)
+        setting_set("muted_text_color", muted_text)
+        setting_set("menu_card_color", menu_card_color)
+        setting_set("menu_header_color", menu_header_color)
+        setting_set("menu_button_color", menu_button_color)
+        setting_set("menu_button_text_color", menu_button_text)
+        setting_set("menu_button_hover_color", menu_button_hover)
 
         order = [self.category_list.item(i).text() for i in range(self.category_list.count())]
         set_category_order(order)
 
         branding.clear_branding_cache()
-        bus.emit("branding_changed", {"logo": logo, "background": background, "accent": accent})
+        bus.emit(
+            "branding_changed",
+            {
+                "logo": logo,
+                "background": background,
+                "accent": accent,
+                "surface": surface_color,
+                "text": text_color,
+                "muted": muted_text,
+                "menu_card": menu_card_color,
+                "menu_header": menu_header_color,
+                "menu_button": menu_button_color,
+                "menu_button_text": menu_button_text,
+                "menu_button_hover": menu_button_hover,
+            },
+        )
         bus.emit("catalog_changed")
         bus.emit("printers_changed", bar, cash)
         bus.emit("settings_saved")
         self.accept()
+
+    def _reset_palette_fields(self):
+        palette = self._default_palette
+        self.accent_color.setText(palette["accent_color"])
+        self.surface_color.setText(palette["surface_color"])
+        self.text_color.setText(palette["text_color"])
+        self.muted_text_color.setText(palette["muted_text_color"])
+        self.menu_card_color.setText(palette["menu_card_color"])
+        self.menu_header_color.setText(palette["menu_header_color"])
+        self.menu_button_color.setText(palette["menu_button_color"])
+        self.menu_button_text_color.setText(palette["menu_button_text_color"])
+        self.menu_button_hover_color.setText(palette["menu_button_hover_color"])

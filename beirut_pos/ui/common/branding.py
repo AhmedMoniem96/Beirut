@@ -16,6 +16,11 @@ _FALLBACK_TEXT = "#F8EFE4"
 _FALLBACK_MUTED_TEXT = "#D9C7B5"
 _FALLBACK_ACCENT = "#D4A05E"
 _FALLBACK_ACCENT_DARK = "#9C6B31"
+_FALLBACK_MENU_CARD = "#28160F"
+_FALLBACK_MENU_HEADER = "#F1C58F"
+_FALLBACK_MENU_BUTTON = "#F5E1C8"
+_FALLBACK_MENU_BUTTON_TEXT = "#2B130B"
+_FALLBACK_MENU_BUTTON_HOVER = "#E3C69F"
 
 
 def _quote_path(path: Path) -> str:
@@ -115,9 +120,56 @@ def get_text_color(default: str = _FALLBACK_TEXT) -> str:
     return _sanitize_color(raw, default)
 
 
+def get_muted_text_color(default: str = _FALLBACK_MUTED_TEXT) -> str:
+    raw = setting_get("muted_text_color", default).strip()
+    return _sanitize_color(raw, default)
+
+
+def get_menu_card_color(default: str = _FALLBACK_MENU_CARD) -> str:
+    raw = setting_get("menu_card_color", default).strip()
+    return _sanitize_color(raw, default)
+
+
+def get_menu_header_color(default: str = _FALLBACK_MENU_HEADER) -> str:
+    raw = setting_get("menu_header_color", default).strip()
+    return _sanitize_color(raw, default)
+
+
+def get_menu_button_color(default: str = _FALLBACK_MENU_BUTTON) -> str:
+    raw = setting_get("menu_button_color", default).strip()
+    return _sanitize_color(raw, default)
+
+
+def get_menu_button_text_color(default: str = _FALLBACK_MENU_BUTTON_TEXT) -> str:
+    raw = setting_get("menu_button_text_color", default).strip()
+    return _sanitize_color(raw, default)
+
+
+def get_menu_button_hover_color(default: str = _FALLBACK_MENU_BUTTON_HOVER) -> str:
+    raw = setting_get("menu_button_hover_color", default).strip()
+    return _sanitize_color(raw, default)
+
+
+def default_palette() -> dict[str, str]:
+    """Return the default color palette used when resetting branding options."""
+
+    return {
+        "accent_color": _FALLBACK_ACCENT,
+        "surface_color": _FALLBACK_SURFACE,
+        "text_color": _FALLBACK_TEXT,
+        "muted_text_color": _FALLBACK_MUTED_TEXT,
+        "menu_card_color": _FALLBACK_MENU_CARD,
+        "menu_header_color": _FALLBACK_MENU_HEADER,
+        "menu_button_color": _FALLBACK_MENU_BUTTON,
+        "menu_button_text_color": _FALLBACK_MENU_BUTTON_TEXT,
+        "menu_button_hover_color": _FALLBACK_MENU_BUTTON_HOVER,
+    }
+
+
 def build_login_stylesheet() -> str:
     accent = get_accent_color()
     text = get_text_color()
+    muted = get_muted_text_color()
     bg_path = get_background_path()
 
     parts = [
@@ -142,9 +194,9 @@ def build_login_stylesheet() -> str:
         f"#LoginCard QLabel {{ color: {text}; font-size: 12.5pt; font-weight: 600; }}",
         f"#LoginCard QLabel#BrandTitle {{ font-size: 22pt; font-weight: 800; letter-spacing: 1.2px; color: {accent}; }}",
         f"#LoginCard QLabel#LoginHero {{ font-size: 14pt; font-weight: 700; color: {text}; }}",
-        f"#LoginCard QLabel#HeroHint {{ color: {_FALLBACK_MUTED_TEXT}; font-size: 11.5pt; }}",
+        f"#LoginCard QLabel#HeroHint {{ color: {muted}; font-size: 11.5pt; }}",
         f"#LoginCard QLabel#FormTitle {{ font-size: 16pt; font-weight: 800; margin-bottom: 8px; }}",
-        f"#LoginCard QLabel#LoginHint {{ color: {_FALLBACK_MUTED_TEXT}; font-size: 11.5pt; letter-spacing: 0.4px; }}",
+        f"#LoginCard QLabel#LoginHint {{ color: {muted}; font-size: 11.5pt; letter-spacing: 0.4px; }}",
         "#LoginCard QFrame#BrandColumn { background: transparent; }",
         "#LoginCard QFrame#LoginForm { background-color: rgba(12, 7, 4, 0.72); border-radius: 26px; border: 1px solid rgba(255,255,255,0.08); }",
         f"#LoginDialog QPushButton {{ background-color: {accent}; color: #1B0F08; border-radius: 18px; padding: 14px 28px; font-weight: 700; letter-spacing: 0.5px; min-height: 48px; }}",
@@ -163,7 +215,13 @@ def build_login_stylesheet() -> str:
 def build_main_window_stylesheet() -> str:
     accent = get_accent_color()
     text = get_text_color()
+    muted = get_muted_text_color()
     surface = get_surface_color()
+    menu_card = get_menu_card_color()
+    menu_header = get_menu_header_color()
+    menu_button = get_menu_button_color()
+    menu_button_text = get_menu_button_text_color()
+    menu_button_hover = get_menu_button_hover_color()
     bg_path = get_background_path()
     parts = [
         "QMainWindow {",
@@ -179,13 +237,13 @@ def build_main_window_stylesheet() -> str:
             "QWidget#MainContainer { background-color: transparent; }",
             f"QStackedWidget {{ background-color: rgba(22, 13, 8, 0.84); border: 1px solid rgba(255,255,255,0.08); border-radius: 28px; margin: 0 6px; }}",
             f"QWidget#TablesPage, QWidget#OrderPage {{ background-color: {surface}; border-radius: 28px; margin: 18px; padding: 12px; }}",
-            "QStatusBar { background-color: rgba(22, 13, 8, 0.9); color: #E9DAC4; border-top: 1px solid rgba(255,255,255,0.1); }",
+            f"QStatusBar {{ background-color: rgba(22, 13, 8, 0.9); color: {muted}; border-top: 1px solid rgba(255,255,255,0.1); }}",
             "QToolBar { background-color: rgba(19, 12, 8, 0.82); spacing: 16px; padding: 12px 18px; border: none; }",
             f"QToolBar QLabel#appLogo {{ color: {accent}; font-weight: 700; font-size: 22px; letter-spacing: 1px; }}",
             f"QMainWindow QPushButton {{ background-color: {accent}; color: #1B0F08; border-radius: 16px; padding: 12px 22px; font-weight: 700; letter-spacing: 0.4px; }}",
             "QMainWindow QPushButton:disabled { background-color: rgba(110, 96, 80, 0.6); color: rgba(27, 15, 8, 0.35); }",
-            f"QMainWindow QGroupBox {{ background-color: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; margin-top: 24px; font-weight: 700; color: {text}; padding-top: 24px; }}",
-            "QMainWindow QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top right; padding: 0 16px; font-size: 13pt; }",
+            f"QMainWindow QGroupBox {{ background-color: {menu_card}; border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; margin-top: 24px; font-weight: 700; color: {menu_header}; padding-top: 24px; }}",
+            f"QMainWindow QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top right; padding: 0 16px; font-size: 13pt; color: {menu_header}; }}",
             "QMainWindow QListWidget { background-color: rgba(255,255,255,0.94); border-radius: 18px; padding: 10px; font-size: 12pt; }",
             "QMainWindow QListWidget#OrderItems { padding: 16px; }",
             f"QMainWindow QLabel {{ color: {text}; font-size: 12pt; font-weight: 600; }}",
@@ -195,8 +253,8 @@ def build_main_window_stylesheet() -> str:
             "QScrollArea { border: none; background: transparent; }",
             "QScrollArea > QWidget > QWidget { background: transparent; }",
             "QGroupBox QPushButton { font-size: 12pt; font-weight: 600; min-height: 72px; }",
-            f"QGroupBox QPushButton {{ background-color: rgba(255,255,255,0.92); color: #2B130B; border-radius: 18px; padding: 12px; }}",
-            f"QGroupBox QPushButton:hover {{ background-color: {accent}; color: #1B0F08; }}",
+            f"QGroupBox QPushButton {{ background-color: {menu_button}; color: {menu_button_text}; border-radius: 18px; padding: 12px; }}",
+            f"QGroupBox QPushButton:hover {{ background-color: {menu_button_hover}; color: {menu_button_text}; }}",
             "QFrame#ToastBanner { border-radius: 18px; padding: 14px 20px; border: 1px solid rgba(255,255,255,0.18); background-color: rgba(255,255,255,0.90); color: #1B0F08; font-weight: 600; }",
             f"QFrame#ToastBanner[kind=\"success\"] {{ background-color: rgba(72, 160, 132, 0.9); color: {text}; border: 1px solid rgba(72,160,132,0.4); }}",
             "QFrame#ToastBanner[kind=\"warn\"] { background-color: rgba(214, 161, 80, 0.92); color: #2B130B; border: 1px solid rgba(43,19,11,0.2); }",

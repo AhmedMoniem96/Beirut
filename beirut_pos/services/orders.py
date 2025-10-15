@@ -42,50 +42,6 @@ def _ensure_order_item_notes():
 
 
 _ensure_order_item_notes()
-
-_CATEGORY_ORDER_KEY = "category_order"
-
-
-def _load_category_order() -> list[str]:
-    raw = setting_get(_CATEGORY_ORDER_KEY, "").strip()
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-    except Exception:
-        return []
-    if not isinstance(data, list):
-        return []
-    out: list[str] = []
-    for item in data:
-        if isinstance(item, str):
-            name = item.strip()
-            if name and name not in out:
-                out.append(name)
-    return out
-
-
-def _store_category_order(names: list[str]) -> None:
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for name in names:
-        if not isinstance(name, str):
-            continue
-        name = name.strip()
-        if not name or name in seen:
-            continue
-        cleaned.append(name)
-        seen.add(name)
-    setting_set(_CATEGORY_ORDER_KEY, json.dumps(cleaned, ensure_ascii=False))
-
-
-def get_category_order() -> list[str]:
-    """Expose the persisted order for UI consumers (settings dialog)."""
-    return _load_category_order()
-
-
-def set_category_order(order: list[str]) -> None:
-    _store_category_order(order)
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------

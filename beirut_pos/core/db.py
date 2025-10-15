@@ -57,17 +57,6 @@ def _ensure_inventory_columns():
 def _prime_default_settings(c):
     # Add any defaults you want to exist on a fresh DB
     c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('logo_path','')")
-    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('background_path','')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('accent_color','#C89A5B')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('surface_color','#23140C')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('text_color','#F8EFE4')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('muted_text_color','#D9C7B5')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('menu_card_color','#28160F')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('menu_header_color','#F1C58F')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('menu_button_color','#F5E1C8')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('menu_button_text_color','#2B130B')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('menu_button_hover_color','#E3C69F')")
-    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('category_order','')")
     c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('bar_printer','')")
     c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('cashier_printer','')")
     # You can add more defaults later (currency, service_pct, printers, etc.)

@@ -5,12 +5,12 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QLabel,
     QToolBar,
+    QMessageBox,
     QStackedWidget,
     QHBoxLayout,
     QPushButton,
-    QFrame,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
 from .components.table_map import TableMap
 from .components.category_grid import CategoryGrid
@@ -30,7 +30,7 @@ from .admin_reports_dialog import AdminReportsDialog
 from .settings_dialog import SettingsDialog
 from .zreport_dialog import ZReportDialog
 from .coffee_customizer import CoffeeCustomizerDialog
-from .common.branding import get_logo_pixmap, get_logo_icon, build_main_window_stylesheet
+from .common.branding import get_logo_pixmap, get_logo_icon
 from .common.barista_tips import random_tip
 
 PAGE_TABLES=0; PAGE_ORDER=1
@@ -42,7 +42,6 @@ class MainWindow(QMainWindow):
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.resize(1440,900)
         self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")  # cashier name on top
-        self.setStyleSheet(build_main_window_stylesheet())
         icon = get_logo_icon(64)
         if icon:
             self.setWindowIcon(icon)
@@ -157,7 +156,6 @@ class MainWindow(QMainWindow):
         bus.subscribe("inventory_low", self._on_inventory_low)
         bus.subscribe("inventory_recovered", self._on_inventory_recovered)
         bus.subscribe("branding_changed", self._on_branding_changed)
-        bus.subscribe("settings_saved", self._on_settings_saved)
 
         self.current_table=None
         self._coffee_categories = {"Coffee Corner", "Hot Drinks", "Fresh Drinks"}
@@ -278,9 +276,7 @@ class MainWindow(QMainWindow):
         self._status.showMessage(random_tip(), 9000)
 
     def _on_pick(self, label, price_cents):
-        if not self.current_table:
-            self._show_banner("اختر طاولة لإضافة الطلب.", "warn")
-            return
+        if not self.current_table: return
         prod = order_manager.catalog.get_product(label)
         final_label = label
         final_price = price_cents
@@ -311,9 +307,7 @@ class MainWindow(QMainWindow):
         self._refresh_print_buttons()
 
     def _on_remove(self, index):
-        if not self.current_table:
-            self._show_banner("اختر طاولة لإزالة العناصر.", "warn")
-            return
+        if not self.current_table: return
         order_manager.remove_item(self.current_table, index, username=self.user.username)
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
@@ -381,7 +375,7 @@ class MainWindow(QMainWindow):
         msg = f"تنبيه المخزون: {product} {prev_val:g} ➜ {new_stock:g} (حد أدنى {min_val:g})"
         self._status.showMessage(msg, 10000)
         if self.user.role == "admin" and new_stock <= 0:
-            self._show_banner(msg, "warn", duration=10000)
+            QMessageBox.warning(self, "المخزون", msg)
 
     def _on_inventory_recovered(self, product, prev_stock, new_stock, min_stock):
         if new_stock is None:
@@ -390,15 +384,11 @@ class MainWindow(QMainWindow):
         min_val = 0 if min_stock is None else min_stock
         msg = f"تمت إعادة توافر {product}: {prev_val:g} ➜ {new_stock:g} (حد أدنى {min_val:g})"
         self._status.showMessage(msg, 7000)
-        if self.user.role == "admin":
-            self._show_banner(msg, "success", duration=6000)
 
     def _refresh_branding(self):
-        self.setStyleSheet(build_main_window_stylesheet())
-        pix = get_logo_pixmap(64)
+        pix = get_logo_pixmap(32)
         if pix:
-            scaled = pix.scaledToHeight(56, Qt.TransformationMode.SmoothTransformation)
-            self.logo_label.setPixmap(scaled)
+            self.logo_label.setPixmap(pix)
             self.logo_label.setText("")
         else:
             self.logo_label.clear()
@@ -406,30 +396,6 @@ class MainWindow(QMainWindow):
         icon = get_logo_icon(64)
         if icon:
             self.setWindowIcon(icon)
-        # re-polish banner styling with new palette
-        if self.banner.isVisible():
-            self.banner.style().unpolish(self.banner)
-            self.banner.style().polish(self.banner)
 
-    def _on_branding_changed(self, payload):
-        # payload may be dict or legacy path string
+    def _on_branding_changed(self, _logo_path):
         self._refresh_branding()
-        self._show_banner("تم تحديث الهوية البصرية للتطبيق.", "success", duration=6000)
-
-    def _on_settings_saved(self, _payload=None):
-        self._status.showMessage("تم حفظ الإعدادات بنجاح.", 6000)
-        self._show_banner("تم حفظ الإعدادات وتحديث التطبيق فوراً.", "success", duration=6000)
-
-    def _hide_banner(self):
-        self.banner_timer.stop()
-        self.banner.setVisible(False)
-
-    def _show_banner(self, text: str, kind: str = "info", duration: int | None = 6000):
-        self.banner.setProperty("kind", kind)
-        self.banner_label.setText(text)
-        self.banner.setVisible(True)
-        self.banner_timer.stop()
-        if duration and duration > 0:
-            self.banner_timer.start(duration)
-        self.banner.style().unpolish(self.banner)
-        self.banner.style().polish(self.banner)

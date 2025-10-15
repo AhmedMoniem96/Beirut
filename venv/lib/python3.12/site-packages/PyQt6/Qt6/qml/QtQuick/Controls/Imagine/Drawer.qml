@@ -12,14 +12,14 @@ T.Drawer {
     parent: T.Overlay.overlay
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            implicitContentWidth + leftPadding + rightPadding)
+                            contentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             implicitContentHeight + topPadding + bottomPadding)
+                             contentHeight + topPadding + bottomPadding)
 
-    topPadding: SafeArea.margins.top + (background ? background.topPadding : 0)
-    leftPadding: SafeArea.margins.left + (background ? background.leftPadding : 0)
-    rightPadding: SafeArea.margins.right + (background ? background.rightPadding : 0)
-    bottomPadding: SafeArea.margins.bottom + (background ? background.bottomPadding : 0)
+    topPadding: background ? background.topPadding : 0
+    leftPadding: background ? background.leftPadding : 0
+    rightPadding: background ? background.rightPadding : 0
+    bottomPadding: background ? background.bottomPadding : 0
 
     topInset: background ? -background.topInset || 0 : 0
     leftInset: background ? -background.leftInset || 0 : 0

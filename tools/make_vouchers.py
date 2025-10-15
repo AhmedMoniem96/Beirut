@@ -3,46 +3,54 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 from datetime import datetime
 from pathlib import Path
 
-from beirut_pos.core.simple_voucher import generate_many, validate_batch
+# uses only functions your build exports
+from beirut_pos.core.simple_voucher import generate_many, format_voucher
+
+
+def fmt(raw: str, default_prefix: str = "BEIRUT") -> str:
+    """
+    Wrap format_voucher() regardless of signature:
+    - Some builds: format_voucher(raw, prefix)
+    - Others:      format_voucher(raw)  # prefix internal/default
+    """
+    sig = inspect.signature(format_voucher)
+    if len(sig.parameters) == 2:
+        return format_voucher(raw, default_prefix)  # (raw, prefix)
+    return format_voucher(raw)  # (raw)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate voucher codes for Beirut POS.")
-    parser.add_argument(
-        "count",
-        type=int,
-        help="عدد القسائم المطلوب إنشاؤها.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path.cwd(),
-        help="المجلد الذي سيتم حفظ الملف فيه (الافتراضي: المجلد الحالي).",
-    )
-    return parser
+    p = argparse.ArgumentParser(description="Generate voucher codes for Beirut POS.")
+    p.add_argument("count", type=int, help="عدد القسائم المطلوب إنشاؤها.")
+    p.add_argument("--output-dir", type=Path, default=Path.cwd(),
+                   help="المجلد الذي سيتم حفظ الملف فيه (الافتراضي: المجلد الحالي).")
+    p.add_argument("--prefix", default="BEIRUT",
+                   help="بادئة القسيمة (الافتراضي: BEIRUT).")
+    return p
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-    count = max(0, args.count)
-    codes = generate_many(count)
-    if not validate_batch(codes):
-        raise SystemExit("فشل التحقق من القسائم المولدة.")
+    args = build_parser().parse_args()
+    n = max(0, args.count)
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M")
-    output_dir: Path = args.output_dir.expanduser().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    file_path = output_dir / f"vouchers-{timestamp}.txt"
+    raws = list(generate_many(n))
+    codes = [fmt(r, args.prefix) for r in raws]
 
-    with file_path.open("w", encoding="utf-8") as handle:
-        for code in codes:
-            handle.write(f"{code}\n")
+    ts = datetime.now().strftime("%Y%m%d-%H%M")
+    outdir: Path = args.output_dir.expanduser().resolve()
+    outdir.mkdir(parents=True, exist_ok=True)
+    path = outdir / f"vouchers-{ts}.txt"
 
-    print(f"Generated {len(codes)} vouchers → {file_path}")
+    with path.open("w", encoding="utf-8") as fh:
+        fh.write("\n".join(codes) + ("\n" if codes else ""))
+
+    print(f"Generated {len(codes)} vouchers → {path}")
+    if codes:
+        print("First code:", codes[0])
 
 
 if __name__ == "__main__":

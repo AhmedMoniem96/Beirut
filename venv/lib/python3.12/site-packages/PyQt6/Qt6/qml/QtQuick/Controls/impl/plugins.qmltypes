@@ -353,14 +353,12 @@ Module {
         Method {
             name: "transparent"
             type: "QColor"
-            isMethodConstant: true
             Parameter { name: "color"; type: "QColor" }
             Parameter { name: "opacity"; type: "double" }
         }
         Method {
             name: "blend"
             type: "QColor"
-            isMethodConstant: true
             Parameter { name: "a"; type: "QColor" }
             Parameter { name: "b"; type: "QColor" }
             Parameter { name: "factor"; type: "double" }
@@ -929,7 +927,6 @@ Module {
         Method {
             name: "themeHint"
             type: "QVariant"
-            isMethodConstant: true
             Parameter { name: "themeHint"; type: "QPlatformTheme::ThemeHint" }
         }
     }
@@ -1393,7 +1390,6 @@ Module {
             name: "linkAt"
             revision: 515
             type: "QString"
-            isMethodConstant: true
             Parameter { name: "x"; type: "double" }
             Parameter { name: "y"; type: "double" }
         }

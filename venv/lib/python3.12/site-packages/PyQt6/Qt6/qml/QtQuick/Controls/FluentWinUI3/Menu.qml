@@ -4,21 +4,15 @@
 import QtQuick
 import QtQuick.Templates as T
 import QtQuick.Controls.impl
-import QtQuick.Controls.FluentWinUI3.impl as Impl
 import QtQuick.Effects
 
 T.Menu {
     id: control
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            implicitContentWidth + leftPadding + rightPadding)
+                            contentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             implicitContentHeight + topPadding + bottomPadding)
-
-    leftInset: -__config.background.leftShadow
-    topInset: -__config.background.topShadow
-    rightInset: -__config.background.rightShadow
-    bottomInset: -__config.background.bottomShadow
+                             contentHeight + topPadding + bottomPadding)
 
     leftPadding: 5
     topPadding: 5
@@ -26,8 +20,6 @@ T.Menu {
     bottomPadding: 5
     margins: 0
     overlap: 4
-
-    readonly property var __config: Config.controls.popup["normal"]
 
     delegate: MenuItem { }
 
@@ -54,11 +46,10 @@ T.Menu {
         }
     }
 
-    background: Impl.StyleImage {
-        implicitWidth: 200 + imageConfig.leftShadow + imageConfig.rightShadow
-        implicitHeight: 30 + imageConfig.topShadow + imageConfig.bottomShadow
-        imageConfig: control.__config.background
-        drawShadowWithinBounds: true
+    background: StyleImage {
+        implicitWidth: 200
+        implicitHeight: 30
+        imageConfig: Config.controls.popup["normal"].background
     }
 
     T.Overlay.modal: Rectangle {

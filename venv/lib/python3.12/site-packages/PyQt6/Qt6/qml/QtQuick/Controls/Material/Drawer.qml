@@ -13,14 +13,12 @@ T.Drawer {
     parent: T.Overlay.overlay
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            implicitContentWidth + leftPadding + rightPadding)
+                            contentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             implicitContentHeight + topPadding + bottomPadding)
+                             contentHeight + topPadding + bottomPadding)
 
-    topPadding: SafeArea.margins.top + (edge !== Qt.TopEdge ? Material.roundedScale : 0)
-    leftPadding: SafeArea.margins.left + (control.edge === Qt.RightEdge)
-    rightPadding: SafeArea.margins.right + (control.edge === Qt.LeftEdge)
-    bottomPadding: SafeArea.margins.bottom + (edge !== Qt.BottomEdge ? Material.roundedScale : 0)
+    topPadding: edge !== Qt.TopEdge ? Material.roundedScale : 0
+    bottomPadding: edge !== Qt.BottomEdge ? Material.roundedScale : 0
 
     enter: Transition { SmoothedAnimation { velocity: 5 } }
     exit: Transition { SmoothedAnimation { velocity: 5 } }

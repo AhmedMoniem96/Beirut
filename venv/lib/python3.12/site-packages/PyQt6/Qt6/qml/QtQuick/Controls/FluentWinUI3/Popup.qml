@@ -3,29 +3,28 @@
 
 import QtQuick
 import QtQuick.Controls.impl
-import QtQuick.Controls.FluentWinUI3.impl as Impl
 import QtQuick.Templates as T
 
 T.Popup {
     id: control
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            implicitContentWidth + leftPadding + rightPadding)
+                            contentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             implicitContentHeight + topPadding + bottomPadding)
+                             contentHeight + topPadding + bottomPadding)
 
-    topPadding: __config.topPadding || 0
-    bottomPadding: __config.bottomPadding || 0
-    leftPadding: __config.leftPadding || 0
-    rightPadding: __config.rightPadding || 0
+    topPadding: config.topPadding || 0
+    bottomPadding: config.bottomPadding || 0
+    leftPadding: config.leftPadding || 0
+    rightPadding: config.rightPadding || 0
 
-    topInset: -__config.topInset || 0
-    bottomInset: -__config.bottomInset || 0
-    leftInset: -__config.leftInset || 0
-    rightInset: -__config.rightInset || 0
+    topInset: -config.topInset || 0
+    bottomInset: -config.bottomInset || 0
+    leftInset: -config.leftInset || 0
+    rightInset: -config.rightInset || 0
 
     readonly property string __currentState: "normal"
-    readonly property var __config: Config.controls.popup[__currentState] || {}
+    readonly property var config: Config.controls.popup[__currentState] || {}
 
     enter: Transition {
         NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.Linear; duration: 83 }
@@ -37,10 +36,10 @@ T.Popup {
         NumberAnimation { property: "scale"; from: 1; to: control.modal ? 1.05 : 1; easing.type: Easing.OutCubic; duration: 167 }
     }
 
-    background: Impl.StyleImage {
+    background: StyleImage {
         implicitWidth: 320
         implicitHeight: 72
-        imageConfig: control.__config.background
+        imageConfig: control.config.background
     }
 
     T.Overlay.modal: Rectangle {

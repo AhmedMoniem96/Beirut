@@ -3,7 +3,6 @@
 
 import QtQuick
 import QtQuick.Controls.impl
-import QtQuick.Controls.FluentWinUI3.impl as Impl
 import QtQuick.Templates as T
 
 T.RangeSlider {
@@ -16,16 +15,16 @@ T.RangeSlider {
                              first.implicitHandleHeight + topPadding + bottomPadding,
                              second.implicitHandleHeight + topPadding + bottomPadding)
 
-    topPadding: horizontal ? __config.topPadding : __config.leftPadding || 0
-    leftPadding: horizontal ? __config.leftPadding : __config.bottomPadding || 0
-    rightPadding: horizontal ? __config.rightPadding : __config.topPadding || 0
-    bottomPadding: horizontal ? __config.bottomPadding : __config.rightPadding || 0
+    topPadding: horizontal ? config.topPadding : config.leftPadding || 0
+    leftPadding: horizontal ? config.leftPadding : config.bottomPadding || 0
+    rightPadding: horizontal ? config.rightPadding : config.topPadding || 0
+    bottomPadding: horizontal ? config.bottomPadding : config.rightPadding || 0
 
     readonly property string __controlState: [
         !control.enabled && "disabled",
         control.enabled && control.hovered && !(first.pressed || second.pressed) && "hovered",
     ].filter(Boolean).join("_") || "normal"
-    readonly property var __config: Config.controls.rangeslider[__controlState] || {}
+    readonly property var config: Config.controls.rangeslider[__controlState] || {}
 
     readonly property real __steps: Math.abs(to - from) / stepSize
     readonly property bool __isDiscrete: stepSize >= Number.EPSILON
@@ -36,19 +35,19 @@ T.RangeSlider {
         first.hovered && !first.pressed && "hovered",
         first.pressed && "handle_pressed",
     ].filter(Boolean).join("_") || "normal"
-    readonly property var __firstHandleConfig: Config.controls.rangeslider[__firstHandleState] || {}
+    readonly property var firstHandleConfig: Config.controls.rangeslider[__firstHandleState] || {}
 
     property string __secondHandleState: [
         !control.enabled && "disabled",
         second.hovered && !second.pressed && "hovered",
         second.pressed && "handle_pressed",
     ].filter(Boolean).join("_") || "normal"
-    readonly property var __secondHandleConfig: Config.controls.rangeslider[__secondHandleState] || {}
+    readonly property var secondHandleConfig: Config.controls.rangeslider[__secondHandleState] || {}
 
     readonly property Item __focusFrameControl: control
     readonly property Item __focusFrameTarget: control
 
-    first.handle: Impl.StyleImage {
+    first.handle: StyleImage {
         x: Math.round(control.leftPadding + (control.horizontal
             ? control.first.visualPosition * (control.availableWidth - width)
             : (control.availableWidth - width) / 2))
@@ -56,7 +55,7 @@ T.RangeSlider {
             ? (control.availableHeight - height) / 2
             : control.first.visualPosition * (control.availableHeight - height)))
 
-        imageConfig: control.__firstHandleConfig.first_handle
+        imageConfig: control.firstHandleConfig.first_handle
 
         readonly property Item __focusFrameTarget: control
 
@@ -66,8 +65,8 @@ T.RangeSlider {
             width: diameter
             height: diameter
             radius: diameter * 0.5
-            x: (control.__secondHandleConfig.first_handle.width - width) / 2
-            y: (control.__secondHandleConfig.first_handle.height - height) / 2
+            x: (control.secondHandleConfig.first_handle.width - width) / 2
+            y: (control.secondHandleConfig.first_handle.height - height) / 2
             color: control.enabled ? (control.first.hovered ? Qt.rgba(control.palette.accent.r, control.palette.accent.g, control.palette.accent.b, 0.9020)
                                    : control.first.pressed ? Qt.rgba(control.palette.accent.r, control.palette.accent.g, control.palette.accent.b, 0.8)
                                    : control.palette.accent)
@@ -82,7 +81,7 @@ T.RangeSlider {
         }
     }
 
-    second.handle: Impl.StyleImage {
+    second.handle: StyleImage {
         x: Math.round(control.leftPadding + (control.horizontal
             ? control.second.visualPosition * (control.availableWidth - width)
             : (control.availableWidth - width) / 2))
@@ -90,7 +89,7 @@ T.RangeSlider {
             ? (control.availableHeight - height) / 2
             : control.second.visualPosition * (control.availableHeight - height)))
 
-        imageConfig: control.__secondHandleConfig.second_handle
+        imageConfig: control.secondHandleConfig.second_handle
 
         readonly property Item __focusFrameTarget: control
 
@@ -100,8 +99,8 @@ T.RangeSlider {
             width: diameter
             height: diameter
             radius: diameter * 0.5
-            x: (control.__secondHandleConfig.second_handle.width - width) / 2
-            y: (control.__secondHandleConfig.second_handle.height - height) / 2
+            x: (control.secondHandleConfig.second_handle.width - width) / 2
+            y: (control.secondHandleConfig.second_handle.height - height) / 2
             color: control.enabled ? (control.second.hovered ? Qt.rgba(control.palette.accent.r, control.palette.accent.g, control.palette.accent.b, 0.9020)
                                    : control.second.pressed ? Qt.rgba(control.palette.accent.r, control.palette.accent.g, control.palette.accent.b, 0.8)
                                    : control.palette.accent)
@@ -124,45 +123,45 @@ T.RangeSlider {
             ? (_background.implicitHeight || _background.groove.implicitHeight)
             : (_background.implicitWidth || _background.groove.implicitWidth)
 
-        property Item _background: Impl.StyleImage {
+        property Item _background: StyleImage {
             parent: control.background
             width: parent.width
             height: parent.width
-            imageConfig: control.__config.background
+            imageConfig: control.config.background
 
-            property Item groove: Impl.StyleImage {
+            property Item groove: StyleImage {
                 parent: control.background._background
                 x: control.leftPadding - control.leftInset + (control.horizontal
-                    ? control.__firstHandleConfig.first_handle.width / 2
+                    ? control.firstHandleConfig.first_handle.width / 2
                     : (control.availableWidth - width) / 2)
                 y: control.topPadding - control.rightInset + (control.horizontal
                     ? ((control.availableHeight - height) / 2)
-                    : control.__firstHandleConfig.first_handle.height / 2)
+                    : control.firstHandleConfig.first_handle.height / 2)
 
                 width: control.horizontal
                     ? control.availableWidth
-                        - (control.__firstHandleConfig.first_handle.width / 2) - (control.__secondHandleConfig.second_handle.width / 2)
+                        - (control.firstHandleConfig.first_handle.width / 2) - (control.secondHandleConfig.second_handle.width / 2)
                     : implicitWidth
                 height: control.horizontal
                     ? implicitHeight
                     : control.availableHeight
-                        - (control.__firstHandleConfig.first_handle.width / 2) - (control.__secondHandleConfig.second_handle.width / 2)
-                imageConfig: control.__config.groove
+                        - (control.firstHandleConfig.first_handle.width / 2) - (control.secondHandleConfig.second_handle.width / 2)
+                imageConfig: control.config.groove
                 horizontal: control.horizontal
 
                 property Rectangle track: Rectangle {
                     parent: control.background._background.groove
                     x: control.horizontal ? parent.width * control.first.position : 0
                     y: control.horizontal ? 0 : parent.height - (parent.height * control.second.position)
-                    implicitWidth: control.horizontal ? control.__config.track.width : control.__config.track.height
-                    implicitHeight: control.horizontal ? control.__config.track.height : control.__config.track.width
+                    implicitWidth: control.horizontal ? control.config.track.width : control.config.track.height
+                    implicitHeight: control.horizontal ? control.config.track.height : control.config.track.width
                     width: control.horizontal
                         ? parent.width * (control.second.position - control.first.position)
                         : parent.width
                     height: control.horizontal
                         ? parent.height
                         : parent.height * (control.second.position - control.first.position)
-                    radius: control.__config.track.height * 0.5
+                    radius: control.config.track.height * 0.5
                     color: control.palette.accent
                 }
             }

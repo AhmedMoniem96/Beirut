@@ -173,7 +173,8 @@ Module {
             "QtQuick.Layouts/Layout 2.11",
             "QtQuick.Layouts/Layout 6.0",
             "QtQuick.Layouts/Layout 6.3",
-            "QtQuick.Layouts/Layout 6.7"
+            "QtQuick.Layouts/Layout 6.7",
+            "QtQuick.Layouts/Layout 6.8"
         ]
         isCreatable: false
         exportMetaObjectRevisions: [
@@ -185,7 +186,8 @@ Module {
             523,
             1536,
             1539,
-            1543
+            1543,
+            1544
         ]
         attachedType: "QQuickLayoutAttached"
         Enum {
@@ -193,7 +195,7 @@ Module {
             values: ["SizePolicyImplicit", "SizePolicyExplicit"]
         }
         Method { name: "invalidateSenderItem" }
-        Method { name: "_q_dumpLayoutTree"; isMethodConstant: true }
+        Method { name: "_q_dumpLayoutTree" }
     }
     Component {
         file: "private/qquicklayout_p.h"
@@ -274,6 +276,7 @@ Module {
         }
         Property {
             name: "useDefaultSizePolicy"
+            revision: 1544
             type: "QQuickLayout::SizePolicy"
             read: "useDefaultSizePolicy"
             write: "setUseDefaultSizePolicy"
@@ -401,7 +404,7 @@ Module {
         Signal { name: "maximumHeightChanged" }
         Signal { name: "fillWidthChanged" }
         Signal { name: "fillHeightChanged" }
-        Signal { name: "useDefaultSizePolicyChanged" }
+        Signal { name: "useDefaultSizePolicyChanged"; revision: 1544 }
         Signal { name: "leftMarginChanged" }
         Signal { name: "topMarginChanged" }
         Signal { name: "rightMarginChanged" }
@@ -470,7 +473,7 @@ Module {
         Method { name: "proxyRightMarginChanged" }
         Method { name: "targetBottomMarginChanged" }
         Method { name: "proxyBottomMarginChanged" }
-        Method { name: "effectiveTarget"; type: "QQuickItem"; isPointer: true; isMethodConstant: true }
+        Method { name: "effectiveTarget"; type: "QQuickItem"; isPointer: true }
     }
     Component {
         file: "private/qquicklayoutitemproxy_p.h"
@@ -616,7 +619,6 @@ Module {
             name: "itemAt"
             type: "QQuickItem"
             isPointer: true
-            isMethodConstant: true
             Parameter { name: "index"; type: "int" }
         }
     }

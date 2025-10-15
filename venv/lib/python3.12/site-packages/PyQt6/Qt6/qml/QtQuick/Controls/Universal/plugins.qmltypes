@@ -317,7 +317,6 @@ Module {
         Method {
             name: "color"
             type: "QColor"
-            isMethodConstant: true
             Parameter { name: "color"; type: "Color" }
         }
     }

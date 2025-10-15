@@ -4,24 +4,23 @@
 import QtQuick
 import QtQuick.Templates as T
 import QtQuick.Controls.impl
-import QtQuick.Controls.FluentWinUI3.impl as Impl
 
 T.MenuBar {
     id: control
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            implicitContentWidth + leftPadding + rightPadding)
+                            contentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             implicitContentHeight + topPadding + bottomPadding)
+                             contentHeight + topPadding + bottomPadding)
 
-    spacing: __config.spacing || 0
+    spacing: config.spacing || 0
 
-    topPadding: SafeArea.margins.top + (__config.topPadding || 0)
-    bottomPadding: SafeArea.margins.bottom + (__config.bottomPadding || 0)
-    leftPadding: SafeArea.margins.left + (__config.leftPadding || 0)
-    rightPadding: SafeArea.margins.right + (__config.rightPadding || 0)
+    topPadding: config.topPadding || 0
+    bottomPadding: config.bottomPadding || 0
+    leftPadding: config.leftPadding || 0
+    rightPadding: config.rightPadding || 0
 
-    readonly property var __config: Config.controls.toolbar["normal"] || {}
+    readonly property var config: Config.controls.toolbar["normal"] || {}
 
     delegate: MenuBarItem { }
 
@@ -32,7 +31,7 @@ T.MenuBar {
         }
     }
 
-    background: Impl.StyleImage {
-        imageConfig: control.__config.background
+    background: StyleImage {
+        imageConfig: control.config.background
     }
 }

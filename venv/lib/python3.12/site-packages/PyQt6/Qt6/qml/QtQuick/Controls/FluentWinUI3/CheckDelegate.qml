@@ -4,7 +4,7 @@
 import QtQuick
 import QtQuick.Templates as T
 import QtQuick.Controls.impl
-import QtQuick.Controls.FluentWinUI3.impl as Impl
+import QtQuick.Controls.FluentWinUI3.impl
 
 T.CheckDelegate {
     id: control
@@ -17,10 +17,10 @@ T.CheckDelegate {
 
     spacing: 10
 
-    topPadding: __config.topPadding || 0 + verticalOffset
-    leftPadding: __config.leftPadding || 0 + __horizontalOffset
-    rightPadding: __config.rightPadding || 0 + __horizontalOffset
-    bottomPadding: __config.bottomPadding || 0 + __verticalOffset
+    topPadding: config.topPadding || 0 + verticalOffset
+    leftPadding: config.leftPadding || 0 + __horizontalOffset
+    rightPadding: config.rightPadding || 0 + __horizontalOffset
+    bottomPadding: config.bottomPadding || 0 + __verticalOffset
 
     icon.width: 16
     icon.height: 16
@@ -39,11 +39,11 @@ T.CheckDelegate {
         control.enabled && !control.down && control.hovered && "hovered",
         control.down && "pressed"
     ].filter(Boolean).join("_") || "normal"
-    readonly property var __config: Config.controls.itemdelegate[__currentState] || {}
+    readonly property var config: Config.controls.itemdelegate[__currentState] || {}
 
     readonly property Item __focusFrameTarget: control
 
-    indicator: Impl.CheckIndicator {
+    indicator: CheckIndicator {
         readonly property string currentState: [
             control.checkState === Qt.Checked && "checked",
             !control.enabled && control.checkState !== Qt.Unchecked && "disabled",
@@ -77,9 +77,9 @@ T.CheckDelegate {
         implicitWidth: 160
         implicitHeight: 40
 
-        property Item backgroundImage: Impl.StyleImage {
+        property Item backgroundImage: StyleImage {
             parent: control.background
-            imageConfig: control.__config.background
+            imageConfig: control.config.background
             implicitWidth: parent.width - control.__horizontalOffset * 2
             implicitHeight: parent.height - control.__verticalOffset * 2
             x: control.__horizontalOffset

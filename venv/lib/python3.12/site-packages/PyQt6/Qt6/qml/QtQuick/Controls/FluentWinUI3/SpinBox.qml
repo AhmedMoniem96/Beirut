@@ -3,8 +3,8 @@
 
 import QtQuick
 import QtQuick.Controls.impl
-import QtQuick.Controls.FluentWinUI3.impl as Impl
 import QtQuick.Templates as T
+import QtQuick.Controls.FluentWinUI3.impl
 
 T.SpinBox {
     id: control
@@ -22,20 +22,20 @@ T.SpinBox {
         enabled && (down.pressed || up.pressed) && "pressed",
         !enabled && "disabled"
     ].filter(Boolean).join("_") || "normal"
-    readonly property var __config: Config.controls.spinbox[__controlState] || {}
-    readonly property var __downConfig: value == from ? Config.controls.spinbox["atlimit"] : __config
-    readonly property var __upConfig: value == to ? Config.controls.spinbox["atlimit"] : __config
+    readonly property var config: Config.controls.spinbox[__controlState] || {}
+    readonly property var downConfig: value == from ? Config.controls.spinbox["atlimit"] : config
+    readonly property var upConfig: value == to ? Config.controls.spinbox["atlimit"] : config
 
-    spacing: __config.contentItem.spacing || 0
-    leftPadding: ((!mirrored ? __config.leftPadding : __config.rightPadding) || 0) + (mirrored ? (up.indicator ? up.indicator.width * 2 : 0) : 0)
-    rightPadding: ((!mirrored ? __config.rightPadding : __config.leftPadding) || 0) + (!mirrored ? (up.indicator ? up.indicator.width * 2 : 0) : 0)
-    topPadding: __config.topPadding || 0
-    bottomPadding: __config?.bottomPadding || 0
+    spacing: config.contentItem.spacing || 0
+    leftPadding: ((!mirrored ? config.leftPadding : config.rightPadding) || 0) + (mirrored ? (up.indicator ? up.indicator.width * 2 : 0) : 0)
+    rightPadding: ((!mirrored ? config.rightPadding : config.leftPadding) || 0) + (!mirrored ? (up.indicator ? up.indicator.width * 2 : 0) : 0)
+    topPadding: config.topPadding || 0
+    bottomPadding: config?.bottomPadding || 0
 
-    topInset: -__config.topInset || 0
-    bottomInset: -__config.bottomInset || 0
-    leftInset: -__config.leftInset || 0
-    rightInset: -__config.rightInset || 0
+    topInset: -config.topInset || 0
+    bottomInset: -config.bottomInset || 0
+    leftInset: -config.leftInset || 0
+    rightInset: -config.rightInset || 0
 
     validator: IntValidator {
         locale: control.locale.name
@@ -60,45 +60,45 @@ T.SpinBox {
         inputMethodHints: control.inputMethodHints
     }
 
-    down.indicator: Impl.StyleImage {
+    down.indicator: StyleImage {
         x: !control.mirrored ? control.up.indicator ? (control.up.indicator.x - width) : 0
-                             : control.__config.rightPadding
+                             : control.config.rightPadding
         y: control.topPadding
         height: control.availableHeight
-        imageConfig: control.__downConfig.indicator_down_background
+        imageConfig: control.downConfig.indicator_down_background
 
-        Impl.StyleImage {
+        StyleImage {
             x: (parent.width - width) / 2
             y: (parent.height - height) / 2
-            imageConfig: control.__downConfig.indicator_down_icon
+            imageConfig: control.downConfig.indicator_down_icon
         }
     }
 
-    up.indicator: Impl.StyleImage {
-        x: control.mirrored ? control.__config.rightPadding + (control.down.indicator ? control.down.indicator.width : 0)
-                            : control.width - width - control.__config.rightPadding
+    up.indicator: StyleImage {
+        x: control.mirrored ? control.config.rightPadding + (control.down.indicator ? control.down.indicator.width : 0)
+                            : control.width - width - control.config.rightPadding
         y: control.topPadding
         height: control.availableHeight
-        imageConfig: control.__upConfig.indicator_up_background
+        imageConfig: control.upConfig.indicator_up_background
 
-        Impl.StyleImage {
+        StyleImage {
             x: (parent.width - width) / 2
             y: (parent.height - height) / 2
-            imageConfig: control.__upConfig.indicator_up_icon
+            imageConfig: control.upConfig.indicator_up_icon
         }
     }
 
-    background: Impl.StyleImage {
-        imageConfig: control.__config.background
+    background: StyleImage {
+        imageConfig: control.config.background
         Item {
             visible: control.activeFocus
             width: parent.width
             height: 2
             y: parent.height - height
-            Impl.FocusStroke {
+            FocusStroke {
                 width: parent.width
                 height: parent.height
-                radius: control.__config.background.bottomOffset
+                radius: control.config.background.bottomOffset
                 color: control.palette.accent
             }
         }

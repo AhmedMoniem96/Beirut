@@ -12,3 +12,13 @@ bar_tickets/
 *.db
 .DS_Store
 .idea/
+
+venv/
+__pycache__/
+beirut_pos/*.db
+beirut_pos/receipts/
+*.log
+dist/
+build/
+*.spec
+.env

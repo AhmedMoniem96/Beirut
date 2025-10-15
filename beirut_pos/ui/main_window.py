@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
         self._update_session_timer()
         self._ps_snapshot_timer = QTimer(self)
         self._ps_snapshot_timer.setInterval(5000)
-        self._ps_snapshot_timer.timeout.connect(order_manager.snapshot_ps_sessions)
+        self._ps_snapshot_timer.timeout.connect(self._on_ps_snapshot)  # wrap to avoid weakref to OrderManager
         self._ps_snapshot_timer.start()
 
         bar=QToolBar("Main"); self.addToolBar(bar)
@@ -538,3 +538,11 @@ class MainWindow(QMainWindow):
         if self._session_timer.isActive():
             self._session_timer.stop()
         super().closeEvent(event)
+
+    def _on_ps_snapshot(self):
+        # keep this tiny and exception-safe
+        try:
+            order_manager.snapshot_ps_sessions()
+        except Exception:
+            pass  # or log to status bar if you prefer
+

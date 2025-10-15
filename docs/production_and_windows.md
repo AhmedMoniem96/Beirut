@@ -39,7 +39,7 @@ This guide summarizes where the Beirut POS stands today, what still needs attent
 3. **Ship user-configurable assets alongside the EXE**
    * Place your café logo/background in the same directory as the executable or embed them via additional `--add-data` paths so the branding helper can load them at runtime.【F:beirut_pos/ui/common/branding.py†L19-L75】
 4. **First-run initialization**
-   * Launching the generated `BeirutPOS.exe` creates `%ProgramData%\\BeirutPOS` on Windows (or `~/.beirut_pos` when developing on Linux) with seeded data, config, backup, and license folders.【F:beirut_pos/core/paths.py†L1-L44】【F:beirut_pos/core/db.py†L160-L214】
+   * Launching the generated `BeirutPOS.exe` creates `%ProgramData%\\BeirutPOS` on Windows (or `~/.beirut_pos` when developing on Linux) with the SQLite database, settings JSON, and backup folders. The catalog starts empty and the activation dialog now expects a BEIRUT- prefixed voucher.【F:beirut_pos/core/paths.py†L1-L44】【F:beirut_pos/core/db.py†L160-L214】
 5. **Optional: create an installer**
    * Wrap the executable with tools like Inno Setup or MSIX if you need desktop shortcuts, auto-start entries, or automatic updates.
 

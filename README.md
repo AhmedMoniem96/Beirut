@@ -11,7 +11,7 @@ management, licensing, and hardened persistence that we iterated on across prior
   inline toast notifications, barista tips, coffee customiser, duplicate-line folding in receipts,
   session timers, and keyboard shortcuts for the busiest screens.
 - **Operations tooling** – table admin with drag-and-drop ordering, user creation with admin
-  verification, licensing guard rails, rich multi-tab reports (cashier, product movers,
+  verification, voucher activation guard rails, rich multi-tab reports (cashier, product movers,
   low-stock alerts, price history), and ProgramData-friendly backups with restore helpers.
 
 ## Storage layout
@@ -19,7 +19,7 @@ management, licensing, and hardened persistence that we iterated on across prior
   - `data\beirut_pos.db` → live SQLite database.
   - `config\settings.json` → JSON config/PRAGMA overrides.
   - `backup\YYYY-MM-DD\beirut_pos.db` → rolling 14-day backups.
-  - `license\license.sig.json` → cached activation key.
+  - Voucher activations are stored as hashed entries inside the SQLite `settings` table.
 - **Linux/macOS development** can override the root with `BEIRUTPOS_DATA_DIR`; otherwise files live under `~/.beirut_pos`.
 
 ## Exporting into a fresh repository
@@ -38,6 +38,8 @@ ZIP (or `--archive-format gztar` for a `.tar.gz`) alongside the exported folder.
 
 ## Documentation & packaging
 - [Activation & XP-58 printing guide](docs/activation-and-printing.md)
+- [Simple voucher activation](docs/activation-simple-vouchers.md)
+- [Catalog & order screen updates](docs/catalog-and-order-screen.md)
 - [Production hardening & Windows executable notes](docs/production_and_windows.md)
 
 Refer to those documents for deployment, licensing, printing, and packaging guidance.

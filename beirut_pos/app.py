@@ -7,12 +7,12 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from .core.db import init_db, maybe_run_integrity_check
-from .core.license import license_status
+from .core.simple_voucher import is_activated, status as voucher_status
 from .services.backup import ensure_daily_backup, latest_backup_path, restore_backup
 from .ui.common.branding import get_logo_icon
-from .ui.license_dialog import LicenseDialog
 from .ui.login_dialog import LoginDialog
 from .ui.main_window import MainWindow
+from .ui.voucher_dialog import VoucherDialog
 
 def _qt_excepthook(exctype, value, tb):
     # Show the exception instead of killing the app silently
@@ -66,14 +66,11 @@ def main():
                 )
                 sys.exit(0)
 
-    status = license_status()
-    if not status.valid:
-        gate = LicenseDialog(status, fatal=True)
+    if not is_activated():
+        gate = VoucherDialog(status=voucher_status(), fatal=True)
         if gate.exec() != gate.DialogCode.Accepted:
             sys.exit(0)
-        status = license_status()
-        if not status.valid:
-            # User closed the dialog without activating a valid license.
+        if not is_activated():
             sys.exit(0)
 
     login = LoginDialog()

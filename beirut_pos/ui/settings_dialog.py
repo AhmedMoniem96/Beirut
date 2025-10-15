@@ -7,12 +7,12 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from ..core.db import setting_get, setting_set, get_synchronous_mode, set_synchronous_mode
-from ..core.license import license_status
+from ..core.simple_voucher import deactivate, is_activated, status as voucher_status
 from ..core.bus import bus
 from .common.big_dialog import BigDialog
 from .common import branding
 from ..services.orders import order_manager, get_category_order, set_category_order
-from .license_dialog import LicenseDialog
+from .voucher_dialog import VoucherDialog
 import sys
 from pathlib import Path
 
@@ -68,19 +68,22 @@ class SettingsDialog(BigDialog):
         backup_widget.setLayout(backup_row)
         gen_f.addRow("النسخ الاحتياطي:", backup_widget)
 
-        license_row = QHBoxLayout()
-        license_row.setSpacing(12)
-        self.license_status = QLabel()
-        self.license_status.setWordWrap(True)
-        license_row.addWidget(self.license_status, 1)
-        license_btn = QPushButton("إدارة الترخيص…")
-        license_btn.clicked.connect(self._open_license_dialog)
-        license_row.addWidget(license_btn, 0)
-        license_widget = QWidget()
-        license_widget.setLayout(license_row)
-        gen_f.addRow("ترخيص النسخة:", license_widget)
+        voucher_row = QHBoxLayout()
+        voucher_row.setSpacing(12)
+        self.voucher_status = QLabel()
+        self.voucher_status.setWordWrap(True)
+        voucher_row.addWidget(self.voucher_status, 1)
+        self.btn_voucher_activate = QPushButton("إدخال رمز…")
+        self.btn_voucher_activate.clicked.connect(self._open_voucher_dialog)
+        voucher_row.addWidget(self.btn_voucher_activate, 0)
+        self.btn_voucher_deactivate = QPushButton("تعطيل")
+        self.btn_voucher_deactivate.clicked.connect(self._deactivate_voucher)
+        voucher_row.addWidget(self.btn_voucher_deactivate, 0)
+        voucher_widget = QWidget()
+        voucher_widget.setLayout(voucher_row)
+        gen_f.addRow("حالة التفعيل:", voucher_widget)
 
-        self._refresh_license_status()
+        self._refresh_voucher_status()
         tabs.addTab(gen, "عام")
 
         # --- Printers tab ---
@@ -301,23 +304,43 @@ class SettingsDialog(BigDialog):
         self.menu_button_text_color.setText(palette["menu_button_text_color"])
         self.menu_button_hover_color.setText(palette["menu_button_hover_color"])
 
-    def _refresh_license_status(self):
-        status = license_status()
-        if status.valid:
-            bits = ["✅ مفعل"]
-            holder = status.holder.strip()
-            if holder:
-                bits.append(f"لـ {holder}")
-            if status.expires_at:
-                bits.append(f"صالح حتى {status.expires_at}")
-            text = " — ".join(bits)
-            self.license_status.setStyleSheet("color: #A7F3D0; font-weight: 700;")
+    def _refresh_voucher_status(self):
+        status = voucher_status()
+        if status.get("activated"):
+            suffix = status.get("voucher_suffix")
+            activated_at = status.get("activated_at")
+            text = "✅ البرنامج مفعل."
+            if suffix:
+                text += f"\nرمز مفعل منتهي بـ {suffix}."
+            if activated_at:
+                text += f"\nآخر تفعيل: {activated_at}"
+            self.voucher_status.setStyleSheet("color: #A7F3D0; font-weight: 700;")
+            self.btn_voucher_activate.setEnabled(False)
+            self.btn_voucher_deactivate.setEnabled(True)
         else:
-            text = f"❌ {status.message}"
-            self.license_status.setStyleSheet("color: #FFB4A2; font-weight: 700;")
-        self.license_status.setText(text)
+            text = "❌ لم يتم تفعيل النسخة بعد."
+            self.voucher_status.setStyleSheet("color: #FFB4A2; font-weight: 700;")
+            self.btn_voucher_activate.setEnabled(True)
+            self.btn_voucher_deactivate.setEnabled(False)
+        self.voucher_status.setText(text)
 
-    def _open_license_dialog(self):
-        dlg = LicenseDialog(status=license_status(), fatal=False, parent=self)
+    def _open_voucher_dialog(self):
+        dlg = VoucherDialog(status=voucher_status(), fatal=False, parent=self)
         dlg.exec()
-        self._refresh_license_status()
+        self._refresh_voucher_status()
+
+    def _deactivate_voucher(self):
+        if not is_activated():
+            return
+        confirm = QMessageBox.question(
+            self,
+            "تعطيل التفعيل",
+            "سيتم تعطيل القسيمة الحالية، وستحتاج إلى إدخال رمز صالح قبل استخدام النظام مرة أخرى.\nهل أنت متأكد؟",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        deactivate()
+        QMessageBox.information(self, "تم", "تم تعطيل التفعيل الحالي.")
+        self._refresh_voucher_status()

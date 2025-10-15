@@ -23,7 +23,7 @@ from ..services.orders import order_manager, StockError
 from ..services.printer import printer
 from ..core.bus import bus
 from .login_dialog import LoginDialog
-from .admin_products_dialog import AdminProductsDialog
+from .catalog_manager_dialog import CatalogManagerDialog
 from .discount_dialog import DiscountDialog
 from .admin_users_dialog import AdminUsersDialog
 from .admin_reports_dialog import AdminReportsDialog
@@ -32,6 +32,8 @@ from .admin_reports_dialog import AdminReportsDialog
 from .settings_dialog import SettingsDialog
 from .zreport_dialog import ZReportDialog
 from .coffee_customizer import CoffeeCustomizerDialog
+from .product_option_dialog import ProductOptionDialog
+from .order_item_editor import OrderItemEditor
 from .common.branding import get_logo_pixmap, get_logo_icon, build_main_window_stylesheet
 from .common.barista_tips import random_tip
 from .admin_tables_dialog import AdminTablesDialog
@@ -44,6 +46,7 @@ class MainWindow(QMainWindow):
         self.user=current_user
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.resize(1440,900)
+        self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
         self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")  # cashier name on top
         self.setStyleSheet(build_main_window_stylesheet())
         icon = get_logo_icon(64)
@@ -102,8 +105,8 @@ class MainWindow(QMainWindow):
         container = QWidget()
         container.setObjectName("MainContainer")
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(32, 28, 32, 28)
-        container_layout.setSpacing(18)
+        container_layout.setContentsMargins(16, 16, 16, 16)
+        container_layout.setSpacing(12)
 
         self.banner = QFrame()
         self.banner.setObjectName("ToastBanner")
@@ -137,7 +140,7 @@ class MainWindow(QMainWindow):
         tv.addWidget(self.table_map,1)
 
         # Order page
-        order_page=QWidget(); order_page.setObjectName("OrderPage"); ov=QVBoxLayout(order_page)
+        order_page=QWidget(); order_page.setObjectName("OrderPage"); ov=QVBoxLayout(order_page); ov.setSpacing(12)
         head_row=QHBoxLayout()
         self.order_header=QLabel("طلب:")
         self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -164,8 +167,8 @@ class MainWindow(QMainWindow):
                                     on_switch_p2=lambda: self._ps_switch("P2"),
                                     on_switch_p4=lambda: self._ps_switch("P4"),
                                     on_stop=self._ps_stop)
-        row.addWidget(self.ps_controls,1); ov.addLayout(row,3)
-        self.order_list=OrderList(self._on_remove); ov.addWidget(self.order_list,2)
+        row.addWidget(self.ps_controls,1); ov.addLayout(row,2)
+        self.order_list=OrderList(self._on_remove, self._on_edit_item); self.order_list.list.setMinimumHeight(240); ov.addWidget(self.order_list,4)
         self.payment=PaymentPanel(self._on_pay, self._on_discount); ov.addWidget(self.payment,0)
 
         self.pages.addWidget(tables_page); self.pages.addWidget(order_page); self.pages.setCurrentIndex(PAGE_TABLES)
@@ -257,11 +260,7 @@ class MainWindow(QMainWindow):
         if self.user.role!="admin":
             self._show_banner("هذه العملية للمدير فقط.", "warn")
             return
-        cats=[c for c,_ in order_manager.categories]
-        AdminProductsDialog(cats,
-            on_add_category=lambda name: order_manager.catalog.add_category(name),
-            on_add_product=lambda cat,name,price: order_manager.catalog.add_product(cat,name,price,username=self.user.username),
-            current_admin=self.user.username).exec()
+        CatalogManagerDialog(actor=self.user.username, parent=self).exec()
 
     def _open_users(self):
         if self.user.role!="admin":
@@ -311,20 +310,35 @@ class MainWindow(QMainWindow):
         if not self.current_table:
             self._show_banner("اختر طاولة لإضافة الطلب.", "warn")
             return
-        prod = order_manager.catalog.get_product(label)
+        prod = order_manager.catalog.get_product_with_options(label)
         final_label = label
         final_price = price_cents
-        note = ""
+        notes: list[str] = []
+
+        if prod and prod.get("customizable") and prod.get("options"):
+            dlg = ProductOptionDialog(label, price_cents, prod["options"], self)
+            if dlg.exec() != dlg.DialogCode.Accepted:
+                return
+            selection = dlg.get_selection()
+            if not selection:
+                return
+            final_price = price_cents + selection["price_delta_cents"]
+            if selection["note"]:
+                notes.append(selection["note"])
+
         if prod and prod.get("category") in self._coffee_categories:
-            dlg = CoffeeCustomizerDialog(label, price_cents, self)
+            dlg = CoffeeCustomizerDialog(final_label, final_price, self)
             if dlg.exec() != dlg.DialogCode.Accepted:
                 return
             selection = dlg.get_result()
             if not selection:
                 return
             final_label = selection.label
-            final_price = price_cents + selection.price_delta
-            note = selection.note
+            final_price = final_price + selection.price_delta
+            if selection.note:
+                notes.append(selection.note)
+
+        note = "؛ ".join(n for n in notes if n)
         try:
             order_manager.add_item(
                 self.current_table,
@@ -345,6 +359,35 @@ class MainWindow(QMainWindow):
             self._show_banner("اختر طاولة لإزالة العناصر.", "warn")
             return
         order_manager.remove_item(self.current_table, index, username=self.user.username)
+        self.order_list.set_items(order_manager.get_items(self.current_table))
+        sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._refresh_print_buttons()
+
+    def _on_edit_item(self, index: int) -> None:
+        if not self.current_table:
+            self._show_banner("اختر طاولة لتعديل العناصر.", "warn")
+            return
+        items = order_manager.get_items(self.current_table)
+        if not (0 <= index < len(items)):
+            return
+        item = items[index]
+        editor = OrderItemEditor(item.product, item.qty, item.note, self)
+        if editor.exec() != editor.DialogCode.Accepted:
+            return
+        values = editor.get_values()
+        if not values:
+            return
+        try:
+            order_manager.update_item(
+                self.current_table,
+                index,
+                qty=values["qty"],
+                note=values["note"],
+                username=self.user.username,
+            )
+        except StockError as exc:
+            self._show_banner(str(exc), "error", duration=8000)
+            return
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
         self._refresh_print_buttons()

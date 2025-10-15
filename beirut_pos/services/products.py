@@ -1,4 +1,7 @@
+"""Product helpers that operate directly on SQLite rows."""
+
 from typing import Iterator, Optional, Sequence, Tuple
+
 from ..core.db import get_conn
 
 

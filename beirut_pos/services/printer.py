@@ -1,114 +1,249 @@
-# beirut_pos/services/printer.py
+"""Receipt and ticket printing via PDF files for XP-58 printers."""
+
+from __future__ import annotations
+
+import os
 import sys
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List, Optional
 
-from ..core.db import setting_get
+from reportlab.lib.pagesizes import portrait
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
+
 from ..core.bus import bus
+from ..core.db import setting_get
+from ..core.paths import DATA_DIR
 
-# ---- Set your Windows printer names EXACTLY as shown in Control Panel ----
-# Default fallback names; overridable via settings dialog
+try:  # pragma: no cover - optional Windows dependency
+    import win32api  # type: ignore
+except Exception:  # pragma: no cover - executed when pywin32 is missing
+    win32api = None
+
+
+_OUTPUT_ROOT = DATA_DIR / "prints"
+_RECEIPTS_DIR = _OUTPUT_ROOT / "receipts"
+_BAR_DIR = _OUTPUT_ROOT / "bar_tickets"
+_FONT_NAME = "Helvetica"
+_FONT_CANDIDATES = [
+    "arialuni.ttf",
+    "arial.ttf",
+    "segoeui.ttf",
+    "tahoma.ttf",
+    "times.ttf",
+    "dejavusans.ttf",
+    "NotoSans-Regular.ttf",
+    "Cairo-Regular.ttf",
+    "Amiri-Regular.ttf",
+]
+
 BAR_PRINTER_NAME = r"Your-Bar-Printer-Name"
 CASHIER_PRINTER_NAME = r"Your-Cashier-Printer-Name"
-# --------------------------------------------------------------------------
 
-def _is_windows() -> bool:
-    return sys.platform.startswith("win")
 
-def _safe_text(txt: str) -> str:
-    return txt.replace("\r\n", "\n").replace("\r", "\n")
+def _ensure_dirs() -> None:
+    for folder in (_OUTPUT_ROOT, _RECEIPTS_DIR, _BAR_DIR):
+        folder.mkdir(parents=True, exist_ok=True)
 
-# --- File fallback (always available) --------------------------------------
-class _FileFallback:
-    def __init__(self):
-        self.root = Path(__file__).resolve().parent.parent
-        (self.root / "receipts").mkdir(exist_ok=True)
-        (self.root / "bar_tickets").mkdir(exist_ok=True)
 
-    def write(self, folder: str, name: str, content: str):
+def _font_search_paths() -> List[Path]:
+    paths: List[Path] = []
+    if sys.platform.startswith("win"):
+        windir = Path(os.environ.get("WINDIR", r"C:\\Windows"))
+        paths.append(windir / "Fonts")
+    else:
+        paths.extend(
+            [
+                Path.home() / ".fonts",
+                Path("/usr/share/fonts"),
+                Path("/usr/local/share/fonts"),
+            ]
+        )
+    return [p for p in paths if p.exists()]
+
+
+def _register_font() -> None:
+    global _FONT_NAME
+    if "BeirutPOSFont" in pdfmetrics.getRegisteredFontNames():
+        _FONT_NAME = "BeirutPOSFont"
+        return
+
+    for folder in _font_search_paths():
+        for candidate in _FONT_CANDIDATES:
+            path = folder / candidate
+            if not path.exists():
+                continue
+            try:
+                pdfmetrics.registerFont(TTFont("BeirutPOSFont", str(path)))
+            except Exception:
+                continue
+            else:
+                _FONT_NAME = "BeirutPOSFont"
+                return
+
+
+def _sanitize_filename(value: str) -> str:
+    safe = [ch if ch.isalnum() else "-" for ch in value]
+    return "".join(safe).strip("-") or "ticket"
+
+
+def _collapse_items(items: Iterable) -> List[dict]:
+    grouped: OrderedDict[tuple, dict] = OrderedDict()
+    for it in items:
+        product = getattr(it, "product", str(it))
+        note = (getattr(it, "note", "") or "").strip()
         try:
-            p = self.root / folder / name
-            p.write_text(content, encoding="utf-8")
+            qty = float(getattr(it, "qty", 1))
+        except Exception:
+            qty = 1.0
+        unit_price = int(getattr(it, "unit_price_cents", 0))
+        try:
+            total_cents = int(getattr(it, "total_cents"))
+        except Exception:
+            total_cents = int(round(unit_price * qty))
+        key = (product, note, unit_price)
+        entry = grouped.get(key)
+        if entry is None:
+            grouped[key] = {
+                "product": product,
+                "note": note,
+                "qty": qty,
+                "unit_price": unit_price,
+                "total_cents": total_cents,
+            }
+        else:
+            entry["qty"] += qty
+            entry["total_cents"] += total_cents
+    return list(grouped.values())
+
+
+def _fmt_qty(qty: float) -> str:
+    if abs(qty - round(qty)) < 1e-6:
+        return str(int(round(qty)))
+    return f"{qty:g}"
+
+
+def _line_height() -> float:
+    return 14.0
+
+
+def _page_dimensions(line_count: int) -> tuple[float, float]:
+    width = 200  # ≈58mm roll width
+    base_height = 60
+    height = max(base_height, base_height + line_count * _line_height())
+    return portrait((width, height))
+
+
+def _render_pdf(title: str, lines: List[str], folder: Path, prefix: str) -> Path:
+    _ensure_dirs()
+    _register_font()
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    slug = _sanitize_filename(prefix)
+    target = folder / f"{timestamp}-{slug}.pdf"
+    width, height = _page_dimensions(len(lines) + 4)
+    canv = canvas.Canvas(str(target), pagesize=(width, height))
+    canv.setTitle(title)
+    canv.setAuthor("Beirut POS")
+    canv.setFont(_FONT_NAME, 11)
+
+    x = width - 12
+    y = height - 18
+    for line in lines:
+        canv.drawRightString(x, y, line)
+        y -= _line_height()
+    canv.showPage()
+    canv.save()
+    return target
+
+
+def _dispatch_pdf(pdf_path: Path, printer_name: Optional[str]) -> None:
+    if sys.platform.startswith("win"):
+        if printer_name and win32api is not None:
+            try:
+                win32api.ShellExecute(0, "printto", str(pdf_path), f'"{printer_name}"', ".", 0)
+                return
+            except Exception:
+                pass
+        try:
+            os.startfile(str(pdf_path), "print")  # type: ignore[attr-defined]
+            return
+        except Exception:
+            pass
+    else:
+        try:
+            import subprocess
+
+            subprocess.Popen(["lp", str(pdf_path)])
         except Exception:
             pass
 
-_FILE = _FileFallback()
-# ---------------------------------------------------------------------------
 
-def _print_windows_text(printer_name: str, text: str):
-    try:
-        import win32print
-        # choose exact printer or default
-        names = [p[2] for p in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
-        if printer_name not in names:
-            printer_name = win32print.GetDefaultPrinter()
-
-        handle = win32print.OpenPrinter(printer_name)
-        try:
-            job = win32print.StartDocPrinter(handle, 1, ("Receipt", None, "RAW"))
-            win32print.StartPagePrinter(handle)
-            win32print.WritePrinter(handle, _safe_text(text).encode("utf-8", errors="replace"))
-            win32print.EndPagePrinter(handle)
-            win32print.EndDocPrinter(handle)
-        finally:
-            win32print.ClosePrinter(handle)
-    except Exception as e:
-        # Fallback to file if Windows printing fails
-        _FILE.write("receipts", f"PRINT_ERROR_{datetime.now():%Y%m%d-%H%M%S}.txt", f"[{e}]\n{text}")
-
-def _print_text(printer_name: str, text: str, fallback_folder: str, fallback_basename: str):
-    if _is_windows():
-        _print_windows_text(printer_name, text)
-    else:
-        # On Linux/mac, just save to file (you can add CUPS here if needed)
-        _FILE.write(fallback_folder, f"{fallback_basename}.txt", text)
-
-def _format_bar_ticket(table_code: str, items) -> str:
+def _format_bar_lines(table_code: str, items: Iterable) -> List[str]:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [
-        "*** BAR TICKET ***",
-        f"TABLE #{table_code.upper()}  {ts}",
-        "-" * 30,
+        "تذكرة البار",
+        f"الطاولة: {table_code.upper()}",
+        f"التوقيت: {ts}",
+        "------------------------------",
     ]
-    for it in items:
-        lines.append(f"{it.qty} x {it.product}")
-        note = getattr(it, "note", "") or ""
+    for entry in _collapse_items(items):
+        lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
+        note = entry["note"]
         if note:
-            lines.append(f"   ملاحظة: {note}")
-    lines.append("-"*30)
-    return "\n".join(lines)
+            lines.append(f"ملاحظة: {note}")
+    lines.append("------------------------------")
+    return lines
 
-def _format_cashier_receipt(table_code: str, items, subtotal, discount, total, method, cashier) -> str:
+
+def _format_cashier_lines(
+    table_code: str,
+    items: Iterable,
+    subtotal: int,
+    discount: int,
+    total: int,
+    method: str,
+    cashier: str,
+) -> List[str]:
+    currency = setting_get("currency", "EGP") or "EGP"
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    lines = [f"*** CASHIER RECEIPT ***",
-             f"Table: {table_code}   Cashier: {cashier}",
-             f"Date: {ts}",
-             f"Method: {method}",
-             "-"*32]
-    for it in items:
-        lines.append(f"{it.qty} x {it.product}")
-        lines.append(f"   @ {it.unit_price_cents/100:.2f}  -> {it.total_cents/100:.2f} EGP")
-        note = getattr(it, "note", "") or ""
+    lines = [
+        "إيصال الكاشير",
+        f"الطاولة: {table_code} — الكاشير: {cashier}",
+        f"الوقت: {ts}",
+        f"طريقة الدفع: {method}",
+        "------------------------------",
+    ]
+    for entry in _collapse_items(items):
+        lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
+        lines.append(
+            f"   @ {entry['unit_price']/100:.2f} {currency} → {entry['total_cents']/100:.2f} {currency}"
+        )
+        note = entry["note"]
         if note:
-            lines.append(f"   ملاحظة: {note}")
-    lines += ["-"*32,
-              f"Subtotal: {subtotal/100:.2f} EGP",
-              f"Discount: {discount/100:.2f} EGP",
-              f"TOTAL:    {total/100:.2f} EGP",
-              "-"*32, "شكراً لزيارتكم"]
-    return "\n".join(lines)
+            lines.append(f"ملاحظة: {note}")
+    lines.extend(
+        [
+            "------------------------------",
+            f"الإجمالي قبل الخصم: {subtotal/100:.2f} {currency}",
+            f"الخصم: {discount/100:.2f} {currency}",
+            f"الإجمالي المستحق: {total/100:.2f} {currency}",
+            "شكراً لزيارتكم",
+        ]
+    )
+    return lines
+
 
 class PrinterService:
-    """
-    Dual-printer support:
-      - Configurable printer names stored in the settings table.
-      - Falls back to writing files so printing failures never crash the POS.
-    """
+    """Render receipts to PDFs and forward them to the configured printers."""
 
     __slots__ = ("bar_printer", "cashier_printer")
 
     def __init__(self) -> None:
+        _ensure_dirs()
+        _register_font()
         self.bar_printer = BAR_PRINTER_NAME
         self.cashier_printer = CASHIER_PRINTER_NAME
         self.reload_from_settings()
@@ -121,33 +256,38 @@ class PrinterService:
         if cash:
             self.cashier_printer = cash
 
-    def update_printers(self, bar: str | None, cashier: str | None) -> None:
+    def update_printers(self, bar: Optional[str], cashier: Optional[str]) -> None:
         if bar is not None:
             self.bar_printer = bar.strip() or BAR_PRINTER_NAME
         if cashier is not None:
             self.cashier_printer = cashier.strip() or CASHIER_PRINTER_NAME
 
-    def print_bar_ticket(self, table_code: str, items: Iterable):
-        # Only bar-prepared items (heuristic)
-        keywords = ("drinks","smoothies","coffee","shesha","cocktail","soda","fresh","hot")
-        bar_items = [it for it in items if any(k in it.product.lower() for k in keywords)]
-        if not bar_items:
-            return
-        txt = _format_bar_ticket(table_code, bar_items)
-        # Print and file-copy
-        _print_text(self.bar_printer or BAR_PRINTER_NAME, txt, "bar_tickets", f"{datetime.now():%Y%m%d}-{table_code}")
-        _FILE.write("bar_tickets", f"{datetime.now():%Y%m%d}-{table_code}.txt", txt)
+    def print_bar_ticket(self, table_code: str, items: Iterable) -> Path:
+        lines = _format_bar_lines(table_code, items)
+        pdf_path = _render_pdf("Bar Ticket", lines, _BAR_DIR, f"bar-{table_code}")
+        _dispatch_pdf(pdf_path, self.bar_printer)
+        return pdf_path
 
-    def print_cashier_receipt(self, table_code: str, items, subtotal, discount, total, method, cashier):
-        txt = _format_cashier_receipt(table_code, items, subtotal, discount, total, method, cashier)
-        # Print and file-copy
-        _print_text(self.cashier_printer or CASHIER_PRINTER_NAME, txt, "receipts", f"{datetime.now():%Y%m%d}-{table_code}")
-        _FILE.write("receipts", f"{datetime.now():%Y%m%d}-{table_code}.txt", txt)
+    def print_cashier_receipt(
+        self,
+        table_code: str,
+        items: Iterable,
+        subtotal: int,
+        discount: int,
+        total: int,
+        method: str,
+        cashier: str,
+    ) -> Path:
+        lines = _format_cashier_lines(table_code, items, subtotal, discount, total, method, cashier)
+        pdf_path = _render_pdf("Cashier Receipt", lines, _RECEIPTS_DIR, f"cashier-{table_code}")
+        _dispatch_pdf(pdf_path, self.cashier_printer)
+        return pdf_path
+
 
 printer = PrinterService()
 
 
-def _apply_printer_settings(bar: str | None, cashier: str | None) -> None:
+def _apply_printer_settings(bar: Optional[str], cashier: Optional[str]) -> None:
     printer.update_printers(bar, cashier)
 
 

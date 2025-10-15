@@ -1,7 +1,9 @@
+"""Lightweight event bus with weak references for bound methods."""
+
+import weakref
 from collections import defaultdict
 from types import MethodType
 from typing import Callable, DefaultDict, List, Union
-import weakref
 
 
 class EventBus:

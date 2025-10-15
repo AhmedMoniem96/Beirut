@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.log
+.env
+venv/
+*.spec
+dist/
+build/
+receipts/
+bar_tickets/
+*.db
+.DS_Store
+.idea/

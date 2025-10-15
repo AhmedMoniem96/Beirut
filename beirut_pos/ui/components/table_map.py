@@ -89,7 +89,7 @@ class TableMap(QWidget):
         self.tiles = {}
         self._current = None
         self._external_select_cb = on_select
-        self._table_codes = table_codes
+        self._table_codes = []
         self._last_cols = -1  # cache to avoid redundant relayouts
 
         self.grid = QGridLayout(self)
@@ -97,13 +97,7 @@ class TableMap(QWidget):
         self.grid.setHorizontalSpacing(14)
         self.grid.setVerticalSpacing(14)
         self.grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
-
-        for code in table_codes:
-            t = TableTile(code, self._on_click)
-            t.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            self.tiles[code] = t
-
-        self._relayout(force=True)
+        self.set_table_codes(table_codes, reset_selection=True)
 
     # <<< THIS WAS MISSING
     def _on_click(self, code: str):
@@ -116,6 +110,33 @@ class TableMap(QWidget):
         if self._current and self._current in self.tiles:
             self.tiles[self._current].set_checked(False)
         self._current = None
+
+    def set_table_codes(self, codes, reset_selection: bool = False):
+        cleaned = [str(code).strip().upper() for code in codes if str(code).strip()]
+        cleaned = [code for i, code in enumerate(cleaned) if code not in cleaned[:i]]
+        if not cleaned:
+            cleaned = []
+        if cleaned == self._table_codes:
+            return
+
+        # remove tiles no longer present
+        current_set = set(self.tiles)
+        new_set = set(cleaned)
+        for code in current_set - new_set:
+            widget = self.tiles.pop(code)
+            widget.setParent(None)
+            widget.deleteLater()
+
+        for code in cleaned:
+            if code not in self.tiles:
+                tile = TableTile(code, self._on_click)
+                tile.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+                self.tiles[code] = tile
+
+        self._table_codes = cleaned
+        if reset_selection or (self._current and self._current not in cleaned):
+            self.clear_selection()
+        self._relayout(force=True)
 
     def update_table(self, code, state: str = None, total_cents: int = None, ps_active: bool = None):
         t = self.tiles.get(code)

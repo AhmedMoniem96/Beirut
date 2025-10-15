@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from .core.db import init_db, maybe_run_integrity_check
-from .core.simple_voucher import activation_status, is_activated
+from .core.simple_voucher import is_activated, status as voucher_status
 from .services.backup import ensure_daily_backup, latest_backup_path, restore_backup
 from .ui.common.branding import get_logo_icon
 from .ui.login_dialog import LoginDialog
@@ -67,7 +67,7 @@ def main():
                 sys.exit(0)
 
     if not is_activated():
-        gate = VoucherDialog(status=activation_status(), fatal=True)
+        gate = VoucherDialog(status=voucher_status(), fatal=True)
         if gate.exec() != gate.DialogCode.Accepted:
             sys.exit(0)
         if not is_activated():

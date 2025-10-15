@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import random
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -19,22 +18,14 @@ _PAYLOAD_LEN = 12  # three blocks of four characters
 _ACTIVATED_KEY = "voucher_activated"
 _ACTIVATED_AT_KEY = "voucher_activated_at"
 _HASH_KEY = "voucher_hash"
-
-
-@dataclass(slots=True)
-class VoucherStatus:
-    activated: bool
-    message: str
-    activated_at: str | None = None
+_SUFFIX_KEY = "voucher_suffix"
+_MIGRATED_KEY = "voucher_migrated"
 
 
 def _normalize(code: str) -> str:
     if not code:
         return ""
-    cleaned = "".join(ch for ch in code.upper() if ch.isalnum())
-    if not cleaned.startswith(_PREFIX):
-        return cleaned
-    return cleaned
+    return "".join(ch for ch in code.upper() if ch.isalnum())
 
 
 def _payload_and_check(normalized: str) -> tuple[str, str]:
@@ -43,8 +34,7 @@ def _payload_and_check(normalized: str) -> tuple[str, str]:
     body = normalized[len(_PREFIX) :]
     if len(body) != _PAYLOAD_LEN + 1:
         return "", ""
-    payload, check_char = body[:-1], body[-1]
-    return payload, check_char
+    return body[:-1], body[-1]
 
 
 def _luhn_mod_n(payload: str) -> str:
@@ -70,20 +60,7 @@ def _format(payload: str, check: str) -> str:
     return "-".join([_PREFIX, *groups, check])
 
 
-def is_valid(code: str) -> bool:
-    normalized = _normalize(code)
-    if len(normalized) != len(_PREFIX) + _PAYLOAD_LEN + 1:
-        return False
-    payload, check_char = _payload_and_check(normalized)
-    if not payload or not check_char:
-        return False
-    expected = _luhn_mod_n(payload)
-    return expected == check_char
-
-
 def normalize_for_storage(code: str) -> str:
-    """Return the canonical uppercase string without hyphens."""
-
     normalized = _normalize(code)
     if len(normalized) != len(_PREFIX) + _PAYLOAD_LEN + 1:
         return ""
@@ -98,8 +75,19 @@ def format_voucher(code: str) -> str:
     return _format(payload, check_char)
 
 
+def is_valid(code: str) -> bool:
+    normalized = normalize_for_storage(code)
+    if not normalized:
+        return False
+    payload, check_char = _payload_and_check(normalized)
+    if not payload or not check_char:
+        return False
+    return _luhn_mod_n(payload) == check_char
+
+
 def _hash_voucher(normalized: str) -> str:
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{normalized}:beirut".encode("utf-8")).hexdigest()
+    return digest[:16]
 
 
 def _clear_legacy_license_cache() -> None:
@@ -121,47 +109,58 @@ def _clear_legacy_license_cache() -> None:
 
 
 def ensure_migrated() -> None:
-    """Ensure legacy license values are cleared once after upgrade."""
-
-    migrated = setting_get("voucher_migrated", "0") == "1"
-    if migrated:
+    if setting_get(_MIGRATED_KEY, "0") == "1":
         return
     _clear_legacy_license_cache()
-    setting_set("voucher_migrated", "1")
+    setting_set(_MIGRATED_KEY, "1")
 
 
-def activation_status() -> VoucherStatus:
+def _status_dict(activated: bool, activated_at: str | None, suffix: str | None) -> dict:
+    return {
+        "activated": activated,
+        "activated_at": activated_at,
+        "voucher_suffix": suffix,
+    }
+
+
+def status() -> dict:
     ensure_migrated()
     active = setting_get(_ACTIVATED_KEY, "0") == "1"
     if not active:
-        return VoucherStatus(False, "❌ لم يتم تفعيل النسخة بعد.")
-    activated_at = setting_get(_ACTIVATED_AT_KEY, "") or None
-    return VoucherStatus(True, "✅ البرنامج مفعل بقسيمة صالحة.", activated_at)
+        return _status_dict(False, None, None)
+    return _status_dict(
+        True,
+        setting_get(_ACTIVATED_AT_KEY, "") or None,
+        setting_get(_SUFFIX_KEY, "") or None,
+    )
 
 
 def is_activated() -> bool:
-    return activation_status().activated
+    return status()["activated"]
 
 
-def activate(code: str) -> VoucherStatus:
+def activate(voucher: str) -> tuple[bool, str]:
     ensure_migrated()
-    normalized = normalize_for_storage(code)
-    if not is_valid(code) or not normalized:
-        return VoucherStatus(False, "❌ رمز القسيمة غير صالح. تأكد من كتابته بالشكل الصحيح.")
+    normalized = normalize_for_storage(voucher)
+    if not normalized or not is_valid(normalized):
+        return False, "❌ رمز القسيمة غير صالح. تأكد من كتابته بالشكل الصحيح."
 
-    payload_hash = _hash_voucher(normalized)
-    setting_set(_HASH_KEY, payload_hash)
-    setting_set(_ACTIVATED_KEY, "1")
+    hash_value = _hash_voucher(normalized)
     activated_at = datetime.now(timezone.utc).isoformat()
+    suffix = normalized[-4:]
+
+    setting_set(_HASH_KEY, hash_value)
+    setting_set(_ACTIVATED_KEY, "1")
     setting_set(_ACTIVATED_AT_KEY, activated_at)
-    return VoucherStatus(True, "✅ تم تفعيل البرنامج بنجاح.", activated_at)
+    setting_set(_SUFFIX_KEY, suffix)
+    return True, "✅ تم تفعيل البرنامج بنجاح."
 
 
-def deactivate() -> VoucherStatus:
+def deactivate() -> None:
     setting_set(_HASH_KEY, "")
     setting_set(_ACTIVATED_KEY, "0")
     setting_set(_ACTIVATED_AT_KEY, "")
-    return VoucherStatus(False, "تم تعطيل التفعيل الحالي.")
+    setting_set(_SUFFIX_KEY, "")
 
 
 def generate_payload() -> str:

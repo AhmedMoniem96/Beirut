@@ -144,8 +144,10 @@ class ProductCatalog:
         out: List[Tuple[str, List[Tuple[str, int, int, Optional[float]]]]] = []
         for cat in cat_rows:
             cur.execute(
-                "SELECT name, price_cents, track_stock, stock_qty FROM products "
-                "WHERE category_id=? ORDER BY order_index, id",
+                """SELECT name, price_cents, track_stock, stock_qty
+                       FROM products
+                       WHERE category_id=?
+                       ORDER BY order_index, id""",
                 (cat["id"],),
             )
             items = [
@@ -175,8 +177,10 @@ class ProductCatalog:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            """SELECT id, name, price_cents, track_stock, stock_qty, min_stock, order_index
-               FROM products WHERE category_id=? ORDER BY order_index, id""",
+            """SELECT id, name, price_cents, customizable, track_stock, stock_qty, min_stock, order_index
+                   FROM products
+                   WHERE category_id=?
+                   ORDER BY order_index, id""",
             (category_id,),
         )
         rows = [
@@ -184,6 +188,7 @@ class ProductCatalog:
                 "id": row["id"],
                 "name": row["name"],
                 "price_cents": int(row["price_cents"]),
+                "customizable": int(row["customizable"]),
                 "track_stock": int(row["track_stock"]),
                 "stock_qty": row["stock_qty"],
                 "min_stock": row["min_stock"],
@@ -193,6 +198,28 @@ class ProductCatalog:
         ]
         conn.close()
         return rows
+
+    def list_options(self, product_id: int) -> list[dict]:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT id, label, price_delta_cents, order_index
+                   FROM product_options
+                   WHERE product_id=?
+                   ORDER BY order_index, id""",
+            (product_id,),
+        )
+        options = [
+            {
+                "id": row["id"],
+                "label": row["label"],
+                "price_delta_cents": int(row["price_delta_cents"]),
+                "order_index": int(row["order_index"] or 0),
+            }
+            for row in cur.fetchall()
+        ]
+        conn.close()
+        return options
 
     def create_category(self, name: str, *, username: str = "admin") -> dict:
         cleaned = (name or "").strip()
@@ -215,7 +242,7 @@ class ProductCatalog:
         bus.emit("catalog_changed")
         return {"id": category_id, "name": cleaned, "order_index": next_idx}
 
-    def add_category(self, name: str, *, username: str = "admin"):
+    def add_category(self, name: str, *, username: str = "admin") -> None:
         try:
             self.create_category(name, username=username)
         except ValueError:
@@ -286,7 +313,8 @@ class ProductCatalog:
         price_cents: int,
         *,
         username: str = "admin",
-        track_stock: int = 1,
+        customizable: int = 0,
+        track_stock: int = 0,
         stock_qty: Optional[float] = 0,
         min_stock: Optional[float] = 0,
     ) -> dict:
@@ -296,6 +324,7 @@ class ProductCatalog:
         if price_cents <= 0:
             raise ValueError("السعر غير صالح")
         track = 1 if track_stock else 0
+        custom_flag = 1 if customizable else 0
         qty_value = float(stock_qty) if stock_qty is not None else 0.0
         min_value = float(min_stock) if min_stock is not None else 0.0
         with db_transaction() as conn:
@@ -320,9 +349,9 @@ class ProductCatalog:
             qty_sql = qty_value if track else None
             min_sql = min_value if track else 0.0
             cur.execute(
-                """INSERT INTO products(category_id,name,price_cents,stock_qty,min_stock,track_stock,order_index)
-                       VALUES(?,?,?,?,?,?,?)""",
-                (category_id, cleaned, price_cents, qty_sql, min_sql, track, next_idx),
+                """INSERT INTO products(category_id,name,price_cents,customizable,track_stock,stock_qty,min_stock,order_index)
+                       VALUES(?,?,?,?,?,?,?,?)""",
+                (category_id, cleaned, price_cents, custom_flag, track, qty_sql, min_sql, next_idx),
             )
             product_id = cur.lastrowid
         log_action(
@@ -339,6 +368,7 @@ class ProductCatalog:
             "category_id": category_id,
             "name": cleaned,
             "price_cents": price_cents,
+            "customizable": custom_flag,
             "track_stock": track,
             "stock_qty": qty_sql,
             "min_stock": min_sql,
@@ -352,10 +382,11 @@ class ProductCatalog:
         price_cents: int,
         username: str = "admin",
         *,
-        track_stock: int = 1,
+        customizable: int = 0,
+        track_stock: int = 0,
         stock_qty: Optional[float] = 0,
         min_stock: Optional[float] = 0,
-    ):
+    ) -> None:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("SELECT id FROM categories WHERE name=?", (category,))
@@ -371,6 +402,7 @@ class ProductCatalog:
             label,
             price_cents,
             username=username,
+            customizable=customizable,
             track_stock=track_stock,
             stock_qty=stock_qty,
             min_stock=min_stock,
@@ -382,6 +414,7 @@ class ProductCatalog:
         *,
         name: str | None = None,
         price_cents: int | None = None,
+        customizable: int | None = None,
         track_stock: int | None = None,
         stock_qty: Optional[float] | None = None,
         min_stock: Optional[float] | None = None,
@@ -390,8 +423,8 @@ class ProductCatalog:
         with db_transaction() as conn:
             cur = conn.cursor()
             cur.execute(
-                """SELECT name, price_cents, track_stock, stock_qty, min_stock, category_id
-                   FROM products WHERE id=?""",
+                """SELECT name, price_cents, customizable, track_stock, stock_qty, min_stock, category_id
+                       FROM products WHERE id=?""",
                 (product_id,),
             )
             row = cur.fetchone()
@@ -399,6 +432,7 @@ class ProductCatalog:
                 return False
             old_name = row["name"]
             old_price = int(row["price_cents"])
+            old_custom = int(row["customizable"])
             category_id = row["category_id"]
             cur.execute("SELECT name FROM categories WHERE id=?", (category_id,))
             cat_row = cur.fetchone()
@@ -407,9 +441,12 @@ class ProductCatalog:
             if not new_name:
                 raise ValueError("اسم المنتج مطلوب")
             new_price = old_price if price_cents is None else int(price_cents)
+            new_custom = old_custom if customizable is None else int(customizable)
+            if new_custom not in (0, 1):
+                new_custom = old_custom
             new_track = int(row["track_stock"]) if track_stock is None else int(track_stock)
             if new_track not in (0, 1):
-                new_track = 1
+                new_track = int(row["track_stock"])
             qty_value = row["stock_qty"]
             min_value = row["min_stock"]
             if stock_qty is not None:
@@ -419,29 +456,32 @@ class ProductCatalog:
             qty_sql = qty_value if new_track else None
             min_sql = min_value if new_track else 0.0
             cur.execute(
-                """UPDATE products SET name=?, price_cents=?, track_stock=?, stock_qty=?, min_stock=?
+                """UPDATE products
+                       SET name=?, price_cents=?, customizable=?, track_stock=?, stock_qty=?, min_stock=?
                        WHERE id=?""",
-                (new_name, new_price, new_track, qty_sql, min_sql, product_id),
+                (new_name, new_price, new_custom, new_track, qty_sql, min_sql, product_id),
             )
-        if old_name != new_name or old_price != new_price:
+            if new_custom == 0:
+                cur.execute("DELETE FROM product_options WHERE product_id=?", (product_id,))
+        if old_name != new_name or old_price != new_price or old_custom != new_custom:
             log_action(
                 username,
                 "update_product",
                 "product",
                 f"{category_name}/{old_name}" if category_name else old_name,
-                f"{old_name}:{old_price}",
-                f"{new_name}:{new_price}",
+                f"{old_name}:{old_price}:{old_custom}",
+                f"{new_name}:{new_price}:{new_custom}",
             )
         bus.emit("catalog_changed")
         return True
 
-    def update_product_price(self, category: str, label: str, new_price_cents: int, username: str):
+    def update_product_price(self, category: str, label: str, new_price_cents: int, username: str) -> bool:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
             """SELECT p.id FROM products p
-               JOIN categories c ON c.id=p.category_id
-               WHERE c.name=? AND p.name=?""",
+                   JOIN categories c ON c.id=p.category_id
+                   WHERE c.name=? AND p.name=?""",
             (category, label),
         )
         row = cur.fetchone()
@@ -498,15 +538,165 @@ class ProductCatalog:
                 cur.execute("UPDATE products SET order_index=? WHERE id=?", (idx, pid))
         bus.emit("catalog_changed")
 
+    def reorder_options(self, product_id: int, ordered_ids: list[int]) -> None:
+        with db_transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM product_options WHERE product_id=? ORDER BY order_index, id",
+                (product_id,),
+            )
+            current = [row["id"] for row in cur.fetchall()]
+            allowed = set(current)
+            cleaned = [oid for oid in ordered_ids if oid in allowed]
+            for oid in current:
+                if oid not in cleaned:
+                    cleaned.append(oid)
+            for idx, oid in enumerate(cleaned):
+                cur.execute("UPDATE product_options SET order_index=? WHERE id=?", (idx, oid))
+        bus.emit("catalog_changed")
+
+    def create_option(
+        self,
+        product_id: int,
+        label: str,
+        price_delta_cents: int,
+        *,
+        username: str = "admin",
+    ) -> dict:
+        cleaned = (label or "").strip()
+        if not cleaned:
+            raise ValueError("اسم الخيار مطلوب")
+        with db_transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT p.name, c.name as category FROM products p JOIN categories c ON c.id=p.category_id WHERE p.id=?",
+                (product_id,),
+            )
+            prod_row = cur.fetchone()
+            if not prod_row:
+                raise ValueError("المنتج غير موجود")
+            cur.execute(
+                "SELECT 1 FROM product_options WHERE product_id=? AND label=?",
+                (product_id, cleaned),
+            )
+            if cur.fetchone():
+                raise ValueError("الخيار موجود بالفعل")
+            cur.execute(
+                "SELECT COALESCE(MAX(order_index), -1) FROM product_options WHERE product_id=?",
+                (product_id,),
+            )
+            max_row = cur.fetchone()
+            next_idx = int(max_row[0]) + 1 if max_row and max_row[0] is not None else 0
+            cur.execute(
+                """INSERT INTO product_options(product_id,label,price_delta_cents,order_index)
+                       VALUES(?,?,?,?)""",
+                (product_id, cleaned, int(price_delta_cents), next_idx),
+            )
+            option_id = cur.lastrowid
+        log_action(
+            username,
+            "add_option",
+            "product_option",
+            f"{prod_row['category']}/{prod_row['name']}",
+            None,
+            f"{cleaned}:{price_delta_cents}",
+        )
+        bus.emit("catalog_changed")
+        return {
+            "id": option_id,
+            "label": cleaned,
+            "price_delta_cents": int(price_delta_cents),
+            "order_index": next_idx,
+        }
+
+    def update_option(
+        self,
+        option_id: int,
+        *,
+        label: str,
+        price_delta_cents: int,
+        username: str = "admin",
+    ) -> bool:
+        cleaned = (label or "").strip()
+        if not cleaned:
+            raise ValueError("اسم الخيار مطلوب")
+        with db_transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT o.product_id, o.label, o.price_delta_cents, p.name, c.name as category
+                       FROM product_options o
+                       JOIN products p ON p.id=o.product_id
+                       JOIN categories c ON c.id=p.category_id
+                       WHERE o.id=?""",
+                (option_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
+            cur.execute(
+                "SELECT 1 FROM product_options WHERE product_id=? AND label=? AND id<>?",
+                (row["product_id"], cleaned, option_id),
+            )
+            if cur.fetchone():
+                raise ValueError("الخيار موجود بالفعل")
+            cur.execute(
+                "UPDATE product_options SET label=?, price_delta_cents=? WHERE id=?",
+                (cleaned, int(price_delta_cents), option_id),
+            )
+        log_action(
+            username,
+            "update_option",
+            "product_option",
+            f"{row['category']}/{row['name']}",
+            f"{row['label']}:{row['price_delta_cents']}",
+            f"{cleaned}:{price_delta_cents}",
+        )
+        bus.emit("catalog_changed")
+        return True
+
+    def delete_option(self, option_id: int, *, username: str = "admin") -> bool:
+        with db_transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT o.product_id, o.label, p.name, c.name as category
+                       FROM product_options o
+                       JOIN products p ON p.id=o.product_id
+                       JOIN categories c ON c.id=p.category_id
+                       WHERE o.id=?""",
+                (option_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
+            product_id = row["product_id"]
+            cur.execute("DELETE FROM product_options WHERE id=?", (option_id,))
+            cur.execute(
+                "SELECT id FROM product_options WHERE product_id=? ORDER BY order_index, id",
+                (product_id,),
+            )
+            remaining = [r["id"] for r in cur.fetchall()]
+            for idx, oid in enumerate(remaining):
+                cur.execute("UPDATE product_options SET order_index=? WHERE id=?", (idx, oid))
+        log_action(
+            username,
+            "delete_option",
+            "product_option",
+            f"{row['category']}/{row['name']}",
+            row["label"],
+            None,
+        )
+        bus.emit("catalog_changed")
+        return True
+
     def get_product(self, name: str) -> Optional[dict]:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            """SELECT p.id, p.name, p.price_cents, p.track_stock, p.stock_qty, p.min_stock, p.order_index,
+            """SELECT p.id, p.name, p.price_cents, p.customizable, p.track_stock, p.stock_qty, p.min_stock, p.order_index,
                        c.name as category
-               FROM products p
-               JOIN categories c ON c.id = p.category_id
-               WHERE p.name=?""",
+                   FROM products p
+                   JOIN categories c ON c.id = p.category_id
+                   WHERE p.name=?""",
             (name,),
         )
         row = cur.fetchone()
@@ -517,11 +707,53 @@ class ProductCatalog:
             "id": row["id"],
             "name": row["name"],
             "price_cents": int(row["price_cents"]),
+            "customizable": int(row["customizable"]),
             "track_stock": int(row["track_stock"]),
             "stock_qty": row["stock_qty"],
             "min_stock": row["min_stock"],
             "order_index": int(row["order_index"] or 0),
             "category": row["category"],
+        }
+
+    def get_product_with_options(self, name: str) -> Optional[dict]:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT p.id, p.name, p.price_cents, p.customizable, p.track_stock, p.stock_qty, p.min_stock,
+                       c.name as category
+                   FROM products p
+                   JOIN categories c ON c.id=p.category_id
+                   WHERE p.name=?""",
+            (name,),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return None
+        cur.execute(
+            "SELECT id, label, price_delta_cents, order_index FROM product_options WHERE product_id=? ORDER BY order_index, id",
+            (row["id"],),
+        )
+        options = [
+            {
+                "id": opt["id"],
+                "label": opt["label"],
+                "price_delta_cents": int(opt["price_delta_cents"]),
+                "order_index": int(opt["order_index"] or 0),
+            }
+            for opt in cur.fetchall()
+        ]
+        conn.close()
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "price_cents": int(row["price_cents"]),
+            "customizable": int(row["customizable"]),
+            "track_stock": int(row["track_stock"]),
+            "stock_qty": row["stock_qty"],
+            "min_stock": row["min_stock"],
+            "category": row["category"],
+            "options": options,
         }
 
     def _fetch_stock_state(self, cur, label: str) -> Optional[StockState]:
@@ -539,7 +771,6 @@ class ProductCatalog:
         )
 
     def dec_stock(self, label: str, qty: float = 1.0, conn=None) -> Optional[StockState]:
-        """Decrement tracked items and return the new stock/min_stock."""
         own_conn = conn is None
         if own_conn:
             conn = get_conn()
@@ -556,7 +787,6 @@ class ProductCatalog:
         return state
 
     def inc_stock(self, label: str, qty: float = 1.0, conn=None) -> Optional[StockState]:
-        """Return stock when removing a line, for tracked items."""
         own_conn = conn is None
         if own_conn:
             conn = get_conn()
@@ -575,7 +805,9 @@ class ProductCatalog:
     def get_low_stock(self) -> List[Tuple[str, Optional[float], Optional[float]]]:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT name, stock_qty, min_stock FROM products WHERE track_stock=1 AND stock_qty <= min_stock")
+        cur.execute(
+            "SELECT name, stock_qty, min_stock FROM products WHERE track_stock=1 AND stock_qty <= min_stock"
+        )
         res = [
             (
                 r["name"],
@@ -593,8 +825,8 @@ class ProductCatalog:
         cur = conn.cursor()
         cur.execute(
             """SELECT p.price_cents FROM products p
-               JOIN categories c ON c.id = p.category_id
-               WHERE c.name=? ORDER BY p.order_index, p.id LIMIT 1""",
+                   JOIN categories c ON c.id = p.category_id
+                   WHERE c.name=? ORDER BY p.order_index, p.id LIMIT 1""",
             (cat,),
         )
         row = cur.fetchone()
@@ -608,6 +840,7 @@ class OrderItem:
     unit_price_cents: int
     qty: float = 1
     note: str = ""
+    row_id: int | None = None
 
     @property
     def total_cents(self) -> int:
@@ -659,7 +892,7 @@ class OrderManager:
         for o in cur.fetchall():
             order = Order(id=o["id"], table_code=o["table_code"], status=o["status"], opened_by=o["opened_by"])
             cur.execute(
-                "SELECT product_name, price_cents, qty, note FROM order_items WHERE order_id=?",
+                "SELECT id, product_name, price_cents, qty, note FROM order_items WHERE order_id=?",
                 (order.id,),
             )
             order.items = [
@@ -668,6 +901,7 @@ class OrderManager:
                     unit_price_cents=r["price_cents"],
                     qty=r["qty"],
                     note=r["note"] or "",
+                    row_id=r["id"],
                 )
                 for r in cur.fetchall()
             ]
@@ -788,20 +1022,24 @@ class OrderManager:
                 order, created = self._ensure_db_order_tx(conn, table_code, opened_by=cashier)
                 state = self.catalog.dec_stock(product, qty, conn=conn)
                 _check_state(state)
-                order.items.append(OrderItem(product, price_cents, qty, note=note))
-                conn.execute(
+                cursor = conn.execute(
                     "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
                     (order.id, product, price_cents, qty, note),
+                )
+                order.items.append(
+                    OrderItem(product, price_cents, qty, note=note, row_id=cursor.lastrowid)
                 )
             if created:
                 bus.emit("table_state_changed", table_code, "occupied")
         else:
             with db_transaction() as conn:
                 order, created = self._ensure_db_order_tx(conn, table_code, opened_by=cashier)
-                order.items.append(OrderItem(product, price_cents, qty, note=note))
-                conn.execute(
+                cursor = conn.execute(
                     "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
                     (order.id, product, price_cents, qty, note),
+                )
+                order.items.append(
+                    OrderItem(product, price_cents, qty, note=note, row_id=cursor.lastrowid)
                 )
             if created:
                 bus.emit("table_state_changed", table_code, "occupied")
@@ -849,14 +1087,17 @@ class OrderManager:
                         and before <= min_stock < new_stock
                     ):
                         recovery_event = (item.product, before, new_stock, min_stock)
-                conn.execute(
-                    """DELETE FROM order_items WHERE id IN (
-                         SELECT id FROM order_items
-                         WHERE order_id=? AND product_name=? AND price_cents=? AND qty=? AND COALESCE(note,'')=?
-                         LIMIT 1
-                       )""",
-                    (order.id, item.product, item.unit_price_cents, item.qty, item.note or ""),
-                )
+                if item.row_id is not None:
+                    conn.execute("DELETE FROM order_items WHERE id=?", (item.row_id,))
+                else:
+                    conn.execute(
+                        """DELETE FROM order_items WHERE id IN (
+                             SELECT id FROM order_items
+                             WHERE order_id=? AND product_name=? AND price_cents=? AND qty=? AND COALESCE(note,'')=?
+                             LIMIT 1
+                           )""",
+                        (order.id, item.product, item.unit_price_cents, item.qty, item.note or ""),
+                    )
 
             if refresh_catalog:
                 bus.emit("catalog_changed")
@@ -872,6 +1113,115 @@ class OrderManager:
                     str(new_stock),
                 )
             bus.emit("table_total_changed", table_code, order.total_cents)
+
+    def update_item(
+        self,
+        table_code: str,
+        index: int,
+        *,
+        qty: float | None = None,
+        note: str | None = None,
+        username: str = "system",
+    ) -> bool:
+        order = self.orders.get(table_code)
+        if not order or not (0 <= index < len(order.items)):
+            return False
+        item = order.items[index]
+        new_qty = float(qty) if qty is not None else float(item.qty)
+        if new_qty <= 0:
+            self.remove_item(table_code, index, username=username)
+            return True
+        new_note = (note.strip() if isinstance(note, str) else item.note).strip()
+        if abs(new_qty - item.qty) < 1e-6 and new_note == item.note:
+            return True
+
+        prod = self.catalog.get_product(item.product)
+        track = prod and prod["track_stock"] == 1
+        before_stock = None
+        if track:
+            stock_val = prod.get("stock_qty") if prod else None
+            before_stock = float(stock_val) if stock_val is not None else 0.0
+
+        delta_qty = new_qty - item.qty
+        low_stock_event = None
+        recovery_event = None
+        refresh_catalog = False
+
+        with db_transaction() as conn:
+            if track and delta_qty > 0:
+                available = before_stock if before_stock is not None else 0.0
+                if available < delta_qty - 1e-6:
+                    raise StockError(f"المنتج '{item.product}' غير متوفر بالكمية المطلوبة")
+                state = self.catalog.dec_stock(item.product, delta_qty, conn=conn)
+                new_stock = state[0] if state else None
+                min_stock = state[1] if state else None
+                if new_stock is not None and (before_stock or 0) > 0 and new_stock <= 0:
+                    refresh_catalog = True
+                if (
+                    new_stock is not None
+                    and min_stock is not None
+                    and (before_stock is not None and before_stock >= min_stock)
+                    and new_stock <= min_stock
+                ):
+                    low_stock_event = (item.product, before_stock, new_stock, min_stock)
+            elif track and delta_qty < 0:
+                state = self.catalog.inc_stock(item.product, -delta_qty, conn=conn)
+                new_stock = state[0] if state else None
+                min_stock = state[1] if state else None
+                if before_stock is not None and before_stock <= 0 and new_stock is not None and new_stock > 0:
+                    refresh_catalog = True
+                if (
+                    before_stock is not None
+                    and new_stock is not None
+                    and min_stock is not None
+                    and before_stock <= min_stock < new_stock
+                ):
+                    recovery_event = (item.product, before_stock, new_stock, min_stock)
+
+            if item.row_id is not None:
+                conn.execute(
+                    "UPDATE order_items SET qty=?, note=? WHERE id=?",
+                    (new_qty, new_note, item.row_id),
+                )
+            else:
+                conn.execute(
+                    """UPDATE order_items SET qty=?, note=? WHERE id IN (
+                           SELECT id FROM order_items
+                           WHERE order_id=? AND product_name=? AND price_cents=?
+                                 AND qty=? AND COALESCE(note,'')=?
+                           LIMIT 1
+                       )""",
+                    (new_qty, new_note, order.id, item.product, item.unit_price_cents, item.qty, item.note or ""),
+                )
+            item.qty = new_qty
+            item.note = new_note
+
+        if refresh_catalog:
+            bus.emit("catalog_changed")
+        if low_stock_event:
+            prod_name, before, after, threshold = low_stock_event
+            bus.emit("inventory_low", prod_name, before, after, threshold)
+            log_action(
+                username,
+                "inventory_low",
+                "product",
+                prod_name,
+                str(before),
+                str(after),
+            )
+        if recovery_event:
+            prod_name, before, after, threshold = recovery_event
+            bus.emit("inventory_recovered", prod_name, before, after, threshold)
+            log_action(
+                username,
+                "inventory_recovered",
+                "product",
+                prod_name,
+                str(before),
+                str(after),
+            )
+        bus.emit("table_total_changed", table_code, order.total_cents)
+        return True
 
     def get_items(self, table_code: str):
         o = self.orders.get(table_code)

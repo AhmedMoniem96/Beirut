@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from ..core.db import setting_get, setting_set, get_synchronous_mode, set_synchronous_mode
-from ..core.simple_voucher import activation_status, deactivate, is_activated
+from ..core.simple_voucher import deactivate, is_activated, status as voucher_status
 from ..core.bus import bus
 from .common.big_dialog import BigDialog
 from .common import branding
@@ -305,23 +305,27 @@ class SettingsDialog(BigDialog):
         self.menu_button_hover_color.setText(palette["menu_button_hover_color"])
 
     def _refresh_voucher_status(self):
-        status = activation_status()
-        if status.activated:
-            text = status.message
-            if status.activated_at:
-                text += f"\nآخر تفعيل: {status.activated_at}"
+        status = voucher_status()
+        if status.get("activated"):
+            suffix = status.get("voucher_suffix")
+            activated_at = status.get("activated_at")
+            text = "✅ البرنامج مفعل."
+            if suffix:
+                text += f"\nرمز مفعل منتهي بـ {suffix}."
+            if activated_at:
+                text += f"\nآخر تفعيل: {activated_at}"
             self.voucher_status.setStyleSheet("color: #A7F3D0; font-weight: 700;")
             self.btn_voucher_activate.setEnabled(False)
             self.btn_voucher_deactivate.setEnabled(True)
         else:
-            text = status.message
+            text = "❌ لم يتم تفعيل النسخة بعد."
             self.voucher_status.setStyleSheet("color: #FFB4A2; font-weight: 700;")
             self.btn_voucher_activate.setEnabled(True)
             self.btn_voucher_deactivate.setEnabled(False)
         self.voucher_status.setText(text)
 
     def _open_voucher_dialog(self):
-        dlg = VoucherDialog(status=activation_status(), fatal=False, parent=self)
+        dlg = VoucherDialog(status=voucher_status(), fatal=False, parent=self)
         dlg.exec()
         self._refresh_voucher_status()
 

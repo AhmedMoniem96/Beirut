@@ -122,12 +122,24 @@ def init_db() -> None:
                 category_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 price_cents INTEGER NOT NULL,
+                customizable INTEGER NOT NULL DEFAULT 0,
+                track_stock INTEGER NOT NULL DEFAULT 0,
                 stock_qty REAL DEFAULT 0,
                 min_stock REAL DEFAULT 0,
-                track_stock INTEGER NOT NULL DEFAULT 1,
                 order_index INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY(category_id) REFERENCES categories(id),
                 UNIQUE(category_id, name)
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS product_options(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                label TEXT NOT NULL,
+                price_delta_cents INTEGER NOT NULL DEFAULT 0,
+                order_index INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(product_id, label),
+                FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
             )"""
     )
     cur.execute(
@@ -204,7 +216,8 @@ def init_db() -> None:
             )"""
     )
 
-    _ensure_inventory_columns(cur)
+    _ensure_product_columns(cur)
+    _ensure_product_options_table(cur)
     _ensure_catalog_order_columns(cur)
     _ensure_default_settings(cur)
 
@@ -217,15 +230,44 @@ def init_db() -> None:
     conn.close()
 
 
-def _ensure_inventory_columns(cur) -> None:
+def _ensure_product_columns(cur) -> None:
     cur.execute("PRAGMA table_info(products)")
     cols = {row[1] for row in cur.fetchall()}
+    if "customizable" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN customizable INTEGER NOT NULL DEFAULT 0")
+    if "track_stock" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN track_stock INTEGER NOT NULL DEFAULT 0")
     if "stock_qty" not in cols:
         cur.execute("ALTER TABLE products ADD COLUMN stock_qty REAL DEFAULT 0")
     if "min_stock" not in cols:
         cur.execute("ALTER TABLE products ADD COLUMN min_stock REAL DEFAULT 0")
-    if "track_stock" not in cols:
-        cur.execute("ALTER TABLE products ADD COLUMN track_stock INTEGER NOT NULL DEFAULT 1")
+    if "order_index" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0")
+        cur.execute("SELECT id, category_id FROM products ORDER BY category_id, id")
+        rows = cur.fetchall()
+        current_cat = None
+        idx = 0
+        for row in rows:
+            cat_id = row["category_id"]
+            if cat_id != current_cat:
+                current_cat = cat_id
+                idx = 0
+            cur.execute("UPDATE products SET order_index=? WHERE id=?", (idx, row["id"]))
+            idx += 1
+
+
+def _ensure_product_options_table(cur) -> None:
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS product_options(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                label TEXT NOT NULL,
+                price_delta_cents INTEGER NOT NULL DEFAULT 0,
+                order_index INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(product_id, label),
+                FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+            )"""
+    )
 
 
 def _ensure_catalog_order_columns(cur) -> None:
@@ -280,6 +322,7 @@ def _ensure_default_settings(cur) -> None:
         "voucher_activated": "0",
         "voucher_activated_at": "",
         "voucher_hash": "",
+        "voucher_suffix": "",
         "voucher_migrated": "0",
     }
     for key, value in defaults.items():

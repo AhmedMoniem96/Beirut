@@ -3,7 +3,6 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -13,13 +12,13 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..core.simple_voucher import VoucherStatus, activate, activation_status, format_voucher
+from ..core.simple_voucher import activate, format_voucher, status as voucher_status
 
 
 class VoucherDialog(QDialog):
     """Prompt the operator to enter a voucher code to unlock the POS."""
 
-    def __init__(self, status: VoucherStatus | None = None, *, fatal: bool = False, parent=None):
+    def __init__(self, status: dict | None = None, *, fatal: bool = False, parent=None):
         super().__init__(parent)
         self.setWindowTitle("تفعيل البرنامج")
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
@@ -61,7 +60,7 @@ class VoucherDialog(QDialog):
 
         root.addLayout(btn_row)
 
-        self._update_status(status or activation_status())
+        self._update_status(status or voucher_status())
 
         if fatal:
             self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
@@ -69,30 +68,36 @@ class VoucherDialog(QDialog):
 
     def _attempt_activate(self):
         code = self.input.text().strip()
-        status = activate(code)
+        ok, message = activate(code)
         formatted = format_voucher(code)
         self.input.setText(formatted)
-        self._update_status(status)
-        if status.activated:
-            QMessageBox.information(self, "تم", status.message)
+        current = voucher_status()
+        self._update_status(current)
+        if ok:
+            QMessageBox.information(self, "تم", message)
             self.accept()
         else:
-            QMessageBox.warning(self, "فشل", status.message)
+            QMessageBox.warning(self, "فشل", message)
             self.input.selectAll()
             self.input.setFocus()
 
-    def _update_status(self, status: VoucherStatus):
-        self.status_label.setText(status.message)
-        if status.activated:
+    def _update_status(self, status: dict):
+        active = status.get("activated", False)
+        if active:
+            suffix = status.get("voucher_suffix")
+            activated_at = status.get("activated_at")
+            message = "✅ البرنامج مفعل." 
+            if suffix:
+                message += f"\nرمز مفعل منتهي بـ {suffix}."
+            if activated_at:
+                message += f"\nآخر تفعيل: {activated_at}"
+            self.status_label.setText(message)
             self.status_label.setStyleSheet("color: #16a34a; font-weight: 600;")
-            if status.activated_at:
-                self.status_label.setText(
-                    f"{status.message}\nآخر تفعيل: {status.activated_at}"
-                )
             self.btn_activate.setEnabled(False)
             self.input.setEnabled(False)
             self.btn_close.setText("متابعة")
         else:
+            self.status_label.setText("❌ لم يتم تفعيل النسخة بعد.")
             self.status_label.setStyleSheet("color: #dc2626; font-weight: 600;")
             self.btn_activate.setEnabled(True)
             self.input.setEnabled(True)

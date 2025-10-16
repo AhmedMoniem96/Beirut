@@ -1,5 +1,5 @@
-PyQt6==6.6.1
-PyQt6-Qt6==6.6.0
-PyQt6-sip>=13.6,<14
+PyQt6==6.5.2
+PyQt6-Qt6==6.5.2
+PyQt6-sip>=13.5,<14
 SQLAlchemy==2.0.23
 reportlab==4.0.7

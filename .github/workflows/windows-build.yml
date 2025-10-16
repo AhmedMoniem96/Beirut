@@ -17,17 +17,32 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies (from requirements.txt only)
+      - name: Install dependencies (pin PyQt6/Qt6 6.5.2)
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          if (Test-Path requirements.txt) {
-            pip install -r requirements.txt
-          } else {
-            echo "requirements.txt not found. Installing minimal deps..."
-            pip install PyQt6 SQLAlchemy reportlab
-          }
-          pip install pyinstaller pyinstaller-hooks-contrib
+          # remove any stray preinstalls to avoid mixing Qt DLLs
+          pip uninstall -y PyQt6 PyQt6-Qt6 PyQt6-sip 2>$null | Out-Null
+
+          # install your pinned runtime
+          pip install --no-cache-dir --only-binary=:all: `
+            PyQt6==6.5.2 PyQt6-Qt6==6.5.2 "PyQt6-sip>=13.5,<14"
+
+          # install the rest from requirements.txt (keeps the same pins)
+          pip install --no-cache-dir -r requirements.txt
+
+          # build toolchain
+          pip install --no-cache-dir pyinstaller pyinstaller-hooks-contrib
+
+      - name: Show PyQt/Qt versions (sanity)
+        shell: pwsh
+        run: |
+          python - << 'PY'
+          import PyQt6, sys
+          from PyQt6.QtCore import QT_VERSION_STR
+          print("PyQt6:", PyQt6.__version__)
+          print("Qt6:  ", QT_VERSION_STR)
+          PY
 
       - name: Clean previous build artifacts/spec
         shell: pwsh
@@ -40,7 +55,7 @@ jobs:
         run: |
           if (-not (Test-Path "assets")) { New-Item -ItemType Directory "assets" | Out-Null }
 
-      - name: Build EXE with PyInstaller
+      - name: Build EXE with PyInstaller (bundle all Qt bits)
         shell: pwsh
         run: |
           $args = @(
@@ -50,18 +65,17 @@ jobs:
             "--noconsole",
             "--clean",
 
-            # Bring *all* Qt libs/plugins to avoid DLL mismatch issues
+            # bring every PyQt6/Qt6 lib & plugin to avoid DLL mismatches
             "--collect-all","PyQt6",
             "--collect-all","PyQt6.Qt6",
 
-            # Dynamic imports safety
+            # dynamic imports safety
             "--collect-submodules","beirut_pos",
             "--collect-submodules","sqlalchemy",
 
-            # (optional) sqlite3 extras if your app uses sqlite
+            # if you use sqlite, this ensures its extension DLLs are included
             "--collect-all","sqlite3"
           )
-
           if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
           if (Test-Path "assets")         { $args += @("--add-data","assets;assets") }
 

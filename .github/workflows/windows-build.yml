@@ -1,11 +1,3 @@
-name: Build (Windows)
-
-on:
-  workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
-
 jobs:
   win-build:
     runs-on: windows-latest
@@ -25,6 +17,18 @@ jobs:
           if (Test-Path requirements.txt) { pip install -r requirements.txt }
           pip install pyinstaller pyinstaller-hooks-contrib PyQt6
 
+      - name: Clean old spec (avoid stale datas)
+        shell: pwsh
+        run: |
+          if (Test-Path "BeirutPOS.spec") { Remove-Item "BeirutPOS.spec" -Force }
+
+      - name: Ensure assets folder (optional)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "assets")) {
+            New-Item -ItemType Directory "assets" | Out-Null
+          }
+
       - name: Build EXE with PyInstaller
         shell: pwsh
         run: |
@@ -33,10 +37,19 @@ jobs:
             "--name","BeirutPOS",
             "--onefile",
             "--noconsole",
-            "--clean",
-            "--add-data","assets;assets"
+            "--clean"
           )
-          if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
+
+          # add icon only if it exists
+          if (Test-Path "assets/app.ico") {
+            $args += @("--icon","assets/app.ico")
+          }
+
+          # add assets only if the folder exists (we ensured/created it above)
+          if (Test-Path "assets") {
+            $args += @("--add-data","assets;assets")
+          }
+
           python -m PyInstaller @args
 
       - name: Upload artifact

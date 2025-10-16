@@ -41,15 +41,16 @@ jobs:
         shell: pwsh
         run: |
           $args = @(
-            "beirut_pos/__main__.py",
+            "launcher.py",                  # <<< use the launcher
             "--name","BeirutPOS",
             "--onefile",
             "--noconsole",
             "--clean"
           )
           if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
-          if (Test-Path "assets") { $args += @("--add-data","assets;assets") }
+          if (Test-Path "assets")         { $args += @("--add-data","assets;assets") }
           python -m PyInstaller @args
+      
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

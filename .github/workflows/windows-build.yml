@@ -3,8 +3,7 @@ name: Build (Windows)
 on:
   workflow_dispatch: {}
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 jobs:
   win-build:
@@ -18,18 +17,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Install dependencies (from requirements.txt only)
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          if (Test-Path requirements.txt) { pip install -r requirements.txt }
-          # ensure base deps even if requirements.txt missing
-          pip install pyinstaller pyinstaller-hooks-contrib PyQt6 SQLAlchemy==2.0.23 reportlab==4.0.7
+          if (Test-Path requirements.txt) {
+            pip install -r requirements.txt
+          } else {
+            echo "requirements.txt not found. Installing minimal deps..."
+            pip install PyQt6 SQLAlchemy reportlab
+          }
+          pip install pyinstaller pyinstaller-hooks-contrib
 
-      - name: Clean old spec
+      - name: Clean previous build artifacts/spec
         shell: pwsh
         run: |
           if (Test-Path "BeirutPOS.spec") { Remove-Item "BeirutPOS.spec" -Force }
+          Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
 
       - name: Ensure assets folder (track even if empty)
         shell: pwsh
@@ -45,13 +49,19 @@ jobs:
             "--onefile",
             "--noconsole",
             "--clean",
-            # pull ALL PyQt6 plugins (platforms, imageformats, etc.)
+
+            # Bring *all* Qt libs/plugins to avoid DLL mismatch issues
             "--collect-all","PyQt6",
-            # SA dialect discovery
+            "--collect-all","PyQt6.Qt6",
+
+            # Dynamic imports safety
+            "--collect-submodules","beirut_pos",
             "--collect-submodules","sqlalchemy",
-            # your package (in case of dynamic imports)
-            "--collect-submodules","beirut_pos"
+
+            # (optional) sqlite3 extras if your app uses sqlite
+            "--collect-all","sqlite3"
           )
+
           if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
           if (Test-Path "assets")         { $args += @("--add-data","assets;assets") }
 

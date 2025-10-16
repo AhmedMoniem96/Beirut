@@ -1,10 +1,10 @@
 name: Build (Windows)
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 jobs:
   win-build:
@@ -16,33 +16,27 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          # You can keep 3.13.x; PyInstaller supports it.
           python-version: '3.13'
 
       - name: Install dependencies
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pyinstaller-hooks-contrib pyqt6
-
-      - name: Prepare ICON env var (optional)
-        shell: pwsh
-        run: |
-          $iconPath = "assets/app.ico"   # adjust if your .ico path differs
-          if (Test-Path $iconPath) { $env:ICON = $iconPath } else { $env:ICON = "" }
-          "ICON=$($env:ICON)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          if (Test-Path requirements.txt) { pip install -r requirements.txt }
+          pip install pyinstaller pyinstaller-hooks-contrib PyQt6
 
       - name: Build EXE with PyInstaller
         shell: pwsh
         run: |
           $args = @(
-            "beirut_pos/__main__.py",      # <-- change to your entry point
-            "--name","BeirutPOS",          # output exe name
+            "beirut_pos/__main__.py",
+            "--name","BeirutPOS",
             "--onefile",
             "--noconsole",
-            "--clean"
+            "--clean",
+            "--add-data","assets;assets"
           )
-          if ($env:ICON) { $args += @("--icon",$env:ICON) }
+          if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
           python -m PyInstaller @args
 
       - name: Upload artifact
@@ -50,3 +44,9 @@ jobs:
         with:
           name: BeirutPOS-win
           path: dist/BeirutPOS.exe
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/BeirutPOS.exe

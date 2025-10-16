@@ -1,4 +1,4 @@
-#!/home/ahmed-moniem/Desktop/Beirut/venv/bin/python3
+#!/home/ahmed-moniem/Desktop/Beirut/venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys

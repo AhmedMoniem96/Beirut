@@ -10,6 +10,8 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtCore import Qt
 
 from beirut_pos.core.db import setting_get
+from beirut_pos.utils.paths import resource_path
+
 
 _FALLBACK_BG = "#160D08"
 _FALLBACK_SURFACE = "#23140C"
@@ -28,27 +30,52 @@ def _quote_path(path: Path) -> str:
     return str(path).replace("\\", "/").replace("\"", r"\"")
 
 
+def _first_existing(*candidates: str) -> Optional[Path]:
+    """Return the first candidate path that exists (supports PyInstaller via resource_path)."""
+    for rel in candidates:
+        p = Path(resource_path(rel))
+        if p.exists() and p.is_file():
+            return p
+    return None
+
+
 @lru_cache(maxsize=1)
 def _resolve_logo_path() -> Optional[Path]:
-    path = setting_get("logo_path", "").strip()
-    if not path:
-        return None
-    p = Path(path)
-    if not p.exists() or not p.is_file():
-        return None
-    return p
+    # 1) user-configured (DB setting)
+    cfg = setting_get("logo_path", "").strip()
+    if cfg:
+        p = Path(cfg)
+        if p.exists() and p.is_file():
+            return p
 
-
+    # 2) bundled fallbacks (inside the EXE via --add-data "assets;assets")
+    # try .ico first (best for Windows), then png/jpg
+    return _first_existing(
+        "assets/app.ico",
+        "assets/logo.ico",
+        "assets/app.png",
+        "assets/logo.png",
+        "assets/app.jpg",
+        "assets/logo.jpg",
+    )
 @lru_cache(maxsize=1)
 def _resolve_background_path() -> Optional[Path]:
-    path = setting_get("background_path", "").strip()
-    if not path:
-        return None
-    p = Path(path)
-    if not p.exists() or not p.is_file():
-        return None
-    return p
+    # 1) user-configured
+    cfg = setting_get("background_path", "").strip()
+    if cfg:
+        p = Path(cfg)
+        if p.exists() and p.is_file():
+            return p
 
+    # 2) bundled fallbacks
+    return _first_existing(
+        "assets/login_bg.jpg",
+        "assets/login_bg.png",
+        "assets/bg.jpg",
+        "assets/bg.png",
+        "assets/background.jpg",
+        "assets/background.png",
+    )
 
 @lru_cache(maxsize=1)
 def _load_raw_logo() -> Optional[QPixmap]:

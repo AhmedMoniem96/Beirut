@@ -2,10 +2,8 @@
 
 import os, sys, traceback, datetime
 
-# Force safe Qt defaults (pre-GUI)
+# Safe Qt defaults (software rendering, Windows platform)
 os.environ.setdefault("QT_OPENGL", "software")
-os.environ.setdefault("QT_ANGLE_PLATFORM", "swiftshader")
-os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-software-rasterizer")
 os.environ.setdefault("QT_QPA_PLATFORM", "windows")
 os.environ.setdefault("QT_SCALE_FACTOR_ROUNDING_POLICY", "PassThrough")
 
@@ -26,6 +24,7 @@ def _write_crash(prefix: str, exc: BaseException | None = None) -> None:
 
 try:
     from PyQt6.QtCore import QCoreApplication, Qt
+    # must be set BEFORE QApplication is created
     QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL, True)
 except Exception as e:
     _write_crash("pre-qt", e)

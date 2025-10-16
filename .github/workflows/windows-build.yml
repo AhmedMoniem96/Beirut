@@ -1,3 +1,11 @@
+name: Build (Windows)
+
+on:
+  workflow_dispatch: {}        # ← allows manual runs from the Actions tab
+  push:
+    tags:
+      - 'v*'                   # optional: builds on tag push (e.g., v1.0.0)
+
 jobs:
   win-build:
     runs-on: windows-latest
@@ -39,17 +47,8 @@ jobs:
             "--noconsole",
             "--clean"
           )
-
-          # add icon only if it exists
-          if (Test-Path "assets/app.ico") {
-            $args += @("--icon","assets/app.ico")
-          }
-
-          # add assets only if the folder exists (we ensured/created it above)
-          if (Test-Path "assets") {
-            $args += @("--add-data","assets;assets")
-          }
-
+          if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
+          if (Test-Path "assets") { $args += @("--add-data","assets;assets") }
           python -m PyInstaller @args
 
       - name: Upload artifact

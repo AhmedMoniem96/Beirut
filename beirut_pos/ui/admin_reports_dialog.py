@@ -496,7 +496,9 @@ class AdminReportsDialog(BigDialog):
             table.setRowCount(0)
 
     def _money(self, cents: int) -> str:
-        return f"{cents/100:,.2f} {self.currency}"
+        from ..core.money import cents_to_le, fmt_le
+
+        return fmt_le(cents_to_le(cents))
 
     def _format_qty(self, qty) -> str:
         try:

@@ -1,108 +1,109 @@
-# beirut_pos/services/reports.py
+"""Daily summary helpers for Beirut POS."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Dict, List
+
 from ..core.db import get_conn
+from ..core.money import cents_to_le, fmt_le, to_le
 
-def z_report(iso_date: str):
-    """
-    Daily totals for ISO date 'YYYY-MM-DD'.
 
-    Discounts are derived as:
-      discount = max( sum(price_cents*qty) - sum(payments.amount_cents) , 0 )
-    for each paid order that day, then summed.
-    """
-    start = f"{iso_date}T00:00:00"
-    end   = f"{iso_date}T23:59:59"
-    conn = get_conn(); c = conn.cursor()
+@dataclass(slots=True)
+class PaymentBreakdown:
+    method: str
+    amount_le: Decimal
 
-    # 1) totals by payment method
-    by_method_rows = c.execute("""
-      SELECT method, SUM(amount_cents) AS amt
-      FROM payments
-      WHERE paid_at BETWEEN ? AND ?
-      GROUP BY method
-    """, (start, end)).fetchall()
-    by_method = [(r["method"], int(r["amt"] or 0)) for r in by_method_rows]
-    total_rev = sum(amt for _, amt in by_method)
 
-    # 2) count paid orders for the day
-    orders_count = c.execute("""
-      SELECT COUNT(*) AS cnt
-      FROM orders
-      WHERE status='paid' AND closed_at BETWEEN ? AND ?
-    """, (start, end)).fetchone()["cnt"] or 0
-    orders_count = int(orders_count)
+@dataclass(slots=True)
+class EndOfDaySummary:
+    day: date
+    total_sales: Decimal
+    refunds: Decimal
+    cash_in_drawer: Decimal
+    total_purchases: Decimal
+    by_method: List[PaymentBreakdown]
 
-    # 3) sum derived discounts for those paid orders
-    # subtotal_cents uses ROUND() to avoid float artifacts from qty REAL
-    total_disc_row = c.execute("""
-      WITH paid_orders AS (
-        SELECT id
-        FROM orders
-        WHERE status='paid' AND closed_at BETWEEN ? AND ?
-      ),
-      subtotals AS (
-        SELECT oi.order_id,
-               CAST(ROUND(SUM(oi.price_cents * oi.qty)) AS INTEGER) AS subtotal_cents
-        FROM order_items oi
-        WHERE oi.order_id IN (SELECT id FROM paid_orders)
-        GROUP BY oi.order_id
-      ),
-      paid AS (
-        SELECT p.order_id,
-               CAST(SUM(p.amount_cents) AS INTEGER) AS paid_cents
-        FROM payments p
-        WHERE p.order_id IN (SELECT id FROM paid_orders)
-        GROUP BY p.order_id
-      )
-      SELECT CAST(SUM(
-               CASE
-                 WHEN COALESCE(s.subtotal_cents,0) > COALESCE(p.paid_cents,0)
-                 THEN COALESCE(s.subtotal_cents,0) - COALESCE(p.paid_cents,0)
-                 ELSE 0
-               END
-             ) AS INTEGER) AS total_disc
-      FROM paid_orders o
-      LEFT JOIN subtotals s ON s.order_id=o.id
-      LEFT JOIN paid      p ON p.order_id=o.id
-    """, (start, end)).fetchone()
-    total_disc = int(total_disc_row["total_disc"] or 0)
+    def as_dict(self) -> Dict[str, str]:
+        return {
+            "day": self.day.isoformat(),
+            "total_sales": fmt_le(self.total_sales),
+            "refunds": fmt_le(self.refunds),
+            "cash_in_drawer": fmt_le(self.cash_in_drawer),
+            "total_purchases": fmt_le(self.total_purchases),
+            "by_method": [
+                {"method": b.method, "amount": fmt_le(b.amount_le)} for b in self.by_method
+            ],
+        }
 
-    # 4) PS items count (heuristic: product contains 'PS ')
-    ps_items_count = c.execute("""
-      SELECT COUNT(*) AS cnt
-      FROM order_items
-      WHERE order_id IN (
-        SELECT id FROM orders WHERE status='paid' AND closed_at BETWEEN ? AND ?
-      )
-      AND (product_name LIKE 'PS %' OR product_name LIKE '% PS %')
-    """, (start, end)).fetchone()["cnt"] or 0
-    ps_items_count = int(ps_items_count)
+
+def _range_for_day(day: date) -> tuple[str, str]:
+    start = datetime.combine(day, datetime.min.time()).isoformat()
+    end = datetime.combine(day, datetime.max.time()).isoformat()
+    return start, end
+
+
+def load_end_of_day(day: date | None = None) -> EndOfDaySummary:
+    target = day or date.today()
+    start, end = _range_for_day(target)
+    conn = get_conn()
+    cur = conn.cursor()
+
+    by_method_rows = cur.execute(
+        """
+        SELECT method, SUM(amount_cents) AS amt
+        FROM payments
+        WHERE paid_at BETWEEN ? AND ?
+        GROUP BY method
+        ORDER BY method
+        """,
+        (start, end),
+    ).fetchall()
+
+    by_method = [
+        PaymentBreakdown(method=row["method"], amount_le=cents_to_le(row["amt"]))
+        for row in by_method_rows
+    ]
+    total_sales = sum((entry.amount_le for entry in by_method), Decimal("0"))
+
+    cash_row = cur.execute(
+        """
+        SELECT SUM(amount_cents) AS cash_total
+        FROM payments
+        WHERE method='cash' AND paid_at BETWEEN ? AND ?
+        """,
+        (start, end),
+    ).fetchone()
+    cash_in_drawer = cents_to_le(cash_row["cash_total"] or 0)
+
+    # Refunds currently tracked as negative cash payments
+    refunds_row = cur.execute(
+        """
+        SELECT SUM(amount_cents) AS refund_total
+        FROM payments
+        WHERE amount_cents < 0 AND paid_at BETWEEN ? AND ?
+        """,
+        (start, end),
+    ).fetchone()
+    refunds = cents_to_le(abs(refunds_row["refund_total"] or 0))
+
+    purchases_row = cur.execute(
+        """
+        SELECT SUM(amount_le) AS total
+        FROM purchases
+        WHERE deleted_at IS NULL AND created_at BETWEEN ? AND ?
+        """,
+        (start, end),
+    ).fetchone()
+    total_purchases = to_le(purchases_row["total"] or 0)
 
     conn.close()
-    return {
-        "date": iso_date,
-        "by_method": by_method,
-        "total_cents": int(total_rev),
-        "discount_cents": int(total_disc),
-        "orders_count": orders_count,
-        "ps_items_count": ps_items_count,
-    }
-
-def format_z_text(data, company="Beirut Coffee", currency="EGP"):
-    lines = [
-        f"*** DAILY Z-REPORT ***",
-        f"Company: {company}",
-        f"Date: {data['date']}",
-        "-"*32,
-        "By Method:"
-    ]
-    for method, amt in data["by_method"]:
-        lines.append(f"  {method:<10} : {amt/100:.2f} {currency}")
-    lines += [
-        "-"*32,
-        f"Orders      : {data['orders_count']}",
-        f"PS Items    : {data['ps_items_count']}",
-        f"Discounts   : {data['discount_cents']/100:.2f} {currency}",
-        f"TOTAL       : {data['total_cents']/100:.2f} {currency}",
-        "-"*32
-    ]
-    return "\n".join(lines)
+    return EndOfDaySummary(
+        day=target,
+        total_sales=total_sales,
+        refunds=refunds,
+        cash_in_drawer=cash_in_drawer,
+        total_purchases=total_purchases,
+        by_method=by_method,
+    )

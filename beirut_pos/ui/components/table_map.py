@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize
 
+from ...core.money import cents_to_le, fmt_le
+
 STYLE = """
 QFrame#tile { background-color:#2b2b2b; border:1px solid #444; border-radius:12px; }
 QPushButton#tableBtn {
@@ -65,7 +67,8 @@ class TableTile(QFrame):
 
     def set_total(self, cents: int, currency: str = "ج.م"):
         if cents and cents > 0:
-            self.badge.setText(f"{currency} {cents/100:.2f}")
+            amount = fmt_le(cents_to_le(cents))
+            self.badge.setText(amount)
             self.badge.show()
         else:
             self.badge.hide()

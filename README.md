@@ -13,6 +13,8 @@ management, licensing, and hardened persistence that we iterated on across prior
 - **Operations tooling** – table admin with drag-and-drop ordering, user creation with admin
   verification, voucher activation guard rails, rich multi-tab reports (cashier, product movers,
   low-stock alerts, price history), and ProgramData-friendly backups with restore helpers.
+- **Daily closure** – the traditional Z-report has been replaced with a localized “ملخص نهاية
+  اليوم” dialog that summarises cash, refunds, and purchases with unified LE formatting.
 
 ## Storage layout
 - **Windows deployments** persist everything under `%ProgramData%\BeirutPOS`:

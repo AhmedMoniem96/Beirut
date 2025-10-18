@@ -176,6 +176,23 @@ def init_db() -> None:
             )"""
     )
     cur.execute(
+        """CREATE TABLE IF NOT EXISTS purchases(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                supplier TEXT,
+                description TEXT NOT NULL,
+                payment_method TEXT CHECK(payment_method IN ('cash','card','transfer')),
+                amount_le NUMERIC(12,2) NOT NULL,
+                attachment_path TEXT,
+                linked_order_id INTEGER,
+                deleted_at TEXT,
+                deleted_by TEXT,
+                delete_reason TEXT,
+                FOREIGN KEY(linked_order_id) REFERENCES orders(id)
+            )"""
+    )
+    cur.execute(
         """CREATE TABLE IF NOT EXISTS expenses(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,
@@ -214,6 +231,9 @@ def init_db() -> None:
                 started_at TEXT NOT NULL,
                 total_seconds INTEGER NOT NULL DEFAULT 0
             )"""
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_purchases_created ON purchases(created_at)"
     )
 
     _ensure_product_columns(cur)

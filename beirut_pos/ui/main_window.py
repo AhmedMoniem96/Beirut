@@ -28,9 +28,9 @@ from .discount_dialog import DiscountDialog
 from .admin_users_dialog import AdminUsersDialog
 from .admin_reports_dialog import AdminReportsDialog
 
-# NEW: settings & daily Z-report dialogs
+# Updated admin utilities and daily summary dialog
 from .settings_dialog import SettingsDialog
-from .zreport_dialog import ZReportDialog
+from .end_of_day_dialog import EndOfDayDialog
 from .coffee_customizer import CoffeeCustomizerDialog
 from .product_option_dialog import ProductOptionDialog
 from .order_item_editor import OrderItemEditor
@@ -81,11 +81,11 @@ class MainWindow(QMainWindow):
         self.act_reports=QAction("التقارير", self); self.act_reports.triggered.connect(self._open_reports)
         self.act_tables=QAction("إدارة الطاولات", self); self.act_tables.triggered.connect(self._open_tables_admin)
 
-        # NEW: Settings & Daily Z-Report (admin only)
+        # NEW: Settings & End-of-Day summary (admin only)
         self.act_settings=QAction("الإعدادات", self); self.act_settings.triggered.connect(self._open_settings)
-        self.act_zreport=QAction("تقرير يومي (Z)", self); self.act_zreport.triggered.connect(self._open_zreport)
+        self.act_end_day=QAction("ملخص نهاية اليوم", self); self.act_end_day.triggered.connect(self._open_end_day)
 
-        for a in (self.act_manage,self.act_users,self.act_reports,self.act_tables,self.act_settings,self.act_zreport):
+        for a in (self.act_manage,self.act_users,self.act_reports,self.act_tables,self.act_settings,self.act_end_day):
             a.setVisible(self.user.role=="admin"); bar.addAction(a)
 
         # Hotkeys
@@ -251,7 +251,7 @@ class MainWindow(QMainWindow):
         if dlg.exec()==dlg.DialogCode.Accepted:
             self.user=dlg.get_user()
             self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")
-            for a in (self.act_manage,self.act_users,self.act_reports,self.act_tables,self.act_settings,self.act_zreport):
+            for a in (self.act_manage,self.act_users,self.act_reports,self.act_tables,self.act_settings,self.act_end_day):
                 a.setVisible(self.user.role=="admin")
             self._session_started = datetime.now()
             self._update_session_timer()
@@ -289,11 +289,11 @@ class MainWindow(QMainWindow):
             return
         SettingsDialog(self).exec()
 
-    def _open_zreport(self):
+    def _open_end_day(self):
         if self.user.role!="admin":
             self._show_banner("هذه العملية للمدير فقط.", "warn")
             return
-        ZReportDialog(self).exec()
+        EndOfDayDialog(self).exec()
 
     # POS flow
     def _on_table_select(self, code):

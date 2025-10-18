@@ -16,6 +16,7 @@ from reportlab.pdfgen import canvas
 
 from ..core.bus import bus
 from ..core.db import setting_get
+from ..core.money import cents_to_le, fmt_le
 from ..core.paths import DATA_DIR
 
 try:  # pragma: no cover - optional Windows dependency
@@ -207,7 +208,6 @@ def _format_cashier_lines(
     method: str,
     cashier: str,
 ) -> List[str]:
-    currency = setting_get("currency", "EGP") or "EGP"
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         "إيصال الكاشير",
@@ -218,18 +218,18 @@ def _format_cashier_lines(
     ]
     for entry in _collapse_items(items):
         lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
-        lines.append(
-            f"   @ {entry['unit_price']/100:.2f} {currency} → {entry['total_cents']/100:.2f} {currency}"
-        )
+        unit = fmt_le(cents_to_le(entry["unit_price"]))
+        total_amt = fmt_le(cents_to_le(entry["total_cents"]))
+        lines.append(f"   @ {unit} → {total_amt}")
         note = entry["note"]
         if note:
             lines.append(f"ملاحظة: {note}")
     lines.extend(
         [
             "------------------------------",
-            f"الإجمالي قبل الخصم: {subtotal/100:.2f} {currency}",
-            f"الخصم: {discount/100:.2f} {currency}",
-            f"الإجمالي المستحق: {total/100:.2f} {currency}",
+            f"الإجمالي قبل الخصم: {fmt_le(cents_to_le(subtotal))}",
+            f"الخصم: {fmt_le(cents_to_le(discount))}",
+            f"الإجمالي المستحق: {fmt_le(cents_to_le(total))}",
             "شكراً لزيارتكم",
         ]
     )

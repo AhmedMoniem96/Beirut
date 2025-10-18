@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from ...core.money import cents_to_le, fmt_le
+
 # English->Arabic display map (DB can stay English internally)
 AR_DISPLAY = {
     "Food": "أطباق الطعام",
@@ -80,7 +82,7 @@ class CategoryGrid(QWidget):
                     label, price_cents = tup[0], tup[1]
                     track_stock, stock_qty = 0, None
 
-                text = f"{label}\nج.م {price_cents/100:.2f}"
+                text = f"{label}\n{fmt_le(cents_to_le(price_cents))}"
                 b = QPushButton(text)
                 b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
                 b.clicked.connect(lambda _=False, L=label, P=price_cents: self.on_pick(L, P))
@@ -88,7 +90,7 @@ class CategoryGrid(QWidget):
                 # Disable if tracked & out of stock
                 if track_stock == 1 and (stock_qty is None or stock_qty <= 0):
                     b.setEnabled(False)
-                    b.setText(f"{label}\n(غير متوفر) ج.م {price_cents/100:.2f}")
+                    b.setText(f"{label}\n(غير متوفر) {fmt_le(cents_to_le(price_cents))}")
                     b.setStyleSheet("color: gray;")
 
                 grid.addWidget(b, i // 3, i % 3)

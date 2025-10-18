@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from ..core.money import cents_to_le, fmt_le
+
 
 @dataclass
 class CoffeeSelection:
@@ -136,7 +138,7 @@ class CoffeeCustomizerDialog(QDialog):
         delta = self._calc_price_delta()
         new_price = (self._base_price + delta) / 100
         note = self._build_note()
-        summary = f"السعر بعد الإضافات: ج.م {new_price:.2f}"
+        summary = f"السعر بعد الإضافات: {fmt_le(cents_to_le(self._base_price + delta))}"
         if note:
             summary += f"\nملاحظة للطباعة: {note}"
         self.preview.setText(summary)

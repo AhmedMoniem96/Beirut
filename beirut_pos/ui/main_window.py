@@ -22,6 +22,7 @@ from .components.payment_panel import PaymentPanel
 from .components.ps_controls import PSControls
 from ..services.orders import order_manager, StockError
 from ..services.printer import printer
+from ..services import reservations as reservations_service
 from ..core.bus import bus
 from .login_dialog import LoginDialog
 from .catalog_manager_dialog import CatalogManagerDialog
@@ -155,6 +156,7 @@ class MainWindow(QMainWindow):
         self.table_codes=order_manager.get_table_codes()
         self.table_map=TableMap(self.table_codes, self._on_table_select)
         tv.addWidget(self.table_map,1)
+        self._refresh_reservation_overlays()
 
         # Order page
         order_page=QWidget(); order_page.setObjectName("OrderPage"); ov=QVBoxLayout(order_page); ov.setSpacing(12)
@@ -204,6 +206,7 @@ class MainWindow(QMainWindow):
         bus.subscribe("branding_changed", self._on_branding_changed)
         bus.subscribe("settings_saved", self._on_settings_saved)
         bus.subscribe("tables_changed", self._on_tables_changed)
+        bus.subscribe("reservations_changed", self._on_reservations_changed)
 
         self.current_table=None
         self._coffee_categories = {"Coffee Corner", "Hot Drinks", "Fresh Drinks"}
@@ -521,6 +524,16 @@ class MainWindow(QMainWindow):
         if self.user.role == "admin":
             self._show_banner(msg, "success", duration=6000)
 
+    def _on_reservations_changed(self, *_payload):
+        self._refresh_reservation_overlays()
+
+    def _refresh_reservation_overlays(self):
+        try:
+            mapping = reservations_service.get_active_reservations_map()
+        except Exception:
+            mapping = {}
+        self.table_map.set_reservations(mapping)
+
     def _refresh_branding(self):
         self.setStyleSheet(build_main_window_stylesheet())
         pix = get_logo_pixmap(64)
@@ -556,6 +569,7 @@ class MainWindow(QMainWindow):
             cleaned = order_manager.get_table_codes()
         self.table_codes = cleaned
         self.table_map.set_table_codes(cleaned)
+        self._refresh_reservation_overlays()
         if self.current_table and self.current_table not in cleaned:
             self._show_banner("تمت إزالة الطاولة الحالية من القائمة. تم الرجوع إلى شاشة الطاولات.", "warn", duration=8000)
             self._go_back()

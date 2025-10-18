@@ -17,6 +17,7 @@ from reportlab.pdfgen import canvas
 from ..core.bus import bus
 from ..core.db import setting_get
 from ..core.paths import DATA_DIR
+from ..utils.currency import format_pounds
 
 try:  # pragma: no cover - optional Windows dependency
     import win32api  # type: ignore
@@ -218,18 +219,18 @@ def _format_cashier_lines(
     ]
     for entry in _collapse_items(items):
         lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
-        lines.append(
-            f"   @ {entry['unit_price']/100:.2f} {currency} → {entry['total_cents']/100:.2f} {currency}"
-        )
+        unit_txt = format_pounds(entry['unit_price'], currency)
+        total_txt = format_pounds(entry['total_cents'], currency)
+        lines.append(f"   @ {unit_txt} → {total_txt}")
         note = entry["note"]
         if note:
             lines.append(f"ملاحظة: {note}")
     lines.extend(
         [
             "------------------------------",
-            f"الإجمالي قبل الخصم: {subtotal/100:.2f} {currency}",
-            f"الخصم: {discount/100:.2f} {currency}",
-            f"الإجمالي المستحق: {total/100:.2f} {currency}",
+            f"الإجمالي قبل الخصم: {format_pounds(subtotal, currency)}",
+            f"الخصم: {format_pounds(discount, currency)}",
+            f"الإجمالي المستحق: {format_pounds(total, currency)}",
             "شكراً لزيارتكم",
         ]
     )

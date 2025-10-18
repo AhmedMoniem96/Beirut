@@ -1,10 +1,13 @@
 # beirut_pos/ui/components/table_map.py
+from datetime import datetime
+
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QLabel, QGridLayout, QFrame,
     QSizePolicy, QVBoxLayout, QHBoxLayout
 )
 from PyQt6.QtCore import Qt, QSize
 
+from ...utils.currency import format_pounds
 STYLE = """
 QFrame#tile { background-color:#2b2b2b; border:1px solid #444; border-radius:12px; }
 QPushButton#tableBtn {
@@ -12,7 +15,16 @@ QPushButton#tableBtn {
 }
 QPushButton#tableBtn:checked { border:2px solid #4fc3f7; }
 QLabel#badge { background:#111; color:#fff; border-radius:10px; padding:2px 8px; }
+QLabel#reservedLabel { color:#f8bbd0; font-weight:600; }
 """
+
+RESERVED_BORDER = "#8e24aa"
+
+
+def _format_ampm(dt: datetime) -> str:
+    hour = dt.hour % 12 or 12
+    suffix = "AM" if dt.hour < 12 else "PM"
+    return f"{hour:02d}:{dt.minute:02d} {suffix}"
 
 class TableTile(QFrame):
     def __init__(self, code: str, on_select):
@@ -20,6 +32,9 @@ class TableTile(QFrame):
         self.setObjectName("tile")
         self.setStyleSheet(STYLE)
         self.code = code
+        self._state = "free"
+        self._reserved_for: datetime | None = None
+        self._reserved_text: str | None = None
 
         v = QVBoxLayout(self)
         v.setContentsMargins(10, 10, 10, 10)
@@ -51,21 +66,19 @@ class TableTile(QFrame):
         self.btn.clicked.connect(lambda: on_select(code))
         v.addWidget(self.btn, 1)
 
+        self.reserved_label = QLabel("")
+        self.reserved_label.setObjectName("reservedLabel")
+        self.reserved_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.reserved_label.hide()
+        v.addWidget(self.reserved_label)
+
     def set_state(self, state: str):
-        color = {
-            'free': '#2e7d32',
-            'occupied': '#f9a825',
-            'paid': '#c62828',
-            'disabled': '#616161'
-        }.get(state, '#2e7d32')
-        self.btn.setStyleSheet(
-            f"background-color:#3b3b3b; color:white; border:2px solid {color}; "
-            f"border-radius:10px; padding:16px; font-weight:700;"
-        )
+        self._state = state
+        self._apply_style()
 
     def set_total(self, cents: int, currency: str = "ج.م"):
         if cents and cents > 0:
-            self.badge.setText(f"{currency} {cents/100:.2f}")
+            self.badge.setText(format_pounds(cents, currency))
             self.badge.show()
         else:
             self.badge.hide()
@@ -80,6 +93,46 @@ class TableTile(QFrame):
     def set_checked(self, checked: bool):
         self.btn.setChecked(checked)
 
+    def set_reserved(self, reserved_iso: str | None):
+        self._reserved_for = None
+        self._reserved_text = None
+        if reserved_iso:
+            text = str(reserved_iso)
+            try:
+                dt = datetime.fromisoformat(text)
+            except Exception:
+                dt = None
+            if dt is not None:
+                self._reserved_for = dt
+                text = _format_ampm(dt)
+            self._reserved_text = text
+            self.reserved_label.setText(f"Reserved at {text}")
+            self.reserved_label.show()
+            self.btn.setToolTip(f"Reserved at {text}")
+        else:
+            self.reserved_label.hide()
+            self.btn.setToolTip("")
+        self._apply_style()
+
+    def _apply_style(self):
+        palette = {
+            'free': '#2e7d32',
+            'occupied': '#f9a825',
+            'paid': '#c62828',
+            'disabled': '#616161'
+        }
+        color = palette.get(self._state, '#2e7d32')
+        if self._reserved_text:
+            if self._state == 'free':
+                color = RESERVED_BORDER
+            self.reserved_label.show()
+        else:
+            self.reserved_label.hide()
+        self.btn.setStyleSheet(
+            f"background-color:#3b3b3b; color:white; border:2px solid {color}; "
+            f"border-radius:10px; padding:16px; font-weight:700;"
+        )
+
 
 class TableMap(QWidget):
     MIN_TILE = QSize(160, 120)
@@ -91,6 +144,7 @@ class TableMap(QWidget):
         self._external_select_cb = on_select
         self._table_codes = []
         self._last_cols = -1  # cache to avoid redundant relayouts
+        self._reservations: dict[str, str] = {}
 
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(12, 12, 12, 12)
@@ -131,6 +185,7 @@ class TableMap(QWidget):
             if code not in self.tiles:
                 tile = TableTile(code, self._on_click)
                 tile.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+                tile.set_reserved(self._reservations.get(code))
                 self.tiles[code] = tile
 
         self._table_codes = cleaned
@@ -148,6 +203,16 @@ class TableMap(QWidget):
             t.set_total(total_cents)
         if ps_active is not None:
             t.set_ps_active(ps_active)
+
+    def set_reservations(self, reservations: dict[str, str]):
+        normalized: dict[str, str] = {}
+        for code, value in reservations.items():
+            if not code:
+                continue
+            normalized[code.strip().upper()] = value
+        self._reservations = normalized
+        for code, tile in self.tiles.items():
+            tile.set_reserved(self._reservations.get(code))
 
     def resizeEvent(self, e):
         super().resizeEvent(e)

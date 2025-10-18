@@ -1227,11 +1227,93 @@ class OrderManager:
         o = self.orders.get(table_code)
         return [] if not o else o.items
 
+    def list_open_tables(self, exclude: str | None = None) -> list[str]:
+        exclude_norm = (exclude or "").strip().upper()
+        return [
+            code
+            for code, order in self.orders.items()
+            if order.status == "open" and code != exclude_norm
+        ]
+
+    def list_open_tables_with_totals(self, exclude: str | None = None) -> list[tuple[str, int]]:
+        exclude_norm = (exclude or "").strip().upper()
+        return [
+            (code, order.total_cents)
+            for code, order in self.orders.items()
+            if order.status == "open" and code != exclude_norm
+        ]
+
     def get_totals(self, table_code: str):
         o = self.orders.get(table_code)
         if not o:
             return 0, 0, 0
         return o.subtotal_cents, o.discount_cents, o.total_cents
+
+    def merge_tables(
+        self,
+        target_table: str,
+        source_table: str,
+        *,
+        username: str = "system",
+    ) -> bool:
+        target = (target_table or "").strip().upper()
+        source = (source_table or "").strip().upper()
+        if not target or not source or target == source:
+            return False
+
+        primary = self.orders.get(target)
+        secondary = self.orders.get(source)
+        if not primary or not secondary or primary.status != "open" or secondary.status != "open":
+            return False
+
+        # Bill any running PS session on the secondary table before merging
+        self._close_session_and_bill(source)
+        secondary = self.orders.get(source)
+        if not secondary:
+            return False
+
+        with db_transaction() as conn:
+            cur = conn.cursor()
+            for item in secondary.items:
+                if item.row_id is not None:
+                    cur.execute(
+                        "UPDATE order_items SET order_id=? WHERE id=?",
+                        (primary.id, item.row_id),
+                    )
+                else:
+                    cur.execute(
+                        "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
+                        (primary.id, item.product, item.unit_price_cents, item.qty, item.note),
+                    )
+                    item.row_id = cur.lastrowid
+            cur.execute(
+                "UPDATE orders SET status='void', closed_at=?, closed_by=? WHERE id=?",
+                (datetime.utcnow().isoformat(), username, secondary.id),
+            )
+
+        primary.items.extend(secondary.items)
+        primary.discount_cents = max(0, primary.discount_cents + secondary.discount_cents)
+        secondary.items = []
+        secondary.status = "void"
+        self.orders.pop(source, None)
+
+        bus.emit("table_state_changed", source, "free")
+        bus.emit("table_total_changed", source, 0)
+        bus.emit("ps_state_changed", source, False)
+        bus.emit("table_total_changed", target, primary.total_cents)
+
+        try:
+            log_action(
+                username,
+                "merge_tables",
+                "order",
+                target,
+                source,
+                str(primary.total_cents),
+            )
+        except Exception:
+            pass
+        return True
 
     def apply_discount(self, table_code: str, amount_cents: int):
         o = self.orders.get(table_code)

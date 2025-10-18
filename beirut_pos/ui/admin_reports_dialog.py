@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from ..core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
 from ..services.orders import order_manager
+from ..utils.currency import format_pounds
 
 
 class AdminReportsDialog(BigDialog):
@@ -496,7 +497,7 @@ class AdminReportsDialog(BigDialog):
             table.setRowCount(0)
 
     def _money(self, cents: int) -> str:
-        return f"{cents/100:,.2f} {self.currency}"
+        return format_pounds(cents, self.currency)
 
     def _format_qty(self, qty) -> str:
         try:

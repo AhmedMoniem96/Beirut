@@ -176,6 +176,20 @@ def init_db() -> None:
             )"""
     )
     cur.execute(
+        """CREATE TABLE IF NOT EXISTS reservations(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                phone TEXT,
+                party_size INTEGER NOT NULL DEFAULT 1,
+                reserved_for TEXT NOT NULL,
+                table_code TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                created_by TEXT
+            )"""
+    )
+    cur.execute(
         """CREATE TABLE IF NOT EXISTS expenses(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,

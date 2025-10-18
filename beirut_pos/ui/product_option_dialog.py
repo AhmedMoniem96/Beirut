@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ..utils.currency import format_pounds
 
 class ProductOptionDialog(QDialog):
     """Simple selector for per-product customization options."""
@@ -33,7 +34,7 @@ class ProductOptionDialog(QDialog):
         self.list.setAlternatingRowColors(True)
         layout.addWidget(self.list, 1)
 
-        base_label = f"بدون خيار إضافي — السعر الأساسي ج.م {base_price_cents / 100:.2f}"
+        base_label = f"بدون خيار إضافي — السعر الأساسي {format_pounds(base_price_cents)}"
         base_item = QListWidgetItem(base_label)
         base_item.setData(Qt.ItemDataRole.UserRole, {"note": "", "price_delta_cents": 0})
         self.list.addItem(base_item)
@@ -41,8 +42,8 @@ class ProductOptionDialog(QDialog):
         for opt in options:
             delta = int(opt.get("price_delta_cents", 0))
             sign = "+" if delta >= 0 else "-"
-            amount = abs(delta) / 100
-            text = f"{opt['label']} ({sign}ج.م {amount:.2f})"
+            amount_text = format_pounds(abs(delta))
+            text = f"{opt['label']} ({sign}{amount_text})"
             item = QListWidgetItem(text)
             item.setData(
                 Qt.ItemDataRole.UserRole,

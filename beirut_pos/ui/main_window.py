@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QFrame,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
@@ -37,6 +38,8 @@ from .order_item_editor import OrderItemEditor
 from .common.branding import get_logo_pixmap, get_logo_icon, build_main_window_stylesheet
 from .common.barista_tips import random_tip
 from .admin_tables_dialog import AdminTablesDialog
+from .reservations_dialog import ReservationsDialog
+from .merge_tables_dialog import MergeTablesDialog
 
 PAGE_TABLES=0; PAGE_ORDER=1
 
@@ -80,13 +83,26 @@ class MainWindow(QMainWindow):
         self.act_users=QAction("إدارة المستخدمين", self); self.act_users.triggered.connect(self._open_users)
         self.act_reports=QAction("التقارير", self); self.act_reports.triggered.connect(self._open_reports)
         self.act_tables=QAction("إدارة الطاولات", self); self.act_tables.triggered.connect(self._open_tables_admin)
+        self.act_purchases=QAction("المشتريات", self); self.act_purchases.triggered.connect(self._open_purchases)
+        self.act_reservations=QAction("الحجوزات", self); self.act_reservations.triggered.connect(self._open_reservations)
 
         # NEW: Settings & Daily Z-Report (admin only)
         self.act_settings=QAction("الإعدادات", self); self.act_settings.triggered.connect(self._open_settings)
         self.act_zreport=QAction("تقرير يومي (Z)", self); self.act_zreport.triggered.connect(self._open_zreport)
 
-        for a in (self.act_manage,self.act_users,self.act_reports,self.act_tables,self.act_settings,self.act_zreport):
-            a.setVisible(self.user.role=="admin"); bar.addAction(a)
+        self._admin_actions = [
+            self.act_manage,
+            self.act_users,
+            self.act_reports,
+            self.act_tables,
+            self.act_purchases,
+            self.act_settings,
+            self.act_zreport,
+        ]
+        for action in self._admin_actions:
+            action.setVisible(self.user.role == "admin")
+            bar.addAction(action)
+        bar.addAction(self.act_reservations)
 
         # Hotkeys
         QShortcut(QKeySequence("Esc"), self, activated=self._go_back)
@@ -157,6 +173,10 @@ class MainWindow(QMainWindow):
         self.btn_print_cashier.clicked.connect(self._print_cashier)
         head_row.addWidget(self.btn_print_cashier, 0)
 
+        self.btn_merge=QPushButton("🔀 دمج مع طاولة")
+        self.btn_merge.clicked.connect(self._on_merge_tables)
+        self.btn_merge.setEnabled(False)
+        head_row.addWidget(self.btn_merge, 0)
         self.back_big=QPushButton("⬅ رجوع"); self.back_big.clicked.connect(self._go_back); head_row.addWidget(self.back_big,0)
         ov.addLayout(head_row,0)
 
@@ -245,14 +265,15 @@ class MainWindow(QMainWindow):
         self.order_header.setText("طلب:")
         self._refresh_print_buttons()
         self._status.showMessage(random_tip(), 10000)
+        self.btn_merge.setEnabled(False)
 
     def _switch_user(self):
         dlg=LoginDialog()
         if dlg.exec()==dlg.DialogCode.Accepted:
             self.user=dlg.get_user()
             self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")
-            for a in (self.act_manage,self.act_users,self.act_reports,self.act_tables,self.act_settings,self.act_zreport):
-                a.setVisible(self.user.role=="admin")
+            for action in self._admin_actions:
+                action.setVisible(self.user.role=="admin")
             self._session_started = datetime.now()
             self._update_session_timer()
 
@@ -282,6 +303,15 @@ class MainWindow(QMainWindow):
             return
         AdminTablesDialog(actor=self.user.username, parent=self).exec()
 
+    def _open_purchases(self):
+        if self.user.role!="admin":
+            self._show_banner("هذه العملية للمدير فقط.", "warn")
+            return
+        QMessageBox.information(self, "المشتريات", "ميزة المشتريات قيد الإعداد حالياً.")
+
+    def _open_reservations(self):
+        ReservationsDialog(parent=self).exec()
+
     # NEW: dialogs
     def _open_settings(self):
         if self.user.role!="admin":
@@ -305,6 +335,7 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(PAGE_ORDER)
         self._refresh_print_buttons()
         self._status.showMessage(random_tip(), 9000)
+        self.btn_merge.setEnabled(True)
 
     def _on_pick(self, label, price_cents):
         if not self.current_table:
@@ -362,6 +393,29 @@ class MainWindow(QMainWindow):
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
         self._refresh_print_buttons()
+
+    def _on_merge_tables(self):
+        if not self.current_table:
+            self._show_banner("اختر طاولة أولاً لإجراء الدمج.", "warn")
+            return
+        candidates = order_manager.list_open_tables_with_totals(self.current_table)
+        if not candidates:
+            self._show_banner("لا توجد طاولات أخرى مشغولة لدمجها.", "info")
+            return
+        dlg = MergeTablesDialog(self.current_table, candidates, self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        other = dlg.selected_table()
+        if not other:
+            return
+        if not order_manager.merge_tables(self.current_table, other, username=self.user.username):
+            self._show_banner("تعذر دمج الطاولتين. تأكد أن كلاهما يحتويان على طلبات مفتوحة.", "error", duration=8000)
+            return
+        self.table_map.update_table(other, state="free", total_cents=0)
+        self.order_list.set_items(order_manager.get_items(self.current_table))
+        sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._refresh_print_buttons()
+        self._show_banner(f"تم دمج الطاولة {other} مع {self.current_table} بنجاح.", "success")
 
     def _on_edit_item(self, index: int) -> None:
         if not self.current_table:

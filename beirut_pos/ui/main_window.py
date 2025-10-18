@@ -40,6 +40,7 @@ from .common.barista_tips import random_tip
 from .admin_tables_dialog import AdminTablesDialog
 from .reservations_dialog import ReservationsDialog
 from .merge_tables_dialog import MergeTablesDialog
+from .purchases_dialog import PurchasesDialog
 
 PAGE_TABLES=0; PAGE_ORDER=1
 
@@ -307,7 +308,7 @@ class MainWindow(QMainWindow):
         if self.user.role!="admin":
             self._show_banner("هذه العملية للمدير فقط.", "warn")
             return
-        QMessageBox.information(self, "المشتريات", "ميزة المشتريات قيد الإعداد حالياً.")
+        PurchasesDialog(actor=self.user.username, parent=self).exec()
 
     def _open_reservations(self):
         ReservationsDialog(parent=self).exec()

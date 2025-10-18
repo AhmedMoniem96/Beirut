@@ -199,6 +199,17 @@ def init_db() -> None:
             )"""
     )
     cur.execute(
+        """CREATE TABLE IF NOT EXISTS purchases(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                purchased_at TEXT NOT NULL,
+                supplier TEXT NOT NULL,
+                invoice_no TEXT,
+                amount_cents INTEGER NOT NULL,
+                notes TEXT,
+                recorded_by TEXT
+            )"""
+    )
+    cur.execute(
         """CREATE TABLE IF NOT EXISTS shifts(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 opened_at TEXT NOT NULL,
@@ -324,6 +335,8 @@ def _ensure_default_settings(cur) -> None:
         "menu_button_color": "#F5E1C8",
         "menu_button_text_color": "#2B130B",
         "menu_button_hover_color": "#E3C69F",
+        "toolbar_color": "#000000",
+        "toolbar_text_color": "#FFFFFF",
         "category_order": "",
         "bar_printer": "",
         "cashier_printer": "",

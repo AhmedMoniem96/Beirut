@@ -18,7 +18,11 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QAbstractSpinBox,
+    QSizePolicy,
+
 )
+from PyQt6.QtGui import QKeySequence, QShortcut
 
 from .common.big_dialog import BigDialog
 from ..services import purchases
@@ -38,6 +42,9 @@ class PurchasesDialog(BigDialog):
         intro.setWordWrap(True)
         root.addWidget(intro)
 
+        # ----------------------------------------------------------------------
+        # Table of purchases
+        # ----------------------------------------------------------------------
         self.table = QTableWidget(0, 6)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -47,6 +54,7 @@ class PurchasesDialog(BigDialog):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(True)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignRight)
         self.table.verticalHeader().setVisible(False)
         self.table.setHorizontalHeaderLabels(
@@ -61,49 +69,90 @@ class PurchasesDialog(BigDialog):
         )
         root.addWidget(self.table, 1)
 
+        # ----------------------------------------------------------------------
+        # Form inputs
+        # ----------------------------------------------------------------------
         form_host = QWidget()
         form = QFormLayout(form_host)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        form_host.setContentsMargins(6, 6, 6, 6)
 
         self.when = QDateTimeEdit(QDateTime.currentDateTime())
         self.when.setDisplayFormat("yyyy-MM-dd HH:mm")
         self.when.setCalendarPopup(True)
+        self.when.setMinimumHeight(44)
+        self.when.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         form.addRow("تاريخ الشراء:", self.when)
 
         self.supplier = QLineEdit()
         self.supplier.setPlaceholderText("اسم المورد أو الجهة")
+        self.supplier.setMinimumHeight(44)
+        self.supplier.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         form.addRow("المورد:", self.supplier)
 
         self.invoice = QLineEdit()
         self.invoice.setPlaceholderText("رقم الفاتورة أو المرجع (اختياري)")
+        self.invoice.setMinimumHeight(44)
+        self.invoice.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         form.addRow("رقم الفاتورة:", self.invoice)
 
         self.amount = QSpinBox()
         self.amount.setRange(0, 50_000_000)
         self.amount.setSuffix(" ج.م")
         self.amount.setSingleStep(10)
+        self.amount.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.amount.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.amount.setMinimumHeight(44)
+        self.amount.setMinimumWidth(260)
+        self.amount.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         form.addRow("المبلغ بالجنيه:", self.amount)
 
         self.notes = QTextEdit()
         self.notes.setPlaceholderText("ملاحظات حول الشراء، البنود أو طريقة الدفع…")
-        self.notes.setMaximumHeight(90)
+        self.notes.setMinimumHeight(110)
+        self.notes.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         form.addRow("ملاحظات:", self.notes)
 
         root.addWidget(form_host, 0)
 
+        # ----------------------------------------------------------------------
+        # Buttons
+        # ----------------------------------------------------------------------
         buttons = QHBoxLayout()
         buttons.addStretch(1)
+
         self.btn_refresh = QPushButton("تحديث السجل")
+        self.btn_refresh.setMinimumHeight(40)
+        self.btn_refresh.setMinimumWidth(140)
         self.btn_refresh.clicked.connect(self._refresh)
         buttons.addWidget(self.btn_refresh)
+
         self.btn_save = QPushButton("حفظ الشراء")
+        self.btn_save.setMinimumHeight(40)
+        self.btn_save.setMinimumWidth(140)
         self.btn_save.clicked.connect(self._on_save)
         self.btn_save.setDefault(True)
         buttons.addWidget(self.btn_save)
+
         root.addLayout(buttons)
 
+        # ----------------------------------------------------------------------
+        # Shortcuts
+        # ----------------------------------------------------------------------
+        QShortcut(QKeySequence("Ctrl+S"), self, activated=self._on_save)
+        QShortcut(QKeySequence("F5"), self, activated=self._refresh)
+
+        # Load initial data
         self._refresh()
 
+    # --------------------------------------------------------------------------
+    # Internal logic
+    # --------------------------------------------------------------------------
     def _refresh(self) -> None:
         try:
             records = purchases.list_purchases()
@@ -177,4 +226,3 @@ class PurchasesDialog(BigDialog):
         self.amount.setValue(0)
         self.notes.clear()
         self.supplier.setFocus()
-

@@ -161,6 +161,7 @@ class SettingsDialog(BigDialog):
         self.menu_button_color = make_color_row("menu_button_color", "لون أزرار المنتجات:", "اختر لون زر المنتج")
         self.menu_button_text_color = make_color_row("menu_button_text_color", "لون خط أزرار المنتجات:", "اختر لون خط زر المنتج")
         self.menu_button_hover_color = make_color_row("menu_button_hover_color", "لون الزر عند التحويم:", "اختر لون الزر عند التحويم")
+        self.toolbar_color = make_color_row("toolbar_color", "لون الشريط العلوي:", "اختر لون الشريط العلوي")
 
         reset_colors = QPushButton("استعادة الألوان الافتراضية")
         reset_colors.clicked.connect(self._reset_palette_fields)
@@ -253,6 +254,7 @@ class SettingsDialog(BigDialog):
         menu_button_color = self.menu_button_color.text().strip()
         menu_button_text = self.menu_button_text_color.text().strip()
         menu_button_hover = self.menu_button_hover_color.text().strip()
+        toolbar_color = self.toolbar_color.text().strip()
         setting_set("bar_printer", bar)
         setting_set("cashier_printer", cash)
         setting_set("logo_path", logo)
@@ -266,6 +268,7 @@ class SettingsDialog(BigDialog):
         setting_set("menu_button_color", menu_button_color)
         setting_set("menu_button_text_color", menu_button_text)
         setting_set("menu_button_hover_color", menu_button_hover)
+        setting_set("toolbar_color", toolbar_color)
 
         order = [self.category_list.item(i).text() for i in range(self.category_list.count())]
         set_category_order(order)
@@ -285,6 +288,7 @@ class SettingsDialog(BigDialog):
                 "menu_button": menu_button_color,
                 "menu_button_text": menu_button_text,
                 "menu_button_hover": menu_button_hover,
+                "toolbar": toolbar_color,
             },
         )
         bus.emit("catalog_changed")
@@ -303,6 +307,7 @@ class SettingsDialog(BigDialog):
         self.menu_button_color.setText(palette["menu_button_color"])
         self.menu_button_text_color.setText(palette["menu_button_text_color"])
         self.menu_button_hover_color.setText(palette["menu_button_hover_color"])
+        self.toolbar_color.setText(palette["toolbar_color"])
 
     def _refresh_voucher_status(self):
         status = voucher_status()

@@ -24,6 +24,7 @@ _FALLBACK_MENU_HEADER = "#F1C58F"
 _FALLBACK_MENU_BUTTON = "#F5E1C8"
 _FALLBACK_MENU_BUTTON_TEXT = "#2B130B"
 _FALLBACK_MENU_BUTTON_HOVER = "#E3C69F"
+_FALLBACK_TOOLBAR = "#1F2937"
 
 
 def _quote_path(path: Path) -> str:
@@ -178,6 +179,11 @@ def get_menu_button_hover_color(default: str = _FALLBACK_MENU_BUTTON_HOVER) -> s
     return _sanitize_color(raw, default)
 
 
+def get_toolbar_color(default: str = _FALLBACK_TOOLBAR) -> str:
+    raw = setting_get("toolbar_color", default).strip()
+    return _sanitize_color(raw, default)
+
+
 def default_palette() -> dict[str, str]:
     """Return the default color palette used when resetting branding options."""
 
@@ -191,6 +197,7 @@ def default_palette() -> dict[str, str]:
         "menu_button_color": _FALLBACK_MENU_BUTTON,
         "menu_button_text_color": _FALLBACK_MENU_BUTTON_TEXT,
         "menu_button_hover_color": _FALLBACK_MENU_BUTTON_HOVER,
+        "toolbar_color": _FALLBACK_TOOLBAR,
     }
 
 
@@ -198,6 +205,7 @@ def build_login_stylesheet() -> str:
     accent = get_accent_color()
     text = get_text_color()
     muted = get_muted_text_color()
+    toolbar_color = get_toolbar_color()
     bg_path = get_background_path()
 
     parts = [
@@ -266,8 +274,10 @@ def build_main_window_stylesheet() -> str:
             f"QStackedWidget {{ background-color: rgba(22, 13, 8, 0.84); border: 1px solid rgba(255,255,255,0.08); border-radius: 28px; margin: 0 6px; }}",
             f"QWidget#TablesPage, QWidget#OrderPage {{ background-color: {surface}; border-radius: 28px; margin: 18px; padding: 12px; }}",
             f"QStatusBar {{ background-color: rgba(22, 13, 8, 0.9); color: {muted}; border-top: 1px solid rgba(255,255,255,0.1); }}",
-            "QToolBar { background-color: rgba(19, 12, 8, 0.82); spacing: 16px; padding: 12px 18px; border: none; }",
+            f"QToolBar {{ background-color: {toolbar_color}; spacing: 16px; padding: 12px 18px; border: none; }}",
             f"QToolBar QLabel#appLogo {{ color: {accent}; font-weight: 700; font-size: 22px; letter-spacing: 1px; }}",
+            f"QToolBar QToolButton {{ color: {text}; font-weight: 700; padding: 8px 16px; border-radius: 12px; }}",
+            f"QToolBar QToolButton:hover {{ background-color: {accent}; color: #1B0F08; }}",
             f"QMainWindow QPushButton {{ background-color: {accent}; color: #1B0F08; border-radius: 16px; padding: 12px 22px; font-weight: 700; letter-spacing: 0.4px; }}",
             "QMainWindow QPushButton:disabled { background-color: rgba(110, 96, 80, 0.6); color: rgba(27, 15, 8, 0.35); }",
             f"QMainWindow QGroupBox {{ background-color: {menu_card}; border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; margin-top: 24px; font-weight: 700; color: {menu_header}; padding-top: 24px; }}",

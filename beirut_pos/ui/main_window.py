@@ -32,7 +32,7 @@ from .admin_reports_dialog import AdminReportsDialog
 
 # NEW: settings & daily Z-report dialogs
 from .settings_dialog import SettingsDialog
-from .zreport_dialog import ZReportDialog
+# from .zreport_dialog import ZReportDialog
 from .coffee_customizer import CoffeeCustomizerDialog
 from .product_option_dialog import ProductOptionDialog
 from .order_item_editor import OrderItemEditor
@@ -90,7 +90,7 @@ class MainWindow(QMainWindow):
 
         # NEW: Settings & Daily Z-Report (admin only)
         self.act_settings=QAction("الإعدادات", self); self.act_settings.triggered.connect(self._open_settings)
-        self.act_zreport=QAction("تقرير يومي (Z)", self); self.act_zreport.triggered.connect(self._open_zreport)
+        # self.act_zreport=QAction("تقرير يومي (Z)", self); self.act_zreport.triggered.connect(self._open_zreport)
 
         self._admin_actions = [
             self.act_manage,
@@ -99,7 +99,7 @@ class MainWindow(QMainWindow):
             self.act_tables,
             self.act_purchases,
             self.act_settings,
-            self.act_zreport,
+            # self.act_zreport,
         ]
         for action in self._admin_actions:
             action.setVisible(self.user.role == "admin")
@@ -323,11 +323,11 @@ class MainWindow(QMainWindow):
             return
         SettingsDialog(self).exec()
 
-    def _open_zreport(self):
-        if self.user.role!="admin":
-            self._show_banner("هذه العملية للمدير فقط.", "warn")
-            return
-        ZReportDialog(self).exec()
+    # def _open_zreport(self):
+    #     if self.user.role!="admin":
+    #         self._show_banner("هذه العملية للمدير فقط.", "warn")
+    #         return
+    #     ZReportDialog(self).exec()
 
     # POS flow
     def _on_table_select(self, code):

@@ -54,6 +54,25 @@ _TABLE_CODES_KEY = "table_codes"
 # ---------------------------------------------------------------------------
 
 
+def _deserialize_sugar_levels(raw) -> list[str]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        if isinstance(raw, str):
+            return [part.strip() for part in raw.split(",") if part.strip()]
+        return []
+    if isinstance(data, list):
+        return [str(item).strip() for item in data if str(item).strip()]
+    return []
+
+
+def _serialize_sugar_levels(levels: list[str]) -> str:
+    cleaned = [str(item).strip() for item in levels if str(item).strip()]
+    return json.dumps(cleaned, ensure_ascii=False)
+
+
 def get_category_order() -> list[str]:
     conn = get_conn()
     cur = conn.cursor()
@@ -177,25 +196,29 @@ class ProductCatalog:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            """SELECT id, name, price_cents, customizable, track_stock, stock_qty, min_stock, order_index
+            """SELECT id, name, price_cents, customizable, track_stock, stock_qty, min_stock, order_index, product_type, sugar_levels
                    FROM products
                    WHERE category_id=?
                    ORDER BY order_index, id""",
             (category_id,),
         )
-        rows = [
-            {
-                "id": row["id"],
-                "name": row["name"],
-                "price_cents": int(row["price_cents"]),
-                "customizable": int(row["customizable"]),
-                "track_stock": int(row["track_stock"]),
-                "stock_qty": row["stock_qty"],
-                "min_stock": row["min_stock"],
-                "order_index": int(row["order_index"] or 0),
-            }
-            for row in cur.fetchall()
-        ]
+        rows: list[dict] = []
+        for row in cur.fetchall():
+            keys = row.keys()
+            rows.append(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "price_cents": int(row["price_cents"]),
+                    "customizable": int(row["customizable"]),
+                    "track_stock": int(row["track_stock"]),
+                    "stock_qty": row["stock_qty"],
+                    "min_stock": row["min_stock"],
+                    "order_index": int(row["order_index"] or 0),
+                    "product_type": row["product_type"] if "product_type" in keys else "",
+                    "sugar_levels": _deserialize_sugar_levels(row["sugar_levels"] if "sugar_levels" in keys else ""),
+                }
+            )
         conn.close()
         return rows
 
@@ -317,12 +340,16 @@ class ProductCatalog:
         track_stock: int = 0,
         stock_qty: Optional[float] = 0,
         min_stock: Optional[float] = 0,
+        product_type: str = "",
+        sugar_levels: Optional[list[str]] = None,
     ) -> dict:
         cleaned = (name or "").strip()
         if not cleaned:
             raise ValueError("اسم المنتج مطلوب")
         if price_cents <= 0:
             raise ValueError("السعر غير صالح")
+        product_type = (product_type or "").strip()
+        sugar_levels = sugar_levels or []
         track = 1 if track_stock else 0
         custom_flag = 1 if customizable else 0
         qty_value = float(stock_qty) if stock_qty is not None else 0.0
@@ -349,9 +376,20 @@ class ProductCatalog:
             qty_sql = qty_value if track else None
             min_sql = min_value if track else 0.0
             cur.execute(
-                """INSERT INTO products(category_id,name,price_cents,customizable,track_stock,stock_qty,min_stock,order_index)
-                       VALUES(?,?,?,?,?,?,?,?)""",
-                (category_id, cleaned, price_cents, custom_flag, track, qty_sql, min_sql, next_idx),
+                """INSERT INTO products(category_id,name,price_cents,customizable,track_stock,stock_qty,min_stock,product_type,sugar_levels,order_index)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    category_id,
+                    cleaned,
+                    price_cents,
+                    custom_flag,
+                    track,
+                    qty_sql,
+                    min_sql,
+                    product_type,
+                    _serialize_sugar_levels(sugar_levels),
+                    next_idx,
+                ),
             )
             product_id = cur.lastrowid
         log_action(
@@ -372,6 +410,8 @@ class ProductCatalog:
             "track_stock": track,
             "stock_qty": qty_sql,
             "min_stock": min_sql,
+            "product_type": product_type,
+            "sugar_levels": list(sugar_levels),
             "order_index": next_idx,
         }
 
@@ -386,6 +426,8 @@ class ProductCatalog:
         track_stock: int = 0,
         stock_qty: Optional[float] = 0,
         min_stock: Optional[float] = 0,
+        product_type: str = "",
+        sugar_levels: Optional[list[str]] = None,
     ) -> None:
         conn = get_conn()
         cur = conn.cursor()
@@ -406,6 +448,8 @@ class ProductCatalog:
             track_stock=track_stock,
             stock_qty=stock_qty,
             min_stock=min_stock,
+            product_type=product_type,
+            sugar_levels=sugar_levels,
         )
 
     def update_product(
@@ -418,12 +462,14 @@ class ProductCatalog:
         track_stock: int | None = None,
         stock_qty: Optional[float] | None = None,
         min_stock: Optional[float] | None = None,
+        product_type: str | None = None,
+        sugar_levels: Optional[list[str]] | None = None,
         username: str = "admin",
     ) -> bool:
         with db_transaction() as conn:
             cur = conn.cursor()
             cur.execute(
-                """SELECT name, price_cents, customizable, track_stock, stock_qty, min_stock, category_id
+                """SELECT name, price_cents, customizable, track_stock, stock_qty, min_stock, category_id, product_type, sugar_levels
                        FROM products WHERE id=?""",
                 (product_id,),
             )
@@ -434,6 +480,8 @@ class ProductCatalog:
             old_price = int(row["price_cents"])
             old_custom = int(row["customizable"])
             category_id = row["category_id"]
+            old_type = row["product_type"] if "product_type" in row.keys() else ""
+            old_sugar = _deserialize_sugar_levels(row["sugar_levels"] if "sugar_levels" in row.keys() else "")
             cur.execute("SELECT name FROM categories WHERE id=?", (category_id,))
             cat_row = cur.fetchone()
             category_name = cat_row["name"] if cat_row else ""
@@ -447,6 +495,8 @@ class ProductCatalog:
             new_track = int(row["track_stock"]) if track_stock is None else int(track_stock)
             if new_track not in (0, 1):
                 new_track = int(row["track_stock"])
+            new_type = old_type if product_type is None else (product_type or "").strip()
+            new_sugar_levels = old_sugar if sugar_levels is None else [s.strip() for s in sugar_levels if s.strip()]
             qty_value = row["stock_qty"]
             min_value = row["min_stock"]
             if stock_qty is not None:
@@ -457,20 +507,36 @@ class ProductCatalog:
             min_sql = min_value if new_track else 0.0
             cur.execute(
                 """UPDATE products
-                       SET name=?, price_cents=?, customizable=?, track_stock=?, stock_qty=?, min_stock=?
+                       SET name=?, price_cents=?, customizable=?, track_stock=?, stock_qty=?, min_stock=?, product_type=?, sugar_levels=?
                        WHERE id=?""",
-                (new_name, new_price, new_custom, new_track, qty_sql, min_sql, product_id),
+                (
+                    new_name,
+                    new_price,
+                    new_custom,
+                    new_track,
+                    qty_sql,
+                    min_sql,
+                    new_type,
+                    _serialize_sugar_levels(new_sugar_levels),
+                    product_id,
+                ),
             )
             if new_custom == 0:
                 cur.execute("DELETE FROM product_options WHERE product_id=?", (product_id,))
-        if old_name != new_name or old_price != new_price or old_custom != new_custom:
+        if (
+            old_name != new_name
+            or old_price != new_price
+            or old_custom != new_custom
+            or old_type != new_type
+            or old_sugar != new_sugar_levels
+        ):
             log_action(
                 username,
                 "update_product",
                 "product",
                 f"{category_name}/{old_name}" if category_name else old_name,
-                f"{old_name}:{old_price}:{old_custom}",
-                f"{new_name}:{new_price}:{new_custom}",
+                f"{old_name}:{old_price}:{old_custom}:{old_type}:{'|'.join(old_sugar)}",
+                f"{new_name}:{new_price}:{new_custom}:{new_type}:{'|'.join(new_sugar_levels)}",
             )
         bus.emit("catalog_changed")
         return True
@@ -693,7 +759,7 @@ class ProductCatalog:
         cur = conn.cursor()
         cur.execute(
             """SELECT p.id, p.name, p.price_cents, p.customizable, p.track_stock, p.stock_qty, p.min_stock, p.order_index,
-                       c.name as category
+                       p.product_type, p.sugar_levels, c.name as category
                    FROM products p
                    JOIN categories c ON c.id = p.category_id
                    WHERE p.name=?""",
@@ -713,6 +779,8 @@ class ProductCatalog:
             "min_stock": row["min_stock"],
             "order_index": int(row["order_index"] or 0),
             "category": row["category"],
+            "product_type": row["product_type"] if "product_type" in row.keys() else "",
+            "sugar_levels": _deserialize_sugar_levels(row["sugar_levels"] if "sugar_levels" in row.keys() else ""),
         }
 
     def get_product_with_options(self, name: str) -> Optional[dict]:
@@ -720,7 +788,7 @@ class ProductCatalog:
         cur = conn.cursor()
         cur.execute(
             """SELECT p.id, p.name, p.price_cents, p.customizable, p.track_stock, p.stock_qty, p.min_stock,
-                       c.name as category
+                       p.product_type, p.sugar_levels, c.name as category
                    FROM products p
                    JOIN categories c ON c.id=p.category_id
                    WHERE p.name=?""",
@@ -753,6 +821,8 @@ class ProductCatalog:
             "stock_qty": row["stock_qty"],
             "min_stock": row["min_stock"],
             "category": row["category"],
+            "product_type": row["product_type"] if "product_type" in row.keys() else "",
+            "sugar_levels": _deserialize_sugar_levels(row["sugar_levels"] if "sugar_levels" in row.keys() else ""),
             "options": options,
         }
 
@@ -1310,6 +1380,56 @@ class OrderManager:
                 target,
                 source,
                 str(primary.total_cents),
+            )
+        except Exception:
+            pass
+        return True
+
+    def move_table(
+        self,
+        source_table: str,
+        dest_table: str,
+        *,
+        username: str = "system",
+    ) -> bool:
+        source = (source_table or "").strip().upper()
+        dest = (dest_table or "").strip().upper()
+        if not source or not dest or source == dest:
+            return False
+        order = self.orders.get(source)
+        if not order or order.status != "open":
+            return False
+        if dest in self.orders and self.orders[dest].status == "open":
+            return False
+        with db_transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE orders SET table_code=? WHERE id=? AND status='open'",
+                (dest, order.id),
+            )
+            if cur.rowcount != 1:
+                return False
+        order.table_code = dest
+        self.orders.pop(source, None)
+        self.orders[dest] = order
+        session = self.ps_sessions.pop(source, None)
+        if session:
+            self.ps_sessions[dest] = session
+        bus.emit("table_state_changed", source, "free")
+        bus.emit("table_total_changed", source, 0)
+        bus.emit("ps_state_changed", source, False)
+        bus.emit("table_state_changed", dest, "occupied")
+        bus.emit("table_total_changed", dest, order.total_cents)
+        if session:
+            bus.emit("ps_state_changed", dest, True)
+        try:
+            log_action(
+                username,
+                "move_table",
+                "order",
+                source,
+                source,
+                dest,
             )
         except Exception:
             pass

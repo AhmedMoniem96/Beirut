@@ -135,7 +135,7 @@ class PurchasesDialog(BigDialog):
         try:
             record = purchases.create_purchase(
                 supplier=supplier,
-                amount_cents=amount_pounds * 100,
+                amount_pounds=amount_pounds,
                 invoice_no=invoice,
                 notes=notes,
                 recorded_by=self._actor,
@@ -158,7 +158,7 @@ class PurchasesDialog(BigDialog):
             record.purchased_at.strftime("%Y-%m-%d %H:%M"),
             record.supplier,
             record.invoice_no,
-            format_pounds(record.amount_cents),
+            format_pounds(record.amount_pounds),
             record.display_notes,
             record.recorded_by or "",
         )

@@ -12,8 +12,8 @@ class DiscountDialog(QDialog):
         self.reason = ""
 
         v = QVBoxLayout(self)
-        v.addWidget(QLabel("مبلغ الخصم (بالقرش):"))
-        self.sp = QSpinBox(); self.sp.setRange(0, 10_000_000); self.sp.setSingleStep(500)
+        v.addWidget(QLabel("مبلغ الخصم (بالجنيه):"))
+        self.sp = QSpinBox(); self.sp.setRange(0, 10_000_000); self.sp.setSingleStep(1); self.sp.setSuffix(" ج.م")
         v.addWidget(self.sp)
 
         v.addWidget(QLabel("السبب:"))

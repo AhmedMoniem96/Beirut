@@ -42,6 +42,7 @@ from .admin_tables_dialog import AdminTablesDialog
 from .reservations_dialog import ReservationsDialog
 from .merge_tables_dialog import MergeTablesDialog
 from .purchases_dialog import PurchasesDialog
+from .sugar_level_dialog import SugarLevelDialog
 
 PAGE_TABLES=0; PAGE_ORDER=1
 
@@ -350,6 +351,9 @@ class MainWindow(QMainWindow):
         final_price = price_cents
         notes: list[str] = []
 
+        if prod and prod.get("product_type"):
+            notes.append(f"نوع: {prod['product_type']}")
+
         if prod and prod.get("customizable") and prod.get("options"):
             dlg = ProductOptionDialog(label, price_cents, prod["options"], self)
             if dlg.exec() != dlg.DialogCode.Accepted:
@@ -360,6 +364,15 @@ class MainWindow(QMainWindow):
             final_price = price_cents + selection["price_delta_cents"]
             if selection["note"]:
                 notes.append(selection["note"])
+
+        sugar_levels = prod.get("sugar_levels") if prod else []
+        if sugar_levels:
+            dlg = SugarLevelDialog(final_label, sugar_levels, self)
+            if dlg.exec() != dlg.DialogCode.Accepted:
+                return
+            level = dlg.selected_level()
+            if level:
+                notes.append(f"سكر: {level}")
 
         if prod and prod.get("category") in self._coffee_categories:
             dlg = CoffeeCustomizerDialog(final_label, final_price, self)
@@ -406,20 +419,39 @@ class MainWindow(QMainWindow):
         if not candidates:
             self._show_banner("لا توجد طاولات أخرى مشغولة لدمجها.", "info")
             return
-        dlg = MergeTablesDialog(self.current_table, candidates, self)
+        open_tables = set(order_manager.list_open_tables(exclude=self.current_table))
+        free_tables = [
+            code
+            for code in order_manager.get_table_codes()
+            if code != self.current_table and code not in open_tables
+        ]
+        dlg = MergeTablesDialog(self.current_table, candidates, self, free_tables=free_tables)
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
-        other = dlg.selected_table()
-        if not other:
+        action = dlg.selected_action()
+        if not action:
             return
-        if not order_manager.merge_tables(self.current_table, other, username=self.user.username):
-            self._show_banner("تعذر دمج الطاولتين. تأكد أن كلاهما يحتويان على طلبات مفتوحة.", "error", duration=8000)
-            return
-        self.table_map.update_table(other, state="free", total_cents=0)
-        self.order_list.set_items(order_manager.get_items(self.current_table))
-        sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
-        self._refresh_print_buttons()
-        self._show_banner(f"تم دمج الطاولة {other} مع {self.current_table} بنجاح.", "success")
+        mode, target = action
+        if mode == "merge":
+            if not order_manager.merge_tables(self.current_table, target, username=self.user.username):
+                self._show_banner("تعذر دمج الطاولتين. تأكد أن كلاهما يحتويان على طلبات مفتوحة.", "error", duration=8000)
+                return
+            self.table_map.update_table(target, state="free", total_cents=0)
+            self.order_list.set_items(order_manager.get_items(self.current_table))
+            sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+            self._refresh_print_buttons()
+            self._show_banner(f"تم دمج الطاولة {target} مع {self.current_table} بنجاح.", "success")
+        else:
+            if not order_manager.move_table(self.current_table, target, username=self.user.username):
+                self._show_banner("تعذر نقل الطلب إلى الطاولة الجديدة.", "error", duration=8000)
+                return
+            if self.current_table in self.table_map.tiles:
+                self.table_map.tiles[self.current_table].set_checked(False)
+            self.table_map.update_table(self.current_table, state="free", total_cents=0)
+            self._on_table_select(target)
+            if target in self.table_map.tiles:
+                self.table_map.tiles[target].set_checked(True)
+            self._show_banner(f"تم نقل الطلب إلى الطاولة {target} بنجاح.", "success")
 
     def _on_edit_item(self, index: int) -> None:
         if not self.current_table:

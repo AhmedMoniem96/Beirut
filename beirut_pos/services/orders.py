@@ -47,7 +47,17 @@ def _ensure_order_item_notes():
     conn.commit()
     conn.close()
 
+def _ensure_order_item_printed_qty():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(order_items)")
+    cols = {r[1] for r in cur.fetchall()}
+    if "printed_qty" not in cols:
+        cur.execute("ALTER TABLE order_items ADD COLUMN printed_qty REAL NOT NULL DEFAULT 0")
+    conn.commit()
+    conn.close()
 
+_ensure_order_item_printed_qty()
 _ensure_order_item_notes()
 
 _TABLE_CODES_KEY = "table_codes"
@@ -308,8 +318,15 @@ class ProductCatalog:
             cur.execute("SELECT id FROM categories ORDER BY order_index, id")
             remaining = [r["id"] for r in cur.fetchall()]
             for idx, cid in enumerate(remaining):
-                cur.execute("UPDATE categories SET order_index=? WHERE id=?", (idx, cid))
-        log_action(username, "delete_category", "category", name, name, None)
+                cur.execute("UPDATE products SET order_index=? WHERE id=?", (idx, cid))
+        log_action(
+            username,
+            "delete_category",
+            "category",
+            name,
+            name,
+            None,
+        )
         bus.emit("catalog_changed")
         return True
 
@@ -911,6 +928,7 @@ class OrderItem:
     qty: float = 1
     note: str = ""
     row_id: int | None = None
+    printed_qty: float = 0.0
 
     @property
     def total_cents(self) -> int:
@@ -958,20 +976,36 @@ class OrderManager:
         # Rehydrate open orders on startup
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM orders WHERE status='open'")
+        cur.execute("SELECT id, table_code, status, opened_by FROM orders WHERE status='open'")
         for o in cur.fetchall():
-            order = Order(id=o["id"], table_code=o["table_code"], status=o["status"], opened_by=o["opened_by"])
+            order = Order(
+                id=o["id"],
+                table_code=o["table_code"],
+                status=o["status"],
+                opened_by=o["opened_by"],
+            )
             cur.execute(
-                "SELECT id, product_name, price_cents, qty, note FROM order_items WHERE order_id=?",
+                """
+                SELECT
+                    id,
+                    product_name,
+                    price_cents,
+                    qty,
+                    COALESCE(printed_qty, 0) AS printed_qty,
+                    COALESCE(note, '')       AS note
+                FROM order_items
+                WHERE order_id=?
+                """,
                 (order.id,),
             )
             order.items = [
                 OrderItem(
                     product=r["product_name"],
-                    unit_price_cents=r["price_cents"],
-                    qty=r["qty"],
-                    note=r["note"] or "",
+                    unit_price_cents=int(r["price_cents"]),
+                    qty=float(r["qty"]),
+                    note=r["note"],
                     row_id=r["id"],
+                    printed_qty=float(r["printed_qty"] or 0.0),
                 )
                 for r in cur.fetchall()
             ]
@@ -1093,11 +1127,11 @@ class OrderManager:
                 state = self.catalog.dec_stock(product, qty, conn=conn)
                 _check_state(state)
                 cursor = conn.execute(
-                    "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
-                    (order.id, product, price_cents, qty, note),
+                    "INSERT INTO order_items(order_id, product_name, price_cents, qty, note, printed_qty) VALUES(?,?,?,?,?,?)",
+                    (order.id, product, price_cents, qty, note, 0),
                 )
                 order.items.append(
-                    OrderItem(product, price_cents, qty, note=note, row_id=cursor.lastrowid)
+                    OrderItem(product, price_cents, qty, note=note, row_id=cursor.lastrowid, printed_qty=0.0)
                 )
             if created:
                 bus.emit("table_state_changed", table_code, "occupied")
@@ -1105,11 +1139,11 @@ class OrderManager:
             with db_transaction() as conn:
                 order, created = self._ensure_db_order_tx(conn, table_code, opened_by=cashier)
                 cursor = conn.execute(
-                    "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
-                    (order.id, product, price_cents, qty, note),
+                    "INSERT INTO order_items(order_id, product_name, price_cents, qty, note, printed_qty) VALUES(?,?,?,?,?,?)",
+                    (order.id, product, price_cents, qty, note, 0),
                 )
                 order.items.append(
-                    OrderItem(product, price_cents, qty, note=note, row_id=cursor.lastrowid)
+                    OrderItem(product, price_cents, qty, note=note, row_id=cursor.lastrowid, printed_qty=0.0)
                 )
             if created:
                 bus.emit("table_state_changed", table_code, "occupied")
@@ -1248,20 +1282,24 @@ class OrderManager:
                 ):
                     recovery_event = (item.product, before_stock, new_stock, min_stock)
 
+            # clamp printed_qty so it never exceeds the new qty
+            item.printed_qty = min(float(getattr(item, "printed_qty", 0.0)), float(new_qty))
+
             if item.row_id is not None:
                 conn.execute(
-                    "UPDATE order_items SET qty=?, note=? WHERE id=?",
-                    (new_qty, new_note, item.row_id),
+                    "UPDATE order_items SET qty=?, note=?, printed_qty=? WHERE id=?",
+                    (new_qty, new_note, item.printed_qty, item.row_id),
                 )
             else:
                 conn.execute(
-                    """UPDATE order_items SET qty=?, note=? WHERE id IN (
+                    """UPDATE order_items SET qty=?, note=?, printed_qty=? WHERE id IN (
                            SELECT id FROM order_items
                            WHERE order_id=? AND product_name=? AND price_cents=?
                                  AND qty=? AND COALESCE(note,'')=?
                            LIMIT 1
                        )""",
-                    (new_qty, new_note, order.id, item.product, item.unit_price_cents, item.qty, item.note or ""),
+                    (new_qty, new_note, item.printed_qty,
+                     order.id, item.product, item.unit_price_cents, item.qty, item.note or ""),
                 )
             item.qty = new_qty
             item.note = new_note
@@ -1513,6 +1551,87 @@ class OrderManager:
                     "INSERT OR REPLACE INTO ps_sessions(table_code, mode, started_at, total_seconds) VALUES(?,?,?,?)",
                     (table_code, sess.mode, sess.started_at.isoformat(), sess.total_seconds),
                 )
+
+    # ----- Bar printing helpers (ONLY NEW items) -----
+    def get_unprinted_bar_items(self, table_code: str) -> List[OrderItem]:
+        o = self.orders.get(table_code)
+        if not o:
+            return []
+        result: List[OrderItem] = []
+        for it in o.items:
+            pq = float(getattr(it, "printed_qty", 0.0))
+            remaining = max(0.0, float(it.qty) - pq)
+            if remaining > 0:
+                result.append(
+                    OrderItem(
+                        product=it.product,
+                        unit_price_cents=it.unit_price_cents,
+                        qty=remaining,
+                        note=it.note,
+                        row_id=it.row_id,
+                        printed_qty=0.0,
+                    )
+                )
+        return result
+
+    from typing import List, Dict
+
+    def mark_bar_items_as_printed(self, table_code: str, printed_items: List[OrderItem]) -> int:
+        """
+        Increment printed_qty on matching order_items by the amounts we just printed.
+        Matching key = (product, note, unit_price_cents). Never exceed qty.
+        Returns the total quantity marked as printed (for info only).
+        """
+        if not printed_items:
+            return 0
+        order = self.orders.get(table_code)
+        if not order:
+            return 0
+
+        EPS = 1e-6
+
+        def make_key(x: OrderItem):
+            return (x.product, (x.note or ""), int(x.unit_price_cents))
+
+        # Aggregate what was printed per key
+        printed_totals: Dict[tuple, float] = {}
+        for p in printed_items:
+            k = make_key(p)
+            printed_totals[k] = printed_totals.get(k, 0.0) + float(p.qty)
+
+        marked_total = 0.0
+        with db_transaction() as conn:
+            for it in order.items:
+                k = make_key(it)
+                to_apply = printed_totals.get(k, 0.0)
+                if to_apply <= EPS:
+                    continue
+
+                current_printed = float(getattr(it, "printed_qty", 0.0) or 0.0)
+                qty = float(it.qty)
+
+                remaining = max(0.0, qty - current_printed)
+                if remaining <= EPS:
+                    continue
+
+                take = min(remaining, to_apply)
+                new_printed = min(qty, current_printed + take)  # clamp ≤ qty
+
+                # Persist
+                if it.row_id is not None:
+                    conn.execute(
+                        "UPDATE order_items SET printed_qty=? WHERE id=?",
+                        (new_printed, it.row_id)
+                    )
+
+                # Update in-memory
+                it.printed_qty = new_printed
+
+                # Decrease what’s left to apply for that key
+                printed_totals[k] = max(0.0, to_apply - take)
+                marked_total += take
+
+        return int(marked_total)  # or round(...) if you expect halves
 
     # ----- Payment / settle (persist and clear table) -----
     def settle(self, table_code: str, method: str = "cash", cashier: str = "cashier"):

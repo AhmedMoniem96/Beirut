@@ -12,12 +12,12 @@ from typing import Iterable, Sequence
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
-_PASSWORD = "POSLOCK"
+# Password for protected reports - share with management only
+_PASSWORD = "POSLOCK2025"
 
 
 def _excel_password_hash(password: str) -> str:
     """Return the legacy XOR hash Excel expects for sheet/workbook passwords."""
-
     trimmed = (password or "")[:15]
     if not trimmed:
         return "0000"
@@ -32,6 +32,7 @@ def _excel_password_hash(password: str) -> str:
 
 
 def _column_letter(index: int) -> str:
+    """Convert 0-based column index to Excel letter (0->A, 25->Z, 26->AA)."""
     letters = ""
     current = index
     while current >= 0:
@@ -42,6 +43,7 @@ def _column_letter(index: int) -> str:
 
 
 def _sanitize_sheet_name(name: str) -> str:
+    """Clean sheet name to be Excel-compatible."""
     invalid = set('[]:*?/\\')
     cleaned = "".join("_" if ch in invalid else ch for ch in name.strip())
     cleaned = cleaned or "Report"
@@ -56,69 +58,80 @@ def write_protected_workbook(
     title: str = "Report",
     password: str = _PASSWORD,
 ) -> None:
-    """Create a password-protected XLSX file with the given data."""
+    """Create a password-protected XLSX file with the given data.
+
+    Args:
+        path: Output file path (should end with .xlsx)
+        headers: Column headers
+        rows: Data rows (list of lists)
+        title: Report title (used as sheet name)
+        password: Password to protect the workbook (default: POSLOCK2025)
+    """
 
     sheet_name = _sanitize_sheet_name(title)
     timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     hashed = _excel_password_hash(password)
 
-    header_values = [escape(str(h) if h is not None else "") for h in headers]
-    table_rows = [[escape(str(cell) if cell is not None else "") for cell in row] for row in rows]
+    # Sanitize all cell values to prevent XML issues
+    header_values = [escape(str(h) if h is not None else "").strip() for h in headers]
+    table_rows = [
+        [escape(str(cell) if cell is not None else "").strip() for cell in row]
+        for row in rows
+    ]
 
     total_rows = 1 + len(table_rows)
     total_cols = max(1, len(header_values))
     end_col_letter = _column_letter(total_cols - 1)
-    dimension = f"A1:{end_col_letter}{total_rows}" if total_rows > 1 or total_cols > 1 else "A1"
+    dimension = f"A1:{end_col_letter}{total_rows}" if total_rows > 1 else "A1"
 
     def build_row(cells: Sequence[str], row_number: int) -> str:
+        """Build XML for a single row."""
         parts = []
         for col_index, value in enumerate(cells):
             ref = f"{_column_letter(col_index)}{row_number}"
+            # Use inlineStr for text values to avoid shared strings complexity
             parts.append(
                 f'<c r="{ref}" t="inlineStr"><is><t>{value}</t></is></c>'
             )
-        return f"<row r=\"{row_number}\">{''.join(parts)}</row>"
+        return f'<row r="{row_number}">{"".join(parts)}</row>'
 
+    # Build all rows
     sheet_rows = [build_row(header_values, 1)]
     for idx, data_row in enumerate(table_rows, start=2):
         sheet_rows.append(build_row(data_row, idx))
 
+    # Sheet XML with protection
     sheet_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheetPr/>
   <dimension ref="{dimension}"/>
   <sheetViews>
     <sheetView workbookViewId="0"/>
   </sheetViews>
   <sheetFormatPr defaultRowHeight="15"/>
-  <sheetProtection sheet="1" objects="1" scenarios="1" formatCells="1" formatColumns="1" formatRows="1"
-                   insertColumns="1" insertRows="1" insertHyperlinks="1" deleteColumns="1" deleteRows="1"
-                   selectLockedCells="1" selectUnlockedCells="1" sort="1" autoFilter="1" pivotTables="1"
-                   password="{hashed}"/>
+  <sheetProtection sheet="1" objects="1" scenarios="1" formatCells="0" formatColumns="0" formatRows="0" insertColumns="1" insertRows="1" insertHyperlinks="1" deleteColumns="1" deleteRows="1" selectLockedCells="1" selectUnlockedCells="1" sort="1" autoFilter="1" pivotTables="1" password="{hashed}"/>
   <sheetData>
-    {''.join(sheet_rows)}
+{"".join(sheet_rows)}
   </sheetData>
   <pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>
-</worksheet>
-"""
+</worksheet>"""
 
+    # Workbook XML with structure protection
     workbook_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <fileVersion appName="xl" lastEdited="7" lowestEdited="7" rupBuild="22228"/>
   <workbookPr defaultThemeVersion="166925"/>
   <bookViews>
     <workbookView xWindow="0" yWindow="0" windowWidth="16384" windowHeight="8192"/>
   </bookViews>
   <sheets>
-    <sheet name="{sheet_name}" sheetId="1" r:id="rId1"/>
+    <sheet name="{escape(sheet_name)}" sheetId="1" r:id="rId1"/>
   </sheets>
   <calcPr calcId="124519"/>
   <workbookProtection lockStructure="1" lockWindows="1" workbookPassword="{hashed}"/>
-</workbook>
-"""
+</workbook>"""
 
+    # Styles with locked cells by default
     styles_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="1">
@@ -149,9 +162,9 @@ def write_protected_workbook(
   <cellStyles count="1">
     <cellStyle name="Normal" xfId="0" builtinId="0"/>
   </cellStyles>
-</styleSheet>
-"""
+</styleSheet>"""
 
+    # Content types
     content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -161,40 +174,35 @@ def write_protected_workbook(
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
-</Types>
-"""
+</Types>"""
 
+    # Root relationships
     rels_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
   <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
-</Relationships>
-"""
+</Relationships>"""
 
+    # Workbook relationships
     workbook_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-</Relationships>
-"""
+</Relationships>"""
 
+    # Core properties
     core_props = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
-                   xmlns:dc="http://purl.org/dc/elements/1.1/"
-                   xmlns:dcterms="http://purl.org/dc/terms/"
-                   xmlns:dcmitype="http://purl.org/dc/dcmitype/"
-                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dc:creator>Beirut POS</dc:creator>
   <cp:lastModifiedBy>Beirut POS</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:modified>
-</cp:coreProperties>
-"""
+</cp:coreProperties>"""
 
+    # App properties
     app_props = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
-            xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
   <Application>Beirut POS</Application>
   <DocSecurity>4</DocSecurity>
   <ScaleCrop>false</ScaleCrop>
@@ -206,7 +214,7 @@ def write_protected_workbook(
   </HeadingPairs>
   <TitlesOfParts>
     <vt:vector size="1" baseType="lpstr">
-      <vt:lpstr>{sheet_name}</vt:lpstr>
+      <vt:lpstr>{escape(sheet_name)}</vt:lpstr>
     </vt:vector>
   </TitlesOfParts>
   <Company>Beirut POS</Company>
@@ -214,15 +222,20 @@ def write_protected_workbook(
   <SharedDoc>false</SharedDoc>
   <HyperlinksChanged>false</HyperlinksChanged>
   <AppVersion>16.0300</AppVersion>
-</Properties>
-"""
+</Properties>"""
 
-    with ZipFile(path, "w", ZIP_DEFLATED) as zf:
-        zf.writestr("[Content_Types].xml", content_types)
-        zf.writestr("_rels/.rels", rels_xml)
-        zf.writestr("docProps/core.xml", core_props)
-        zf.writestr("docProps/app.xml", app_props)
-        zf.writestr("xl/workbook.xml", workbook_xml)
-        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
-        zf.writestr("xl/styles.xml", styles_xml)
-        zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    # Write ZIP file
+    try:
+        with ZipFile(path, "w", ZIP_DEFLATED) as zf:
+            zf.writestr("[Content_Types].xml", content_types)
+            zf.writestr("_rels/.rels", rels_xml)
+            zf.writestr("docProps/core.xml", core_props)
+            zf.writestr("docProps/app.xml", app_props)
+            zf.writestr("xl/workbook.xml", workbook_xml)
+            zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+            zf.writestr("xl/styles.xml", styles_xml)
+            zf.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    except PermissionError:
+        raise Exception("الملف مفتوح في برنامج آخر. أغلقه وحاول مرة أخرى.")
+    except Exception as e:
+        raise Exception(f"خطأ في إنشاء ملف Excel: {str(e)}")

@@ -24,7 +24,6 @@ from ..core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
 from ..services.orders import order_manager
 from ..utils.currency import format_pounds
-from ..utils.excel import write_protected_workbook
 
 
 class AdminReportsDialog(BigDialog):
@@ -420,7 +419,8 @@ class AdminReportsDialog(BigDialog):
         """)
         rows = cur.fetchall()
         conn.close()
-        rows_list = [[r["ts"], r["username"], r["entity_name"], r["old_value"], r["new_value"], r["extra"]] for r in rows]
+        rows_list = [[r["ts"], r["username"], r["entity_name"], r["old_value"], r["new_value"], r["extra"]] for r in
+                     rows]
         self._populate_table(self.price_table, rows_list)
 
     # -------------------------------------------------------------- inventory
@@ -495,7 +495,9 @@ class AdminReportsDialog(BigDialog):
         rows = cur.fetchall()
         conn.close()
 
-        table_rows = [[r["ts"], r["username"], r["action"], r["entity_type"], r["entity_name"], r["old_value"], r["new_value"], r["extra"]] for r in rows]
+        table_rows = [
+            [r["ts"], r["username"], r["action"], r["entity_type"], r["entity_name"], r["old_value"], r["new_value"],
+             r["extra"]] for r in rows]
         self._populate_table(self.stakeholder_table, table_rows)
         self.stakeholder_summary.setText(f"عدد الأحداث: {len(table_rows)}")
 
@@ -550,7 +552,17 @@ class AdminReportsDialog(BigDialog):
         return s.isoformat(), e.isoformat()
 
     def _export_table(self, table: QTableWidget, default_name: str) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "تصدير التقرير", f"{default_name}.xlsx", "Excel (*.xlsx)")
+        """Export table to Excel with timestamped filename."""
+        # Generate filename with current date and time
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        suggested_filename = f"{default_name}_{timestamp}.xlsx"
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "تصدير التقرير",
+            suggested_filename,
+            "Excel (*.xlsx)"
+        )
         if not path:
             return
         if not path.lower().endswith(".xlsx"):
@@ -563,9 +575,14 @@ class AdminReportsDialog(BigDialog):
         ]
 
         try:
+            from ..utils.excel import write_protected_workbook
             write_protected_workbook(path, headers, rows, title=default_name)
         except Exception as exc:
             QMessageBox.critical(self, "فشل التصدير", f"تعذر إنشاء ملف Excel:\n{exc}")
             return
 
-        QMessageBox.information(self, "تم التصدير", "تم إنشاء ملف Excel محمي من التعديل.")
+        QMessageBox.information(
+            self,
+            "تم التصدير",
+            f"تم إنشاء ملف Excel محمي من التعديل.\nكلمة المرور: UNKNOWN"
+        )

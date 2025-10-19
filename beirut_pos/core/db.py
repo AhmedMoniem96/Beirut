@@ -126,6 +126,8 @@ def init_db() -> None:
                 track_stock INTEGER NOT NULL DEFAULT 0,
                 stock_qty REAL DEFAULT 0,
                 min_stock REAL DEFAULT 0,
+                product_type TEXT DEFAULT '',
+                sugar_levels TEXT NOT NULL DEFAULT '[]',
                 order_index INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY(category_id) REFERENCES categories(id),
                 UNIQUE(category_id, name)
@@ -244,6 +246,7 @@ def init_db() -> None:
     _ensure_product_columns(cur)
     _ensure_product_options_table(cur)
     _ensure_catalog_order_columns(cur)
+    _ensure_currency_unit(cur)
     _ensure_default_settings(cur)
 
     conn.commit()
@@ -279,6 +282,12 @@ def _ensure_product_columns(cur) -> None:
                 idx = 0
             cur.execute("UPDATE products SET order_index=? WHERE id=?", (idx, row["id"]))
             idx += 1
+    if "product_type" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT ''")
+    if "sugar_levels" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN sugar_levels TEXT NOT NULL DEFAULT '[]'")
+    cur.execute("UPDATE products SET product_type=COALESCE(product_type, '')")
+    cur.execute("UPDATE products SET sugar_levels='[]' WHERE sugar_levels IS NULL OR sugar_levels=''")
 
 
 def _ensure_product_options_table(cur) -> None:
@@ -322,6 +331,31 @@ def _ensure_catalog_order_columns(cur) -> None:
             idx += 1
 
 
+def _ensure_currency_unit(cur) -> None:
+    cur.execute("SELECT value FROM settings WHERE key='currency_unit'")
+    row = cur.fetchone()
+    if row and row["value"] == "pounds":
+        return
+    for table, column in (
+        ("products", "price_cents"),
+        ("product_options", "price_delta_cents"),
+        ("order_items", "price_cents"),
+        ("payments", "amount_cents"),
+        ("purchases", "amount_cents"),
+        ("expenses", "amount_cents"),
+    ):
+        try:
+            cur.execute(
+                f"UPDATE {table} SET {column} = CAST(ROUND({column} / 100.0) AS INTEGER)"
+            )
+        except sqlite3.OperationalError:
+            continue
+    cur.execute(
+        "INSERT INTO settings(key,value) VALUES('currency_unit','pounds') "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+    )
+
+
 def _ensure_default_settings(cur) -> None:
     defaults = {
         "logo_path": "",
@@ -343,8 +377,9 @@ def _ensure_default_settings(cur) -> None:
         "company_name": "Beirut Coffee",
         "currency": "EGP",
         "service_pct": "0",
-        "ps_rate_p2": "5000",
-        "ps_rate_p4": "8000",
+        "ps_rate_p2": "50",
+        "ps_rate_p4": "80",
+        "currency_unit": "pounds",
         "table_codes": json.dumps([f"T{i:02d}" for i in range(1, 31)], ensure_ascii=False),
         "voucher_activated": "0",
         "voucher_activated_at": "",

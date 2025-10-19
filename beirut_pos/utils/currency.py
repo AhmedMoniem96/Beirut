@@ -1,9 +1,8 @@
 """Currency formatting helpers for Beirut POS.
 
-The application stores monetary amounts internally as integers that represent
-"cents".  A lot of stakeholders however prefer to read the values in whole
-pounds without trailing decimals.  The helpers below encapsulate this
-presentation logic so every UI element and report is consistent.
+All monetary values inside the application are stored as whole Egyptian pounds
+without fractional cents.  The helpers below keep the presentation consistent
+across the UI and reports while still accepting integers or numeric strings.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
-def _to_decimal_cents(amount_cents: int | float | None) -> Decimal:
+def _to_decimal_amount(amount_cents: int | float | None) -> Decimal:
     """Normalize incoming values so rounding behaves consistently."""
 
     if amount_cents is None:
@@ -26,8 +25,7 @@ def _to_decimal_cents(amount_cents: int | float | None) -> Decimal:
 def format_pounds(amount_cents: int | float | None, currency: str = "ج.م") -> str:
     """Return a human friendly amount using pound units with no fractional cents."""
 
-    cents = _to_decimal_cents(amount_cents).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    pounds = (cents / Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    pounds = _to_decimal_amount(amount_cents).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     pounds_int = int(pounds)
     sign = "-" if pounds_int < 0 else ""
     display = f"{abs(pounds_int):,}"

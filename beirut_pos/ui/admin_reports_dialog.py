@@ -56,26 +56,6 @@ class AdminReportsDialog(BigDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        controls = QHBoxLayout()
-        controls.addWidget(QLabel("من:"))
-        self.daily_from = QDateEdit()
-        self.daily_from.setCalendarPopup(True)
-        self.daily_from.setDate(QDate.currentDate().addDays(-6))
-        controls.addWidget(self.daily_from)
-
-        controls.addWidget(QLabel("إلى:"))
-        self.daily_to = QDateEdit()
-        self.daily_to.setCalendarPopup(True)
-        self.daily_to.setDate(QDate.currentDate())
-        controls.addWidget(self.daily_to)
-
-        refresh = QPushButton("تحديث")
-        refresh.clicked.connect(self._load_daily_report)
-        controls.addWidget(refresh)
-        controls.addWidget(self._make_export_button(self.daily_table, "daily_report"))
-        controls.addStretch(1)
-        layout.addLayout(controls)
-
         self.daily_table = self._make_table(
             [
                 "التاريخ",
@@ -89,6 +69,24 @@ class AdminReportsDialog(BigDialog):
             ]
         )
         layout.addWidget(self.daily_table, 1)
+
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("من:"))
+        self.daily_from = QDateEdit(QDate.currentDate().addDays(-6))
+        self.daily_from.setCalendarPopup(True)
+        controls.addWidget(self.daily_from)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.daily_to = QDateEdit(QDate.currentDate())
+        self.daily_to.setCalendarPopup(True)
+        controls.addWidget(self.daily_to)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_daily_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.daily_table, "daily_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
 
         self.daily_summary = QLabel("")
         self.daily_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -135,14 +133,7 @@ class AdminReportsDialog(BigDialog):
         conn.close()
 
         table_rows = []
-        totals = {
-            "orders": 0,
-            "items": 0.0,
-            "gross": 0,
-            "net": 0,
-            "cash": 0,
-            "card": 0,
-        }
+        totals = {"orders": 0, "items": 0.0, "gross": 0, "net": 0, "cash": 0, "card": 0}
         for row in rows:
             gross = int(row["gross_total"] or 0)
             net = int(row["net_total"] or 0)
@@ -183,17 +174,28 @@ class AdminReportsDialog(BigDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        self.cashier_table = self._make_table(
+            [
+                "الكاشير",
+                "عدد الطلبات",
+                "الإجمالي قبل الخصم",
+                "الإجمالي النهائي",
+                "نقدي",
+                "بطاقات",
+                "متوسط الطلب",
+            ]
+        )
+        layout.addWidget(self.cashier_table, 1)
+
         controls = QHBoxLayout()
         controls.addWidget(QLabel("من:"))
-        self.cashier_from = QDateEdit()
+        self.cashier_from = QDateEdit(QDate.currentDate().addDays(-6))
         self.cashier_from.setCalendarPopup(True)
-        self.cashier_from.setDate(QDate.currentDate().addDays(-6))
         controls.addWidget(self.cashier_from)
 
         controls.addWidget(QLabel("إلى:"))
-        self.cashier_to = QDateEdit()
+        self.cashier_to = QDateEdit(QDate.currentDate())
         self.cashier_to.setCalendarPopup(True)
-        self.cashier_to.setDate(QDate.currentDate())
         controls.addWidget(self.cashier_to)
 
         controls.addWidget(QLabel("الكاشير:"))
@@ -209,19 +211,6 @@ class AdminReportsDialog(BigDialog):
         controls.addStretch(1)
         layout.addLayout(controls)
 
-        self.cashier_table = self._make_table(
-            [
-                "الكاشير",
-                "عدد الطلبات",
-                "الإجمالي قبل الخصم",
-                "الإجمالي النهائي",
-                "نقدي",
-                "بطاقات",
-                "متوسط الطلب",
-            ]
-        )
-        layout.addWidget(self.cashier_table, 1)
-
         self.cashier_summary = QLabel("")
         self.cashier_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.cashier_summary)
@@ -231,7 +220,7 @@ class AdminReportsDialog(BigDialog):
     def _populate_cashier_filter(self):
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT DISTINCT cashier FROM payments ORDER BY cashier")
+        cur.execute("SELECT DISTINCT cashier FROM payments WHERE cashier IS NOT NULL ORDER BY cashier")
         rows = cur.fetchall()
         conn.close()
         for row in rows:
@@ -279,13 +268,7 @@ class AdminReportsDialog(BigDialog):
         conn.close()
 
         table_rows = []
-        totals = {
-            "orders": 0,
-            "gross": 0,
-            "net": 0,
-            "cash": 0,
-            "card": 0,
-        }
+        totals = {"orders": 0, "gross": 0, "net": 0, "cash": 0, "card": 0}
         for row in rows:
             gross = int(row["gross_total"] or 0)
             net = int(row["net_total"] or 0)
@@ -294,17 +277,15 @@ class AdminReportsDialog(BigDialog):
             orders_count = int(row["orders_count"] or 0)
             avg_order = net / orders_count if orders_count else 0
             cashier_name = row["cashier"] or "غير محدد"
-            table_rows.append(
-                [
-                    cashier_name,
-                    str(orders_count),
-                    self._money(gross),
-                    self._money(net),
-                    self._money(cash_total),
-                    self._money(card_total),
-                    self._money(int(avg_order)),
-                ]
-            )
+            table_rows.append([
+                cashier_name,
+                str(orders_count),
+                self._money(gross),
+                self._money(net),
+                self._money(cash_total),
+                self._money(card_total),
+                self._money(int(avg_order)),
+            ])
             totals["orders"] += orders_count
             totals["gross"] += gross
             totals["net"] += net
@@ -324,17 +305,20 @@ class AdminReportsDialog(BigDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        self.products_table = self._make_table([
+            "المنتج", "الكمية", "إجمالي المبيعات"
+        ])
+        layout.addWidget(self.products_table, 1)
+
         controls = QHBoxLayout()
         controls.addWidget(QLabel("من:"))
-        self.products_from = QDateEdit()
+        self.products_from = QDateEdit(QDate.currentDate().addDays(-14))
         self.products_from.setCalendarPopup(True)
-        self.products_from.setDate(QDate.currentDate().addDays(-14))
         controls.addWidget(self.products_from)
 
         controls.addWidget(QLabel("إلى:"))
-        self.products_to = QDateEdit()
+        self.products_to = QDateEdit(QDate.currentDate())
         self.products_to.setCalendarPopup(True)
-        self.products_to.setDate(QDate.currentDate())
         controls.addWidget(self.products_to)
 
         refresh = QPushButton("تحديث")
@@ -343,13 +327,6 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self._make_export_button(self.products_table, "products_report"))
         controls.addStretch(1)
         layout.addLayout(controls)
-
-        self.products_table = self._make_table([
-            "المنتج",
-            "الكمية",
-            "إجمالي المبيعات",
-        ])
-        layout.addWidget(self.products_table, 1)
 
         self.products_summary = QLabel("")
         self.products_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -361,14 +338,10 @@ class AdminReportsDialog(BigDialog):
         start, end = self._date_bounds(self.products_from, self.products_to)
         query = """
             WITH paid_orders AS (
-                SELECT DISTINCT order_id
-                FROM payments
-                WHERE paid_at BETWEEN ? AND ?
+                SELECT DISTINCT order_id FROM payments WHERE paid_at BETWEEN ? AND ?
             )
-            SELECT
-                oi.product_name AS product,
-                SUM(oi.qty) AS qty,
-                SUM(oi.price_cents * oi.qty) AS total
+            SELECT oi.product_name AS product, SUM(oi.qty) AS qty,
+                   SUM(oi.price_cents * oi.qty) AS total
             FROM order_items oi
             JOIN paid_orders po ON po.order_id = oi.order_id
             GROUP BY oi.product_name
@@ -381,13 +354,13 @@ class AdminReportsDialog(BigDialog):
         rows = cur.fetchall()
         conn.close()
 
-        table_rows = []
+        rows_list = []
         total_qty = 0.0
         total_sales = 0
         for row in rows:
             qty = float(row["qty"] or 0)
             total = int(row["total"] or 0)
-            table_rows.append([
+            rows_list.append([
                 row["product"],
                 self._format_qty(qty),
                 self._money(total),
@@ -395,13 +368,10 @@ class AdminReportsDialog(BigDialog):
             total_qty += qty
             total_sales += total
 
-        self._populate_table(self.products_table, table_rows)
-        summary = (
-            f"عدد الأصناف: {len(table_rows)} | "
-            f"إجمالي الكمية: {self._format_qty(total_qty)} | "
-            f"إجمالي المبيعات: {self._money(total_sales)}"
+        self._populate_table(self.products_table, rows_list)
+        self.products_summary.setText(
+            f"عدد الأصناف: {len(rows_list)} | إجمالي الكمية: {self._format_qty(total_qty)} | إجمالي المبيعات: {self._money(total_sales)}"
         )
-        self.products_summary.setText(summary)
 
     # ------------------------------------------------------------- price log
     def _build_price_log_tab(self) -> QWidget:
@@ -409,12 +379,7 @@ class AdminReportsDialog(BigDialog):
         layout = QVBoxLayout(widget)
 
         self.price_table = self._make_table([
-            "الوقت",
-            "المستخدم",
-            "العنصر",
-            "السعر القديم",
-            "السعر الجديد",
-            "تفاصيل",
+            "الوقت", "المستخدم", "العنصر", "السعر القديم", "السعر الجديد", "تفاصيل"
         ])
         layout.addWidget(self.price_table, 1)
 
@@ -431,44 +396,22 @@ class AdminReportsDialog(BigDialog):
     def _load_price_log(self):
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute(
-            """
+        cur.execute("""
             SELECT ts, username, entity_name, old_value, new_value, extra
-            FROM audit_log
-            WHERE action='price_change'
-            ORDER BY id DESC
-            LIMIT 200
-            """
-        )
+            FROM audit_log WHERE action='price_change'
+            ORDER BY id DESC LIMIT 200
+        """)
         rows = cur.fetchall()
         conn.close()
-
-        table_rows = []
-        for row in rows:
-            table_rows.append([
-                row["ts"],
-                row["username"],
-                row["entity_name"] or "",
-                row["old_value"] or "",
-                row["new_value"] or "",
-                row["extra"] or "",
-            ])
-        self._populate_table(self.price_table, table_rows)
+        rows_list = [[r["ts"], r["username"], r["entity_name"], r["old_value"], r["new_value"], r["extra"]] for r in rows]
+        self._populate_table(self.price_table, rows_list)
 
     # -------------------------------------------------------------- inventory
     def _build_inventory_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        intro = QLabel("الأصناف التي وصلت أو تجاوزت حد التنبيه للمخزون.")
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
-
-        self.inventory_table = self._make_table([
-            "المنتج",
-            "المتاح",
-            "الحد الأدنى",
-        ])
+        self.inventory_table = self._make_table(["المنتج", "المتاح", "الحد الأدنى"])
         layout.addWidget(self.inventory_table, 1)
 
         controls = QHBoxLayout()
@@ -483,14 +426,8 @@ class AdminReportsDialog(BigDialog):
 
     def _load_inventory_report(self):
         entries = order_manager.catalog.get_low_stock()
-        table_rows = []
-        for name, qty, min_qty in entries:
-            table_rows.append([
-                name,
-                self._format_qty(qty if qty is not None else 0),
-                self._format_qty(min_qty if min_qty is not None else 0),
-            ])
-        self._populate_table(self.inventory_table, table_rows)
+        rows = [[n, self._format_qty(q or 0), self._format_qty(m or 0)] for n, q, m in entries]
+        self._populate_table(self.inventory_table, rows)
 
     # ------------------------------------------------------ stakeholders log
     def _build_stakeholder_tab(self) -> QWidget:
@@ -498,15 +435,10 @@ class AdminReportsDialog(BigDialog):
         layout = QVBoxLayout(widget)
 
         self.stakeholder_table = self._make_table([
-            "الوقت",
-            "المستخدم",
-            "الإجراء",
-            "النوع",
-            "العنصر",
-            "القيمة السابقة",
-            "القيمة الجديدة",
-            "تفاصيل إضافية",
+            "الوقت", "المستخدم", "الإجراء", "النوع", "العنصر", "القيمة السابقة", "القيمة الجديدة", "تفاصيل إضافية"
         ])
+        layout.addWidget(self.stakeholder_table, 1)
+
         controls = QHBoxLayout()
         controls.addWidget(QLabel("من:"))
         start_dt = QDateTime.currentDateTime()
@@ -529,8 +461,6 @@ class AdminReportsDialog(BigDialog):
         controls.addStretch(1)
         layout.addLayout(controls)
 
-        layout.addWidget(self.stakeholder_table, 1)
-
         self.stakeholder_summary = QLabel("")
         self.stakeholder_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.stakeholder_summary)
@@ -541,39 +471,21 @@ class AdminReportsDialog(BigDialog):
         start, end = self._datetime_bounds(self.stakeholder_from, self.stakeholder_to)
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute(
-            """
+        cur.execute("""
             SELECT ts, username, action, entity_type, entity_name, old_value, new_value, extra
-            FROM audit_log
-            WHERE ts BETWEEN ? AND ?
-            ORDER BY ts
-            """,
-            (start, end),
-        )
+            FROM audit_log WHERE ts BETWEEN ? AND ? ORDER BY ts
+        """, (start, end))
         rows = cur.fetchall()
         conn.close()
 
-        table_rows = []
-        for row in rows:
-            table_rows.append([
-                row["ts"],
-                row["username"],
-                row["action"],
-                row["entity_type"] or "",
-                row["entity_name"] or "",
-                row["old_value"] or "",
-                row["new_value"] or "",
-                row["extra"] or "",
-            ])
+        table_rows = [[r["ts"], r["username"], r["action"], r["entity_type"], r["entity_name"], r["old_value"], r["new_value"], r["extra"]] for r in rows]
         self._populate_table(self.stakeholder_table, table_rows)
         self.stakeholder_summary.setText(f"عدد الأحداث: {len(table_rows)}")
 
     # ------------------------------------------------------------- utilities
     def _make_export_button(self, table: QTableWidget, default_name: str) -> QPushButton:
         button = QPushButton("تنزيل Excel")
-        button.clicked.connect(
-            lambda _checked=False, t=table, name=default_name: self._export_table(t, name)
-        )
+        button.clicked.connect(lambda _, t=table, n=default_name: self._export_table(t, n))
         return button
 
     def _make_table(self, headers: list[str]) -> QTableWidget:
@@ -590,7 +502,7 @@ class AdminReportsDialog(BigDialog):
         table.setRowCount(len(rows))
         for r, row in enumerate(rows):
             for c, value in enumerate(row):
-                item = QTableWidgetItem(value)
+                item = QTableWidgetItem(str(value or ""))
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 table.setItem(r, c, item)
         if not rows:
@@ -609,45 +521,29 @@ class AdminReportsDialog(BigDialog):
         return f"{q:.2f}"
 
     def _date_bounds(self, start_widget: QDateEdit, end_widget: QDateEdit) -> tuple[str, str]:
-        start_date = start_widget.date().toPyDate()
-        end_date = end_widget.date().toPyDate()
-        start = datetime.combine(start_date, datetime.min.time())
-        end = datetime.combine(end_date, datetime.max.time())
-        return start.isoformat(), end.isoformat()
+        s = datetime.combine(start_widget.date().toPyDate(), datetime.min.time())
+        e = datetime.combine(end_widget.date().toPyDate(), datetime.max.time())
+        return s.isoformat(), e.isoformat()
 
-    def _datetime_bounds(
-        self, start_widget: QDateTimeEdit, end_widget: QDateTimeEdit
-    ) -> tuple[str, str]:
-        start_dt = start_widget.dateTime().toPyDateTime()
-        end_dt = end_widget.dateTime().toPyDateTime()
-        if end_dt < start_dt:
-            end_dt = start_dt
-        return start_dt.isoformat(), end_dt.isoformat()
+    def _datetime_bounds(self, start_widget: QDateTimeEdit, end_widget: QDateTimeEdit) -> tuple[str, str]:
+        s = start_widget.dateTime().toPyDateTime()
+        e = end_widget.dateTime().toPyDateTime()
+        if e < s:
+            e = s
+        return s.isoformat(), e.isoformat()
 
     def _export_table(self, table: QTableWidget, default_name: str) -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "تصدير التقرير",
-            f"{default_name}.xlsx",
-            "Excel (*.xlsx)",
-        )
+        path, _ = QFileDialog.getSaveFileName(self, "تصدير التقرير", f"{default_name}.xlsx", "Excel (*.xlsx)")
         if not path:
             return
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
 
-        headers: list[str] = []
-        for col in range(table.columnCount()):
-            item = table.horizontalHeaderItem(col)
-            headers.append(item.text() if item else f"عمود {col + 1}")
-
-        rows: list[list[str]] = []
-        for row_idx in range(table.rowCount()):
-            row_values: list[str] = []
-            for col in range(table.columnCount()):
-                item = table.item(row_idx, col)
-                row_values.append(item.text() if item else "")
-            rows.append(row_values)
+        headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+        rows = [
+            [table.item(r, c).text() if table.item(r, c) else "" for c in range(table.columnCount())]
+            for r in range(table.rowCount())
+        ]
 
         try:
             write_protected_workbook(path, headers, rows, title=default_name)

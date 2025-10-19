@@ -102,10 +102,20 @@ class SettingsDialog(BigDialog):
 
         # --- PlayStation tab ---
         ps = QWidget(); ps_v = QVBoxLayout(ps); ps_f = QFormLayout(); ps_v.addLayout(ps_f)
-        self.ps_p2 = QSpinBox(); self.ps_p2.setRange(0,1_000_000); self.ps_p2.setValue(int(setting_get("ps_rate_p2","5000")))
-        self.ps_p4 = QSpinBox(); self.ps_p4.setRange(0,1_000_000); self.ps_p4.setValue(int(setting_get("ps_rate_p4","8000")))
-        ps_f.addRow("سعر PS لاعبين/ساعة (قرش):", self.ps_p2)
-        ps_f.addRow("سعر PS أربعة/ساعة (قرش):", self.ps_p4)
+        def _read_ps_rate(key: str, default: int) -> int:
+            raw = setting_get(key, str(default))
+            try:
+                value = int(float(raw))
+            except (TypeError, ValueError):
+                value = default
+            if value > 1000:
+                value = value // 100
+            return max(value, 0)
+
+        self.ps_p2 = QSpinBox(); self.ps_p2.setRange(0,1_000_000); self.ps_p2.setSingleStep(1); self.ps_p2.setSuffix(" ج.م"); self.ps_p2.setValue(_read_ps_rate("ps_rate_p2", 50))
+        self.ps_p4 = QSpinBox(); self.ps_p4.setRange(0,1_000_000); self.ps_p4.setSingleStep(1); self.ps_p4.setSuffix(" ج.م"); self.ps_p4.setValue(_read_ps_rate("ps_rate_p4", 80))
+        ps_f.addRow("سعر PS لاعبين/ساعة (ج.م):", self.ps_p2)
+        ps_f.addRow("سعر PS أربعة/ساعة (ج.م):", self.ps_p4)
         tabs.addTab(ps, "البلايستيشن")
 
         # --- Branding tab ---

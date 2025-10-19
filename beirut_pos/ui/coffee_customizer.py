@@ -41,15 +41,15 @@ class CoffeeCustomizerDialog(QDialog):
 
         self.size = QComboBox()
         self.size.addItem("صغير", 0)
-        self.size.addItem(f"متوسط (+{pounds_value(500)})", 500)
-        self.size.addItem(f"كبير (+{pounds_value(900)})", 900)
+        self.size.addItem(f"متوسط (+{pounds_value(5)})", 5)
+        self.size.addItem(f"كبير (+{pounds_value(9)})", 9)
         form.addRow("الحجم:", self.size)
 
         self.milk = QComboBox()
         self.milk.addItem("حليب كامل", 0)
         self.milk.addItem("حليب خالي الدسم", 0)
-        self.milk.addItem(f"حليب لوز (+{pounds_value(700)})", 700)
-        self.milk.addItem(f"حليب صويا (+{pounds_value(600)})", 600)
+        self.milk.addItem(f"حليب لوز (+{pounds_value(7)})", 7)
+        self.milk.addItem(f"حليب صويا (+{pounds_value(6)})", 6)
         form.addRow("نوع الحليب:", self.milk)
 
         self.sweetness = QComboBox()
@@ -64,8 +64,8 @@ class CoffeeCustomizerDialog(QDialog):
         self.temperature.addItem("مثلج", 0)
         form.addRow("التقديم:", self.temperature)
 
-        self.extra_shot = QCheckBox(f"جرعة إسبرسو إضافية (+{pounds_value(800)})")
-        self.whipped = QCheckBox(f"كريمة مخفوقة (+{pounds_value(500)})")
+        self.extra_shot = QCheckBox(f"جرعة إسبرسو إضافية (+{pounds_value(8)})")
+        self.whipped = QCheckBox(f"كريمة مخفوقة (+{pounds_value(5)})")
         form.addRow("إضافات:", self.extra_shot)
         form.addRow("", self.whipped)
 
@@ -97,9 +97,9 @@ class CoffeeCustomizerDialog(QDialog):
         delta += int(self.size.currentData() or 0)
         delta += int(self.milk.currentData() or 0)
         if self.extra_shot.isChecked():
-            delta += 800
+            delta += 8
         if self.whipped.isChecked():
-            delta += 500
+            delta += 5
         return delta
 
     def _build_note(self) -> str:

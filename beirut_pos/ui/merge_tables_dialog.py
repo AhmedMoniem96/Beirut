@@ -15,12 +15,19 @@ from ..utils.currency import format_pounds
 
 
 class MergeTablesDialog(QDialog):
-    def __init__(self, current_table: str, candidates: list[tuple[str, int]], parent=None):
+    def __init__(
+        self,
+        current_table: str,
+        candidates: list[tuple[str, int]],
+        parent=None,
+        *,
+        free_tables: list[str] | None = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("دمج الطاولات")
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.setModal(True)
-        self._selection: str | None = None
+        self._selection: tuple[str, str] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 18, 24, 18)
@@ -35,8 +42,14 @@ class MergeTablesDialog(QDialog):
 
         self.combo = QComboBox()
         for code, total in candidates:
-            label = f"{code} — {format_pounds(total)}"
-            self.combo.addItem(label, code)
+            label = f"دمج مع {code} — {format_pounds(total)}"
+            self.combo.addItem(label, ("merge", code))
+        free_tables = free_tables or []
+        if free_tables and candidates:
+            self.combo.insertSeparator(self.combo.count())
+        for code in free_tables:
+            label = f"نقل الطلب إلى الطاولة {code} (فارغة)"
+            self.combo.addItem(label, ("move", code))
         layout.addWidget(self.combo)
 
         buttons = QDialogButtonBox(
@@ -53,9 +66,12 @@ class MergeTablesDialog(QDialog):
     def accept(self) -> None:
         if self.combo.currentIndex() < 0:
             return
-        self._selection = self.combo.currentData()
+        data = self.combo.currentData()
+        if not data:
+            return
+        self._selection = data
         super().accept()
 
-    def selected_table(self) -> str | None:
+    def selected_action(self) -> tuple[str, str] | None:
         return self._selection
 

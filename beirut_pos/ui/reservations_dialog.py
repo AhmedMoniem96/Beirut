@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
 
 from ..services import reservations as reservations_service
@@ -172,30 +173,51 @@ class _ReservationEditor(QDialog):
         self.values: dict | None = None
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(18)
+
         form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setSpacing(12)
         layout.addLayout(form)
 
+        def _configure_field(widget) -> None:
+            widget.setMinimumWidth(240)
+            if hasattr(widget, "setMinimumHeight"):
+                widget.setMinimumHeight(34)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            if isinstance(widget, (QLineEdit, QDateTimeEdit, QSpinBox)):
+                widget.setStyleSheet("padding: 6px 10px;")
+
         self.name = QLineEdit()
+        _configure_field(self.name)
         form.addRow("الاسم:", self.name)
 
         self.phone = QLineEdit()
         self.phone.setPlaceholderText("مثال: 01001234567")
+        _configure_field(self.phone)
         form.addRow("الهاتف:", self.phone)
 
         self.party_size = QSpinBox()
         self.party_size.setRange(1, 30)
+        _configure_field(self.party_size)
         form.addRow("عدد الأشخاص:", self.party_size)
 
         self.when = QDateTimeEdit(datetime.now())
         self.when.setDisplayFormat("yyyy-MM-dd HH:mm")
         self.when.setCalendarPopup(True)
+        _configure_field(self.when)
         form.addRow("التاريخ والوقت:", self.when)
 
         self.table_code = QLineEdit()
+        _configure_field(self.table_code)
         form.addRow("الطاولة المخصصة:", self.table_code)
 
         self.notes = QLineEdit()
         self.notes.setPlaceholderText("ملاحظات إضافية")
+        _configure_field(self.notes)
         form.addRow("ملاحظات:", self.notes)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)

@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QVBoxLayout,
     QLabel,
+    QSizePolicy,
 )
 
 
@@ -24,14 +25,26 @@ class SugarLevelDialog(QDialog):
         self._selection: str | None = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 18, 24, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(28, 22, 28, 22)
+        layout.setSpacing(16)
 
         intro = QLabel("حدد مستوى السكر للمشروب أو أدخل مستوى مخصصًا.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
         form = QFormLayout()
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setSpacing(12)
+
+        def _configure(widget):
+            widget.setMinimumWidth(240)
+            widget.setMinimumHeight(34)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            if isinstance(widget, (QLineEdit, QComboBox)):
+                widget.setStyleSheet("padding: 6px 10px;")
+
         self.combo = QComboBox()
         self.combo.setEditable(False)
         for level in levels:
@@ -40,10 +53,12 @@ class SugarLevelDialog(QDialog):
                 self.combo.addItem(cleaned)
         if self.combo.count() == 0:
             self.combo.addItem("بدون سكر")
+        _configure(self.combo)
         form.addRow("مستويات جاهزة:", self.combo)
 
         self.custom = QLineEdit()
         self.custom.setPlaceholderText("اكتب مستوى السكر المخصص (اختياري)")
+        _configure(self.custom)
         form.addRow("مستوى مخصص:", self.custom)
         layout.addLayout(form)
 

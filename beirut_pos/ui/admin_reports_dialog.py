@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QHeaderView,
     QComboBox,
+    QSizePolicy,
 )
 
 from ..core.db import get_conn, setting_get
@@ -42,6 +43,8 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_stakeholder_tab(), "تقرير المساهمين")
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
         layout.addWidget(self.tabs)
 
         self._load_daily_report()
@@ -71,14 +74,20 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.daily_table, 1)
 
         controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         self.daily_from = QDateEdit(QDate.currentDate().addDays(-6))
         self.daily_from.setCalendarPopup(True)
+        self.daily_from.setMinimumWidth(150)
+        self.daily_from.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_from)
 
         controls.addWidget(QLabel("إلى:"))
         self.daily_to = QDateEdit(QDate.currentDate())
         self.daily_to.setCalendarPopup(True)
+        self.daily_to.setMinimumWidth(150)
+        self.daily_to.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_to)
 
         refresh = QPushButton("تحديث")
@@ -188,20 +197,28 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.cashier_table, 1)
 
         controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         self.cashier_from = QDateEdit(QDate.currentDate().addDays(-6))
         self.cashier_from.setCalendarPopup(True)
+        self.cashier_from.setMinimumWidth(150)
+        self.cashier_from.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_from)
 
         controls.addWidget(QLabel("إلى:"))
         self.cashier_to = QDateEdit(QDate.currentDate())
         self.cashier_to.setCalendarPopup(True)
+        self.cashier_to.setMinimumWidth(150)
+        self.cashier_to.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_to)
 
         controls.addWidget(QLabel("الكاشير:"))
         self.cashier_filter = QComboBox()
         self.cashier_filter.addItem("الكل", "")
         self._populate_cashier_filter()
+        self.cashier_filter.setMinimumWidth(180)
+        self.cashier_filter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_filter)
 
         refresh = QPushButton("تحديث")

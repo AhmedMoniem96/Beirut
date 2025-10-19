@@ -222,6 +222,23 @@ class MainWindow(QMainWindow):
         self.btn_print_bar.setEnabled(has_items)
         self.btn_print_cashier.setEnabled(has_items)
 
+    def _update_totals(self, table_code: str | None = None):
+        """Refresh subtotal/discount/total summaries for the active table."""
+
+        if table_code is None:
+            table_code = self.current_table
+
+        if not table_code:
+            self.order_list.set_totals(0, 0, 0)
+            self.payment.set_totals(0, 0, 0)
+            return 0, 0, 0
+
+        subtotal, discount, total = order_manager.get_totals(table_code)
+        if table_code == self.current_table:
+            self.order_list.set_totals(subtotal, discount, total)
+            self.payment.set_totals(subtotal, discount, total)
+        return subtotal, discount, total
+
     def _print_bar(self):
         if not self.current_table:
             self._show_banner("اختر طاولة أولاً قبل الطباعة.", "warn")
@@ -241,7 +258,7 @@ class MainWindow(QMainWindow):
         if not items:
             self._show_banner("لا توجد عناصر في الطلب الحالي.", "warn")
             return
-        sub, disc, tot = order_manager.get_totals(self.current_table)
+        sub, disc, tot = self._update_totals(self.current_table)
         # طباعة إيصال يدوي بدون تحصيل/إقفال
         printer.print_cashier_receipt(self.current_table, items, sub, disc, tot, method="manual", cashier=self.user.username)
         self._show_banner("تم إرسال إيصال الكاشير للطابعة.", "success")
@@ -335,7 +352,7 @@ class MainWindow(QMainWindow):
         self.current_table=code; self.act_back.setVisible(True)
         self.order_header.setText(f"طلب: {code}")
         self.order_list.set_items(order_manager.get_items(code))
-        sub,disc,tot=order_manager.get_totals(code); self.payment.set_totals(sub,disc,tot)
+        self._update_totals(code)
         self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.pages.setCurrentIndex(PAGE_ORDER)
         self._refresh_print_buttons()
@@ -399,7 +416,7 @@ class MainWindow(QMainWindow):
             self._show_banner(str(e), "error", duration=8000)
             return
         self.order_list.set_items(order_manager.get_items(self.current_table))
-        sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._update_totals()
         self._refresh_print_buttons()
 
     def _on_remove(self, index):
@@ -408,7 +425,7 @@ class MainWindow(QMainWindow):
             return
         order_manager.remove_item(self.current_table, index, username=self.user.username)
         self.order_list.set_items(order_manager.get_items(self.current_table))
-        sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._update_totals()
         self._refresh_print_buttons()
 
     def _on_merge_tables(self):
@@ -438,7 +455,7 @@ class MainWindow(QMainWindow):
                 return
             self.table_map.update_table(target, state="free", total_cents=0)
             self.order_list.set_items(order_manager.get_items(self.current_table))
-            sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+            self._update_totals()
             self._refresh_print_buttons()
             self._show_banner(f"تم دمج الطاولة {target} مع {self.current_table} بنجاح.", "success")
         else:
@@ -479,7 +496,7 @@ class MainWindow(QMainWindow):
             self._show_banner(str(exc), "error", duration=8000)
             return
         self.order_list.set_items(order_manager.get_items(self.current_table))
-        sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._update_totals()
         self._refresh_print_buttons()
 
     def _on_discount(self):
@@ -489,7 +506,7 @@ class MainWindow(QMainWindow):
         dlg=DiscountDialog()
         if dlg.exec()==dlg.DialogCode.Accepted:
             order_manager.apply_discount(self.current_table, dlg.amount)
-            sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+            self._update_totals()
             self._refresh_print_buttons()
 
     def _on_pay(self, method):
@@ -503,7 +520,8 @@ class MainWindow(QMainWindow):
         if order_manager.settle(self.current_table, "cash" if method=="نقدي" else "visa", cashier=self.user.username):
             # recompute totals after settle if you want; here we print a final receipt with zeroed UI
             printer.print_cashier_receipt(self.current_table, items, 0, 0, 0, method, self.user.username)
-            self.order_list.set_items([]); self.payment.set_totals(0,0,0)
+            self.order_list.set_items([])
+            self._update_totals(None)
             self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
             self._refresh_print_buttons()
             self._show_banner("تم إغلاق الطلب وطباعة الإيصالات.", "success")
@@ -516,21 +534,21 @@ class MainWindow(QMainWindow):
     def _ps_switch(self, mode):
         if not self.current_table: return
         order_manager.ps_switch(self.current_table, mode); self.ps_controls.show_running(mode)
-        sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._update_totals()
         self._refresh_print_buttons()
 
     def _ps_stop(self):
         if not self.current_table: return
         order_manager.ps_stop(self.current_table); self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.order_list.set_items(order_manager.get_items(self.current_table))
-        sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._update_totals()
         self._refresh_print_buttons()
 
     # Bus handlers
     def _on_table_total_changed(self, table_code, _t):
         self.table_map.update_table(table_code, total_cents=_t)
         if self.current_table==table_code and self.pages.currentIndex()==PAGE_ORDER:
-            sub,disc,tot=order_manager.get_totals(table_code); self.payment.set_totals(sub,disc,tot)
+            self._update_totals(table_code)
             self._refresh_print_buttons()
 
     def _on_table_state_changed(self, table_code, state): self.table_map.update_table(table_code, state=state)

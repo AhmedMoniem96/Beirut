@@ -1,12 +1,15 @@
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QDate
+from PyQt6.QtCore import Qt, QDate, QDateTime, QTime
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDateEdit,
+    QDateTimeEdit,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
+    QFileDialog,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -19,6 +22,8 @@ from PyQt6.QtWidgets import (
 from ..core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
 from ..services.orders import order_manager
+from ..utils.currency import format_pounds
+from ..utils.excel import write_protected_workbook
 
 
 class AdminReportsDialog(BigDialog):
@@ -34,6 +39,7 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_products_tab(), "الأصناف")
         self.tabs.addTab(self._build_price_log_tab(), "سجل الأسعار")
         self.tabs.addTab(self._build_inventory_tab(), "المخزون")
+        self.tabs.addTab(self._build_stakeholder_tab(), "تقرير المساهمين")
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
@@ -43,6 +49,7 @@ class AdminReportsDialog(BigDialog):
         self._load_product_report()
         self._load_price_log()
         self._load_inventory_report()
+        self._load_stakeholder_report()
 
     # ------------------------------------------------------------------ daily
     def _build_daily_tab(self) -> QWidget:
@@ -65,6 +72,7 @@ class AdminReportsDialog(BigDialog):
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_daily_report)
         controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.daily_table, "daily_report"))
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -197,6 +205,7 @@ class AdminReportsDialog(BigDialog):
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_cashier_report)
         controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.cashier_table, "cashier_report"))
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -331,6 +340,7 @@ class AdminReportsDialog(BigDialog):
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_product_report)
         controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.products_table, "products_report"))
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -408,9 +418,13 @@ class AdminReportsDialog(BigDialog):
         ])
         layout.addWidget(self.price_table, 1)
 
+        controls = QHBoxLayout()
         refresh = QPushButton("تحديث السجل")
         refresh.clicked.connect(self._load_price_log)
-        layout.addWidget(refresh, alignment=Qt.AlignmentFlag.AlignLeft)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.price_table, "price_log"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
 
         return widget
 
@@ -457,9 +471,13 @@ class AdminReportsDialog(BigDialog):
         ])
         layout.addWidget(self.inventory_table, 1)
 
+        controls = QHBoxLayout()
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_inventory_report)
-        layout.addWidget(refresh, alignment=Qt.AlignmentFlag.AlignLeft)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.inventory_table, "inventory_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
 
         return widget
 
@@ -474,7 +492,90 @@ class AdminReportsDialog(BigDialog):
             ])
         self._populate_table(self.inventory_table, table_rows)
 
+    # ------------------------------------------------------ stakeholders log
+    def _build_stakeholder_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        self.stakeholder_table = self._make_table([
+            "الوقت",
+            "المستخدم",
+            "الإجراء",
+            "النوع",
+            "العنصر",
+            "القيمة السابقة",
+            "القيمة الجديدة",
+            "تفاصيل إضافية",
+        ])
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("من:"))
+        start_dt = QDateTime.currentDateTime()
+        start_dt.setTime(QTime(0, 0))
+        self.stakeholder_from = QDateTimeEdit(start_dt)
+        self.stakeholder_from.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.stakeholder_from.setCalendarPopup(True)
+        controls.addWidget(self.stakeholder_from)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.stakeholder_to = QDateTimeEdit(QDateTime.currentDateTime())
+        self.stakeholder_to.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.stakeholder_to.setCalendarPopup(True)
+        controls.addWidget(self.stakeholder_to)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_stakeholder_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.stakeholder_table, "stakeholder_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        layout.addWidget(self.stakeholder_table, 1)
+
+        self.stakeholder_summary = QLabel("")
+        self.stakeholder_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.stakeholder_summary)
+
+        return widget
+
+    def _load_stakeholder_report(self):
+        start, end = self._datetime_bounds(self.stakeholder_from, self.stakeholder_to)
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT ts, username, action, entity_type, entity_name, old_value, new_value, extra
+            FROM audit_log
+            WHERE ts BETWEEN ? AND ?
+            ORDER BY ts
+            """,
+            (start, end),
+        )
+        rows = cur.fetchall()
+        conn.close()
+
+        table_rows = []
+        for row in rows:
+            table_rows.append([
+                row["ts"],
+                row["username"],
+                row["action"],
+                row["entity_type"] or "",
+                row["entity_name"] or "",
+                row["old_value"] or "",
+                row["new_value"] or "",
+                row["extra"] or "",
+            ])
+        self._populate_table(self.stakeholder_table, table_rows)
+        self.stakeholder_summary.setText(f"عدد الأحداث: {len(table_rows)}")
+
     # ------------------------------------------------------------- utilities
+    def _make_export_button(self, table: QTableWidget, default_name: str) -> QPushButton:
+        button = QPushButton("تنزيل Excel")
+        button.clicked.connect(
+            lambda _checked=False, t=table, name=default_name: self._export_table(t, name)
+        )
+        return button
+
     def _make_table(self, headers: list[str]) -> QTableWidget:
         table = QTableWidget(0, len(headers))
         table.setHorizontalHeaderLabels(headers)
@@ -496,7 +597,7 @@ class AdminReportsDialog(BigDialog):
             table.setRowCount(0)
 
     def _money(self, cents: int) -> str:
-        return f"{cents/100:,.2f} {self.currency}"
+        return format_pounds(cents, self.currency)
 
     def _format_qty(self, qty) -> str:
         try:
@@ -513,3 +614,45 @@ class AdminReportsDialog(BigDialog):
         start = datetime.combine(start_date, datetime.min.time())
         end = datetime.combine(end_date, datetime.max.time())
         return start.isoformat(), end.isoformat()
+
+    def _datetime_bounds(
+        self, start_widget: QDateTimeEdit, end_widget: QDateTimeEdit
+    ) -> tuple[str, str]:
+        start_dt = start_widget.dateTime().toPyDateTime()
+        end_dt = end_widget.dateTime().toPyDateTime()
+        if end_dt < start_dt:
+            end_dt = start_dt
+        return start_dt.isoformat(), end_dt.isoformat()
+
+    def _export_table(self, table: QTableWidget, default_name: str) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "تصدير التقرير",
+            f"{default_name}.xlsx",
+            "Excel (*.xlsx)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".xlsx"):
+            path += ".xlsx"
+
+        headers: list[str] = []
+        for col in range(table.columnCount()):
+            item = table.horizontalHeaderItem(col)
+            headers.append(item.text() if item else f"عمود {col + 1}")
+
+        rows: list[list[str]] = []
+        for row_idx in range(table.rowCount()):
+            row_values: list[str] = []
+            for col in range(table.columnCount()):
+                item = table.item(row_idx, col)
+                row_values.append(item.text() if item else "")
+            rows.append(row_values)
+
+        try:
+            write_protected_workbook(path, headers, rows, title=default_name)
+        except Exception as exc:
+            QMessageBox.critical(self, "فشل التصدير", f"تعذر إنشاء ملف Excel:\n{exc}")
+            return
+
+        QMessageBox.information(self, "تم التصدير", "تم إنشاء ملف Excel محمي من التعديل.")

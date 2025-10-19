@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QFrame,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
@@ -21,6 +22,7 @@ from .components.payment_panel import PaymentPanel
 from .components.ps_controls import PSControls
 from ..services.orders import order_manager, StockError
 from ..services.printer import printer
+from ..services import reservations as reservations_service
 from ..core.bus import bus
 from .login_dialog import LoginDialog
 from .catalog_manager_dialog import CatalogManagerDialog
@@ -37,6 +39,9 @@ from .order_item_editor import OrderItemEditor
 from .common.branding import get_logo_pixmap, get_logo_icon, build_main_window_stylesheet
 from .common.barista_tips import random_tip
 from .admin_tables_dialog import AdminTablesDialog
+from .reservations_dialog import ReservationsDialog
+from .merge_tables_dialog import MergeTablesDialog
+from .purchases_dialog import PurchasesDialog
 
 PAGE_TABLES=0; PAGE_ORDER=1
 
@@ -80,13 +85,26 @@ class MainWindow(QMainWindow):
         self.act_users=QAction("إدارة المستخدمين", self); self.act_users.triggered.connect(self._open_users)
         self.act_reports=QAction("التقارير", self); self.act_reports.triggered.connect(self._open_reports)
         self.act_tables=QAction("إدارة الطاولات", self); self.act_tables.triggered.connect(self._open_tables_admin)
+        self.act_purchases=QAction("المشتريات", self); self.act_purchases.triggered.connect(self._open_purchases)
+        self.act_reservations=QAction("الحجوزات", self); self.act_reservations.triggered.connect(self._open_reservations)
 
         # NEW: Settings & Daily Z-Report (admin only)
         self.act_settings=QAction("الإعدادات", self); self.act_settings.triggered.connect(self._open_settings)
         self.act_zreport=QAction("تقرير يومي (Z)", self); self.act_zreport.triggered.connect(self._open_zreport)
 
-        for a in (self.act_manage,self.act_users,self.act_reports,self.act_tables,self.act_settings,self.act_zreport):
-            a.setVisible(self.user.role=="admin"); bar.addAction(a)
+        self._admin_actions = [
+            self.act_manage,
+            self.act_users,
+            self.act_reports,
+            self.act_tables,
+            self.act_purchases,
+            self.act_settings,
+            self.act_zreport,
+        ]
+        for action in self._admin_actions:
+            action.setVisible(self.user.role == "admin")
+            bar.addAction(action)
+        bar.addAction(self.act_reservations)
 
         # Hotkeys
         QShortcut(QKeySequence("Esc"), self, activated=self._go_back)
@@ -138,6 +156,7 @@ class MainWindow(QMainWindow):
         self.table_codes=order_manager.get_table_codes()
         self.table_map=TableMap(self.table_codes, self._on_table_select)
         tv.addWidget(self.table_map,1)
+        self._refresh_reservation_overlays()
 
         # Order page
         order_page=QWidget(); order_page.setObjectName("OrderPage"); ov=QVBoxLayout(order_page); ov.setSpacing(12)
@@ -157,6 +176,10 @@ class MainWindow(QMainWindow):
         self.btn_print_cashier.clicked.connect(self._print_cashier)
         head_row.addWidget(self.btn_print_cashier, 0)
 
+        self.btn_merge=QPushButton("🔀 دمج مع طاولة")
+        self.btn_merge.clicked.connect(self._on_merge_tables)
+        self.btn_merge.setEnabled(False)
+        head_row.addWidget(self.btn_merge, 0)
         self.back_big=QPushButton("⬅ رجوع"); self.back_big.clicked.connect(self._go_back); head_row.addWidget(self.back_big,0)
         ov.addLayout(head_row,0)
 
@@ -183,6 +206,7 @@ class MainWindow(QMainWindow):
         bus.subscribe("branding_changed", self._on_branding_changed)
         bus.subscribe("settings_saved", self._on_settings_saved)
         bus.subscribe("tables_changed", self._on_tables_changed)
+        bus.subscribe("reservations_changed", self._on_reservations_changed)
 
         self.current_table=None
         self._coffee_categories = {"Coffee Corner", "Hot Drinks", "Fresh Drinks"}
@@ -245,14 +269,15 @@ class MainWindow(QMainWindow):
         self.order_header.setText("طلب:")
         self._refresh_print_buttons()
         self._status.showMessage(random_tip(), 10000)
+        self.btn_merge.setEnabled(False)
 
     def _switch_user(self):
         dlg=LoginDialog()
         if dlg.exec()==dlg.DialogCode.Accepted:
             self.user=dlg.get_user()
             self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")
-            for a in (self.act_manage,self.act_users,self.act_reports,self.act_tables,self.act_settings,self.act_zreport):
-                a.setVisible(self.user.role=="admin")
+            for action in self._admin_actions:
+                action.setVisible(self.user.role=="admin")
             self._session_started = datetime.now()
             self._update_session_timer()
 
@@ -282,6 +307,15 @@ class MainWindow(QMainWindow):
             return
         AdminTablesDialog(actor=self.user.username, parent=self).exec()
 
+    def _open_purchases(self):
+        if self.user.role!="admin":
+            self._show_banner("هذه العملية للمدير فقط.", "warn")
+            return
+        PurchasesDialog(actor=self.user.username, parent=self).exec()
+
+    def _open_reservations(self):
+        ReservationsDialog(parent=self).exec()
+
     # NEW: dialogs
     def _open_settings(self):
         if self.user.role!="admin":
@@ -305,6 +339,7 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(PAGE_ORDER)
         self._refresh_print_buttons()
         self._status.showMessage(random_tip(), 9000)
+        self.btn_merge.setEnabled(True)
 
     def _on_pick(self, label, price_cents):
         if not self.current_table:
@@ -362,6 +397,29 @@ class MainWindow(QMainWindow):
         self.order_list.set_items(order_manager.get_items(self.current_table))
         sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
         self._refresh_print_buttons()
+
+    def _on_merge_tables(self):
+        if not self.current_table:
+            self._show_banner("اختر طاولة أولاً لإجراء الدمج.", "warn")
+            return
+        candidates = order_manager.list_open_tables_with_totals(self.current_table)
+        if not candidates:
+            self._show_banner("لا توجد طاولات أخرى مشغولة لدمجها.", "info")
+            return
+        dlg = MergeTablesDialog(self.current_table, candidates, self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        other = dlg.selected_table()
+        if not other:
+            return
+        if not order_manager.merge_tables(self.current_table, other, username=self.user.username):
+            self._show_banner("تعذر دمج الطاولتين. تأكد أن كلاهما يحتويان على طلبات مفتوحة.", "error", duration=8000)
+            return
+        self.table_map.update_table(other, state="free", total_cents=0)
+        self.order_list.set_items(order_manager.get_items(self.current_table))
+        sub,disc,tot=order_manager.get_totals(self.current_table); self.payment.set_totals(sub,disc,tot)
+        self._refresh_print_buttons()
+        self._show_banner(f"تم دمج الطاولة {other} مع {self.current_table} بنجاح.", "success")
 
     def _on_edit_item(self, index: int) -> None:
         if not self.current_table:
@@ -466,6 +524,16 @@ class MainWindow(QMainWindow):
         if self.user.role == "admin":
             self._show_banner(msg, "success", duration=6000)
 
+    def _on_reservations_changed(self, *_payload):
+        self._refresh_reservation_overlays()
+
+    def _refresh_reservation_overlays(self):
+        try:
+            mapping = reservations_service.get_active_reservations_map()
+        except Exception:
+            mapping = {}
+        self.table_map.set_reservations(mapping)
+
     def _refresh_branding(self):
         self.setStyleSheet(build_main_window_stylesheet())
         pix = get_logo_pixmap(64)
@@ -501,6 +569,7 @@ class MainWindow(QMainWindow):
             cleaned = order_manager.get_table_codes()
         self.table_codes = cleaned
         self.table_map.set_table_codes(cleaned)
+        self._refresh_reservation_overlays()
         if self.current_table and self.current_table not in cleaned:
             self._show_banner("تمت إزالة الطاولة الحالية من القائمة. تم الرجوع إلى شاشة الطاولات.", "warn", duration=8000)
             self._go_back()

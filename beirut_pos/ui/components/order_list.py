@@ -1,5 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QLabel, QPushButton
 
+from ...utils.currency import format_pounds
+
 
 class OrderList(QWidget):
     def __init__(self, on_remove, on_edit):
@@ -13,7 +15,7 @@ class OrderList(QWidget):
         self.list.setObjectName("OrderItems")
         self.list.setSpacing(4)
         self.list.setStyleSheet("QListWidget#OrderItems::item { padding: 6px 8px; }")
-        self.total = QLabel("الإجمالي: ج.م 0.00")
+        self.total = QLabel("الإجمالي: ج.م 0")
         self.remove_btn = QPushButton("حذف المحدد")
         self.edit_btn = QPushButton("تعديل المحدد")
         v.addWidget(self.title)
@@ -43,11 +45,11 @@ class OrderList(QWidget):
     def set_items(self, items):
         self.list.clear()
         for it in items:
-            text = f"{it.qty}× {it.product} | ج.م {it.unit_price_cents/100:.2f}"
+            text = f"{it.qty}× {it.product} | {format_pounds(it.unit_price_cents)}"
             note = getattr(it, "note", "") or ""
             if note:
                 text += f"\n    ملاحظة: {note}"
             self.list.addItem(text)
 
     def set_total(self, cents):
-        self.total.setText(f"الإجمالي: ج.م {cents/100:.2f}")
+        self.total.setText(f"الإجمالي: {format_pounds(cents)}")

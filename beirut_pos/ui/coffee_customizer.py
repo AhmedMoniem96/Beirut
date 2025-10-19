@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from ..utils.currency import format_pounds, pounds_value
 
 @dataclass
 class CoffeeSelection:
@@ -40,15 +41,15 @@ class CoffeeCustomizerDialog(QDialog):
 
         self.size = QComboBox()
         self.size.addItem("صغير", 0)
-        self.size.addItem("متوسط (+5.00)", 500)
-        self.size.addItem("كبير (+9.00)", 900)
+        self.size.addItem(f"متوسط (+{pounds_value(500)})", 500)
+        self.size.addItem(f"كبير (+{pounds_value(900)})", 900)
         form.addRow("الحجم:", self.size)
 
         self.milk = QComboBox()
         self.milk.addItem("حليب كامل", 0)
         self.milk.addItem("حليب خالي الدسم", 0)
-        self.milk.addItem("حليب لوز (+7.00)", 700)
-        self.milk.addItem("حليب صويا (+6.00)", 600)
+        self.milk.addItem(f"حليب لوز (+{pounds_value(700)})", 700)
+        self.milk.addItem(f"حليب صويا (+{pounds_value(600)})", 600)
         form.addRow("نوع الحليب:", self.milk)
 
         self.sweetness = QComboBox()
@@ -63,8 +64,8 @@ class CoffeeCustomizerDialog(QDialog):
         self.temperature.addItem("مثلج", 0)
         form.addRow("التقديم:", self.temperature)
 
-        self.extra_shot = QCheckBox("جرعة إسبرسو إضافية (+8.00)")
-        self.whipped = QCheckBox("كريمة مخفوقة (+5.00)")
+        self.extra_shot = QCheckBox(f"جرعة إسبرسو إضافية (+{pounds_value(800)})")
+        self.whipped = QCheckBox(f"كريمة مخفوقة (+{pounds_value(500)})")
         form.addRow("إضافات:", self.extra_shot)
         form.addRow("", self.whipped)
 
@@ -134,9 +135,9 @@ class CoffeeCustomizerDialog(QDialog):
 
     def _update_preview(self):
         delta = self._calc_price_delta()
-        new_price = (self._base_price + delta) / 100
+        new_price = self._base_price + delta
         note = self._build_note()
-        summary = f"السعر بعد الإضافات: ج.م {new_price:.2f}"
+        summary = f"السعر بعد الإضافات: {format_pounds(new_price)}"
         if note:
             summary += f"\nملاحظة للطباعة: {note}"
         self.preview.setText(summary)

@@ -1,5 +1,6 @@
 # beirut_pos/services/reports.py
 from ..core.db import get_conn
+from ..utils.currency import format_pounds
 
 def z_report(iso_date: str):
     """
@@ -96,13 +97,13 @@ def format_z_text(data, company="Beirut Coffee", currency="EGP"):
         "By Method:"
     ]
     for method, amt in data["by_method"]:
-        lines.append(f"  {method:<10} : {amt/100:.2f} {currency}")
+        lines.append(f"  {method:<10} : {format_pounds(amt, currency)}")
     lines += [
         "-"*32,
         f"Orders      : {data['orders_count']}",
         f"PS Items    : {data['ps_items_count']}",
-        f"Discounts   : {data['discount_cents']/100:.2f} {currency}",
-        f"TOTAL       : {data['total_cents']/100:.2f} {currency}",
+        f"Discounts   : {format_pounds(data['discount_cents'], currency)}",
+        f"TOTAL       : {format_pounds(data['total_cents'], currency)}",
         "-"*32
     ]
     return "\n".join(lines)

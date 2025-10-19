@@ -38,6 +38,8 @@ class _ProductValues:
     track_stock: bool
     stock_qty: float
     min_stock: float
+    product_type: str
+    sugar_levels: list[str]
 
 
 class _ProductEditor(QDialog):
@@ -53,7 +55,8 @@ class _ProductEditor(QDialog):
         self.name_edit = QLineEdit()
         self.price_edit = QSpinBox()
         self.price_edit.setRange(0, 2_000_000)
-        self.price_edit.setSingleStep(500)
+        self.price_edit.setSingleStep(1)
+        self.price_edit.setSuffix(" ج.م")
         self.custom_box = QCheckBox("يدعم خيارات مخصصة")
         self.track_box = QCheckBox("تتبع المخزون")
         self.stock_spin = QDoubleSpinBox()
@@ -62,9 +65,31 @@ class _ProductEditor(QDialog):
         self.min_spin = QDoubleSpinBox()
         self.min_spin.setRange(0, 1_000_000)
         self.min_spin.setDecimals(2)
+        self.type_edit = QLineEdit()
+        self.type_edit.setPlaceholderText("مثال: مشروب ساخن")
+        self.sugar_list = QListWidget()
+        self.sugar_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.sugar_list.setMinimumHeight(90)
+        self.sugar_list.setAlternatingRowColors(True)
+        sugar_buttons = QHBoxLayout()
+        self.btn_sugar_add = QPushButton("إضافة مستوى…")
+        self.btn_sugar_edit = QPushButton("تعديل…")
+        self.btn_sugar_delete = QPushButton("حذف")
+        for btn in (self.btn_sugar_add, self.btn_sugar_edit, self.btn_sugar_delete):
+            sugar_buttons.addWidget(btn)
+        sugar_container = QVBoxLayout()
+        sugar_container.setSpacing(6)
+        sugar_container.addWidget(self.sugar_list)
+        sugar_buttons_widget = QWidget()
+        sugar_buttons_widget.setLayout(sugar_buttons)
+        sugar_container.addWidget(sugar_buttons_widget)
+        sugar_widget = QWidget()
+        sugar_widget.setLayout(sugar_container)
 
         form.addRow("اسم المنتج:", self.name_edit)
-        form.addRow("السعر (قرش):", self.price_edit)
+        form.addRow("السعر (ج.م):", self.price_edit)
+        form.addRow("نوع المنتج:", self.type_edit)
+        form.addRow("مستويات السكر:", sugar_widget)
         form.addRow("", self.custom_box)
         form.addRow("", self.track_box)
         form.addRow("المخزون الحالي:", self.stock_spin)
@@ -88,15 +113,58 @@ class _ProductEditor(QDialog):
             self.track_box.setChecked(values.track_stock)
             self.stock_spin.setValue(values.stock_qty)
             self.min_spin.setValue(values.min_stock)
+            self.type_edit.setText(values.product_type)
+            self._populate_sugar_levels(values.sugar_levels)
         else:
             self.track_box.setChecked(True)
 
         self._toggle_stock(self.track_box.isChecked())
         self.track_box.toggled.connect(self._toggle_stock)
+        self.btn_sugar_add.clicked.connect(self._add_sugar_level)
+        self.btn_sugar_edit.clicked.connect(self._edit_sugar_level)
+        self.btn_sugar_delete.clicked.connect(self._delete_sugar_level)
 
     def _toggle_stock(self, checked: bool) -> None:
         self.stock_spin.setEnabled(checked)
         self.min_spin.setEnabled(checked)
+
+    def _populate_sugar_levels(self, levels: list[str]) -> None:
+        self.sugar_list.clear()
+        for level in levels:
+            cleaned = level.strip()
+            if cleaned:
+                self.sugar_list.addItem(cleaned)
+
+    def _add_sugar_level(self) -> None:
+        text, ok = QInputDialog.getText(self, "إضافة مستوى سكر", "المستوى:")
+        if not ok:
+            return
+        cleaned = text.strip()
+        if not cleaned:
+            QMessageBox.warning(self, "خطأ", "يرجى إدخال مستوى صالح.")
+            return
+        self.sugar_list.addItem(cleaned)
+
+    def _edit_sugar_level(self) -> None:
+        current = self.sugar_list.currentItem()
+        if current is None:
+            return
+        text, ok = QInputDialog.getText(self, "تعديل مستوى السكر", "المستوى:", text=current.text())
+        if not ok:
+            return
+        cleaned = text.strip()
+        if not cleaned:
+            QMessageBox.warning(self, "خطأ", "يرجى إدخال مستوى صالح.")
+            return
+        current.setText(cleaned)
+
+    def _delete_sugar_level(self) -> None:
+        row = self.sugar_list.currentRow()
+        if row < 0:
+            return
+        item = self.sugar_list.takeItem(row)
+        if item is not None:
+            item = None
 
     def _collect_values(self) -> _ProductValues | None:
         name = self.name_edit.text().strip()
@@ -107,6 +175,9 @@ class _ProductEditor(QDialog):
         if price <= 0:
             QMessageBox.warning(self, "خطأ", "السعر يجب أن يكون أكبر من صفر.")
             return None
+        product_type = self.type_edit.text().strip()
+        sugar_levels = [self.sugar_list.item(i).text().strip() for i in range(self.sugar_list.count())]
+        sugar_levels = [lvl for lvl in sugar_levels if lvl]
         return _ProductValues(
             name=name,
             price_cents=price,
@@ -114,6 +185,8 @@ class _ProductEditor(QDialog):
             track_stock=self.track_box.isChecked(),
             stock_qty=float(self.stock_spin.value()),
             min_stock=float(self.min_spin.value()),
+            product_type=product_type,
+            sugar_levels=sugar_levels,
         )
 
     def accept(self) -> None:
@@ -139,10 +212,11 @@ class _OptionEditor(QDialog):
         self.label_edit = QLineEdit(label)
         self.delta_edit = QSpinBox()
         self.delta_edit.setRange(-1_000_000, 1_000_000)
-        self.delta_edit.setSingleStep(100)
+        self.delta_edit.setSingleStep(1)
+        self.delta_edit.setSuffix(" ج.م")
         self.delta_edit.setValue(delta)
         form.addRow("اسم الخيار:", self.label_edit)
-        form.addRow("فرق السعر (قرش):", self.delta_edit)
+        form.addRow("فرق السعر (ج.م):", self.delta_edit)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
@@ -229,10 +303,12 @@ class CatalogManagerDialog(BigDialog):
         prod_header.addWidget(self.btn_prod_delete)
         prod_panel.addLayout(prod_header)
 
-        self.product_table = QTableWidget(0, 6)
+        self.product_table = QTableWidget(0, 8)
         self.product_table.setHorizontalHeaderLabels([
             "المنتج",
-            "السعر (قرش)",
+            "السعر (ج.م)",
+            "نوع المنتج",
+            "مستويات السكر",
             "مخصص",
             "تتبع",
             "المخزون",
@@ -240,7 +316,7 @@ class CatalogManagerDialog(BigDialog):
         ])
         self.product_table.horizontalHeader().setStretchLastSection(True)
         self.product_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for idx in range(1, 6):
+        for idx in range(1, 8):
             self.product_table.horizontalHeader().setSectionResizeMode(idx, QHeaderView.ResizeMode.ResizeToContents)
         self.product_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.product_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -257,7 +333,7 @@ class CatalogManagerDialog(BigDialog):
         self.options_group = QGroupBox("خيارات المنتج")
         opt_layout = QVBoxLayout(self.options_group)
         self.options_table = QTableWidget(0, 2)
-        self.options_table.setHorizontalHeaderLabels(["الخيار", "فرق السعر (قرش)"])
+        self.options_table.setHorizontalHeaderLabels(["الخيار", "فرق السعر (ج.م)"])
         self.options_table.horizontalHeader().setStretchLastSection(True)
         self.options_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.options_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -331,13 +407,17 @@ class CatalogManagerDialog(BigDialog):
         for row_idx, prod in enumerate(self._products):
             self.product_table.setItem(row_idx, 0, QTableWidgetItem(prod["name"]))
             self.product_table.setItem(row_idx, 1, QTableWidgetItem(str(prod["price_cents"])))
-            self.product_table.setItem(row_idx, 2, QTableWidgetItem("✅" if prod["customizable"] else "—"))
-            self.product_table.setItem(row_idx, 3, QTableWidgetItem("✅" if prod["track_stock"] else "—"))
+            self.product_table.setItem(row_idx, 2, QTableWidgetItem(prod.get("product_type") or ""))
+            sugar_levels = prod.get("sugar_levels") or []
+            sugar_text = "، ".join(sugar_levels) if sugar_levels else "—"
+            self.product_table.setItem(row_idx, 3, QTableWidgetItem(sugar_text))
+            self.product_table.setItem(row_idx, 4, QTableWidgetItem("✅" if prod["customizable"] else "—"))
+            self.product_table.setItem(row_idx, 5, QTableWidgetItem("✅" if prod["track_stock"] else "—"))
             stock_text = "" if prod["stock_qty"] is None else f"{prod['stock_qty']:.2f}"
             min_text = "" if prod["min_stock"] is None else f"{prod['min_stock']:.2f}"
-            self.product_table.setItem(row_idx, 4, QTableWidgetItem(stock_text))
-            self.product_table.setItem(row_idx, 5, QTableWidgetItem(min_text))
-            for col in range(6):
+            self.product_table.setItem(row_idx, 6, QTableWidgetItem(stock_text))
+            self.product_table.setItem(row_idx, 7, QTableWidgetItem(min_text))
+            for col in range(8):
                 item = self.product_table.item(row_idx, col)
                 if item:
                     item.setData(Qt.ItemDataRole.UserRole, prod["id"])
@@ -486,6 +566,8 @@ class CatalogManagerDialog(BigDialog):
                 track_stock=1 if values.track_stock else 0,
                 stock_qty=values.stock_qty,
                 min_stock=values.min_stock,
+                product_type=values.product_type,
+                sugar_levels=values.sugar_levels,
             )
         except ValueError as exc:
             QMessageBox.warning(self, "تعذر الإضافة", str(exc))
@@ -506,6 +588,8 @@ class CatalogManagerDialog(BigDialog):
                 track_stock=bool(prod["track_stock"]),
                 stock_qty=float(prod["stock_qty"] or 0.0),
                 min_stock=float(prod["min_stock"] or 0.0),
+                product_type=prod.get("product_type", ""),
+                sugar_levels=list(prod.get("sugar_levels") or []),
             ),
         )
         if editor.exec() != editor.DialogCode.Accepted:
@@ -522,6 +606,8 @@ class CatalogManagerDialog(BigDialog):
                 track_stock=1 if values.track_stock else 0,
                 stock_qty=values.stock_qty,
                 min_stock=values.min_stock,
+                product_type=values.product_type,
+                sugar_levels=values.sugar_levels,
                 username=self._actor,
             )
         except ValueError as exc:

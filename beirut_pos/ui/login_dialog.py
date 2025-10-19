@@ -45,7 +45,7 @@ class LoginDialog(QDialog):
         brand_frame.setObjectName("BrandColumn")
         brand_layout = QVBoxLayout(brand_frame)
         brand_layout.setSpacing(18)
-        brand_layout.setContentsMargins(12, 12, 12, 12)
+        brand_layout.setContentsMargins(18, 24, 18, 24)
 
         self.logo = QLabel()
         self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -57,18 +57,23 @@ class LoginDialog(QDialog):
         brand_title = QLabel("مقهى بيروت")
         brand_title.setObjectName("BrandTitle")
         brand_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand_title.setStyleSheet("font-size: 30px; font-weight: 700;")
         brand_layout.addWidget(brand_title)
 
         hero = QLabel("مرحباً بكم في نظام نقاط البيع الخاص بنا — ترتيب الطلبات أصبح أسهل")
         hero.setObjectName("LoginHero")
         hero.setWordWrap(True)
         hero.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hero.setMaximumWidth(420)
+        hero.setStyleSheet("font-size: 17px; line-height: 1.5;")
         brand_layout.addWidget(hero)
 
         hero_hint = QLabel("جهز فريقك، تابع الطاولات، وراقب الأداء في نظرة واحدة.")
         hero_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hero_hint.setObjectName("HeroHint")
         hero_hint.setWordWrap(True)
+        hero_hint.setMaximumWidth(420)
+        hero_hint.setStyleSheet("font-size: 15px; line-height: 1.5; color: #f0ebe2;")
         brand_layout.addWidget(hero_hint)
 
         card_layout.addWidget(brand_frame, 3)
@@ -96,6 +101,7 @@ class LoginDialog(QDialog):
         self.u.setMinimumWidth(360)
         self.u.setFixedHeight(52)
         self.u.setClearButtonEnabled(True)
+        self.u.setStyleSheet("padding: 10px 14px; font-size: 16px;")
         form_layout.addWidget(self.u)
 
         self.p = QLineEdit()
@@ -103,6 +109,7 @@ class LoginDialog(QDialog):
         self.p.setEchoMode(QLineEdit.EchoMode.Password)
         self.p.setFixedHeight(52)
         self.p.setClearButtonEnabled(True)
+        self.p.setStyleSheet("padding: 10px 14px; font-size: 16px;")
         form_layout.addWidget(self.p)
 
         row = QHBoxLayout()

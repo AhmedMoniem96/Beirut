@@ -1,6 +1,6 @@
 """Product helpers and catalog wrappers for external callers."""
 
-from typing import Iterator, Optional, Sequence, Tuple
+from typing import Iterator, Optional, Sequence, Tuple, List
 
 from ..core.db import get_conn
 from .orders import order_manager
@@ -116,6 +116,8 @@ def create_product(
     track_stock: int = 0,
     stock_qty: Optional[float] = 0,
     min_stock: Optional[float] = 0,
+    product_type: str = "",
+    sugar_levels: Optional[List[str]] = None,
 ) -> dict:
     return order_manager.catalog.create_product(
         category_id,
@@ -126,6 +128,8 @@ def create_product(
         track_stock=track_stock,
         stock_qty=stock_qty,
         min_stock=min_stock,
+        product_type=product_type,
+        sugar_levels=sugar_levels,
     )
 
 
@@ -138,6 +142,8 @@ def update_product(
     track_stock: int | None = None,
     stock_qty: Optional[float] | None = None,
     min_stock: Optional[float] | None = None,
+    product_type: str | None = None,
+    sugar_levels: Optional[List[str]] = None,
     username: str = "admin",
 ) -> bool:
     return order_manager.catalog.update_product(
@@ -148,6 +154,8 @@ def update_product(
         track_stock=track_stock,
         stock_qty=stock_qty,
         min_stock=min_stock,
+        product_type=product_type,
+        sugar_levels=sugar_levels,
         username=username,
     )
 

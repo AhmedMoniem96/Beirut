@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QLabel,
     QDialogButtonBox,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt
 
@@ -36,20 +37,35 @@ class CoffeeCustomizerDialog(QDialog):
         self._result: Optional[CoffeeSelection] = None
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(18)
         form = QFormLayout()
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setSpacing(12)
         layout.addLayout(form)
+
+        def _configure_field(widget):
+            widget.setMinimumWidth(240)
+            widget.setMinimumHeight(34)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            if isinstance(widget, (QLineEdit, QComboBox)):
+                widget.setStyleSheet("padding: 6px 10px;")
 
         self.size = QComboBox()
         self.size.addItem("صغير", 0)
-        self.size.addItem(f"متوسط (+{pounds_value(500)})", 500)
-        self.size.addItem(f"كبير (+{pounds_value(900)})", 900)
+        self.size.addItem(f"متوسط (+{pounds_value(5)})", 5)
+        self.size.addItem(f"كبير (+{pounds_value(9)})", 9)
+        _configure_field(self.size)
         form.addRow("الحجم:", self.size)
 
         self.milk = QComboBox()
         self.milk.addItem("حليب كامل", 0)
         self.milk.addItem("حليب خالي الدسم", 0)
-        self.milk.addItem(f"حليب لوز (+{pounds_value(700)})", 700)
-        self.milk.addItem(f"حليب صويا (+{pounds_value(600)})", 600)
+        self.milk.addItem(f"حليب لوز (+{pounds_value(7)})", 7)
+        self.milk.addItem(f"حليب صويا (+{pounds_value(6)})", 6)
+        _configure_field(self.milk)
         form.addRow("نوع الحليب:", self.milk)
 
         self.sweetness = QComboBox()
@@ -57,24 +73,30 @@ class CoffeeCustomizerDialog(QDialog):
         self.sweetness.addItem("بدون سكر", 0)
         self.sweetness.addItem("سكر قليل", 0)
         self.sweetness.addItem("سكر زيادة", 0)
+        _configure_field(self.sweetness)
         form.addRow("درجة التحلية:", self.sweetness)
 
         self.temperature = QComboBox()
         self.temperature.addItem("ساخن", 0)
         self.temperature.addItem("مثلج", 0)
+        _configure_field(self.temperature)
         form.addRow("التقديم:", self.temperature)
 
-        self.extra_shot = QCheckBox(f"جرعة إسبرسو إضافية (+{pounds_value(800)})")
-        self.whipped = QCheckBox(f"كريمة مخفوقة (+{pounds_value(500)})")
+        self.extra_shot = QCheckBox(f"جرعة إسبرسو إضافية (+{pounds_value(8)})")
+        self.whipped = QCheckBox(f"كريمة مخفوقة (+{pounds_value(5)})")
+        self.extra_shot.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.whipped.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         form.addRow("إضافات:", self.extra_shot)
         form.addRow("", self.whipped)
 
         self.note = QLineEdit()
         self.note.setPlaceholderText("ملاحظات خاصة (مثلاً بدون قرفة)")
+        _configure_field(self.note)
         form.addRow("ملاحظة للبارستا:", self.note)
 
         self.preview = QLabel()
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.preview.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.preview.setWordWrap(True)
         layout.addWidget(self.preview)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -97,9 +119,9 @@ class CoffeeCustomizerDialog(QDialog):
         delta += int(self.size.currentData() or 0)
         delta += int(self.milk.currentData() or 0)
         if self.extra_shot.isChecked():
-            delta += 800
+            delta += 8
         if self.whipped.isChecked():
-            delta += 500
+            delta += 5
         return delta
 
     def _build_note(self) -> str:

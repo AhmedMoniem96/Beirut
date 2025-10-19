@@ -17,7 +17,7 @@ class PurchaseRecord:
     purchased_at: datetime
     supplier: str
     invoice_no: str
-    amount_cents: int
+    amount_pounds: int
     notes: str
     recorded_by: str | None
 
@@ -46,7 +46,7 @@ def _rows_to_records(rows: Sequence[dict]) -> list[PurchaseRecord]:
                 purchased_at=_parse_timestamp(row["purchased_at"]),
                 supplier=row["supplier"],
                 invoice_no=row["invoice_no"] or "",
-                amount_cents=int(row["amount_cents"]),
+                amount_pounds=int(row["amount_cents"]),
                 notes=row["notes"] or "",
                 recorded_by=row["recorded_by"],
             )
@@ -74,7 +74,7 @@ def list_purchases(limit: int = 250) -> list[PurchaseRecord]:
 def create_purchase(
     *,
     supplier: str,
-    amount_cents: int,
+    amount_pounds: int,
     recorded_by: str,
     purchased_at: datetime | None = None,
     invoice_no: str = "",
@@ -87,11 +87,11 @@ def create_purchase(
         raise ValueError("supplier is required")
 
     try:
-        amount_cents = int(amount_cents)
+        amount_pounds = int(amount_pounds)
     except (TypeError, ValueError) as exc:
-        raise ValueError("amount_cents must be an integer") from exc
+        raise ValueError("amount must be an integer") from exc
 
-    if amount_cents <= 0:
+    if amount_pounds <= 0:
         raise ValueError("amount must be positive")
 
     when = purchased_at or datetime.utcnow()
@@ -107,7 +107,7 @@ def create_purchase(
             INSERT INTO purchases(purchased_at, supplier, invoice_no, amount_cents, notes, recorded_by)
             VALUES(?,?,?,?,?,?)
             """,
-            (stamp, supplier, invoice_no, amount_cents, notes, recorded_by),
+            (stamp, supplier, invoice_no, amount_pounds, notes, recorded_by),
         )
         purchase_id = cur.lastrowid
 
@@ -116,7 +116,7 @@ def create_purchase(
         "create_purchase",
         entity_type="purchase",
         entity_name=supplier,
-        new_value=str(amount_cents),
+        new_value=str(amount_pounds),
         extra=invoice_no or notes,
     )
 

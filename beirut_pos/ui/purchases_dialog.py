@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
 )
 
 from .common.big_dialog import BigDialog
@@ -64,29 +65,55 @@ class PurchasesDialog(BigDialog):
         form_host = QWidget()
         form = QFormLayout(form_host)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setContentsMargins(12, 12, 12, 12)
+        form.setSpacing(12)
+
+        def _configure_field(widget, *, multiline: bool = False) -> None:
+            widget.setMinimumWidth(260)
+            if multiline:
+                widget.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+                )
+            else:
+                if hasattr(widget, "setMinimumHeight"):
+                    widget.setMinimumHeight(34)
+                widget.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
+            if isinstance(widget, (QLineEdit, QDateTimeEdit, QSpinBox)):
+                widget.setStyleSheet("padding: 6px 10px;")
+            elif isinstance(widget, QTextEdit):
+                widget.setStyleSheet("padding: 8px 10px;")
 
         self.when = QDateTimeEdit(QDateTime.currentDateTime())
         self.when.setDisplayFormat("yyyy-MM-dd HH:mm")
         self.when.setCalendarPopup(True)
+        _configure_field(self.when)
         form.addRow("تاريخ الشراء:", self.when)
 
         self.supplier = QLineEdit()
         self.supplier.setPlaceholderText("اسم المورد أو الجهة")
+        _configure_field(self.supplier)
         form.addRow("المورد:", self.supplier)
 
         self.invoice = QLineEdit()
         self.invoice.setPlaceholderText("رقم الفاتورة أو المرجع (اختياري)")
+        _configure_field(self.invoice)
         form.addRow("رقم الفاتورة:", self.invoice)
 
         self.amount = QSpinBox()
         self.amount.setRange(0, 50_000_000)
         self.amount.setSuffix(" ج.م")
         self.amount.setSingleStep(10)
+        _configure_field(self.amount)
         form.addRow("المبلغ بالجنيه:", self.amount)
 
         self.notes = QTextEdit()
         self.notes.setPlaceholderText("ملاحظات حول الشراء، البنود أو طريقة الدفع…")
-        self.notes.setMaximumHeight(90)
+        self.notes.setMinimumHeight(90)
+        _configure_field(self.notes, multiline=True)
         form.addRow("ملاحظات:", self.notes)
 
         root.addWidget(form_host, 0)
@@ -135,7 +162,7 @@ class PurchasesDialog(BigDialog):
         try:
             record = purchases.create_purchase(
                 supplier=supplier,
-                amount_cents=amount_pounds * 100,
+                amount_pounds=amount_pounds,
                 invoice_no=invoice,
                 notes=notes,
                 recorded_by=self._actor,
@@ -158,7 +185,7 @@ class PurchasesDialog(BigDialog):
             record.purchased_at.strftime("%Y-%m-%d %H:%M"),
             record.supplier,
             record.invoice_no,
-            format_pounds(record.amount_cents),
+            format_pounds(record.amount_pounds),
             record.display_notes,
             record.recorded_by or "",
         )

@@ -224,7 +224,7 @@ def _print_escpos_cashier_receipt(
         cashier: str,
         printer_name: str
 ) -> bool:
-    """ULTRA-COMPACT cashier receipt"""
+    """ULTRA COMPACT receipt - minimum paper usage!"""
     p = _get_escpos_printer(printer_name)
     if not p:
         return False
@@ -240,61 +240,50 @@ def _print_escpos_cashier_receipt(
     try:
         currency = setting_get("currency", "EGP") or "EGP"
         company = setting_get("company_name", "Beirut") or "Beirut"
-        ts = datetime.now().strftime("%H:%M %d-%m")
+        ts = datetime.now().strftime("%H:%M")
 
         # Initialize printer
         _set_ar_codepage(p)
 
-        # SUPER COMPACT HEADER
-        p.set(align='center', text_type='B', width=1, height=1)
+        # ULTRA COMPACT HEADER - ONE LINE
+        p.set(align='center', text_type='B')
         p.text(_shape_ar_escpos(company) + "\n")
+        p.set(align='center', text_type='NORMAL')
+        p.text(f"{table_code} {ts} {method}\n")
+        p.text("─" * 32 + "\n")
 
-        p.set(align='right', text_type='NORMAL')
-        p.text(_shape_ar_escpos(f"{table_code} : {cashier}") + "\n")
-        p.text(f"{ts}\n")
-        p.text(_shape_ar_escpos(f"دفع: {method}") + "\n")
-        p.text("-" * 32 + "\n")
-
-        # COMPACT ITEMS - ONE LINE EACH
+        # ULTRA COMPACT ITEMS - MINIMAL LINES
         for it in items:
             name = _shape_ar_escpos(str(it["name"]))
             qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
             item_total = _format_currency_cents(it["total_cents"], currency)
 
-            # Single line: Name + Qty + Total
-            line = f"{name} {qty} {item_total}"
-            if len(line) > 32:
-                line = line[:29] + "..."
-            p.text(line + "\n")
+            # Product + Qty + Total in ONE line
+            main_line = f"{name} {qty} {item_total}"
+            if len(main_line) > 32:
+                main_line = name[:25] + f" {qty} {item_total}"
+            p.text(main_line + "\n")
 
-            # Note on separate line only if exists
+            # Notes only if absolutely necessary, in parentheses
             note = (it.get("note") or "").strip()
             if note:
-                note_line = _shape_ar_escpos(f"ملاحظة: {note}")
+                note_line = _shape_ar_escpos(f"({note})")
                 if len(note_line) > 32:
                     note_line = note_line[:29] + "..."
                 p.text(note_line + "\n")
 
-        p.text("-" * 32 + "\n")
+        p.text("─" * 32 + "\n")
 
-        # COMPACT TOTALS
-        p.text(_shape_ar_escpos(f"المجموع: {_format_currency_cents(subtotal, currency)}") + "\n")
+        # ULTRA COMPACT TOTALS - NO EXTRA SPACING
+        p.set(align='right')
+        p.text(_shape_ar_escpos(f"المجموع:{_format_currency_cents(subtotal, currency)}") + "\n")
         if discount:
-            p.text(_shape_ar_escpos(f"الخصم: {_format_currency_cents(discount, currency)}") + "\n")
-        if service:
-            p.text(_shape_ar_escpos(f"الخدمة: {_format_currency_cents(service, currency)}") + "\n")
-        if tax:
-            p.text(_shape_ar_escpos(f"الضريبة: {_format_currency_cents(tax, currency)}") + "\n")
+            p.text(_shape_ar_escpos(f"الخصم:{_format_currency_cents(discount, currency)}") + "\n")
+        p.text(_shape_ar_escpos(f"الصافي:{_format_currency_cents(total, currency)}") + "\n")
 
-        p.text("=" * 32 + "\n")
-
-        # FINAL TOTAL - BOLD
-        p.set(align='right', text_type='B')
-        p.text(_shape_ar_escpos(f"الصافي: {_format_currency_cents(total, currency)}") + "\n")
-
-        p.set(align='center', text_type='NORMAL')
+        p.set(align='center')
         p.text(_shape_ar_escpos("شكراً") + "\n")
-        p.text("\n\n")
+        p.text("\n")  # Just ONE line break before cut
 
         # Cut
         p.cut()

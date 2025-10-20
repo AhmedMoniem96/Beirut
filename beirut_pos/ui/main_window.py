@@ -588,26 +588,20 @@ class MainWindow(QMainWindow):
         if not self.current_table:
             self._show_banner("اختر طاولة أولاً.", "warn")
             return
-        #
-        # # Print only remaining, unprinted bar items before settling
-        # to_print = self._collect_unprinted_items(self.current_table)
-        # if to_print:
-        #     printer.print_bar_ticket(self.current_table, to_print)
-        #     try:
-        #         order_manager.mark_bar_items_as_printed(self.current_table, to_print)
-        #     except Exception:
-        #         pass
 
-        # settle & print cashier receipt AFTER totals are final
+        # Get the actual totals BEFORE settling
+        subtotal, discount, total = order_manager.get_totals(self.current_table)
         items = order_manager.get_items(self.current_table)
+
         if order_manager.settle(self.current_table, "cash" if method == "نقدي" else "visa", cashier=self.user.username):
-            printer.print_cashier_receipt(self.current_table, items, 0, 0, 0, method, self.user.username)
+            # Pass the REAL totals, not zeros!
+            printer.print_cashier_receipt(self.current_table, items, subtotal, discount, total, method,
+                                          self.user.username)
             self.order_list.set_items([])
             self._update_totals(None)
             self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
             self._refresh_print_buttons()
             self._show_banner("تم إغلاق الطلب وطباعة الإيصالات.", "success")
-
     # PS controls
     def _ps_start(self, mode):
         if not self.current_table:

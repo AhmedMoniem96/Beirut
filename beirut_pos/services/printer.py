@@ -3,11 +3,12 @@ ULTIMATE FIX: Uses ESC/POS direct commands - bypasses PDF completely for thermal
 """
 
 from __future__ import annotations
-import os, sys, subprocess
+import os, sys, subprocess, shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Iterable, List, Optional
 
+# ---------------- ESC/POS availability ----------------
 try:
     from escpos.printer import Usb, Network, File, Win32Raw
     from escpos.exceptions import USBNotFoundError
@@ -24,12 +25,13 @@ from ..core.bus import bus
 _OUTPUT_ROOT  = DATA_DIR / "prints"
 _RECEIPTS_DIR = _OUTPUT_ROOT / "receipts"
 _BAR_DIR      = _OUTPUT_ROOT / "bar_tickets"
+# Set this to "1" in env (or PyCharm Run Config) to force text fallback on dev machines
+_DISABLE_ESCPOS = os.environ.get("BEIRUT_POS_DISABLE_ESCPOS", "0") == "1"
 
 def _ensure_dirs():
     for p in (_OUTPUT_ROOT, _RECEIPTS_DIR, _BAR_DIR):
         p.mkdir(parents=True, exist_ok=True)
 
-# ---------------- Arabic shaping ----------------
 # ---------------- Arabic shaping ----------------
 try:
     import arabic_reshaper
@@ -38,6 +40,19 @@ try:
 except Exception:
     _AR_OK = False
 
+def _set_ar_codepage(p) -> None:
+    """Select an Arabic-capable codepage for python-escpos 3.x."""
+    for cp in ("CP864", "CP720", "CP1256"):
+        try:
+            fn = getattr(p, "charcode", None)
+            if callable(fn):
+                fn(cp)  # type: ignore[misc]
+                print(f"[DEBUG] ESC/POS codepage set to {cp}")
+                return
+        except Exception as e:
+            print(f"[DEBUG] Failed to set codepage {cp}: {e}")
+    # If none worked, printing may be garbled; still continue.
+
 def _shape_ar_escpos(text: str) -> str:
     """Arabic shaping for ESC/POS printers (DO NOT reverse again)."""
     if not text:
@@ -45,7 +60,7 @@ def _shape_ar_escpos(text: str) -> str:
     if not _AR_OK:
         return text
     reshaped = arabic_reshaper.reshape(text)
-    return get_display(reshaped)
+    return reshaped  # FIXED: Remove get_display() for ESC/POS
 
 def _shape_ar_textfile(text: str) -> str:
     """Arabic shaping for saving readable text files (optional)."""
@@ -56,9 +71,8 @@ def _shape_ar_textfile(text: str) -> str:
     reshaped = arabic_reshaper.reshape(text)
     return get_display(reshaped)  # usually fine for viewing in editors
 
-# ✅ Backward compatibility alias
+# ✅ Backward compatibility alias for any old calls
 _shape_arabic = _shape_ar_textfile
-
 
 def _format_currency_cents(cents: int | float, currency: str) -> str:
     try:
@@ -66,36 +80,53 @@ def _format_currency_cents(cents: int | float, currency: str) -> str:
     except Exception:
         return f"{cents} {currency}"
 
+# ---------------- Helpers ----------------
+def _can_system_print(printer_name: str) -> bool:
+    """Check if CUPS can print to a given printer on Linux."""
+    if not printer_name or not shutil.which("lp"):
+        return False
+    try:
+        out = subprocess.check_output(["lpstat", "-a"], text=True)
+        return printer_name in out
+    except Exception:
+        return False
+
 # ---------------- ESC/POS Thermal Printer (THE REAL FIX) ----------------
 def _get_escpos_printer(printer_name: str):
-    """Get ESC/POS printer instance based on platform and printer name"""
-    if not _ESCPOS_OK:
+    """Get ESC/POS printer instance based on platform and printer name."""
+    if not _ESCPOS_OK or _DISABLE_ESCPOS:
         return None
-
     try:
         if sys.platform.startswith("win"):
-            # Windows: Use Win32Raw with printer name
+            # Windows: Use Win32Raw with printer name (no pyusb needed)
             return Win32Raw(printer_name)
-        else:
-            # Linux: Try USB first, then network
-            # Common thermal printer USB IDs (XP-80C and similar)
-            usb_ids = [
-                (0x04b8, 0x0e15),  # Epson TM-T20
-                (0x0416, 0x5011),  # XP-80C common ID
-                (0x0519, 0x0003),  # Generic thermal
-                (0x28e9, 0x0289),  # Common POS printer
-            ]
 
-            for vid, pid in usb_ids:
-                try:
-                    return Usb(vid, pid)
-                except (USBNotFoundError, Exception):
-                    continue
+        # Linux: Prefer direct device file (no pyusb needed)
+        if os.path.exists("/dev/usb/lp0"):
+            return File("/dev/usb/lp0")
 
-            # Fallback to file-based printing
-            return File(f"/dev/usb/lp0")
+        # If no device file, optionally try raw USB VID/PID pairs
+        try:
+            # Only present if python-escpos USB backend installed
+            Usb  # type: ignore  # reference to ensure import exists
+        except Exception:
+            return None
+
+        usb_ids = [
+            (0x04b8, 0x0e15),  # Epson TM-T20
+            (0x0416, 0x5011),  # XP-80C common ID
+            (0x0519, 0x0003),  # Generic thermal
+            (0x28e9, 0x0289),  # Common POS printer
+        ]
+        for vid, pid in usb_ids:
+            try:
+                return Usb(vid, pid)
+            except Exception:
+                continue
+
+        return None
     except Exception as e:
-        print(f"Error initializing ESC/POS printer: {e}")
+        print(f"[DEBUG] Error initializing ESC/POS printer: {e}")
         return None
 
 def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: str) -> bool:
@@ -107,6 +138,15 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
         print("[DEBUG] ESC/POS printer not available, returning False")
         return False
 
+    # Try to open device early to avoid internal assertions
+    try:
+        fn = getattr(p, "open", None)
+        if callable(fn):
+            fn()
+    except Exception as e:
+        print(f"[DEBUG] Cannot open ESC/POS device: {e}")
+        return False
+
     try:
         currency = setting_get("currency", "EGP") or "EGP"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -114,7 +154,8 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
         print(f"[DEBUG] Starting ESC/POS print...")
 
         # Initialize printer + Arabic codepage
-        p.set(align='right', codepage='cp864')
+        _set_ar_codepage(p)
+        p.set(align='right')  # alignment only
 
         # Header
         p.set(align='center', text_type='B', width=2, height=2)
@@ -170,7 +211,7 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
     finally:
         try:
             p.close()
-        except:
+        except Exception:
             pass
 
 def _print_escpos_cashier_receipt(
@@ -190,13 +231,23 @@ def _print_escpos_cashier_receipt(
     if not p:
         return False
 
+    # Try to open device early to avoid internal assertions
+    try:
+        fn = getattr(p, "open", None)
+        if callable(fn):
+            fn()
+    except Exception as e:
+        print(f"[DEBUG] Cannot open ESC/POS device: {e}")
+        return False
+
     try:
         currency = setting_get("currency", "EGP") or "EGP"
         company = setting_get("company_name", "Beirut") or "Beirut"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Initialize printer and Arabic codepage
-        p.set(align='right', codepage='cp864')
+        _set_ar_codepage(p)
+        p.set(align='right')
 
         # Header
         p.set(align='center', text_type='B', width=2, height=2)
@@ -273,9 +324,8 @@ def _print_escpos_cashier_receipt(
     finally:
         try:
             p.close()
-        except:
+        except Exception:
             pass
-
 
 # ---------------- Fallback: Save as text file if ESC/POS fails ----------------
 def _save_receipt_as_text(
@@ -381,24 +431,25 @@ class PrinterService:
         data = _collapse_items(items)
 
         # Try ESC/POS first
-        if _ESCPOS_OK:
+        if _ESCPOS_OK and not _DISABLE_ESCPOS:
             success = _print_escpos_bar_ticket(table_code, data, self.bar_printer)
             if success:
-                # Just save text file for records, DON'T print it
+                # Save text file for records, DON'T send to printer again
                 return _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
 
-        # Fallback ONLY if ESC/POS failed: save and print text file
+        # Fallback ONLY if ESC/POS failed: save and (optionally) CUPS-print text file
         txt = _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
 
         if sys.platform.startswith("win"):
             try:
                 os.startfile(str(txt), "print")  # type: ignore
-            except:
+            except Exception:
                 pass
         else:
             try:
-                subprocess.Popen(["lp", "-d", self.bar_printer, str(txt)])
-            except:
+                if _can_system_print(self.bar_printer):
+                    subprocess.Popen(["lp", "-d", self.bar_printer, str(txt)])
+            except Exception:
                 pass
 
         return txt
@@ -413,18 +464,18 @@ class PrinterService:
         tx = tax or 0
 
         # Try ESC/POS first
-        if _ESCPOS_OK:
+        if _ESCPOS_OK and not _DISABLE_ESCPOS:
             success = _print_escpos_cashier_receipt(
                 table_code, data, subtotal, discount, svc, tx, total, method, cashier,
                 self.cashier_printer
             )
             if success:
-                # Just save text file for records, DON'T print it
+                # Save text file for records, DON'T send to printer again
                 return _save_receipt_as_text(
                     table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
                 )
 
-        # Fallback ONLY if ESC/POS failed: save and print text file
+        # Fallback ONLY if ESC/POS failed: save and (optionally) CUPS-print text file
         txt = _save_receipt_as_text(
             table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
         )
@@ -432,12 +483,13 @@ class PrinterService:
         if sys.platform.startswith("win"):
             try:
                 os.startfile(str(txt), "print")  # type: ignore
-            except:
+            except Exception:
                 pass
         else:
             try:
-                subprocess.Popen(["lp", "-d", self.cashier_printer, str(txt)])
-            except:
+                if _can_system_print(self.cashier_printer):
+                    subprocess.Popen(["lp", "-d", self.cashier_printer, str(txt)])
+            except Exception:
                 pass
 
         return txt
@@ -452,7 +504,7 @@ bus.subscribe("printers_changed", _apply_printer_settings)
 # ---------------- Data shaping with quantity grouping ----------------
 def _collapse_items(items: Iterable) -> List[dict]:
     """Collapse items and GROUP identical products together (e.g., 2x same item)"""
-    grouped = {}
+    grouped: dict[tuple, dict] = {}
 
     for it in items:
         name = getattr(it, "product", str(it))
@@ -460,7 +512,6 @@ def _collapse_items(items: Iterable) -> List[dict]:
         note = (getattr(it, "note", "") or "").strip()
 
         # Create unique key: name + unit_price + note
-        # This groups identical items with same price and note
         key = (name, unit_price, note)
 
         if key in grouped:

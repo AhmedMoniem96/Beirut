@@ -49,25 +49,41 @@ jobs:
           pip install --no-cache-dir --only-binary=:all: PyQt6-Qt6==6.5.2
           pip install --no-cache-dir --only-binary=:all: "PyQt6-sip>=13.5,<14"
 
-          if (Test-Path "requirements.txt") {
-            # Install, skipping Linux-only packages
-            Get-Content requirements.txt |
-              Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne '' -and $_ -notmatch 'cupshelpers' -and $_ -notmatch 'pycups' } |
-              ForEach-Object { pip install --no-cache-dir $_ }
-          }
-
-          # Ensure critical packages
+          # Install core packages explicitly
           pip install --no-cache-dir SQLAlchemy==2.0.23
-          pip install --no-cache-dir python-escpos pillow arabic-reshaper python-bidi pyusb
-          # Windows printing backend for python-escpos
-          pip install --no-cache-dir pywin32
+          pip install --no-cache-dir reportlab==4.0.7
+          pip install --no-cache-dir pillow>=10.0.0
+          pip install --no-cache-dir qrcode>=7.4
+          
+          # ESC/POS printing stack - CRITICAL for thermal printers
+          pip install --no-cache-dir python-escpos>=3.0.0
+          pip install --no-cache-dir pyusb>=1.2.1
+          pip install --no-cache-dir pyserial>=3.5
+          
+          # Arabic support
+          pip install --no-cache-dir arabic-reshaper>=3.0.0
+          pip install --no-cache-dir python-bidi>=0.4.2
+          
+          # Windows-specific printing backend
+          pip install --no-cache-dir pywin32>=305
+          
           # Builder
           pip install --no-cache-dir pyinstaller pyinstaller-hooks-contrib
 
       - name: Show versions (sanity check)
         shell: pwsh
         run: |
-          python -c "from importlib.metadata import version as v; from PyQt6.QtCore import QT_VERSION_STR as q; import sqlalchemy; print('PyQt6 =', v('PyQt6'), '| Qt6 =', q, '| SQLAlchemy =', sqlalchemy.__version__)"
+          python -c "
+          from importlib.metadata import version as v
+          from PyQt6.QtCore import QT_VERSION_STR as q
+          import sqlalchemy
+          import escpos
+          print('PyQt6 =', v('PyQt6'), '| Qt6 =', q)
+          print('SQLAlchemy =', sqlalchemy.__version__)
+          print('python-escpos =', v('python-escpos'))
+          print('pyusb =', v('pyusb'))
+          print('pyserial =', v('pyserial'))
+          "
 
       - name: Clean previous build artifacts/spec
         shell: pwsh
@@ -110,11 +126,27 @@ jobs:
             '--collect-submodules','bidi',
             '--hidden-import','PIL',
             '--hidden-import','PIL._imaging',
+            '--hidden-import','PIL.Image',
+            '--hidden-import','PIL.ImageFile',
             '--hidden-import','win32print',
             '--hidden-import','win32api',
             '--hidden-import','win32con',
+            '--hidden-import','win32gui',
+            '--hidden-import','win32ui',
             '--hidden-import','usb.core',
-            '--hidden-import','usb.util'
+            '--hidden-import','usb.util',
+            '--hidden-import','usb.backend',
+            '--hidden-import','usb.backend.libusb1',
+            '--hidden-import','serial',
+            '--hidden-import','serial.tools',
+            '--hidden-import','serial.tools.list_ports',
+            '--hidden-import','escpos.printer',
+            '--hidden-import','escpos.constants',
+            '--hidden-import','escpos.exceptions',
+            '--hidden-import','escpos.escpos',
+            '--hidden-import','escpos.impl.epson',
+            '--hidden-import','escpos.impl.generic',
+            '--hidden-import','escpos.impl.legacy'
           )
           if (Test-Path 'assets/app.ico') { $args += @('--icon','assets/app.ico') }
           if (Test-Path 'assets') { $args += @('--add-data','assets;assets') }
@@ -122,6 +154,22 @@ jobs:
             $args += @('--add-data','beirut_pos/assets/fonts;beirut_pos/assets/fonts')
           }
           python -m PyInstaller @args
+
+      - name: Test built executable (quick smoke test)
+        shell: pwsh
+        run: |
+          $exePath = "dist/BeirutPOS.exe"
+          if (Test-Path $exePath) {
+            echo "✅ EXE built successfully: $((Get-Item $exePath).Length / 1MB) MB"
+            # Quick version check without GUI
+            & $exePath --version 2>$null
+            if ($LASTEXITCODE -ne 0) {
+              echo "⚠️  Version check failed (normal if app doesn't support --version flag)"
+            }
+          } else {
+            echo "❌ EXE not found!"
+            exit 1
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

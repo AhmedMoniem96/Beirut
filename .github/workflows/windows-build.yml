@@ -25,7 +25,7 @@ jobs:
           import sqlalchemy
           import sqlalchemy.orm
           import sqlalchemy.ext.declarative
-          
+
           from beirut_pos.app import main
           if __name__ == "__main__":
               main()
@@ -37,7 +37,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path "hooks" | Out-Null
           @"
           from PyInstaller.utils.hooks import collect_all
-          
           datas, binaries, hiddenimports = collect_all('sqlalchemy')
           "@ | Out-File -FilePath "hooks/hook-sqlalchemy.py" -Encoding UTF8
 
@@ -49,99 +48,32 @@ jobs:
           pip install --no-cache-dir --only-binary=:all: PyQt6==6.5.2
           pip install --no-cache-dir --only-binary=:all: PyQt6-Qt6==6.5.2
           pip install --no-cache-dir --only-binary=:all: "PyQt6-sip>=13.5,<14"
-          # Install requirements.txt but continue on error (some packages are Linux-only)
+
           if (Test-Path "requirements.txt") {
-            Get-Content requirements.txt | Where-Object { $_ -notmatch '^#' -and $_ -notmatch '^\s*
-
-      - name: Show PyQt/Qt versions (sanity check)
-        shell: pwsh
-        run: |
-          python -c "from importlib.metadata import version as v; from PyQt6.QtCore import QT_VERSION_STR as q; print('PyQt6='+v('PyQt6')+', Qt6='+q)"
-          python -c "import sqlalchemy; print('SQLAlchemy='+sqlalchemy.__version__)"
-
-      - name: Clean previous build artifacts/spec
-        shell: pwsh
-        run: |
-          if (Test-Path "BeirutPOS.spec") { Remove-Item "BeirutPOS.spec" -Force }
-          Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
-
-      - name: Ensure assets folder (track even if empty)
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "assets")) { New-Item -ItemType Directory "assets" | Out-Null }
-          # Ensure fonts folder exists
-          if (-not (Test-Path "beirut_pos/assets/fonts")) { 
-            New-Item -ItemType Directory "beirut_pos/assets/fonts" -Force | Out-Null 
+            # Install, skipping Linux-only packages
+            Get-Content requirements.txt |
+              Where-Object { $_ -notmatch '^\s*#' -and $_.Trim() -ne '' -and $_ -notmatch 'cupshelpers' -and $_ -notmatch 'pycups' } |
+              ForEach-Object { pip install --no-cache-dir $_ }
           }
 
-      - name: Build EXE with PyInstaller (bundle all Qt bits + ESC/POS)
-        shell: pwsh
-        run: |
-          $args = @(
-            "launcher.py",
-            "--name","BeirutPOS",
-            "--onefile",
-            "--noconsole",
-            "--clean",
-            "--additional-hooks-dir","hooks",
-            "--collect-all","PyQt6",
-            "--collect-all","PyQt6.Qt6",
-            "--collect-submodules","beirut_pos",
-            "--collect-all","sqlalchemy",
-            "--hidden-import","sqlalchemy",
-            "--hidden-import","sqlalchemy.ext.declarative",
-            "--hidden-import","sqlalchemy.orm",
-            "--hidden-import","sqlalchemy.sql",
-            "--hidden-import","sqlalchemy.ext.baked",
-            "--hidden-import","sqlalchemy.pool",
-            "--hidden-import","sqlalchemy.dialects.sqlite",
-            "--collect-all","sqlite3",
-            "--collect-all","escpos",
-            "--collect-submodules","arabic_reshaper",
-            "--collect-submodules","bidi",
-            "--hidden-import","PIL",
-            "--hidden-import","PIL._imaging",
-            "--hidden-import","win32print",
-            "--hidden-import","win32api",
-            "--hidden-import","win32con",
-            "--hidden-import","usb.core",
-            "--hidden-import","usb.util"
-          )
-          if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
-          if (Test-Path "assets")         { $args += @("--add-data","assets;assets") }
-          # Add fonts folder if it exists
-          if (Test-Path "beirut_pos/assets/fonts") { 
-            $args += @("--add-data","beirut_pos/assets/fonts;beirut_pos/assets/fonts") 
-          }
-          python -m PyInstaller @args
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: BeirutPOS-win
-          path: dist/BeirutPOS.exe
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/BeirutPOS.exe -and $_ -notmatch 'cupshelpers' } | ForEach-Object {
-              pip install --no-cache-dir $_ 2>$null
-            }
-          }
-          # Ensure critical packages are installed
+          # Ensure critical packages
           pip install --no-cache-dir SQLAlchemy==2.0.23
-          pip install --no-cache-dir python-escpos pillow arabic-reshaper python-bidi
-          pip install --no-cache-dir pyusb
-          # Install Windows printing dependencies
+          pip install --no-cache-dir python-escpos pillow arabic-reshaper python-bidi pyusb
+          # Windows printing backend for python-escpos
           pip install --no-cache-dir pywin32
+          # Builder
           pip install --no-cache-dir pyinstaller pyinstaller-hooks-contrib
 
-      - name: Show PyQt/Qt versions (sanity check)
+      - name: Show versions (sanity check)
         shell: pwsh
         run: |
-          python -c "from importlib.metadata import version as v; from PyQt6.QtCore import QT_VERSION_STR as q; print('PyQt6='+v('PyQt6')+', Qt6='+q)"
-          python -c "import sqlalchemy; print('SQLAlchemy='+sqlalchemy.__version__)"
+          python - <<'PY'
+          from importlib.metadata import version as v
+          from PyQt6.QtCore import QT_VERSION_STR as q
+          import sqlalchemy
+          print("PyQt6 =", v("PyQt6"), "| Qt6 =", q)
+          print("SQLAlchemy =", sqlalchemy.__version__)
+          PY
 
       - name: Clean previous build artifacts/spec
         shell: pwsh
@@ -149,16 +81,15 @@ jobs:
           if (Test-Path "BeirutPOS.spec") { Remove-Item "BeirutPOS.spec" -Force }
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
 
-      - name: Ensure assets folder (track even if empty)
+      - name: Ensure assets folders exist
         shell: pwsh
         run: |
           if (-not (Test-Path "assets")) { New-Item -ItemType Directory "assets" | Out-Null }
-          # Ensure fonts folder exists
-          if (-not (Test-Path "beirut_pos/assets/fonts")) { 
-            New-Item -ItemType Directory "beirut_pos/assets/fonts" -Force | Out-Null 
+          if (-not (Test-Path "beirut_pos/assets/fonts")) {
+            New-Item -ItemType Directory "beirut_pos/assets/fonts" -Force | Out-Null
           }
 
-      - name: Build EXE with PyInstaller (bundle all Qt bits + ESC/POS)
+      - name: Build EXE with PyInstaller (bundle Qt + ESC/POS)
         shell: pwsh
         run: |
           $args = @(
@@ -192,10 +123,9 @@ jobs:
             "--hidden-import","usb.util"
           )
           if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
-          if (Test-Path "assets")         { $args += @("--add-data","assets;assets") }
-          # Add fonts folder if it exists
-          if (Test-Path "beirut_pos/assets/fonts") { 
-            $args += @("--add-data","beirut_pos/assets/fonts;beirut_pos/assets/fonts") 
+          if (Test-Path "assets") { $args += @("--add-data","assets;assets") }
+          if (Test-Path "beirut_pos/assets/fonts") {
+            $args += @("--add-data","beirut_pos/assets/fonts;beirut_pos/assets/fonts")
           }
           python -m PyInstaller @args
 

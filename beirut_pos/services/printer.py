@@ -30,6 +30,7 @@ def _ensure_dirs():
         p.mkdir(parents=True, exist_ok=True)
 
 # ---------------- Arabic shaping ----------------
+# ---------------- Arabic shaping ----------------
 try:
     import arabic_reshaper
     from bidi.algorithm import get_display
@@ -37,25 +38,27 @@ try:
 except Exception:
     _AR_OK = False
 
-def _shape_arabic(text: str) -> str:
-    """Shape Arabic text for proper display on thermal printers
-    INCLUDES MANUAL REVERSAL for printers that don't respect RTL"""
+def _shape_ar_escpos(text: str) -> str:
+    """Arabic shaping for ESC/POS printers (DO NOT reverse again)."""
     if not text:
         return ""
-
     if not _AR_OK:
-        # No library - just reverse the string
-        return text[::-1]
-
-    # Step 1: Reshape Arabic letters (connects them properly)
+        # fallback: at least keep original text
+        return text
     reshaped = arabic_reshaper.reshape(text)
+    # get_display returns visual order suitable for LTR devices; send as-is
+    return get_display(reshaped)
 
-    # Step 2: Apply bidi algorithm
-    bidi_text = get_display(reshaped)
+def _shape_ar_textfile(text: str) -> str:
+    """Arabic shaping for saving readable text files (optional)."""
+    if not text:
+        return ""
+    if not _AR_OK:
+        # make it human-readable-ish in plain text
+        return text[::-1]
+    reshaped = arabic_reshaper.reshape(text)
+    return get_display(reshaped)  # usually fine for viewing in editors
 
-    # Step 3: FORCE MANUAL REVERSAL (for stubborn printers)
-    # Some thermal printers ignore alignment and treat everything as LTR
-    return bidi_text[::-1]
 
 def _format_currency_cents(cents: int | float, currency: str) -> str:
     try:
@@ -110,55 +113,50 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
 
         print(f"[DEBUG] Starting ESC/POS print...")
 
-        # Initialize printer
-        p.set(align='center')
+        # Initialize printer + Arabic codepage
+        p.set(align='right', codepage='cp864')
 
-        # Header - centered and bold
+        # Header
         p.set(align='center', text_type='B', width=2, height=2)
-        p.text(_shape_arabic("تذكرة البار") + "\n")
+        p.text(_shape_ar_escpos("تذكرة البار") + "\n")
 
-        # Info section - RIGHT aligned for Arabic
+        # Info
         p.set(align='right', text_type='NORMAL', width=1, height=1)
-        p.text(_shape_arabic(f"الطاولة: {table_code}") + "\n")
-        p.text(_shape_arabic(f"وقت الإصدار: {ts}") + "\n")
+        p.text(_shape_ar_escpos(f"الطاولة: {table_code}") + "\n")
+        p.text(_shape_ar_escpos(f"وقت الإصدار: {ts}") + "\n")
 
         p.set(align='center')
         p.text("=" * 32 + "\n")
 
-        # Table header - RIGHT aligned (same style as your image)
+        # Table header
         p.set(align='right', text_type='NORMAL')
-        p.text(_shape_arabic("الصنف               الكمية    الإجمالي") + "\n")
-
+        p.text(_shape_ar_escpos("الصنف               الكمية    الإجمالي") + "\n")
         p.set(align='center')
         p.text("-" * 32 + "\n")
 
-        # Items - formatted to match your original layout
+        # Items
         for it in items:
-            name = _shape_arabic(str(it["name"]))
+            name = _shape_ar_escpos(str(it["name"]))
             qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
             total = _format_currency_cents(it["total_cents"], currency)
 
-            # Format: name on left, qty and total on right (like your image)
             p.set(align='left')
             p.text(name)
-
-            # Add spacing and right-aligned numbers
             spaces_needed = 32 - len(name) - len(str(qty)) - len(total) - 4
             if spaces_needed < 1:
                 spaces_needed = 1
-
             p.text(" " * spaces_needed + f"{qty}    {total}\n")
 
             note = (it.get("note") or "").strip()
             if note:
                 p.set(align='right')
-                p.text(_shape_arabic(f"ملاحظة: {note}") + "\n")
+                p.text(_shape_ar_escpos(f"ملاحظة: {note}") + "\n")
 
         p.set(align='center')
         p.text("=" * 32 + "\n")
         p.text("\n\n")
 
-        # Cut paper
+        # Cut
         p.cut()
 
         print("[DEBUG] ESC/POS print completed successfully")
@@ -197,89 +195,74 @@ def _print_escpos_cashier_receipt(
         company = setting_get("company_name", "Beirut") or "Beirut"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Initialize
-        p.set(align='center')
+        # Initialize printer and Arabic codepage
+        p.set(align='right', codepage='cp864')
 
-        # Logo (if available)
-        logo_path = Path((setting_get("logo_path", "") or "").strip())
-        if logo_path.exists():
-            try:
-                p.image(str(logo_path), impl='bitImageColumn', center=True)
-                p.text("\n")
-            except:
-                pass
-
-        # Header - centered and bold
+        # Header
         p.set(align='center', text_type='B', width=2, height=2)
-        p.text(_shape_arabic(company) + "\n")
+        p.text(_shape_ar_escpos(company) + "\n")
 
-        # Info section - RIGHT aligned for Arabic
+        # Info
         p.set(align='right', text_type='NORMAL', width=1, height=1)
-        p.text(_shape_arabic(f"الطاولة: {table_code} — الكاشير: {cashier}") + "\n")
-        p.text(_shape_arabic(f"وقت الإصدار: {ts}") + "\n")
-        p.text(_shape_arabic(f"طريقة الدفع: {method}") + "\n")
+        p.text(_shape_ar_escpos(f"الطاولة: {table_code} — الكاشير: {cashier}") + "\n")
+        p.text(_shape_ar_escpos(f"وقت الإصدار: {ts}") + "\n")
+        p.text(_shape_ar_escpos(f"طريقة الدفع: {method}") + "\n")
 
         p.set(align='center')
         p.text("=" * 32 + "\n")
 
-        # Table header - same style as original
+        # Table header
         p.set(align='right')
-        p.text(_shape_arabic("الصنف           الكمية  السعر  الإجمالي") + "\n")
-
+        p.text(_shape_ar_escpos("الصنف           الكمية  السعر  الإجمالي") + "\n")
         p.set(align='center')
         p.text("-" * 32 + "\n")
 
-        # Items - formatted to match original layout
+        # Items
         for it in items:
-            name = _shape_arabic(str(it["name"]))
+            name = _shape_ar_escpos(str(it["name"]))
             qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
             unit = _format_currency_cents(it["unit_price"], currency)
             item_total = _format_currency_cents(it["total_cents"], currency)
 
-            # Format: name on left, numbers on right
             p.set(align='left')
             p.text(name)
-
-            # Calculate spacing
             numbers_str = f"{qty}  {unit}  {item_total}"
             spaces_needed = 32 - len(name) - len(numbers_str) - 2
             if spaces_needed < 1:
                 spaces_needed = 1
-
             p.text(" " * spaces_needed + numbers_str + "\n")
 
             note = (it.get("note") or "").strip()
             if note:
                 p.set(align='right')
-                p.text(_shape_arabic(f"ملاحظة: {note}") + "\n")
+                p.text(_shape_ar_escpos(f"ملاحظة: {note}") + "\n")
 
         p.set(align='center')
         p.text("-" * 32 + "\n")
 
-        # Totals - RIGHT aligned
+        # Totals
         p.set(align='right', text_type='NORMAL')
-        p.text(_shape_arabic(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}") + "\n")
-
+        p.text(_shape_ar_escpos(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}") + "\n")
         if discount:
-            p.text(_shape_arabic(f"الخصم: {_format_currency_cents(discount, currency)}") + "\n")
+            p.text(_shape_ar_escpos(f"الخصم: {_format_currency_cents(discount, currency)}") + "\n")
         if service:
-            p.text(_shape_arabic(f"الخدمة: {_format_currency_cents(service, currency)}") + "\n")
+            p.text(_shape_ar_escpos(f"الخدمة: {_format_currency_cents(service, currency)}") + "\n")
         if tax:
-            p.text(_shape_arabic(f"الضريبة: {_format_currency_cents(tax, currency)}") + "\n")
+            p.text(_shape_ar_escpos(f"الضريبة: {_format_currency_cents(tax, currency)}") + "\n")
 
         p.set(align='center')
         p.text("=" * 32 + "\n")
 
-        # Final total - centered and bold
+        # Final total
         p.set(align='right', text_type='B')
-        p.text(_shape_arabic(f"الصافي: {_format_currency_cents(total, currency)}") + "\n")
+        p.text(_shape_ar_escpos(f"الصافي: {_format_currency_cents(total, currency)}") + "\n")
 
         p.set(align='center', text_type='NORMAL', width=1, height=1)
         p.text("=" * 32 + "\n")
-        p.text(_shape_arabic("شكراً لزيارتكم") + " 💛\n")
+        p.text(_shape_ar_escpos("شكراً لزيارتكم") + " 💛\n")
         p.text("\n\n\n")
 
-        # Cut paper
+        # Cut
         p.cut()
 
         return True
@@ -292,6 +275,7 @@ def _print_escpos_cashier_receipt(
             p.close()
         except:
             pass
+
 
 # ---------------- Fallback: Save as text file if ESC/POS fails ----------------
 def _save_receipt_as_text(

@@ -588,15 +588,15 @@ class MainWindow(QMainWindow):
         if not self.current_table:
             self._show_banner("اختر طاولة أولاً.", "warn")
             return
-
-        # Print only remaining, unprinted bar items before settling
-        to_print = self._collect_unprinted_items(self.current_table)
-        if to_print:
-            printer.print_bar_ticket(self.current_table, to_print)
-            try:
-                order_manager.mark_bar_items_as_printed(self.current_table, to_print)
-            except Exception:
-                pass
+        #
+        # # Print only remaining, unprinted bar items before settling
+        # to_print = self._collect_unprinted_items(self.current_table)
+        # if to_print:
+        #     printer.print_bar_ticket(self.current_table, to_print)
+        #     try:
+        #         order_manager.mark_bar_items_as_printed(self.current_table, to_print)
+        #     except Exception:
+        #         pass
 
         # settle & print cashier receipt AFTER totals are final
         items = order_manager.get_items(self.current_table)

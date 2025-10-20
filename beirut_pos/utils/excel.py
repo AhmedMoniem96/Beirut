@@ -1,3 +1,4 @@
+# beirut_pos/services/excel.py
 """Minimal XLSX writer that produces read-only, password-protected workbooks.
 
 The generated workbook locks both the workbook structure and the sheet so that
@@ -9,11 +10,22 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Iterable, Sequence
-from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
+from xml.sax.saxutils import escape
+import re
 
 # Password for protected reports - share with management only
 _PASSWORD = "POSLOCK2025"
+
+# XML 1.0 forbids control chars except TAB(0x09), LF(0x0A), CR(0x0D)
+_XML_CTRL_RE = re.compile(r"[\x00-\x08\x0B-\x0C\x0E-\x1F]")
+
+
+def _sanitize_xml_text(value) -> str:
+    """Remove illegal XML control chars and escape for XML."""
+    s = "" if value is None else str(value)
+    s = _XML_CTRL_RE.sub("", s)  # strip disallowed control characters
+    return escape(s).strip()
 
 
 def _excel_password_hash(password: str) -> str:
@@ -73,11 +85,8 @@ def write_protected_workbook(
     hashed = _excel_password_hash(password)
 
     # Sanitize all cell values to prevent XML issues
-    header_values = [escape(str(h) if h is not None else "").strip() for h in headers]
-    table_rows = [
-        [escape(str(cell) if cell is not None else "").strip() for cell in row]
-        for row in rows
-    ]
+    header_values = [_sanitize_xml_text(h) for h in headers]
+    table_rows = [[_sanitize_xml_text(cell) for cell in row] for row in rows]
 
     total_rows = 1 + len(table_rows)
     total_cols = max(1, len(header_values))
@@ -91,7 +100,7 @@ def write_protected_workbook(
             ref = f"{_column_letter(col_index)}{row_number}"
             # Use inlineStr for text values to avoid shared strings complexity
             parts.append(
-                f'<c r="{ref}" t="inlineStr"><is><t>{value}</t></is></c>'
+                f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">{value}</t></is></c>'
             )
         return f'<row r="{row_number}">{"".join(parts)}</row>'
 
@@ -125,7 +134,7 @@ def write_protected_workbook(
     <workbookView xWindow="0" yWindow="0" windowWidth="16384" windowHeight="8192"/>
   </bookViews>
   <sheets>
-    <sheet name="{escape(sheet_name)}" sheetId="1" r:id="rId1"/>
+    <sheet name="{_sanitize_xml_text(sheet_name)}" sheetId="1" r:id="rId1"/>
   </sheets>
   <calcPr calcId="124519"/>
   <workbookProtection lockStructure="1" lockWindows="1" workbookPassword="{hashed}"/>
@@ -214,7 +223,7 @@ def write_protected_workbook(
   </HeadingPairs>
   <TitlesOfParts>
     <vt:vector size="1" baseType="lpstr">
-      <vt:lpstr>{escape(sheet_name)}</vt:lpstr>
+      <vt:lpstr>{_sanitize_xml_text(sheet_name)}</vt:lpstr>
     </vt:vector>
   </TitlesOfParts>
   <Company>Beirut POS</Company>

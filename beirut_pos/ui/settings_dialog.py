@@ -3,10 +3,11 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QPushButton,
     QComboBox, QFileDialog, QTabWidget, QHBoxLayout, QLabel,
     QColorDialog, QListWidget, QAbstractItemView, QMessageBox,
-    QSizePolicy,
+    QSizePolicy
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QAction, QKeySequence
+
 from ..core.db import setting_get, setting_set, get_synchronous_mode, set_synchronous_mode
 from ..core.simple_voucher import deactivate, is_activated, status as voucher_status
 from ..core.bus import bus
@@ -20,6 +21,7 @@ from pathlib import Path
 from ..core.paths import DB_PATH, BACKUP_DIR, CONFIG_DIR
 from ..services.backup import backup_now, restore_backup
 
+
 def _list_printers():
     if not sys.platform.startswith("win"):
         return []
@@ -30,12 +32,19 @@ def _list_printers():
     except Exception:
         return []
 
+
 class SettingsDialog(BigDialog):
     def __init__(self, parent=None):
         super().__init__("الإعدادات", remember_key="settings", parent=parent)
 
+        # Make sure the dialog is comfortably sized and resizable
+        self.setMinimumSize(720, 520)
+        self.resize(960, 700)
+        self.setSizeGripEnabled(True)
+
         self._default_palette = branding.default_palette()
 
+        # ===== Tabs ============================================================
         tabs = QTabWidget()
         tabs.setTabPosition(QTabWidget.TabPosition.North)
 
@@ -59,20 +68,22 @@ class SettingsDialog(BigDialog):
             if isinstance(widget, (QLineEdit, QComboBox)):
                 widget.setStyleSheet("padding: 6px 10px;")
 
-        self.company = QLineEdit(setting_get("company_name","Beirut Coffee"))
-        self.currency = QLineEdit(setting_get("currency","EGP"))
-        self.service  = QSpinBox(); self.service.setRange(0,50); self.service.setValue(int(setting_get("service_pct","0")))
+        self.company = QLineEdit(setting_get("company_name", "Beirut Coffee"))
+        self.currency = QLineEdit(setting_get("currency", "EGP"))
+        self.service = QSpinBox(); self.service.setRange(0, 50); self.service.setValue(int(setting_get("service_pct", "0")))
         _configure_field(self.company)
         _configure_field(self.currency)
         _configure_field(self.service)
         gen_f.addRow("الاسم التجاري:", self.company)
         gen_f.addRow("العملة:", self.currency)
         gen_f.addRow("نسبة الخدمة %:", self.service)
+
         self.sync_mode = QComboBox()
         self.sync_mode.addItems(["FULL", "NORMAL"])
         self.sync_mode.setCurrentText(get_synchronous_mode())
         _configure_field(self.sync_mode)
         gen_f.addRow("قوة مزامنة قاعدة البيانات:", self.sync_mode)
+
         data_label = QLabel(str(DB_PATH))
         data_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         gen_f.addRow("مسار قاعدة البيانات:", data_label)
@@ -87,14 +98,11 @@ class SettingsDialog(BigDialog):
         self.btn_restore.clicked.connect(self._on_restore_backup)
         backup_row.addWidget(self.btn_backup_now)
         backup_row.addWidget(self.btn_restore)
-        backup_widget = QWidget()
-        backup_widget.setLayout(backup_row)
+        backup_widget = QWidget(); backup_widget.setLayout(backup_row)
         gen_f.addRow("النسخ الاحتياطي:", backup_widget)
 
-        voucher_row = QHBoxLayout()
-        voucher_row.setSpacing(12)
-        self.voucher_status = QLabel()
-        self.voucher_status.setWordWrap(True)
+        voucher_row = QHBoxLayout(); voucher_row.setSpacing(12)
+        self.voucher_status = QLabel(); self.voucher_status.setWordWrap(True)
         voucher_row.addWidget(self.voucher_status, 1)
         self.btn_voucher_activate = QPushButton("إدخال رمز…")
         self.btn_voucher_activate.clicked.connect(self._open_voucher_dialog)
@@ -102,8 +110,7 @@ class SettingsDialog(BigDialog):
         self.btn_voucher_deactivate = QPushButton("تعطيل")
         self.btn_voucher_deactivate.clicked.connect(self._deactivate_voucher)
         voucher_row.addWidget(self.btn_voucher_deactivate, 0)
-        voucher_widget = QWidget()
-        voucher_widget.setLayout(voucher_row)
+        voucher_widget = QWidget(); voucher_widget.setLayout(voucher_row)
         gen_f.addRow("حالة التفعيل:", voucher_widget)
 
         self._refresh_voucher_status()
@@ -120,18 +127,21 @@ class SettingsDialog(BigDialog):
         prn_f.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         prn_f.setSpacing(12)
         prn_v.addLayout(prn_f)
+
         names = _list_printers()
-        self.bar_prn  = QComboBox(); self.bar_prn.setEditable(True); self.bar_prn.addItems(names)
+        self.bar_prn = QComboBox(); self.bar_prn.setEditable(True); self.bar_prn.addItems(names)
         self.cash_prn = QComboBox(); self.cash_prn.setEditable(True); self.cash_prn.addItems(names)
-        self.bar_prn.setCurrentText(setting_get("bar_printer",""))
-        self.cash_prn.setCurrentText(setting_get("cashier_printer",""))
+        self.bar_prn.setCurrentText(setting_get("bar_printer", ""))
+        self.cash_prn.setCurrentText(setting_get("cashier_printer", ""))
         _configure_field(self.bar_prn)
         _configure_field(self.cash_prn)
         prn_f.addRow("طابعة البار:", self.bar_prn)
         prn_f.addRow("طابعة الكاشير:", self.cash_prn)
-        # small hint
+
         hint = QLabel("ملاحظة: على ويندوز، تأكد أن أسماء الطابعات هنا مطابقة تماماً لاسم الجهاز في \"Devices and Printers\".")
-        hint.setWordWrap(True); prn_v.addWidget(hint)
+        hint.setWordWrap(True)
+        prn_v.addWidget(hint)
+
         tabs.addTab(prn, "الطابعات")
 
         # --- PlayStation tab ---
@@ -145,6 +155,7 @@ class SettingsDialog(BigDialog):
         ps_f.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         ps_f.setSpacing(12)
         ps_v.addLayout(ps_f)
+
         def _read_ps_rate(key: str, default: int) -> int:
             raw = setting_get(key, str(default))
             try:
@@ -155,8 +166,8 @@ class SettingsDialog(BigDialog):
                 value = value // 100
             return max(value, 0)
 
-        self.ps_p2 = QSpinBox(); self.ps_p2.setRange(0,1_000_000); self.ps_p2.setSingleStep(1); self.ps_p2.setSuffix(" ج.م"); self.ps_p2.setValue(_read_ps_rate("ps_rate_p2", 50))
-        self.ps_p4 = QSpinBox(); self.ps_p4.setRange(0,1_000_000); self.ps_p4.setSingleStep(1); self.ps_p4.setSuffix(" ج.م"); self.ps_p4.setValue(_read_ps_rate("ps_rate_p4", 80))
+        self.ps_p2 = QSpinBox(); self.ps_p2.setRange(0, 1_000_000); self.ps_p2.setSingleStep(1); self.ps_p2.setSuffix(" ج.م"); self.ps_p2.setValue(_read_ps_rate("ps_rate_p2", 50))
+        self.ps_p4 = QSpinBox(); self.ps_p4.setRange(0, 1_000_000); self.ps_p4.setSingleStep(1); self.ps_p4.setSuffix(" ج.م"); self.ps_p4.setValue(_read_ps_rate("ps_rate_p4", 80))
         _configure_field(self.ps_p2)
         _configure_field(self.ps_p4)
         ps_f.addRow("سعر PS لاعبين/ساعة (ج.م):", self.ps_p2)
@@ -174,7 +185,8 @@ class SettingsDialog(BigDialog):
         br_f.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         br_f.setSpacing(12)
         br_v.addLayout(br_f)
-        self.logo_path = QLineEdit(setting_get("logo_path",""))
+
+        self.logo_path = QLineEdit(setting_get("logo_path", ""))
         _configure_field(self.logo_path)
         btn_browse = QPushButton("اختيار…")
         def pick_logo():
@@ -214,8 +226,7 @@ class SettingsDialog(BigDialog):
             row = QHBoxLayout()
             row.addWidget(field, 1)
             row.addWidget(button, 0)
-            wrapper = QWidget()
-            wrapper.setLayout(row)
+            wrapper = QWidget(); wrapper.setLayout(row)
             br_f.addRow(label, wrapper)
             return field
 
@@ -225,7 +236,7 @@ class SettingsDialog(BigDialog):
         self.muted_text_color = make_color_row("muted_text_color", "لون النص الثانوي:", "اختر لون النص الثانوي")
         self.menu_card_color = make_color_row("menu_card_color", "لون بطاقات الأقسام:", "اختر لون بطاقات الأقسام")
         self.menu_header_color = make_color_row("menu_header_color", "لون عناوين الأقسام:", "اختر لون عنوان القسم")
-        self.menu_button_color = make_color_row("menu_button_color", "لون أزرار المنتجات:", "اختر لون زر المنتج")
+        self.menu_button_color = make_color_row("menu_button_color", "لون أزرار المنتجات:", "اختر لون أزرار المنتجات")
         self.menu_button_text_color = make_color_row("menu_button_text_color", "لون خط أزرار المنتجات:", "اختر لون خط زر المنتج")
         self.menu_button_hover_color = make_color_row("menu_button_hover_color", "لون الزر عند التحويم:", "اختر لون الزر عند التحويم")
         self.toolbar_color = make_color_row("toolbar_color", "لون شريط الأدوات:", "اختر لون شريط الأدوات")
@@ -260,34 +271,60 @@ class SettingsDialog(BigDialog):
 
         tabs.addTab(cat_tab, "ترتيب الأقسام")
 
-        # --- Footer buttons ---
-        save = QPushButton("حفظ")
-        save.setDefault(True)
-        save.clicked.connect(self._save)
-
+        # ===== TOP action bar (sticky) + root layout ==========================
         root = QVBoxLayout(self)
-        root.addWidget(tabs, 1)
-        root.addWidget(save, 0, alignment=Qt.AlignmentFlag.AlignLeft)
 
+        top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(0, 0, 0, 0)
+
+        title_lbl = QLabel("الإعدادات")
+        title_lbl.setStyleSheet("font-weight: 700; font-size: 16px; margin: 6px 0;")
+
+        btn_save_top = QPushButton("حفظ")
+        btn_save_top.setDefault(True)
+        btn_save_top.clicked.connect(self._save)
+
+        btn_close_top = QPushButton("إغلاق")
+        btn_close_top.clicked.connect(self.reject)
+
+        top_bar.addWidget(title_lbl, 1, alignment=Qt.AlignmentFlag.AlignRight)
+        top_bar.addWidget(btn_close_top, 0)
+        top_bar.addWidget(btn_save_top, 0)
+
+        top_bar_w = QWidget(); top_bar_w.setLayout(top_bar)
+
+        root.addWidget(top_bar_w, 0)
+        root.addWidget(tabs, 1)
+
+        # ===== Shortcuts ======================================================
+        act_save = QAction(self)
+        act_save.setShortcut(QKeySequence("Ctrl+S"))
+        act_save.triggered.connect(self._save)
+        self.addAction(act_save)
+
+        act_close = QAction(self)
+        act_close.setShortcut(QKeySequence("Ctrl+W"))
+        act_close.triggered.connect(self.reject)
+        self.addAction(act_close)
+
+        act_escape = QAction(self)
+        act_escape.setShortcut(QKeySequence(Qt.Key.Key_Escape))
+        act_escape.triggered.connect(self.reject)
+        self.addAction(act_escape)
+
+    # ==================== Handlers ===========================================
     def _on_backup_now(self):
         try:
             path = backup_now()
         except Exception as exc:
             QMessageBox.critical(self, "خطأ في النسخ الاحتياطي", f"تعذر إنشاء النسخة الاحتياطية:\n{exc}")
             return
-        QMessageBox.information(
-            self,
-            "تم إنشاء نسخة احتياطية",
-            f"تم حفظ نسخة من قاعدة البيانات في:\n{path}",
-        )
+        QMessageBox.information(self, "تم إنشاء نسخة احتياطية", f"تم حفظ نسخة من قاعدة البيانات في:\n{path}")
 
     def _on_restore_backup(self):
         start_dir = str(BACKUP_DIR if BACKUP_DIR.exists() else Path.home())
         file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "اختيار نسخة احتياطية",
-            start_dir,
-            "SQLite Database (*.db)",
+            self, "اختيار نسخة احتياطية", start_dir, "SQLite Database (*.db)"
         )
         if not file_path:
             return
@@ -297,9 +334,8 @@ class SettingsDialog(BigDialog):
             QMessageBox.critical(self, "فشل الاستعادة", f"تعذر استعادة النسخة الاحتياطية:\n{exc}")
             return
         QMessageBox.information(
-            self,
-            "اكتملت الاستعادة",
-            "تم استرجاع قاعدة البيانات من النسخة المحددة. يرجى إعادة تشغيل البرنامج لتطبيق التغييرات.",
+            self, "اكتملت الاستعادة",
+            "تم استرجاع قاعدة البيانات من النسخة المحددة. يرجى إعادة تشغيل البرنامج لتطبيق التغييرات."
         )
 
     def _save(self):

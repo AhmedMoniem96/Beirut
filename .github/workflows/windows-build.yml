@@ -28,6 +28,8 @@ jobs:
           if (Test-Path "requirements.txt") {
             pip install --no-cache-dir -r requirements.txt
           }
+          # Install ESC/POS and Arabic support packages
+          pip install --no-cache-dir python-escpos pillow arabic-reshaper python-bidi
           pip install --no-cache-dir pyinstaller pyinstaller-hooks-contrib
 
       - name: Show PyQt/Qt versions (sanity check)
@@ -45,8 +47,12 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path "assets")) { New-Item -ItemType Directory "assets" | Out-Null }
+          # Ensure fonts folder exists
+          if (-not (Test-Path "beirut_pos/assets/fonts")) { 
+            New-Item -ItemType Directory "beirut_pos/assets/fonts" -Force | Out-Null 
+          }
 
-      - name: Build EXE with PyInstaller (bundle all Qt bits)
+      - name: Build EXE with PyInstaller (bundle all Qt bits + ESC/POS)
         shell: pwsh
         run: |
           $args = @(
@@ -59,10 +65,21 @@ jobs:
             "--collect-all","PyQt6.Qt6",
             "--collect-submodules","beirut_pos",
             "--collect-submodules","sqlalchemy",
-            "--collect-all","sqlite3"
+            "--collect-all","sqlite3",
+            "--collect-all","escpos",
+            "--collect-submodules","arabic_reshaper",
+            "--collect-submodules","bidi",
+            "--hidden-import","PIL",
+            "--hidden-import","PIL._imaging",
+            "--hidden-import","usb.core",
+            "--hidden-import","usb.util"
           )
           if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
           if (Test-Path "assets")         { $args += @("--add-data","assets;assets") }
+          # Add fonts folder if it exists
+          if (Test-Path "beirut_pos/assets/fonts") { 
+            $args += @("--add-data","beirut_pos/assets/fonts;beirut_pos/assets/fonts") 
+          }
           python -m PyInstaller @args
 
       - name: Upload artifact

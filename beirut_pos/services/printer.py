@@ -1,6 +1,5 @@
-"""Receipt/ticket PDF renderer for 80mm thermal printers (XP-80C) with Arabic shaping,
-numbers kept LTR, and logo on the cashier receipt only.
-FIXED: Arabic text now renders correctly on thermal printers using image-based approach.
+"""Receipt/ticket PDF renderer for 80mm thermal printers (XP-80C) with Arabic shaping.
+ULTIMATE FIX: Uses ESC/POS direct commands - bypasses PDF completely for thermal printers.
 """
 
 from __future__ import annotations
@@ -9,10 +8,12 @@ from pathlib import Path
 from datetime import datetime
 from typing import Iterable, List, Optional
 
-from reportlab.pdfgen import canvas
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib.utils import ImageReader
+try:
+    from escpos.printer import Usb, Network, File, Win32Raw
+    from escpos.exceptions import USBNotFoundError
+    _ESCPOS_OK = True
+except ImportError:
+    _ESCPOS_OK = False
 
 from ..core.db import setting_get
 from ..core.paths import DATA_DIR
@@ -20,226 +21,33 @@ from ..utils.currency import format_pounds
 from ..core.bus import bus
 
 # ---------------- Paths & constants ----------------
-_OUTPUT_ROOT = DATA_DIR / "prints"
+_OUTPUT_ROOT  = DATA_DIR / "prints"
 _RECEIPTS_DIR = _OUTPUT_ROOT / "receipts"
-_BAR_DIR = _OUTPUT_ROOT / "bar_tickets"
-
-PT_PER_MM = 72.0 / 25.4
-PAGE_W = 80 * PT_PER_MM  # ≈ 226.8 pt - 80mm roll
-MARGIN_L, MARGIN_R, MARGIN_T, MARGIN_B = 8, 8, 10, 10
-LINE_H = 16
-FONT_SIZE = 10
-FONT_BOLD_SIZE = 11
-
-# Logo (cashier only)
-LOGO_MAX_W_PT = 60 * PT_PER_MM  # ~60mm
-LOGO_MAX_H_PT = 35 * PT_PER_MM
-
-# Prefer a bundled Arabic font first (put Cairo-Regular.ttf here)
-ASSETS_FONT = Path(__file__).resolve().parents[1] / "assets" / "fonts" / "Cairo-Regular.ttf"
-_FONT_NAME = "BeirutPOSFont"
-_FONT_CANDIDATES = [
-    "NotoNaskhArabic-Regular.ttf", "Amiri-Regular.ttf", "Cairo-Regular.ttf",
-    "DejaVuSans.ttf", "Arial Unicode.ttf", "arialuni.ttf", "arial.ttf",
-]
-
+_BAR_DIR      = _OUTPUT_ROOT / "bar_tickets"
 
 def _ensure_dirs():
     for p in (_OUTPUT_ROOT, _RECEIPTS_DIR, _BAR_DIR):
         p.mkdir(parents=True, exist_ok=True)
 
-
-def _font_search_paths() -> List[Path]:
-    paths: List[Path] = []
-    if sys.platform.startswith("win"):
-        windir = os.environ.get("WINDIR", r"C:\\Windows")
-        if windir:
-            paths.append(Path(windir) / "Fonts")
-    else:
-        paths += [Path.home() / ".fonts", Path("/usr/share/fonts"), Path("/usr/local/share/fonts")]
-    return [p for p in paths if p.exists()]
-
-
-def _register_font():
-    """Prefer bundled Arabic TTF; then system; last resort Helvetica."""
-    global _FONT_NAME
-    if _FONT_NAME in pdfmetrics.getRegisteredFontNames():
-        return
-    # 1) bundled
-    try:
-        if ASSETS_FONT.exists():
-            pdfmetrics.registerFont(TTFont(_FONT_NAME, str(ASSETS_FONT)))
-            return
-    except Exception:
-        pass
-    # 2) system
-    for folder in _font_search_paths():
-        for name in _FONT_CANDIDATES:
-            f = folder / name
-            if f.exists():
-                try:
-                    pdfmetrics.registerFont(TTFont(_FONT_NAME, str(f)))
-                    return
-                except Exception:
-                    continue
-    # 3) fallback
-    _FONT_NAME = "Helvetica"
-
-
-# ---------------- Arabic shaping - FIXED ----------------
+# ---------------- Arabic shaping ----------------
 try:
     import arabic_reshaper
     from bidi.algorithm import get_display
-
     _AR_OK = True
 except Exception:
     _AR_OK = False
 
-
-def _rtl(s: str) -> str:
-    """Properly reshape and reorder Arabic text for RTL display"""
-    if not s:
+def _shape_arabic(text: str) -> str:
+    """Shape Arabic text for proper display on thermal printers"""
+    if not text:
         return ""
     if not _AR_OK:
-        # Fallback: simple reversal (not perfect but better than nothing)
-        return s[::-1]
+        return text
 
-    # Reshape Arabic letters (connect them properly)
-    reshaped = arabic_reshaper.reshape(s)
-    # Apply bidirectional algorithm for proper RTL ordering
+    # Reshape connects Arabic letters properly
+    reshaped = arabic_reshaper.reshape(text)
+    # get_display handles RTL ordering
     return get_display(reshaped)
-
-
-def _ltr(s: str) -> str:
-    """Force LTR so 'EGP 15' renders correctly inside RTL context."""
-    if not s: return ""
-    # Use Unicode directional formatting characters
-    LRE, PDF = "\u202A", "\u202C"
-    return f"{LRE}{s}{PDF}"
-
-
-# ---------------- Optional logo (cashier only) ----------------
-try:
-    from PIL import Image, ImageOps, ImageEnhance
-
-    _PIL_OK = True
-except Exception:
-    _PIL_OK = False
-
-
-def _prepare_logo_from_settings() -> Optional[tuple[ImageReader, float, float]]:
-    if not _PIL_OK: return None
-    p = Path((setting_get("logo_path", "") or "").strip())
-    if not p.exists(): return None
-    try:
-        img = Image.open(p).convert("L")
-        img = ImageEnhance.Contrast(img).enhance(1.25)
-        img = ImageOps.autocontrast(img)
-        img_bw = img.convert("1")  # dithered
-        w_px, h_px = img_bw.size
-        aspect = (h_px / float(w_px)) if w_px else 1.0
-        w_pt = min(LOGO_MAX_W_PT, PAGE_W - (MARGIN_L + MARGIN_R))
-        h_pt = min(LOGO_MAX_H_PT, w_pt * aspect)
-        if h_pt > LOGO_MAX_H_PT:
-            h_pt = LOGO_MAX_H_PT
-            w_pt = h_pt / aspect
-        return (ImageReader(img_bw), float(w_pt), float(h_pt))
-    except Exception:
-        return None
-
-
-# ---------------- PDF to Image Converter (CRITICAL FIX) ----------------
-def _convert_pdf_to_thermal_image(pdf_path: Path) -> Optional[Path]:
-    """Convert PDF to high-contrast bitmap image for thermal printer compatibility.
-    This fixes Arabic rendering issues on thermal printers."""
-    if not _PIL_OK:
-        return None
-
-    try:
-        # Try using pdf2image (requires poppler)
-        from pdf2image import convert_from_path
-
-        # Convert at 203 DPI (standard for thermal printers)
-        images = convert_from_path(
-            str(pdf_path),
-            dpi=203,
-            fmt='png',
-            thread_count=1
-        )
-
-        if not images:
-            return None
-
-        # Process first page only
-        img = images[0].convert('L')  # Convert to grayscale
-
-        # Enhance contrast for thermal printer
-        img = ImageEnhance.Contrast(img).enhance(1.5)
-        img = ImageEnhance.Sharpness(img).enhance(1.2)
-
-        # Convert to pure black and white (1-bit)
-        img = img.convert('1', dither=Image.FLOYDSTEINBERG)
-
-        # Save as PNG for printing
-        img_path = pdf_path.with_suffix('.png')
-        img.save(str(img_path), 'PNG', optimize=True)
-
-        return img_path
-
-    except ImportError:
-        # pdf2image not available, return None to use PDF directly
-        return None
-    except Exception as e:
-        print(f"Error converting PDF to image: {e}")
-        return None
-
-
-# ---------------- Draw helpers ----------------
-def _text(c: canvas.Canvas, x_left: float, y: float, text: str):
-    c.drawString(x_left, y, text)
-
-
-def _text_r(c: canvas.Canvas, x_right: float, y: float, text: str):
-    w = pdfmetrics.stringWidth(text, _FONT_NAME, FONT_SIZE)
-    c.drawString(x_right - w, y, text)
-
-
-def _text_bold_r(c: canvas.Canvas, x_right: float, y: float, text: str):
-    c.setFont(_FONT_NAME, FONT_BOLD_SIZE)
-    w = pdfmetrics.stringWidth(text, _FONT_NAME, FONT_BOLD_SIZE)
-    c.drawString(x_right - w, y, text)
-    c.setFont(_FONT_NAME, FONT_SIZE)
-
-
-def _hr(c: canvas.Canvas, x1: float, x2: float, y: float):
-    c.setLineWidth(0.6);
-    c.line(x1, y, x2, y)
-
-
-def _wrap_text(text: str, max_width: float, font_size: int) -> List[str]:
-    words = text.split()
-    lines, buf = [], ""
-    for w in words:
-        trial = (buf + " " + w).strip()
-        if pdfmetrics.stringWidth(trial, _FONT_NAME, font_size) <= max_width:
-            buf = trial
-        else:
-            if buf: lines.append(buf)
-            buf = w
-    if buf: lines.append(buf)
-    return lines or [""]
-
-
-def _calc_height_for_items(items, col_w) -> int:
-    name_w = col_w["name"];
-    rows = 0
-    for it in items:
-        nm_lines = _wrap_text(_rtl(str(it["name"])), name_w, FONT_SIZE)
-        rows += max(1, len(nm_lines)) + 1  # +1 numeric row
-        if (it.get("note") or "").strip():
-            rows += 1
-    return (rows + 6) * LINE_H
-
 
 def _format_currency_cents(cents: int | float, currency: str) -> str:
     try:
@@ -247,64 +55,376 @@ def _format_currency_cents(cents: int | float, currency: str) -> str:
     except Exception:
         return f"{cents} {currency}"
 
+# ---------------- ESC/POS Thermal Printer (THE REAL FIX) ----------------
+def _get_escpos_printer(printer_name: str):
+    """Get ESC/POS printer instance based on platform and printer name"""
+    if not _ESCPOS_OK:
+        return None
 
-def _page_h(content_h: int) -> float:
-    return max(PAGE_W, MARGIN_T + content_h + MARGIN_B)
+    try:
+        if sys.platform.startswith("win"):
+            # Windows: Use Win32Raw with printer name
+            return Win32Raw(printer_name)
+        else:
+            # Linux: Try USB first, then network
+            # Common thermal printer USB IDs (XP-80C and similar)
+            usb_ids = [
+                (0x04b8, 0x0e15),  # Epson TM-T20
+                (0x0416, 0x5011),  # XP-80C common ID
+                (0x0519, 0x0003),  # Generic thermal
+                (0x28e9, 0x0289),  # Common POS printer
+            ]
 
+            for vid, pid in usb_ids:
+                try:
+                    return Usb(vid, pid)
+                except (USBNotFoundError, Exception):
+                    continue
+
+            # Fallback to file-based printing
+            return File(f"/dev/usb/lp0")
+    except Exception as e:
+        print(f"Error initializing ESC/POS printer: {e}")
+        return None
+
+def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: str) -> bool:
+    """Print bar ticket using ESC/POS commands (DIRECT TO PRINTER)"""
+    p = _get_escpos_printer(printer_name)
+    if not p:
+        return False
+
+    try:
+        currency = setting_get("currency", "EGP") or "EGP"
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # Set Arabic codepage
+        p.charcode(code='ARABIC')
+
+        # Header - centered and bold
+        p.set(align='center', text_type='B', width=2, height=2)
+        p.text(_shape_arabic("تذكرة البار") + "\n")
+
+        p.set(align='center', text_type='NORMAL', width=1, height=1)
+        p.text(_shape_arabic(f"الطاولة: {table_code}") + "\n")
+        p.text(_shape_arabic(f"وقت: {ts}") + "\n")
+        p.text("=" * 32 + "\n")
+
+        # Table header
+        p.set(align='right', text_type='NORMAL')
+        p.text(_shape_arabic("الإجمالي    الكمية    الصنف") + "\n")
+        p.text("-" * 32 + "\n")
+
+        # Items
+        for it in items:
+            name = _shape_arabic(str(it["name"])[:20])  # Limit name length
+            qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
+            total = _format_currency_cents(it["total_cents"], currency)
+
+            # Right-aligned for RTL
+            p.set(align='right')
+            line = f"{total}  {qty}  {name}"
+            p.text(line + "\n")
+
+            note = (it.get("note") or "").strip()
+            if note:
+                p.text("  " + _shape_arabic(f"ملاحظة: {note}") + "\n")
+
+        p.text("=" * 32 + "\n")
+        p.text("\n\n")
+
+        # Cut paper
+        p.cut()
+
+        return True
+
+    except Exception as e:
+        print(f"ESC/POS print error: {e}")
+        return False
+    finally:
+        try:
+            p.close()
+        except:
+            pass
+
+def _print_escpos_cashier_receipt(
+    table_code: str,
+    items: List[dict],
+    subtotal: int,
+    discount: int,
+    service: int,
+    tax: int,
+    total: int,
+    method: str,
+    cashier: str,
+    printer_name: str
+) -> bool:
+    """Print cashier receipt using ESC/POS commands"""
+    p = _get_escpos_printer(printer_name)
+    if not p:
+        return False
+
+    try:
+        currency = setting_get("currency", "EGP") or "EGP"
+        company = setting_get("company_name", "Beirut") or "Beirut"
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Set Arabic codepage
+        p.charcode(code='ARABIC')
+
+        # Logo (if available)
+        logo_path = Path((setting_get("logo_path", "") or "").strip())
+        if logo_path.exists():
+            try:
+                p.set(align='center')
+                p.image(str(logo_path), impl='bitImageColumn', center=True)
+                p.text("\n")
+            except:
+                pass
+
+        # Header
+        p.set(align='center', text_type='B', width=2, height=2)
+        p.text(_shape_arabic(company) + "\n")
+
+        p.set(align='center', text_type='NORMAL', width=1, height=1)
+        p.text(_shape_arabic(f"الطاولة: {table_code}") + "\n")
+        p.text(_shape_arabic(f"الكاشير: {cashier}") + "\n")
+        p.text(_shape_arabic(f"وقت: {ts}") + "\n")
+        p.text(_shape_arabic(f"طريقة الدفع: {method}") + "\n")
+        p.text("=" * 32 + "\n")
+
+        # Table header
+        p.set(align='right')
+        p.text(_shape_arabic("الإجمالي  السعر  الكمية  الصنف") + "\n")
+        p.text("-" * 32 + "\n")
+
+        # Items
+        for it in items:
+            name = _shape_arabic(str(it["name"])[:15])
+            qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
+            unit = _format_currency_cents(it["unit_price"], currency)[:8]
+            item_total = _format_currency_cents(it["total_cents"], currency)[:10]
+
+            p.set(align='right')
+            line = f"{item_total} {unit} {qty} {name}"
+            p.text(line + "\n")
+
+            note = (it.get("note") or "").strip()
+            if note:
+                p.text("  " + _shape_arabic(f"ملاحظة: {note}") + "\n")
+
+        p.text("-" * 32 + "\n")
+
+        # Totals
+        p.set(align='right', text_type='NORMAL')
+        p.text(_shape_arabic(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}") + "\n")
+
+        if discount:
+            p.text(_shape_arabic(f"الخصم: {_format_currency_cents(discount, currency)}") + "\n")
+        if service:
+            p.text(_shape_arabic(f"الخدمة: {_format_currency_cents(service, currency)}") + "\n")
+        if tax:
+            p.text(_shape_arabic(f"الضريبة: {_format_currency_cents(tax, currency)}") + "\n")
+
+        p.text("=" * 32 + "\n")
+
+        # Final total - bold
+        p.set(align='right', text_type='B', width=2, height=2)
+        p.text(_shape_arabic(f"الصافي: {_format_currency_cents(total, currency)}") + "\n")
+
+        p.set(align='center', text_type='NORMAL', width=1, height=1)
+        p.text("=" * 32 + "\n")
+        p.text(_shape_arabic("شكراً لزيارتكم") + " 💛\n")
+        p.text("\n\n\n")
+
+        # Cut paper
+        p.cut()
+
+        return True
+
+    except Exception as e:
+        print(f"ESC/POS receipt print error: {e}")
+        return False
+    finally:
+        try:
+            p.close()
+        except:
+            pass
+
+# ---------------- Fallback: Save as text file if ESC/POS fails ----------------
+def _save_receipt_as_text(
+    table_code: str,
+    items: List[dict],
+    subtotal: int,
+    discount: int,
+    service: int,
+    tax: int,
+    total: int,
+    method: str,
+    cashier: str,
+    is_bar: bool = False
+) -> Path:
+    """Save receipt as text file with proper Arabic encoding"""
+    _ensure_dirs()
+
+    currency = setting_get("currency", "EGP") or "EGP"
+    company = setting_get("company_name", "Beirut") or "Beirut"
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    lines = []
+
+    if is_bar:
+        lines.append("=" * 40)
+        lines.append(_shape_arabic("تذكرة البار").center(40))
+        lines.append("=" * 40)
+        lines.append(_shape_arabic(f"الطاولة: {table_code}"))
+        lines.append(_shape_arabic(f"وقت الإصدار: {ts}"))
+    else:
+        lines.append("=" * 40)
+        lines.append(_shape_arabic(company).center(40))
+        lines.append("=" * 40)
+        lines.append(_shape_arabic(f"الطاولة: {table_code}"))
+        lines.append(_shape_arabic(f"الكاشير: {cashier}"))
+        lines.append(_shape_arabic(f"وقت الإصدار: {ts}"))
+        lines.append(_shape_arabic(f"طريقة الدفع: {method}"))
+
+    lines.append("-" * 40)
+
+    for it in items:
+        name = _shape_arabic(str(it["name"]))
+        qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.2f}"
+        item_total = _format_currency_cents(it["total_cents"], currency)
+
+        lines.append(f"{name}")
+        lines.append(f"  الكمية: {qty}  |  الإجمالي: {item_total}")
+
+        note = (it.get("note") or "").strip()
+        if note:
+            lines.append(f"  ملاحظة: {_shape_arabic(note)}")
+
+    lines.append("-" * 40)
+
+    if not is_bar:
+        lines.append(_shape_arabic(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}"))
+        if discount:
+            lines.append(_shape_arabic(f"الخصم: {_format_currency_cents(discount, currency)}"))
+        if service:
+            lines.append(_shape_arabic(f"الخدمة: {_format_currency_cents(service, currency)}"))
+        if tax:
+            lines.append(_shape_arabic(f"الضريبة: {_format_currency_cents(tax, currency)}"))
+        lines.append("=" * 40)
+        lines.append(_shape_arabic(f"الصافي: {_format_currency_cents(total, currency)}"))
+        lines.append("=" * 40)
+        lines.append(_shape_arabic("شكراً لزيارتكم 💛").center(40))
+
+    lines.append("\n" * 3)
+
+    content = "\n".join(lines)
+
+    folder = _BAR_DIR if is_bar else _RECEIPTS_DIR
+    filename = f"{datetime.now():%Y%m%d-%H%M%S}-{'bar' if is_bar else 'cashier'}-{table_code}.txt"
+    target = folder / filename
+
+    target.write_text(content, encoding='utf-8')
+    return target
 
 # ---------------- Public API ----------------
-BAR_PRINTER_NAME = "Your-Bar-Printer-Name"
-CASHIER_PRINTER_NAME = "Your-Cashier-Printer-Name"
-
+BAR_PRINTER_NAME     = "XP-80C"  # Change to your actual printer name
+CASHIER_PRINTER_NAME = "XP-80C"  # Change to your actual printer name
 
 class PrinterService:
     __slots__ = ("bar_printer", "cashier_printer")
 
     def __init__(self):
-        _ensure_dirs();
-        _register_font()
+        _ensure_dirs()
         self.bar_printer = BAR_PRINTER_NAME
         self.cashier_printer = CASHIER_PRINTER_NAME
         self.reload_from_settings()
 
     def reload_from_settings(self):
-        bar = (setting_get("bar_printer", "") or "").strip()
-        cash = (setting_get("cashier_printer", "") or "").strip()
+        bar  = (setting_get("bar_printer","") or "").strip()
+        cash = (setting_get("cashier_printer","") or "").strip()
         if bar:  self.bar_printer = bar
         if cash: self.cashier_printer = cash
 
     def update_printers(self, bar: Optional[str], cashier: Optional[str]):
-        if bar is not None:    self.bar_printer = bar.strip() or BAR_PRINTER_NAME
-        if cashier is not None: self.cashier_printer = cashier.strip() or CASHIER_PRINTER_NAME
+        if bar is not None:
+            self.bar_printer = bar.strip() or BAR_PRINTER_NAME
+        if cashier is not None:
+            self.cashier_printer = cashier.strip() or CASHIER_PRINTER_NAME
 
     def print_bar_ticket(self, table_code: str, items: Iterable) -> Path:
         data = _collapse_items(items)
-        pdf = _render_bar_pdf(table_code, data)
-        _dispatch_pdf(pdf, self.bar_printer);
-        return pdf
+
+        # Try ESC/POS first
+        if _ESCPOS_OK:
+            success = _print_escpos_bar_ticket(table_code, data, self.bar_printer)
+            if success:
+                # Still save text file for records
+                return _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
+
+        # Fallback: save as text file
+        txt = _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
+
+        # Try to print text file
+        if sys.platform.startswith("win"):
+            try:
+                os.startfile(str(txt), "print")  # type: ignore
+            except:
+                pass
+        else:
+            try:
+                subprocess.Popen(["lp", "-d", self.bar_printer, str(txt)])
+            except:
+                pass
+
+        return txt
 
     def print_cashier_receipt(
-            self, table_code: str, items: Iterable,
-            subtotal: int, discount: int, total: int,
-            method: str, cashier: str, service: int | None = None, tax: int | None = None,
+        self, table_code: str, items: Iterable,
+        subtotal: int, discount: int, total: int,
+        method: str, cashier: str, service: int | None = None, tax: int | None = None,
     ) -> Path:
         data = _collapse_items(items)
-        pdf = _render_receipt_pdf(
-            table_code, data, subtotal, discount, service or 0, tax or 0, total, method, cashier
-        )
-        _dispatch_pdf(pdf, self.cashier_printer);
-        return pdf
+        svc = service or 0
+        tx = tax or 0
 
+        # Try ESC/POS first
+        if _ESCPOS_OK:
+            success = _print_escpos_cashier_receipt(
+                table_code, data, subtotal, discount, svc, tx, total, method, cashier,
+                self.cashier_printer
+            )
+            if success:
+                # Still save text file for records
+                return _save_receipt_as_text(
+                    table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
+                )
+
+        # Fallback: save as text file
+        txt = _save_receipt_as_text(
+            table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
+        )
+
+        # Try to print text file
+        if sys.platform.startswith("win"):
+            try:
+                os.startfile(str(txt), "print")  # type: ignore
+            except:
+                pass
+        else:
+            try:
+                subprocess.Popen(["lp", "-d", self.cashier_printer, str(txt)])
+            except:
+                pass
+
+        return txt
 
 printer = PrinterService()
-
 
 def _apply_printer_settings(bar: Optional[str], cash: Optional[str]) -> None:
     printer.update_printers(bar, cash)
 
-
 bus.subscribe("printers_changed", _apply_printer_settings)
-
 
 # ---------------- Data shaping ----------------
 def _collapse_items(items: Iterable) -> List[dict]:
@@ -318,270 +438,3 @@ def _collapse_items(items: Iterable) -> List[dict]:
             "note": (getattr(it, "note", "") or "").strip(),
         })
     return out
-
-
-# ---------------- Renderers ----------------
-def _draw_logo_if_any(c: canvas.Canvas, y: float) -> float:
-    pack = _prepare_logo_from_settings()
-    if not pack: return y
-    reader, w_pt, h_pt = pack
-    x = (PAGE_W - w_pt) / 2.0
-    c.drawImage(reader, x, y - h_pt, width=w_pt, height=h_pt, mask="auto",
-                preserveAspectRatio=True, anchor='sw')
-    return y - h_pt - 6
-
-
-def _render_bar_pdf(table_code: str, items: List[dict]) -> Path:
-    _ensure_dirs();
-    _register_font()
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    currency = setting_get("currency", "EGP") or "EGP"
-
-    col_w = {"name": PAGE_W - (MARGIN_L + MARGIN_R) - 110, "qty": 32, "total": 80}
-    content_h = 140 + _calc_height_for_items(items, col_w)
-    page_h = _page_h(content_h)
-
-    target = _BAR_DIR / f"{datetime.now():%Y%m%d-%H%M%S}-bar-{table_code}.pdf"
-    c = canvas.Canvas(str(target), pagesize=(PAGE_W, page_h))
-    c.setTitle("Bar Ticket");
-    c.setAuthor("Beirut POS");
-    c.setFont(_FONT_NAME, FONT_SIZE)
-
-    xL, xR = MARGIN_L, PAGE_W - MARGIN_R
-    y = page_h - (MARGIN_T + 6)
-
-    # No logo on bar ticket
-    c.setFont(_FONT_NAME, FONT_BOLD_SIZE);
-    _text_r(c, xR, y, _rtl("تذكرة البار"));
-    y -= LINE_H
-    c.setFont(_FONT_NAME, FONT_SIZE)
-    _text_r(c, xR, y, _rtl(f"الطاولة: {table_code}"));
-    y -= LINE_H
-    _text_r(c, xR, y, _rtl(f"وقت الإصدار: {ts}"));
-    y -= LINE_H
-    _hr(c, xL, xR, y);
-    y -= LINE_H
-
-    _text_r(c, xR, y, _rtl("الإجمالي"))
-    _text_r(c, xR - col_w["total"] - 8, y, _rtl("الكمية"))
-    _text(c, xL, y, _rtl("الصنف"));
-    y -= LINE_H
-    _hr(c, xL, xR, y);
-    y -= 4
-
-    for it in items:
-        name_lines = _wrap_text(_rtl(it["name"]), col_w["name"], FONT_SIZE)
-        total_txt = _format_currency_cents(it["total_cents"], currency)
-        qty_txt = str(int(it["qty"])) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.2f}"
-
-        _text_r(c, xR, y, _ltr(total_txt))
-        _text_r(c, xR - col_w["total"] - 8, y, _ltr(qty_txt))
-        _text(c, xL, y, name_lines[0]);
-        y -= LINE_H
-        for extra in name_lines[1:]:
-            _text(c, xL, y, extra);
-            y -= LINE_H
-
-        note = (it.get("note") or "").strip()
-        if note:
-            _text(c, xL + 12, y, _rtl(f"ملاحظة: {note}"));
-            y -= LINE_H
-
-    y -= 2
-    _hr(c, xL, xR, y);
-    y -= LINE_H
-    c.showPage();
-    c.save()
-    return target
-
-
-def _render_receipt_pdf(
-        table_code: str,
-        items: List[dict],
-        subtotal: int,
-        discount: int,
-        service: int,
-        tax: int,
-        total: int,
-        method: str,
-        cashier: str,
-) -> Path:
-    _ensure_dirs();
-    _register_font()
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    company = setting_get("company_name", "Beirut") or "Beirut"
-    currency = setting_get("currency", "EGP") or "EGP"
-
-    col_w = {
-        "name": PAGE_W - (MARGIN_L + MARGIN_R) - 160,
-        "qty": 32,
-        "unit": 64,
-        "total": 64,
-    }
-    content_h = 220 + _calc_height_for_items(items, col_w)
-    page_h = _page_h(content_h)
-
-    target = _RECEIPTS_DIR / f"{datetime.now():%Y%m%d-%H%M%S}-cashier-{table_code}.pdf"
-    c = canvas.Canvas(str(target), pagesize=(PAGE_W, page_h))
-    c.setTitle("Cashier Receipt");
-    c.setAuthor("Beirut POS");
-    c.setFont(_FONT_NAME, FONT_SIZE)
-
-    xL, xR = MARGIN_L, PAGE_W - MARGIN_R
-    y = page_h - (MARGIN_T + 6)
-
-    # Logo on cashier receipt only
-    y = _draw_logo_if_any(c, y)
-
-    # Header
-    c.setFont(_FONT_NAME, FONT_BOLD_SIZE);
-    _text_r(c, xR, y, _rtl(company));
-    y -= LINE_H
-    c.setFont(_FONT_NAME, FONT_SIZE)
-    _text_r(c, xR, y, _rtl(f"الطاولة: {table_code} — الكاشير: {cashier}"));
-    y -= LINE_H
-    _text_r(c, xR, y, _rtl(f"وقت الإصدار: {ts}"));
-    y -= LINE_H
-    _text_r(c, xR, y, _rtl(f"طريقة الدفع: {method}"));
-    y -= LINE_H
-    _hr(c, xL, xR, y);
-    y -= LINE_H
-
-    # Table header
-    _text_r(c, xR, y, _rtl("الإجمالي"))
-    _text_r(c, xR - col_w["total"] - 8, y, _rtl("السعر"))
-    _text_r(c, xR - col_w["total"] - col_w["unit"] - 16, y, _rtl("الكمية"))
-    _text(c, xL, y, _rtl("الصنف"));
-    y -= LINE_H
-    _hr(c, xL, xR, y);
-    y -= 4
-
-    # Items
-    for it in items:
-        name_lines = _wrap_text(_rtl(it["name"]), col_w["name"], FONT_SIZE)
-        qty_txt = str(int(it["qty"])) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.2f}"
-        unit_txt = _format_currency_cents(it["unit_price"], currency)
-        tot_txt = _format_currency_cents(it["total_cents"], currency)
-
-        _text_r(c, xR, y, _ltr(tot_txt))
-        _text_r(c, xR - col_w["total"] - 8, y, _ltr(unit_txt))
-        _text_r(c, xR - col_w["total"] - col_w["unit"] - 16, y, _ltr(qty_txt))
-        _text(c, xL, y, name_lines[0]);
-        y -= LINE_H
-        for extra in name_lines[1:]:
-            _text(c, xL, y, extra);
-            y -= LINE_H
-
-        note = (it.get("note") or "").strip()
-        if note:
-            _text(c, xL + 12, y, _rtl(f"ملاحظة: {note}"));
-            y -= LINE_H
-
-    y -= 2
-    _hr(c, xL, xR, y);
-    y -= LINE_H
-
-    # Totals
-    _text_r(c, xR, y, _rtl("الإجمالي قبل الخصم: ") + _ltr(_format_currency_cents(subtotal, currency)));
-    y -= LINE_H
-    if discount:
-        _text_r(c, xR, y, _rtl("الخصم: ") + _ltr(_format_currency_cents(discount, currency)));
-        y -= LINE_H
-    if service:
-        _text_r(c, xR, y, _rtl("الخدمة: ") + _ltr(_format_currency_cents(service, currency)));
-        y -= LINE_H
-    if tax:
-        _text_r(c, xR, y, _rtl("الضريبة: ") + _ltr(_format_currency_cents(tax, currency)));
-        y -= LINE_H
-
-    _hr(c, xL, xR, y);
-    y -= LINE_H
-    _text_bold_r(c, xR, y, _rtl("الصافي: ") + _ltr(_format_currency_cents(total, currency)));
-    y -= LINE_H
-    _hr(c, xL, xR, y);
-    y -= LINE_H
-
-    _text_r(c, xR, y, _rtl("شكراً لزيارتكم 💛"));
-    y -= LINE_H
-
-    c.showPage();
-    c.save()
-    return target
-
-
-# ---------------- PDF dispatch (FIXED for thermal printers) ----------------
-def _dispatch_pdf(pdf_path: Path, printer_name: Optional[str]):
-    """Dispatch PDF to printer. Converts to image first for better thermal printer compatibility."""
-    pdf_path = Path(pdf_path)
-    if not pdf_path.exists():
-        return
-
-    # Try to convert PDF to image for thermal printer compatibility
-    img_path = _convert_pdf_to_thermal_image(pdf_path)
-    print_path = img_path if img_path and img_path.exists() else pdf_path
-
-    if sys.platform.startswith("win"):
-        # Windows printing
-        candidates = [
-            r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
-            r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
-            str(Path.home() / "AppData/Local/SumatraPDF/SumatraPDF.exe"),
-        ]
-        exe = next((p for p in candidates if Path(p).exists()), None)
-
-        if exe and print_path.suffix == '.pdf':
-            # Print PDF with SumatraPDF
-            try:
-                args = [exe, "-silent"]
-                if printer_name:
-                    args += ["-print-to", printer_name]
-                args += ["-print-settings", "noscale", str(print_path)]
-                subprocess.run(args, check=False, timeout=20)
-                return
-            except Exception:
-                pass
-        elif img_path and img_path.exists():
-            # Print image using Windows default image viewer
-            try:
-                os.startfile(str(img_path), "print")  # type: ignore[attr-defined]
-                return
-            except Exception:
-                pass
-
-        # Adobe fallback for PDF
-        if print_path.suffix == '.pdf':
-            acro_candidates = [
-                r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-            ]
-            acro = next((p for p in acro_candidates if Path(p).exists()), None)
-            if acro and printer_name:
-                try:
-                    subprocess.Popen([acro, "/t", str(print_path), printer_name, "", ""])
-                    return
-                except Exception:
-                    pass
-
-        # Last resort: default printer
-        try:
-            os.startfile(str(print_path), "print")  # type: ignore[attr-defined]
-            return
-        except Exception:
-            return
-    else:
-        # Linux/CUPS printing
-        try:
-            cmd = ["lp"]
-            if printer_name:
-                cmd += ["-d", printer_name]
-
-                # Different options for image vs PDF
-                if print_path.suffix == '.png':
-                    cmd += ["-o", "fit-to-page", "-o", "media=Custom.80x200mm"]
-                else:
-                    cmd += ["-o", "fit-to-page=false", "-o", "media=Custom.80x200mm"]
-
-            cmd += [str(print_path)]
-            subprocess.Popen(cmd)
-        except Exception:
-            pass

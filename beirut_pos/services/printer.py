@@ -97,38 +97,51 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
         currency = setting_get("currency", "EGP") or "EGP"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        # Set Arabic codepage
-        p.charcode(code='ARABIC')
+        # Initialize printer
+        p.set(align='center')
 
         # Header - centered and bold
         p.set(align='center', text_type='B', width=2, height=2)
         p.text(_shape_arabic("تذكرة البار") + "\n")
 
-        p.set(align='center', text_type='NORMAL', width=1, height=1)
+        # Info section - RIGHT aligned for Arabic
+        p.set(align='right', text_type='NORMAL', width=1, height=1)
         p.text(_shape_arabic(f"الطاولة: {table_code}") + "\n")
-        p.text(_shape_arabic(f"وقت: {ts}") + "\n")
+        p.text(_shape_arabic(f"وقت الإصدار: {ts}") + "\n")
+
+        p.set(align='center')
         p.text("=" * 32 + "\n")
 
-        # Table header
+        # Table header - RIGHT aligned (same style as your image)
         p.set(align='right', text_type='NORMAL')
-        p.text(_shape_arabic("الإجمالي    الكمية    الصنف") + "\n")
+        p.text(_shape_arabic("الصنف               الكمية    الإجمالي") + "\n")
+
+        p.set(align='center')
         p.text("-" * 32 + "\n")
 
-        # Items
+        # Items - formatted to match your original layout
         for it in items:
-            name = _shape_arabic(str(it["name"])[:20])  # Limit name length
+            name = _shape_arabic(str(it["name"]))
             qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
             total = _format_currency_cents(it["total_cents"], currency)
 
-            # Right-aligned for RTL
-            p.set(align='right')
-            line = f"{total}  {qty}  {name}"
-            p.text(line + "\n")
+            # Format: name on left, qty and total on right (like your image)
+            p.set(align='left')
+            p.text(name)
+
+            # Add spacing and right-aligned numbers
+            spaces_needed = 32 - len(name) - len(str(qty)) - len(total) - 4
+            if spaces_needed < 1:
+                spaces_needed = 1
+
+            p.text(" " * spaces_needed + f"{qty}    {total}\n")
 
             note = (it.get("note") or "").strip()
             if note:
-                p.text("  " + _shape_arabic(f"ملاحظة: {note}") + "\n")
+                p.set(align='right')
+                p.text(_shape_arabic(f"ملاحظة: {note}") + "\n")
 
+        p.set(align='center')
         p.text("=" * 32 + "\n")
         p.text("\n\n")
 
@@ -168,53 +181,66 @@ def _print_escpos_cashier_receipt(
         company = setting_get("company_name", "Beirut") or "Beirut"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Set Arabic codepage
-        p.charcode(code='ARABIC')
+        # Initialize
+        p.set(align='center')
 
         # Logo (if available)
         logo_path = Path((setting_get("logo_path", "") or "").strip())
         if logo_path.exists():
             try:
-                p.set(align='center')
                 p.image(str(logo_path), impl='bitImageColumn', center=True)
                 p.text("\n")
             except:
                 pass
 
-        # Header
+        # Header - centered and bold
         p.set(align='center', text_type='B', width=2, height=2)
         p.text(_shape_arabic(company) + "\n")
 
-        p.set(align='center', text_type='NORMAL', width=1, height=1)
-        p.text(_shape_arabic(f"الطاولة: {table_code}") + "\n")
-        p.text(_shape_arabic(f"الكاشير: {cashier}") + "\n")
-        p.text(_shape_arabic(f"وقت: {ts}") + "\n")
+        # Info section - RIGHT aligned for Arabic
+        p.set(align='right', text_type='NORMAL', width=1, height=1)
+        p.text(_shape_arabic(f"الطاولة: {table_code} — الكاشير: {cashier}") + "\n")
+        p.text(_shape_arabic(f"وقت الإصدار: {ts}") + "\n")
         p.text(_shape_arabic(f"طريقة الدفع: {method}") + "\n")
+
+        p.set(align='center')
         p.text("=" * 32 + "\n")
 
-        # Table header
+        # Table header - same style as original
         p.set(align='right')
-        p.text(_shape_arabic("الإجمالي  السعر  الكمية  الصنف") + "\n")
+        p.text(_shape_arabic("الصنف           الكمية  السعر  الإجمالي") + "\n")
+
+        p.set(align='center')
         p.text("-" * 32 + "\n")
 
-        # Items
+        # Items - formatted to match original layout
         for it in items:
-            name = _shape_arabic(str(it["name"])[:15])
+            name = _shape_arabic(str(it["name"]))
             qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
-            unit = _format_currency_cents(it["unit_price"], currency)[:8]
-            item_total = _format_currency_cents(it["total_cents"], currency)[:10]
+            unit = _format_currency_cents(it["unit_price"], currency)
+            item_total = _format_currency_cents(it["total_cents"], currency)
 
-            p.set(align='right')
-            line = f"{item_total} {unit} {qty} {name}"
-            p.text(line + "\n")
+            # Format: name on left, numbers on right
+            p.set(align='left')
+            p.text(name)
+
+            # Calculate spacing
+            numbers_str = f"{qty}  {unit}  {item_total}"
+            spaces_needed = 32 - len(name) - len(numbers_str) - 2
+            if spaces_needed < 1:
+                spaces_needed = 1
+
+            p.text(" " * spaces_needed + numbers_str + "\n")
 
             note = (it.get("note") or "").strip()
             if note:
-                p.text("  " + _shape_arabic(f"ملاحظة: {note}") + "\n")
+                p.set(align='right')
+                p.text(_shape_arabic(f"ملاحظة: {note}") + "\n")
 
+        p.set(align='center')
         p.text("-" * 32 + "\n")
 
-        # Totals
+        # Totals - RIGHT aligned
         p.set(align='right', text_type='NORMAL')
         p.text(_shape_arabic(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}") + "\n")
 
@@ -225,10 +251,11 @@ def _print_escpos_cashier_receipt(
         if tax:
             p.text(_shape_arabic(f"الضريبة: {_format_currency_cents(tax, currency)}") + "\n")
 
+        p.set(align='center')
         p.text("=" * 32 + "\n")
 
-        # Final total - bold
-        p.set(align='right', text_type='B', width=2, height=2)
+        # Final total - centered and bold
+        p.set(align='right', text_type='B')
         p.text(_shape_arabic(f"الصافي: {_format_currency_cents(total, currency)}") + "\n")
 
         p.set(align='center', text_type='NORMAL', width=1, height=1)
@@ -359,13 +386,12 @@ class PrinterService:
         if _ESCPOS_OK:
             success = _print_escpos_bar_ticket(table_code, data, self.bar_printer)
             if success:
-                # Still save text file for records
+                # Just save text file for records, DON'T print it
                 return _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
 
-        # Fallback: save as text file
+        # Fallback ONLY if ESC/POS failed: save and print text file
         txt = _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
 
-        # Try to print text file
         if sys.platform.startswith("win"):
             try:
                 os.startfile(str(txt), "print")  # type: ignore
@@ -395,17 +421,16 @@ class PrinterService:
                 self.cashier_printer
             )
             if success:
-                # Still save text file for records
+                # Just save text file for records, DON'T print it
                 return _save_receipt_as_text(
                     table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
                 )
 
-        # Fallback: save as text file
+        # Fallback ONLY if ESC/POS failed: save and print text file
         txt = _save_receipt_as_text(
             table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
         )
 
-        # Try to print text file
         if sys.platform.startswith("win"):
             try:
                 os.startfile(str(txt), "print")  # type: ignore
@@ -426,15 +451,32 @@ def _apply_printer_settings(bar: Optional[str], cash: Optional[str]) -> None:
 
 bus.subscribe("printers_changed", _apply_printer_settings)
 
-# ---------------- Data shaping ----------------
+# ---------------- Data shaping with quantity grouping ----------------
 def _collapse_items(items: Iterable) -> List[dict]:
-    out: List[dict] = []
+    """Collapse items and GROUP identical products together (e.g., 2x same item)"""
+    grouped = {}
+
     for it in items:
-        out.append({
-            "name": getattr(it, "product", str(it)),
-            "qty": float(getattr(it, "qty", 1.0) or 1.0),
-            "unit_price": int(getattr(it, "unit_price_cents", 0) or 0),
-            "total_cents": int(getattr(it, "total_cents", 0) or 0),
-            "note": (getattr(it, "note", "") or "").strip(),
-        })
-    return out
+        name = getattr(it, "product", str(it))
+        unit_price = int(getattr(it, "unit_price_cents", 0) or 0)
+        note = (getattr(it, "note", "") or "").strip()
+
+        # Create unique key: name + unit_price + note
+        # This groups identical items with same price and note
+        key = (name, unit_price, note)
+
+        if key in grouped:
+            # Add quantity to existing item
+            grouped[key]["qty"] += float(getattr(it, "qty", 1.0) or 1.0)
+            grouped[key]["total_cents"] += int(getattr(it, "total_cents", 0) or 0)
+        else:
+            # New item
+            grouped[key] = {
+                "name": name,
+                "qty": float(getattr(it, "qty", 1.0) or 1.0),
+                "unit_price": unit_price,
+                "total_cents": int(getattr(it, "total_cents", 0) or 0),
+                "note": note,
+            }
+
+    return list(grouped.values())

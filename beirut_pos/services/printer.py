@@ -61,17 +61,14 @@ def _shape_ar_escpos(text: str) -> str:
         return text
     reshaped = arabic_reshaper.reshape(text)
     return reshaped  # FIXED: Remove get_display() for ESC/POS
-
 def _shape_ar_textfile(text: str) -> str:
-    """Arabic shaping for saving readable text files (optional)."""
+    """Arabic shaping for saving readable text files."""
     if not text:
         return ""
     if not _AR_OK:
-        return text[::-1]
+        return text
     reshaped = arabic_reshaper.reshape(text)
-    return get_display(reshaped)  # usually fine for viewing in editors
-
-# ✅ Backward compatibility alias for any old calls
+    return reshaped  # FIXED: No get_display() for text files either
 _shape_arabic = _shape_ar_textfile
 
 def _format_currency_cents(cents: int | float, currency: str) -> str:

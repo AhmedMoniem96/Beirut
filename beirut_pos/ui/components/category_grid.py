@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ...utils.currency import format_pounds
+
 # English->Arabic display map (DB can stay English internally)
 AR_DISPLAY = {
     "Food": "أطباق الطعام",
@@ -30,6 +31,7 @@ class CategoryGrid(QWidget):
     Scrollable Arabic category grid.
     Now auto-disables out-of-stock buttons for tracked items.
     """
+
     def __init__(self, categories, on_pick):
         super().__init__()
         self.on_pick = on_pick
@@ -47,15 +49,18 @@ class CategoryGrid(QWidget):
         self.v = QVBoxLayout(self.container)
         self.v.setContentsMargins(6, 6, 6, 6)
         self.v.setSpacing(8)
+        self.v.setAlignment(Qt.AlignmentFlag.AlignTop)  # FORCE items to top!
 
         self._boxes: list[QGroupBox] = []
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.set_categories(categories)
 
     def clear(self):
+        """Clear all category boxes."""
         for b in self._boxes:
             self.v.removeWidget(b)
             b.setParent(None)
+            b.deleteLater()
         self._boxes.clear()
 
     def set_categories(self, categories):
@@ -66,6 +71,7 @@ class CategoryGrid(QWidget):
         """
         self.clear()
         source = categories() if callable(categories) else categories
+
         for cat_name, items in source:
             title = AR_DISPLAY.get(cat_name, cat_name)
             box = QGroupBox(title)
@@ -96,4 +102,5 @@ class CategoryGrid(QWidget):
 
             self.v.addWidget(box)
             self._boxes.append(box)
-        self.v.addStretch(1)
+
+        # NO MORE addStretch here! The alignment handles it

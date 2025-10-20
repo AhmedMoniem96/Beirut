@@ -243,9 +243,11 @@ def init_db() -> None:
             )"""
     )
 
+    # ensure/upgrade steps
     _ensure_product_columns(cur)
     _ensure_product_options_table(cur)
     _ensure_catalog_order_columns(cur)
+    _ensure_orders_discount_columns(cur)  # <-- NEW: add missing discount columns
     _ensure_currency_unit(cur)
     _ensure_default_settings(cur)
 
@@ -329,6 +331,16 @@ def _ensure_catalog_order_columns(cur) -> None:
                 idx = 0
             cur.execute("UPDATE products SET order_index=? WHERE id=?", (idx, row["id"]))
             idx += 1
+
+
+def _ensure_orders_discount_columns(cur) -> None:
+    """Add discount columns to orders if they don't exist (idempotent)."""
+    cur.execute("PRAGMA table_info(orders)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "discount_cents" not in cols:
+        cur.execute("ALTER TABLE orders ADD COLUMN discount_cents INTEGER NOT NULL DEFAULT 0")
+    if "discount_reason" not in cols:
+        cur.execute("ALTER TABLE orders ADD COLUMN discount_reason TEXT NOT NULL DEFAULT ''")
 
 
 def _ensure_currency_unit(cur) -> None:
@@ -477,8 +489,10 @@ def maybe_run_integrity_check(force: bool = False) -> Tuple[bool, str]:
     set_config_value("last_integrity_check", today.isoformat())
     ok = result.strip().lower() == "ok"
     return ok, result
+#// while merging after moving the table product into another table , clean the first table ! :D
 
-
+#on merging , when to merge a table , table iam inside , moves to the table i choosen in merge and resets its order cuz its already copied into another
+#on reservation allow max 100 , also enable me to choose tables , not 1 single table ,
 def iter_backups() -> Iterator[Path]:
     if not BACKUP_DIR.exists():
         return

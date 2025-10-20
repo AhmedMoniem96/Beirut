@@ -14,8 +14,27 @@ from ..core.db import (
     setting_get,
     setting_set,
 )
+import logging
 
+# Add this after imports, before init_db()
+logger = logging.getLogger(__name__)
 init_db()
+
+class OrderError(Exception):
+    """Base exception for order-related errors"""
+    pass
+
+class StockError(OrderError):
+    """Raised when stock is insufficient"""
+    pass
+
+class MergeError(OrderError):
+    """Raised when merge operations fail"""
+    pass
+
+class MoveError(OrderError):
+    """Raised when move operations fail"""
+    pass
 
 # --- ONE-TIME migration to add inventory columns if missing ----------------
 def _ensure_inventory_columns():
@@ -155,11 +174,6 @@ def _store_table_codes(codes: list[str]) -> None:
 
 
 StockState = Tuple[Optional[float], Optional[float]]
-
-
-class StockError(Exception):
-    __slots__ = ()
-    pass
 
 
 class ProductCatalog:
@@ -1357,121 +1371,259 @@ class OrderManager:
             return 0, 0, 0
         return o.subtotal_cents, o.discount_cents, o.total_cents
 
+    # ---------- CORE MERGE (no recursion) ----------
+    def move_table(self, source_table: str, dest_table: str, *, username: str = "system") -> bool:
+        """Move order from source to dest (dest must be FREE)"""
+        try:
+            src = (source_table or "").strip().upper()
+            dst = (dest_table or "").strip().upper()
+
+            if not src or not dst:
+                raise MoveError("اسم الطاولة غير صالح")
+            if src == dst:
+                raise MoveError("لا يمكن نقل الطاولة إلى نفسها")
+
+            src_order = self.orders.get(src)
+            if not src_order or src_order.status != "open":
+                raise MoveError(f"الطاولة {src} ليس لديها طلب مفتوح")
+
+            dst_order = self.orders.get(dst)
+            if dst_order and dst_order.status == "open":
+                raise MoveError(f"الطاولة {dst} مشغولة. استخدم الدمج بدلاً من النقل")
+
+            # Move PS session if exists
+            ps_sess = self.ps_sessions.pop(src, None)
+
+            with db_transaction() as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE orders SET table_code=? WHERE id=?", (dst, src_order.id))
+                if ps_sess:
+                    cur.execute("UPDATE ps_sessions SET table_code=? WHERE table_code=?", (dst, src))
+                    self.ps_sessions[dst] = ps_sess
+
+            # Update in-memory
+            src_order.table_code = dst
+            self.orders[dst] = src_order
+            self.orders.pop(src, None)
+
+            # Ensure dest in table_codes
+            if dst not in self.table_codes:
+                self.table_codes.append(dst)
+                _store_table_codes(self.table_codes)
+                bus.emit("tables_changed", list(self.table_codes))
+
+            # Emit events
+            bus.emit("table_state_changed", src, "free")
+            bus.emit("table_total_changed", src, 0)
+            bus.emit("ps_state_changed", src, False)
+            bus.emit("table_state_changed", dst, "occupied")
+            bus.emit("table_total_changed", dst, src_order.total_cents)
+            if ps_sess:
+                bus.emit("ps_state_changed", dst, True)
+
+            log_action(username, "move_table", "order", src, src, dst)
+            return True
+
+        except MoveError:
+            raise
+        except Exception as e:
+            logger.error(f"Move failed {src}->{dst}: {e}")
+            raise MoveError(f"فشل نقل الطاولة: {e}")
+
+    def _merge_tables_core(
+            self,
+            target_table: str,
+            source_table: str,
+            *,
+            username: str = "system",
+    ) -> bool:
+        """
+        Core merge logic: Merge SOURCE into TARGET.
+        - source = table being merged FROM (will be cleared)
+        - target = table being merged INTO (gets all items)
+        """
+        try:
+            target = (target_table or "").strip().upper()
+            source = (source_table or "").strip().upper()
+
+            # Validation
+            if not target or not source:
+                logger.warning(f"Invalid table codes: target='{target}', source='{source}'")
+                raise MergeError("أسماء الطاولات غير صالحة")
+
+            if target == source:
+                logger.warning(f"Attempt to merge table with itself: '{target}'")
+                raise MergeError("لا يمكن دمج الطاولة مع نفسها")
+
+            # Get orders
+            primary = self.orders.get(target)
+            secondary = self.orders.get(source)
+
+            if not primary or primary.status != "open":
+                logger.warning(f"Target table '{target}' has no open order")
+                raise MergeError(f"الطاولة {target} ليس لديها طلب مفتوح")
+
+            if not secondary or secondary.status != "open":
+                logger.warning(f"Source table '{source}' has no open order")
+                raise MergeError(f"الطاولة {source} ليس لديها طلب مفتوح")
+
+            # Bill any running PS session on SOURCE before merging
+            try:
+                if source in self.ps_sessions:
+                    logger.info(f"Closing PS session on source table '{source}' before merge")
+                    self._close_session_and_bill(source)
+                    # Reload secondary order after billing
+                    secondary = self.orders.get(source)
+                    if not secondary or secondary.status != "open":
+                        logger.error(f"Source order vanished after PS billing: '{source}'")
+                        raise MergeError("فشل إغلاق جلسة البلايستيشن")
+            except MergeError:
+                raise
+            except Exception as e:
+                logger.error(f"Failed to close PS session during merge: {e}")
+                raise MergeError(f"فشل إغلاق جلسة البلايستيشن: {e}")
+
+            # Perform merge in database transaction
+            try:
+                with db_transaction() as conn:
+                    cur = conn.cursor()
+
+                    # Move all items from source to target
+                    for item in secondary.items:
+                        if item.row_id is not None:
+                            # Relink existing DB rows
+                            cur.execute(
+                                "UPDATE order_items SET order_id=? WHERE id=?",
+                                (primary.id, item.row_id),
+                            )
+                        else:
+                            # Insert ephemeral items (shouldn't happen normally)
+                            cur.execute(
+                                "INSERT INTO order_items(order_id, product_name, price_cents, qty, note, printed_qty) "
+                                "VALUES(?,?,?,?,?,?)",
+                                (primary.id, item.product, item.unit_price_cents, item.qty,
+                                 item.note, float(getattr(item, 'printed_qty', 0.0))),
+                            )
+                            item.row_id = cur.lastrowid
+
+                    # Move any payments from source to target (partial payments support)
+                    cur.execute("UPDATE payments SET order_id=? WHERE order_id=?", (primary.id, secondary.id))
+
+                    # Merge discounts
+                    merged_disc = max(0, int(primary.discount_cents) + int(secondary.discount_cents))
+                    try:
+                        cur.execute("UPDATE orders SET discount_cents=? WHERE id=?", (merged_disc, primary.id))
+                    except Exception as e:
+                        logger.warning(f"Could not update discount_cents (old DB?): {e}")
+                        # Continue without discount if column doesn't exist
+
+                    # Void the source order
+                    cur.execute(
+                        "UPDATE orders SET status='void', closed_at=?, closed_by=? WHERE id=?",
+                        (datetime.utcnow().isoformat(), username, secondary.id),
+                    )
+
+            except Exception as e:
+                logger.error(f"Database error during merge {source}->{target}: {e}")
+                raise MergeError(f"فشل حفظ الدمج في قاعدة البيانات: {e}")
+
+            # Update in-memory state
+            try:
+                primary.items.extend(secondary.items)
+                primary.discount_cents = merged_disc
+
+                secondary.items = []
+                secondary.status = "void"
+                self.orders.pop(source, None)
+            except Exception as e:
+                logger.error(f"Error updating in-memory state: {e}")
+                # Database is already updated, so continue
+
+            # Emit UI events
+            try:
+                bus.emit("table_state_changed", source, "free")
+                bus.emit("table_total_changed", source, 0)
+                bus.emit("ps_state_changed", source, False)
+                bus.emit("table_state_changed", target, "occupied")
+                bus.emit("table_total_changed", target, primary.total_cents)
+            except Exception as e:
+                logger.error(f"Error emitting bus events: {e}")
+                # Continue - UI will eventually sync
+
+            # Log the action
+            try:
+                log_action(
+                    username,
+                    "merge_tables",
+                    "order",
+                    target,
+                    f"{source} -> {target}",
+                    str(primary.total_cents),
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log merge action: {e}")
+
+            logger.info(f"Successfully merged '{source}' into '{target}' (total: {primary.total_cents})")
+            return True
+
+        except MergeError:
+            raise  # Re-raise MergeError as-is
+        except Exception as e:
+            logger.error(f"Unexpected error merging '{source_table}' into '{target_table}': {e}")
+            raise MergeError(f"فشل دمج الطاولات: {e}")
+
+    def relocate_or_merge_table(
+            self,
+            source_table: str,
+            dest_table: str,
+            *,
+            username: str = "system",
+    ) -> str:
+        """
+        If dest has an open order -> MERGE (source -> dest).
+        If dest is free (no open order) -> MOVE (source -> dest).
+        Returns: "merged", "moved", or raises ValueError on invalid inputs.
+        """
+        src = (source_table or "").strip().upper()
+        dst = (dest_table or "").strip().upper()
+
+        if not src or not dst or src == dst:
+            raise ValueError("Invalid source/destination")
+
+        src_order = self.orders.get(src)
+        if not src_order or src_order.status != "open":
+            raise ValueError("Source table has no open order")
+
+        dst_order = self.orders.get(dst)
+
+        # Case A: destination already has an open order -> MERGE
+        if dst_order and dst_order.status == "open":
+            ok = self._merge_tables_core(target_table=dst, source_table=src, username=username)
+            if not ok:
+                raise RuntimeError("Merge failed")
+            return "merged"
+
+        # Case B: destination is free -> MOVE
+        ok = self.move_table(source_table=src, dest_table=dst, username=username)
+        if not ok:
+            raise RuntimeError("Move failed")
+        return "moved"
+
     def merge_tables(
-        self,
-        target_table: str,
-        source_table: str,
-        *,
-        username: str = "system",
+            self,
+            target_table: str,
+            source_table: str,
+            *,
+            username: str = "system",
     ) -> bool:
-        target = (target_table or "").strip().upper()
-        source = (source_table or "").strip().upper()
-        if not target or not source or target == source:
-            return False
-
-        primary = self.orders.get(target)
-        secondary = self.orders.get(source)
-        if not primary or not secondary or primary.status != "open" or secondary.status != "open":
-            return False
-
-        # Bill any running PS session on the secondary table before merging
-        self._close_session_and_bill(source)
-        secondary = self.orders.get(source)
-        if not secondary:
-            return False
-
-        with db_transaction() as conn:
-            cur = conn.cursor()
-            for item in secondary.items:
-                if item.row_id is not None:
-                    cur.execute(
-                        "UPDATE order_items SET order_id=? WHERE id=?",
-                        (primary.id, item.row_id),
-                    )
-                else:
-                    cur.execute(
-                        "INSERT INTO order_items(order_id, product_name, price_cents, qty, note) VALUES(?,?,?,?,?)",
-                        (primary.id, item.product, item.unit_price_cents, item.qty, item.note),
-                    )
-                    item.row_id = cur.lastrowid
-            cur.execute(
-                "UPDATE orders SET status='void', closed_at=?, closed_by=? WHERE id=?",
-                (datetime.utcnow().isoformat(), username, secondary.id),
-            )
-
-        primary.items.extend(secondary.items)
-        primary.discount_cents = max(0, primary.discount_cents + secondary.discount_cents)
-        secondary.items = []
-        secondary.status = "void"
-        self.orders.pop(source, None)
-
-        bus.emit("table_state_changed", source, "free")
-        bus.emit("table_total_changed", source, 0)
-        bus.emit("ps_state_changed", source, False)
-        bus.emit("table_total_changed", target, primary.total_cents)
-
+        """
+        Backward-compatible wrapper for old UI code.
+        Calls the core merge directly (no recursion).
+        """
         try:
-            log_action(
-                username,
-                "merge_tables",
-                "order",
-                target,
-                source,
-                str(primary.total_cents),
-            )
+            return self._merge_tables_core(target_table=target_table, source_table=source_table, username=username)
         except Exception:
-            pass
-        return True
-
-    def move_table(
-        self,
-        source_table: str,
-        dest_table: str,
-        *,
-        username: str = "system",
-    ) -> bool:
-        source = (source_table or "").strip().upper()
-        dest = (dest_table or "").strip().upper()
-        if not source or not dest or source == dest:
             return False
-        order = self.orders.get(source)
-        if not order or order.status != "open":
-            return False
-        if dest in self.orders and self.orders[dest].status == "open":
-            return False
-        with db_transaction() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE orders SET table_code=? WHERE id=? AND status='open'",
-                (dest, order.id),
-            )
-            if cur.rowcount != 1:
-                return False
-        order.table_code = dest
-        self.orders.pop(source, None)
-        self.orders[dest] = order
-        session = self.ps_sessions.pop(source, None)
-        if session:
-            self.ps_sessions[dest] = session
-        bus.emit("table_state_changed", source, "free")
-        bus.emit("table_total_changed", source, 0)
-        bus.emit("ps_state_changed", source, False)
-        bus.emit("table_state_changed", dest, "occupied")
-        bus.emit("table_total_changed", dest, order.total_cents)
-        if session:
-            bus.emit("ps_state_changed", dest, True)
-        try:
-            log_action(
-                username,
-                "move_table",
-                "order",
-                source,
-                source,
-                dest,
-            )
-        except Exception:
-            pass
-        return True
 
     def apply_discount(self, table_code: str, amount_cents: int):
         o = self.orders.get(table_code)
@@ -1489,29 +1641,46 @@ class OrderManager:
 
     # ----- PlayStation -----
     def _close_session_and_bill(self, table_code: str):
+        """Close PlayStation session and bill it to the order"""
         sess = self.ps_sessions.get(table_code)
         if not sess:
             return
+
         try:
             now = datetime.utcnow()
             elapsed = sess.total_seconds + max(0, int((now - sess.started_at).total_seconds()))
             minutes = max(1, elapsed // 60)
             rate = self.catalog.get_ps_rate_hour_cents(sess.mode)
+
             if rate and rate > 0:
                 per_min = rate / 60.0
                 amount = int(round(per_min * minutes))
             else:
                 amount = 0  # no configured rate => bill zero gracefully
+
             label = "PS ٢ لاعبين" if sess.mode == "P2" else "PS ٤ لاعبين"
             detail = f"{label} — {minutes} دقيقة"
-            # PS line is NOT a DB product → non-tracked
-            self.add_item(table_code, detail, amount)
-        finally:
-            self.ps_sessions.pop(table_code, None)
-            with db_transaction() as conn:
-                conn.execute("DELETE FROM ps_sessions WHERE table_code=?", (table_code,))
-            bus.emit("ps_state_changed", table_code, False)
 
+            # PS line is NOT a DB product → non-tracked
+            try:
+                self.add_item(table_code, detail, amount)
+            except Exception as e:
+                logger.error(f"Failed to add PS billing item for '{table_code}': {e}")
+                # Continue to cleanup even if billing fails
+
+        except Exception as e:
+            logger.error(f"Error calculating PS bill for '{table_code}': {e}")
+            # Continue to cleanup
+
+        finally:
+            # ALWAYS cleanup session, even if billing failed
+            try:
+                self.ps_sessions.pop(table_code, None)
+                with db_transaction() as conn:
+                    conn.execute("DELETE FROM ps_sessions WHERE table_code=?", (table_code,))
+                bus.emit("ps_state_changed", table_code, False)
+            except Exception as e:
+                logger.error(f"Failed to cleanup PS session for '{table_code}': {e}")
     def ps_start(self, table_code: str, mode: str):
         # if there’s an open session, bill it first
         self._close_session_and_bill(table_code)
@@ -1632,6 +1801,9 @@ class OrderManager:
                 marked_total += take
 
         return int(marked_total)  # or round(...) if you expect halves
+
+    # ----- MOVE / MERGE (public: move_table is assumed to already exist elsewhere) -----
+    # NOTE: Your existing move_table implementation should remain where it is.
 
     # ----- Payment / settle (persist and clear table) -----
     def settle(self, table_code: str, method: str = "cash", cashier: str = "cashier"):

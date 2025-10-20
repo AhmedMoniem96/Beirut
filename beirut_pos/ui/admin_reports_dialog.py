@@ -37,6 +37,8 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_daily_tab(), "ملخص يومي")
         self.tabs.addTab(self._build_cashier_tab(), "حسب الكاشير")
         self.tabs.addTab(self._build_products_tab(), "الأصناف")
+        self.tabs.addTab(self._build_discounts_tab(), "الخصومات")  # NEW!
+        self.tabs.addTab(self._build_purchases_tab(), "المشتريات")  # NEW!
         self.tabs.addTab(self._build_price_log_tab(), "سجل الأسعار")
         self.tabs.addTab(self._build_inventory_tab(), "المخزون")
         self.tabs.addTab(self._build_stakeholder_tab(), "تقرير المساهمين")
@@ -49,6 +51,8 @@ class AdminReportsDialog(BigDialog):
         self._load_daily_report()
         self._load_cashier_report()
         self._load_product_report()
+        self._load_discounts_report()  # NEW!
+        self._load_purchases_report()  # NEW!
         self._load_price_log()
         self._load_inventory_report()
         self._load_stakeholder_report()
@@ -389,6 +393,165 @@ class AdminReportsDialog(BigDialog):
             f"عدد الأصناف: {len(rows_list)} | إجمالي الكمية: {self._format_qty(total_qty)} | إجمالي المبيعات: {self._money(total_sales)}"
         )
 
+    # ------------------------------------------------------------ discounts (NEW!)
+    def _build_discounts_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        self.discounts_table = self._make_table([
+            "التاريخ", "الطاولة", "المبلغ", "السبب", "الكاشير"
+        ])
+        layout.addWidget(self.discounts_table, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
+        controls.addWidget(QLabel("من:"))
+        self.discounts_from = QDateEdit(QDate.currentDate().addDays(-14))
+        self.discounts_from.setCalendarPopup(True)
+        self.discounts_from.setMinimumWidth(150)
+        controls.addWidget(self.discounts_from)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.discounts_to = QDateEdit(QDate.currentDate())
+        self.discounts_to.setCalendarPopup(True)
+        self.discounts_to.setMinimumWidth(150)
+        controls.addWidget(self.discounts_to)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_discounts_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.discounts_table, "discounts_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.discounts_summary = QLabel("")
+        self.discounts_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.discounts_summary)
+
+        return widget
+
+    def _load_discounts_report(self):
+        start, end = self._date_bounds(self.discounts_from, self.discounts_to)
+        query = """
+            SELECT 
+                o.closed_at,
+                o.table_code,
+                o.discount_cents,
+                o.discount_reason,
+                p.cashier
+            FROM orders o
+            LEFT JOIN payments p ON p.order_id = o.id
+            WHERE o.discount_cents > 0 
+                AND o.closed_at BETWEEN ? AND ?
+            ORDER BY o.closed_at DESC
+        """
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(query, (start, end))
+        rows = cur.fetchall()
+        conn.close()
+
+        rows_list = []
+        total_discount = 0
+        for row in rows:
+            discount_amount = int(row["discount_cents"] or 0)
+            reason = (row["discount_reason"] or "").strip() or "غير محدد"
+            cashier = (row["cashier"] or "").strip() or "غير محدد"
+            closed_at = (row["closed_at"] or "").strip()
+
+            rows_list.append([
+                closed_at,
+                row["table_code"] or "",
+                self._money(discount_amount),
+                reason,
+                cashier,
+            ])
+            total_discount += discount_amount
+
+        self._populate_table(self.discounts_table, rows_list)
+        self.discounts_summary.setText(
+            f"عدد الخصومات: {len(rows_list)} | إجمالي الخصومات: {self._money(total_discount)}"
+        )
+
+    # ----------------------------------------------------------- purchases (NEW!)
+    def _build_purchases_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        self.purchases_table = self._make_table([
+            "التاريخ", "المورد", "رقم الفاتورة", "المبلغ", "ملاحظات", "المسجل"
+        ])
+        layout.addWidget(self.purchases_table, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
+        controls.addWidget(QLabel("من:"))
+        self.purchases_from = QDateEdit(QDate.currentDate().addDays(-30))
+        self.purchases_from.setCalendarPopup(True)
+        self.purchases_from.setMinimumWidth(150)
+        controls.addWidget(self.purchases_from)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.purchases_to = QDateEdit(QDate.currentDate())
+        self.purchases_to.setCalendarPopup(True)
+        self.purchases_to.setMinimumWidth(150)
+        controls.addWidget(self.purchases_to)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_purchases_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.purchases_table, "purchases_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.purchases_summary = QLabel("")
+        self.purchases_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.purchases_summary)
+
+        return widget
+
+    def _load_purchases_report(self):
+        start, end = self._date_bounds(self.purchases_from, self.purchases_to)
+        query = """
+            SELECT 
+                purchased_at,
+                supplier,
+                invoice_no,
+                amount_cents,
+                notes,
+                recorded_by
+            FROM purchases
+            WHERE purchased_at BETWEEN ? AND ?
+            ORDER BY purchased_at DESC
+        """
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(query, (start, end))
+        rows = cur.fetchall()
+        conn.close()
+
+        rows_list = []
+        total_amount = 0
+        for row in rows:
+            amount = int(row["amount_cents"] or 0)
+            purchased_at = (row["purchased_at"] or "").strip()
+            rows_list.append([
+                purchased_at,
+                row["supplier"] or "—",
+                row["invoice_no"] or "—",
+                self._money(amount),
+                (row["notes"] or "").strip() or "—",
+                row["recorded_by"] or "—",
+            ])
+            total_amount += amount
+
+        self._populate_table(self.purchases_table, rows_list)
+        self.purchases_summary.setText(
+            f"عدد المشتريات: {len(rows_list)} | إجمالي المشتريات: {self._money(total_amount)}"
+        )
+
     # ------------------------------------------------------------- price log
     def _build_price_log_tab(self) -> QWidget:
         widget = QWidget()
@@ -584,5 +747,5 @@ class AdminReportsDialog(BigDialog):
         QMessageBox.information(
             self,
             "تم التصدير",
-            f"تم إنشاء ملف Excel محمي من التعديل.\nكلمة المرور: UNKNOWN"
+            "تم إنشاء ملف Excel محمي من التعديل بنجاح."
         )

@@ -75,7 +75,7 @@ jobs:
             "--collect-all","PyQt6",
             "--collect-all","PyQt6.Qt6",
             "--collect-submodules","beirut_pos",
-            "--collect-submodules","sqlalchemy",
+            "--collect-all","sqlalchemy",
             "--collect-all","sqlite3",
             "--collect-all","escpos",
             "--collect-submodules","arabic_reshaper",
@@ -86,7 +86,8 @@ jobs:
             "--hidden-import","win32api",
             "--hidden-import","win32con",
             "--hidden-import","usb.core",
-            "--hidden-import","usb.util"
+            "--hidden-import","usb.util",
+            "--hidden-import","sqlalchemy.ext.baked"
           )
           if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
           if (Test-Path "assets")         { $args += @("--add-data","assets;assets") }

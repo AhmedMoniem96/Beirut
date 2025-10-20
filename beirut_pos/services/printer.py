@@ -38,16 +38,24 @@ except Exception:
     _AR_OK = False
 
 def _shape_arabic(text: str) -> str:
-    """Shape Arabic text for proper display on thermal printers"""
+    """Shape Arabic text for proper display on thermal printers
+    INCLUDES MANUAL REVERSAL for printers that don't respect RTL"""
     if not text:
         return ""
-    if not _AR_OK:
-        return text
 
-    # Reshape connects Arabic letters properly
+    if not _AR_OK:
+        # No library - just reverse the string
+        return text[::-1]
+
+    # Step 1: Reshape Arabic letters (connects them properly)
     reshaped = arabic_reshaper.reshape(text)
-    # get_display handles RTL ordering
-    return get_display(reshaped)
+
+    # Step 2: Apply bidi algorithm
+    bidi_text = get_display(reshaped)
+
+    # Step 3: FORCE MANUAL REVERSAL (for stubborn printers)
+    # Some thermal printers ignore alignment and treat everything as LTR
+    return bidi_text[::-1]
 
 def _format_currency_cents(cents: int | float, currency: str) -> str:
     try:
@@ -89,13 +97,18 @@ def _get_escpos_printer(printer_name: str):
 
 def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: str) -> bool:
     """Print bar ticket using ESC/POS commands (DIRECT TO PRINTER)"""
+    print(f"[DEBUG] _print_escpos_bar_ticket called for table {table_code}")
+
     p = _get_escpos_printer(printer_name)
     if not p:
+        print("[DEBUG] ESC/POS printer not available, returning False")
         return False
 
     try:
         currency = setting_get("currency", "EGP") or "EGP"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        print(f"[DEBUG] Starting ESC/POS print...")
 
         # Initialize printer
         p.set(align='center')
@@ -148,10 +161,13 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
         # Cut paper
         p.cut()
 
+        print("[DEBUG] ESC/POS print completed successfully")
         return True
 
     except Exception as e:
-        print(f"ESC/POS print error: {e}")
+        print(f"[DEBUG] ESC/POS print error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
     finally:
         try:

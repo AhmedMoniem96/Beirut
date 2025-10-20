@@ -16,6 +16,8 @@ pyusb>=1.2.1          # needed if you use Usb() backend (XP printers)
 arabic-reshaper>=3.0.0
 python-bidi>=0.4.2
 
-# --- Optional utilities (recommended) ---
+# --- Windows printing support ---
+pywin32>=305; sys_platform == 'win32'
+
+# --- Optional utilities ---
 pyserial>=3.5          # for serial/COM printers (some XP models)
-cupshelpers>=1.0       # for 'lp' fallback on Linux

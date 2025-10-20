@@ -211,24 +211,24 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
         except Exception:
             pass
 
+
 def _print_escpos_cashier_receipt(
-    table_code: str,
-    items: List[dict],
-    subtotal: int,
-    discount: int,
-    service: int,
-    tax: int,
-    total: int,
-    method: str,
-    cashier: str,
-    printer_name: str
+        table_code: str,
+        items: List[dict],
+        subtotal: int,
+        discount: int,
+        service: int,
+        tax: int,
+        total: int,
+        method: str,
+        cashier: str,
+        printer_name: str
 ) -> bool:
-    """Print cashier receipt using ESC/POS commands"""
+    """ULTRA-COMPACT cashier receipt"""
     p = _get_escpos_printer(printer_name)
     if not p:
         return False
 
-    # Try to open device early to avoid internal assertions
     try:
         fn = getattr(p, "open", None)
         if callable(fn):
@@ -240,57 +240,45 @@ def _print_escpos_cashier_receipt(
     try:
         currency = setting_get("currency", "EGP") or "EGP"
         company = setting_get("company_name", "Beirut") or "Beirut"
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ts = datetime.now().strftime("%H:%M %d-%m")
 
-        # Initialize printer and Arabic codepage
+        # Initialize printer
         _set_ar_codepage(p)
-        p.set(align='right')
 
-        # Header
-        p.set(align='center', text_type='B', width=2, height=2)
+        # SUPER COMPACT HEADER
+        p.set(align='center', text_type='B', width=1, height=1)
         p.text(_shape_ar_escpos(company) + "\n")
 
-        # Info
-        p.set(align='right', text_type='NORMAL', width=1, height=1)
-        p.text(_shape_ar_escpos(f"الطاولة: {table_code} — الكاشير: {cashier}") + "\n")
-        p.text(_shape_ar_escpos(f"وقت الإصدار: {ts}") + "\n")
-        p.text(_shape_ar_escpos(f"طريقة الدفع: {method}") + "\n")
-
-        p.set(align='center')
-        p.text("=" * 32 + "\n")
-
-        # Table header
-        p.set(align='right')
-        p.text(_shape_ar_escpos("الصنف           الكمية  السعر  الإجمالي") + "\n")
-        p.set(align='center')
+        p.set(align='right', text_type='NORMAL')
+        p.text(_shape_ar_escpos(f"{table_code} : {cashier}") + "\n")
+        p.text(f"{ts}\n")
+        p.text(_shape_ar_escpos(f"دفع: {method}") + "\n")
         p.text("-" * 32 + "\n")
 
-        # Items
+        # COMPACT ITEMS - ONE LINE EACH
         for it in items:
             name = _shape_ar_escpos(str(it["name"]))
             qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
-            unit = _format_currency_cents(it["unit_price"], currency)
             item_total = _format_currency_cents(it["total_cents"], currency)
 
-            p.set(align='left')
-            p.text(name)
-            numbers_str = f"{qty}  {unit}  {item_total}"
-            spaces_needed = 32 - len(name) - len(numbers_str) - 2
-            if spaces_needed < 1:
-                spaces_needed = 1
-            p.text(" " * spaces_needed + numbers_str + "\n")
+            # Single line: Name + Qty + Total
+            line = f"{name} {qty} {item_total}"
+            if len(line) > 32:
+                line = line[:29] + "..."
+            p.text(line + "\n")
 
+            # Note on separate line only if exists
             note = (it.get("note") or "").strip()
             if note:
-                p.set(align='right')
-                p.text(_shape_ar_escpos(f"ملاحظة: {note}") + "\n")
+                note_line = _shape_ar_escpos(f"ملاحظة: {note}")
+                if len(note_line) > 32:
+                    note_line = note_line[:29] + "..."
+                p.text(note_line + "\n")
 
-        p.set(align='center')
         p.text("-" * 32 + "\n")
 
-        # Totals
-        p.set(align='right', text_type='NORMAL')
-        p.text(_shape_ar_escpos(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}") + "\n")
+        # COMPACT TOTALS
+        p.text(_shape_ar_escpos(f"المجموع: {_format_currency_cents(subtotal, currency)}") + "\n")
         if discount:
             p.text(_shape_ar_escpos(f"الخصم: {_format_currency_cents(discount, currency)}") + "\n")
         if service:
@@ -298,17 +286,15 @@ def _print_escpos_cashier_receipt(
         if tax:
             p.text(_shape_ar_escpos(f"الضريبة: {_format_currency_cents(tax, currency)}") + "\n")
 
-        p.set(align='center')
         p.text("=" * 32 + "\n")
 
-        # Final total
+        # FINAL TOTAL - BOLD
         p.set(align='right', text_type='B')
         p.text(_shape_ar_escpos(f"الصافي: {_format_currency_cents(total, currency)}") + "\n")
 
-        p.set(align='center', text_type='NORMAL', width=1, height=1)
-        p.text("=" * 32 + "\n")
-        p.text(_shape_ar_escpos("شكراً لزيارتكم") + " 💛\n")
-        p.text("\n\n\n")
+        p.set(align='center', text_type='NORMAL')
+        p.text(_shape_ar_escpos("شكراً") + "\n")
+        p.text("\n\n")
 
         # Cut
         p.cut()
@@ -323,74 +309,65 @@ def _print_escpos_cashier_receipt(
             p.close()
         except Exception:
             pass
-
 # ---------------- Fallback: Save as text file if ESC/POS fails ----------------
 def _save_receipt_as_text(
-    table_code: str,
-    items: List[dict],
-    subtotal: int,
-    discount: int,
-    service: int,
-    tax: int,
-    total: int,
-    method: str,
-    cashier: str,
-    is_bar: bool = False
+        table_code: str,
+        items: List[dict],
+        subtotal: int,
+        discount: int,
+        service: int,
+        tax: int,
+        total: int,
+        method: str,
+        cashier: str,
+        is_bar: bool = False
 ) -> Path:
-    """Save receipt as text file with proper Arabic shaping for viewing."""
+    """ULTRA-COMPACT text file receipt"""
     _ensure_dirs()
 
     currency = setting_get("currency", "EGP") or "EGP"
     company = setting_get("company_name", "Beirut") or "Beirut"
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now().strftime("%H:%M %d-%m")
 
     lines: List[str] = []
 
     if is_bar:
-        lines.append("=" * 40)
-        lines.append(_shape_ar_textfile("تذكرة البار").center(40))
-        lines.append("=" * 40)
-        lines.append(_shape_ar_textfile(f"الطاولة: {table_code}"))
-        lines.append(_shape_ar_textfile(f"وقت الإصدار: {ts}"))
+        lines.append(_shape_ar_textfile("تذكرة البار"))
+        lines.append(f"{table_code} - {ts}")
     else:
-        lines.append("=" * 40)
-        lines.append(_shape_ar_textfile(company).center(40))
-        lines.append("=" * 40)
-        lines.append(_shape_ar_textfile(f"الطاولة: {table_code}"))
-        lines.append(_shape_ar_textfile(f"الكاشير: {cashier}"))
-        lines.append(_shape_ar_textfile(f"وقت الإصدار: {ts}"))
-        lines.append(_shape_ar_textfile(f"طريقة الدفع: {method}"))
+        lines.append(company)
+        lines.append(f"{table_code} : {cashier}")
+        lines.append(ts)
+        lines.append(_shape_ar_textfile(f"دفع: {method}"))
 
-    lines.append("-" * 40)
+    lines.append("-" * 32)
 
+    # COMPACT ITEMS
     for it in items:
         name = _shape_ar_textfile(str(it["name"]))
-        qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.2f}"
+        qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
         item_total = _format_currency_cents(it["total_cents"], currency)
-
-        lines.append(f"{name}")
-        lines.append(_shape_ar_textfile(f"  الكمية: {qty}  |  الإجمالي: {item_total}"))
+        lines.append(f"{name} {qty} {item_total}")
 
         note = (it.get("note") or "").strip()
         if note:
-            lines.append(_shape_ar_textfile(f"  ملاحظة: {note}"))
+            lines.append(_shape_ar_textfile(f"ملاحظة: {note}"))
 
-    lines.append("-" * 40)
+    lines.append("-" * 32)
 
     if not is_bar:
-        lines.append(_shape_ar_textfile(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}"))
+        lines.append(_shape_ar_textfile(f"المجموع: {_format_currency_cents(subtotal, currency)}"))
         if discount:
             lines.append(_shape_ar_textfile(f"الخصم: {_format_currency_cents(discount, currency)}"))
         if service:
             lines.append(_shape_ar_textfile(f"الخدمة: {_format_currency_cents(service, currency)}"))
         if tax:
             lines.append(_shape_ar_textfile(f"الضريبة: {_format_currency_cents(tax, currency)}"))
-        lines.append("=" * 40)
+        lines.append("=" * 32)
         lines.append(_shape_ar_textfile(f"الصافي: {_format_currency_cents(total, currency)}"))
-        lines.append("=" * 40)
-        lines.append(_shape_ar_textfile("شكراً لزيارتكم 💛").center(40))
+        lines.append(_shape_ar_textfile("شكراً"))
 
-    lines.append("\n" * 3)
+    lines.append("\n")
 
     folder = _BAR_DIR if is_bar else _RECEIPTS_DIR
     filename = f"{datetime.now():%Y%m%d-%H%M%S}-{'bar' if is_bar else 'cashier'}-{table_code}.txt"
@@ -398,7 +375,6 @@ def _save_receipt_as_text(
 
     target.write_text("\n".join(lines), encoding='utf-8')
     return target
-
 # ---------------- Public API ----------------
 BAR_PRINTER_NAME     = "XP-80C"  # Change to your actual printer name
 CASHIER_PRINTER_NAME = "XP-80C"  # Change to your actual printer name

@@ -21,6 +21,11 @@ jobs:
         shell: pwsh
         run: |
           @"
+          # Force SQLAlchemy import so PyInstaller detects it
+          import sqlalchemy
+          import sqlalchemy.orm
+          import sqlalchemy.ext.declarative
+          
           from beirut_pos.app import main
           if __name__ == "__main__":
               main()
@@ -47,6 +52,7 @@ jobs:
         shell: pwsh
         run: |
           python -c "from importlib.metadata import version as v; from PyQt6.QtCore import QT_VERSION_STR as q; print('PyQt6='+v('PyQt6')+', Qt6='+q)"
+          python -c "import sqlalchemy; print('SQLAlchemy='+sqlalchemy.__version__)"
 
       - name: Clean previous build artifacts/spec
         shell: pwsh
@@ -76,6 +82,13 @@ jobs:
             "--collect-all","PyQt6.Qt6",
             "--collect-submodules","beirut_pos",
             "--collect-all","sqlalchemy",
+            "--hidden-import","sqlalchemy",
+            "--hidden-import","sqlalchemy.ext.declarative",
+            "--hidden-import","sqlalchemy.orm",
+            "--hidden-import","sqlalchemy.sql",
+            "--hidden-import","sqlalchemy.ext.baked",
+            "--hidden-import","sqlalchemy.pool",
+            "--hidden-import","sqlalchemy.dialects.sqlite",
             "--collect-all","sqlite3",
             "--collect-all","escpos",
             "--collect-submodules","arabic_reshaper",
@@ -86,8 +99,7 @@ jobs:
             "--hidden-import","win32api",
             "--hidden-import","win32con",
             "--hidden-import","usb.core",
-            "--hidden-import","usb.util",
-            "--hidden-import","sqlalchemy.ext.baked"
+            "--hidden-import","usb.util"
           )
           if (Test-Path "assets/app.ico") { $args += @("--icon","assets/app.ico") }
           if (Test-Path "assets")         { $args += @("--add-data","assets;assets") }

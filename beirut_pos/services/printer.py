@@ -132,7 +132,7 @@ def _line_height() -> float:
 
 
 def _page_dimensions(line_count: int) -> tuple[float, float]:
-    width = 200  # ≈58mm roll width
+    width = 226.8  # ≈80mm roll width in points
     base_height = 60
     height = max(base_height, base_height + line_count * _line_height())
     return portrait((width, height))
@@ -161,26 +161,88 @@ def _render_pdf(title: str, lines: List[str], folder: Path, prefix: str) -> Path
 
 
 def _dispatch_pdf(pdf_path: Path, printer_name: Optional[str]) -> None:
+    """
+    Robust Windows printing for PDFs:
+    - Tries SumatraPDF (best: supports -print-to and noscale)
+    - Then Adobe Reader (AcroRd32.exe /t)
+    - Falls back to startfile/print (default printer only)
+    On Linux/macOS, uses CUPS 'lp'.
+    """
+    import subprocess
+    import shutil
+    import time
+    import sys
+    from pathlib import Path
+
+    pdf_path = Path(pdf_path)
+    if not pdf_path.exists():
+        return
+
     if sys.platform.startswith("win"):
-        if printer_name and win32api is not None:
+        # 1) Try SumatraPDF (portable or installed)
+        # Common locations (adjust/add if needed)
+        sumatra_candidates = [
+            r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
+            r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
+            str(Path.home() / "AppData/Local/SumatraPDF/SumatraPDF.exe"),
+        ]
+        sumatra = next((p for p in sumatra_candidates if Path(p).exists()), shutil.which("SumatraPDF.exe"))
+
+        if sumatra:
+            # -print-to: choose printer by name
+            # -print-settings "noscale": avoid driver scaling to Letter/A4
+            cmd = [sumatra, "-silent"]
+            if printer_name:
+                cmd += ["-print-to", printer_name]
+            # Explicit noscale keeps your 58/80mm width from getting stretched
+            cmd += ["-print-settings", "noscale", str(pdf_path)]
             try:
-                win32api.ShellExecute(0, "printto", str(pdf_path), f'"{printer_name}"', ".", 0)
+                subprocess.run(cmd, check=False, timeout=20)
                 return
             except Exception:
                 pass
+
+        # 2) Try Adobe Reader (AcroRd32.exe /t "file" "printer" "" "")
+        # Note: Adobe sometimes needs a small sleep to release the file handle
+        acro_candidates = [
+            r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+            r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+            r"C:\Program Files\Adobe\Acrobat Reader 2025\Reader\AcroRd32.exe",
+        ]
+        acro = next((p for p in acro_candidates if Path(p).exists()), shutil.which("AcroRd32.exe"))
+        if acro:
+            try:
+                if not printer_name:
+                    # Adobe /t REQUIRES a printer name; fallback to default via startfile
+                    raise RuntimeError("No printer name set for Adobe silent print")
+                # Arguments for /t: file, printer, driver, port
+                # Driver/port can be empty strings; Adobe will resolve.
+                cmd = [acro, "/t", str(pdf_path), printer_name, "", ""]
+                subprocess.Popen(cmd)
+                # Give Adobe a moment to dispatch the job then exit
+                time.sleep(3)
+                return
+            except Exception:
+                pass
+
+        # 3) Fallback: default printer via startfile/print (ignores target name)
         try:
             os.startfile(str(pdf_path), "print")  # type: ignore[attr-defined]
             return
         except Exception:
             pass
-    else:
-        try:
-            import subprocess
 
-            subprocess.Popen(["lp", str(pdf_path)])
+    else:
+        # Linux/macOS: CUPS
+        try:
+            cmd = ["lp"]
+            if printer_name:
+                cmd += ["-d", printer_name, "-o", "media=Custom.80x200mm"]
+            cmd += [str(pdf_path)]
+            subprocess.Popen(cmd)
+            return
         except Exception:
             pass
-
 
 def _format_bar_lines(table_code: str, items: Iterable) -> List[str]:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")

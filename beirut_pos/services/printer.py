@@ -1,336 +1,237 @@
-"""Receipt and ticket printing via PDF files for XP-58 printers."""
+# beirut_pos/services/printer.py
+"""Receipt/ticket PDF renderer for 80mm thermal printers (XP-80C friendly) with logo support."""
 
 from __future__ import annotations
-
-import os
-import sys
-from collections import OrderedDict
-from datetime import datetime
+import os, sys, math, subprocess
 from pathlib import Path
+from datetime import datetime
 from typing import Iterable, List, Optional
-
-from reportlab.lib.pagesizes import portrait
+from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 
-from ..core.bus import bus
 from ..core.db import setting_get
 from ..core.paths import DATA_DIR
 from ..utils.currency import format_pounds
+from ..core.bus import bus
 
-try:  # pragma: no cover - optional Windows dependency
-    import win32api  # type: ignore
-except Exception:  # pragma: no cover - executed when pywin32 is missing
-    win32api = None
-
-
+# ---------- Paths & constants ----------
 _OUTPUT_ROOT = DATA_DIR / "prints"
 _RECEIPTS_DIR = _OUTPUT_ROOT / "receipts"
-_BAR_DIR = _OUTPUT_ROOT / "bar_tickets"
-_FONT_NAME = "Helvetica"
+_BAR_DIR      = _OUTPUT_ROOT / "bar_tickets"
+
+# Physical width for 80mm roll (printable ~72–80mm). Use 226.8 pt (80 mm).
+PT_PER_MM = 72.0 / 25.4
+PAGE_W    = 80 * PT_PER_MM       # ≈ 226.8 pt
+MARGIN_L  = 8                    # pts
+MARGIN_R  = 8
+MARGIN_T  = 10
+MARGIN_B  = 10
+LINE_H    = 14                   # text line height
+FONT_SIZE = 10
+FONT_BOLD_SIZE = 11
+
+# Logo target size (max ~60mm wide, keep aspect ratio)
+LOGO_MAX_W_PT = 60 * PT_PER_MM   # ≈ 170 pt
+LOGO_MAX_H_PT = 35 * PT_PER_MM   # ≈ 99 pt (safety cap)
+
+# Font search & registration (Arabic-capable first)
+_FONT_NAME = "BeirutPOSFont"
 _FONT_CANDIDATES = [
+    "NotoNaskhArabic-Regular.ttf",
+    "Amiri-Regular.ttf",
+    "Cairo-Regular.ttf",
+    "DejaVuSans.ttf",
+    "Arial Unicode.ttf",
     "arialuni.ttf",
     "arial.ttf",
-    "segoeui.ttf",
-    "tahoma.ttf",
-    "times.ttf",
-    "dejavusans.ttf",
-    "NotoSans-Regular.ttf",
-    "Cairo-Regular.ttf",
-    "Amiri-Regular.ttf",
 ]
 
-BAR_PRINTER_NAME = r"Your-Bar-Printer-Name"
-CASHIER_PRINTER_NAME = r"Your-Cashier-Printer-Name"
-
-
-def _ensure_dirs() -> None:
-    for folder in (_OUTPUT_ROOT, _RECEIPTS_DIR, _BAR_DIR):
-        folder.mkdir(parents=True, exist_ok=True)
-
+def _ensure_dirs():
+    for p in (_OUTPUT_ROOT, _RECEIPTS_DIR, _BAR_DIR):
+        p.mkdir(parents=True, exist_ok=True)
 
 def _font_search_paths() -> List[Path]:
     paths: List[Path] = []
     if sys.platform.startswith("win"):
-        windir = Path(os.environ.get("WINDIR", r"C:\\Windows"))
-        paths.append(windir / "Fonts")
+        windir = os.environ.get("WINDIR", r"C:\Windows")
+        if windir:
+            paths.append(Path(windir)/"Fonts")
     else:
-        paths.extend(
-            [
-                Path.home() / ".fonts",
-                Path("/usr/share/fonts"),
-                Path("/usr/local/share/fonts"),
-            ]
-        )
+        paths.extend([Path.home()/".fonts", Path("/usr/share/fonts"), Path("/usr/local/share/fonts")])
     return [p for p in paths if p.exists()]
 
-
-def _register_font() -> None:
+def _register_font():
     global _FONT_NAME
-    if "BeirutPOSFont" in pdfmetrics.getRegisteredFontNames():
-        _FONT_NAME = "BeirutPOSFont"
+    if _FONT_NAME in pdfmetrics.getRegisteredFontNames():
         return
-
     for folder in _font_search_paths():
-        for candidate in _FONT_CANDIDATES:
-            path = folder / candidate
-            if not path.exists():
-                continue
-            try:
-                pdfmetrics.registerFont(TTFont("BeirutPOSFont", str(path)))
-            except Exception:
-                continue
-            else:
-                _FONT_NAME = "BeirutPOSFont"
-                return
+        for name in _FONT_CANDIDATES:
+            f = folder / name
+            if f.exists():
+                try:
+                    pdfmetrics.registerFont(TTFont(_FONT_NAME, str(f)))
+                    return
+                except Exception:
+                    continue
+    # last resort: built-in Helvetica (no shaping, but better than crash)
+    _FONT_NAME = "Helvetica"
 
+# ---------- Arabic shaping ----------
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+    _AR_OK = True
+except Exception:
+    _AR_OK = False
 
-def _sanitize_filename(value: str) -> str:
-    safe = [ch if ch.isalnum() else "-" for ch in value]
-    return "".join(safe).strip("-") or "ticket"
+def _rtl(s: str) -> str:
+    if not s:
+        return ""
+    if not _AR_OK:
+        return s
+    return get_display(arabic_reshaper.reshape(s))
 
+# ---------- Logo processing ----------
+try:
+    from PIL import Image, ImageOps, ImageEnhance
+    _PIL_OK = True
+except Exception:
+    _PIL_OK = False
 
-def _collapse_items(items: Iterable) -> List[dict]:
-    grouped: OrderedDict[tuple, dict] = OrderedDict()
-    for it in items:
-        product = getattr(it, "product", str(it))
-        note = (getattr(it, "note", "") or "").strip()
-        try:
-            qty = float(getattr(it, "qty", 1))
-        except Exception:
-            qty = 1.0
-        unit_price = int(getattr(it, "unit_price_cents", 0))
-        try:
-            total_cents = int(getattr(it, "total_cents"))
-        except Exception:
-            total_cents = int(round(unit_price * qty))
-        key = (product, note, unit_price)
-        entry = grouped.get(key)
-        if entry is None:
-            grouped[key] = {
-                "product": product,
-                "note": note,
-                "qty": qty,
-                "unit_price": unit_price,
-                "total_cents": total_cents,
-            }
+def _prepare_logo_from_settings() -> Optional[tuple[ImageReader, float, float]]:
+    """
+    Load logo from settings.logo_path, convert to 1-bit dithered, scale to fit LOGO_MAX_W_PT/LOGO_MAX_H_PT.
+    Returns (ImageReader, width_pt, height_pt) or None if unavailable.
+    """
+    if not _PIL_OK:
+        return None
+    logo_path = (setting_get("logo_path", "") or "").strip()
+    if not logo_path:
+        return None
+    p = Path(logo_path)
+    if not p.exists():
+        return None
+    try:
+        img = Image.open(p).convert("L")  # grayscale
+        # boost contrast a little for thermal clarity
+        img = ImageEnhance.Contrast(img).enhance(1.25)
+        img = ImageOps.autocontrast(img)
+        # convert to bilevel with Floyd–Steinberg dithering
+        img_bw = img.convert("1")  # dither=FLOYDSTEINBERG by default
+        # compute scale to fit width/height caps while preserving aspect
+        w_px, h_px = img_bw.size
+        # assume 203 dpi typical thermal: 1 inch = 72 pt = 203 px -> px_to_pt factor
+        # To keep it simple and consistent with width limit in points, use point-based scaling:
+        scale_w = LOGO_MAX_W_PT
+        aspect = h_px / float(w_px) if w_px else 1.0
+        target_w_pt = min(LOGO_MAX_W_PT, PAGE_W - (MARGIN_L + MARGIN_R))
+        target_h_pt = min(LOGO_MAX_H_PT, target_w_pt * aspect)
+        # Ensure both constraints respected
+        # Recompute width if height is the limiter
+        if target_h_pt > LOGO_MAX_H_PT:
+            target_h_pt = LOGO_MAX_H_PT
+            target_w_pt = min(LOGO_MAX_W_PT, target_h_pt / aspect)
+        # Build ImageReader from PIL image
+        reader = ImageReader(img_bw)
+        return (reader, float(target_w_pt), float(target_h_pt))
+    except Exception:
+        return None
+
+# ---------- Low-level draw helpers ----------
+def _text(c: canvas.Canvas, x_left: float, y: float, text: str):
+    c.drawString(x_left, y, text)
+
+def _text_r(c: canvas.Canvas, x_right: float, y: float, text: str):
+    # right-aligned
+    w = pdfmetrics.stringWidth(text, _FONT_NAME, FONT_SIZE)
+    c.drawString(x_right - w, y, text)
+
+def _text_bold_r(c: canvas.Canvas, x_right: float, y: float, text: str):
+    w = pdfmetrics.stringWidth(text, _FONT_NAME, FONT_BOLD_SIZE)
+    c.setFont(_FONT_NAME, FONT_BOLD_SIZE)
+    c.drawString(x_right - w, y, text)
+    c.setFont(_FONT_NAME, FONT_SIZE)
+
+def _hr(c: canvas.Canvas, x1: float, x2: float, y: float):
+    c.setLineWidth(0.6)
+    c.line(x1, y, x2, y)
+
+def _wrap_text(text: str, max_width: float, font_size: int) -> List[str]:
+    # naive word wrap that respects stringWidth
+    words = text.split()
+    lines: List[str] = []
+    buf = ""
+    for w in words:
+        trial = (buf + " " + w).strip()
+        if pdfmetrics.stringWidth(trial, _FONT_NAME, font_size) <= max_width:
+            buf = trial
         else:
-            entry["qty"] += qty
-            entry["total_cents"] += total_cents
-    return list(grouped.values())
+            if buf:
+                lines.append(buf)
+            buf = w
+    if buf:
+        lines.append(buf)
+    return lines or [""]
 
+# ---------- Layout helpers ----------
+def _calc_height_for_items(items, col_w) -> int:
+    # estimate height needed for items table (name wrapping)
+    name_w = col_w["name"]
+    rows = 0
+    for it in items:
+        nm = _rtl(str(it["name"]))
+        nm_lines = _wrap_text(nm, name_w, FONT_SIZE)
+        rows += max(1, len(nm_lines))
+        rows += 1  # price/qty line
+        if (it.get("note") or "").strip():
+            rows += 1
+    # header + rule lines
+    base = 6
+    return (rows + base) * LINE_H
 
-def _fmt_qty(qty: float) -> str:
-    if abs(qty - round(qty)) < 1e-6:
-        return str(int(round(qty)))
-    return f"{qty:g}"
+def _format_currency_cents(cents: int | float, currency: str) -> str:
+    try:
+        return format_pounds(int(round(float(cents))), currency)
+    except Exception:
+        return f"{cents} {currency}"
 
+def _page_h(content_h: int) -> float:
+    return max(PAGE_W, MARGIN_T + content_h + MARGIN_B)  # simple tall page
 
-def _line_height() -> float:
-    return 14.0
-
-
-def _page_dimensions(line_count: int) -> tuple[float, float]:
-    width = 226.8  # ≈80mm roll width in points
-    base_height = 60
-    height = max(base_height, base_height + line_count * _line_height())
-    return portrait((width, height))
-
-
-def _render_pdf(title: str, lines: List[str], folder: Path, prefix: str) -> Path:
-    _ensure_dirs()
-    _register_font()
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    slug = _sanitize_filename(prefix)
-    target = folder / f"{timestamp}-{slug}.pdf"
-    width, height = _page_dimensions(len(lines) + 4)
-    canv = canvas.Canvas(str(target), pagesize=(width, height))
-    canv.setTitle(title)
-    canv.setAuthor("Beirut POS")
-    canv.setFont(_FONT_NAME, 11)
-
-    x = width - 12
-    y = height - 18
-    for line in lines:
-        canv.drawRightString(x, y, line)
-        y -= _line_height()
-    canv.showPage()
-    canv.save()
-    return target
-
-
-def _dispatch_pdf(pdf_path: Path, printer_name: Optional[str]) -> None:
-    """
-    Robust Windows printing for PDFs:
-    - Tries SumatraPDF (best: supports -print-to and noscale)
-    - Then Adobe Reader (AcroRd32.exe /t)
-    - Falls back to startfile/print (default printer only)
-    On Linux/macOS, uses CUPS 'lp'.
-    """
-    import subprocess
-    import shutil
-    import time
-    import sys
-    from pathlib import Path
-
-    pdf_path = Path(pdf_path)
-    if not pdf_path.exists():
-        return
-
-    if sys.platform.startswith("win"):
-        # 1) Try SumatraPDF (portable or installed)
-        # Common locations (adjust/add if needed)
-        sumatra_candidates = [
-            r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
-            r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
-            str(Path.home() / "AppData/Local/SumatraPDF/SumatraPDF.exe"),
-        ]
-        sumatra = next((p for p in sumatra_candidates if Path(p).exists()), shutil.which("SumatraPDF.exe"))
-
-        if sumatra:
-            # -print-to: choose printer by name
-            # -print-settings "noscale": avoid driver scaling to Letter/A4
-            cmd = [sumatra, "-silent"]
-            if printer_name:
-                cmd += ["-print-to", printer_name]
-            # Explicit noscale keeps your 58/80mm width from getting stretched
-            cmd += ["-print-settings", "noscale", str(pdf_path)]
-            try:
-                subprocess.run(cmd, check=False, timeout=20)
-                return
-            except Exception:
-                pass
-
-        # 2) Try Adobe Reader (AcroRd32.exe /t "file" "printer" "" "")
-        # Note: Adobe sometimes needs a small sleep to release the file handle
-        acro_candidates = [
-            r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-            r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-            r"C:\Program Files\Adobe\Acrobat Reader 2025\Reader\AcroRd32.exe",
-        ]
-        acro = next((p for p in acro_candidates if Path(p).exists()), shutil.which("AcroRd32.exe"))
-        if acro:
-            try:
-                if not printer_name:
-                    # Adobe /t REQUIRES a printer name; fallback to default via startfile
-                    raise RuntimeError("No printer name set for Adobe silent print")
-                # Arguments for /t: file, printer, driver, port
-                # Driver/port can be empty strings; Adobe will resolve.
-                cmd = [acro, "/t", str(pdf_path), printer_name, "", ""]
-                subprocess.Popen(cmd)
-                # Give Adobe a moment to dispatch the job then exit
-                time.sleep(3)
-                return
-            except Exception:
-                pass
-
-        # 3) Fallback: default printer via startfile/print (ignores target name)
-        try:
-            os.startfile(str(pdf_path), "print")  # type: ignore[attr-defined]
-            return
-        except Exception:
-            pass
-
-    else:
-        # Linux/macOS: CUPS
-        try:
-            cmd = ["lp"]
-            if printer_name:
-                cmd += ["-d", printer_name, "-o", "media=Custom.80x200mm"]
-            cmd += [str(pdf_path)]
-            subprocess.Popen(cmd)
-            return
-        except Exception:
-            pass
-
-def _format_bar_lines(table_code: str, items: Iterable) -> List[str]:
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    lines = [
-        "تذكرة البار",
-        f"الطاولة: {table_code.upper()}",
-        f"التوقيت: {ts}",
-        "------------------------------",
-    ]
-    for entry in _collapse_items(items):
-        lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
-        note = entry["note"]
-        if note:
-            lines.append(f"ملاحظة: {note}")
-    lines.append("------------------------------")
-    return lines
-
-
-def _format_cashier_lines(
-    table_code: str,
-    items: Iterable,
-    subtotal: int,
-    discount: int,
-    total: int,
-    method: str,
-    cashier: str,
-) -> List[str]:
-    currency = setting_get("currency", "EGP") or "EGP"
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    lines = [
-        "إيصال الكاشير",
-        f"الطاولة: {table_code} — الكاشير: {cashier}",
-        f"الوقت: {ts}",
-        f"طريقة الدفع: {method}",
-        "------------------------------",
-    ]
-    for entry in _collapse_items(items):
-        lines.append(f"{_fmt_qty(entry['qty'])} × {entry['product']}")
-        unit_txt = format_pounds(entry['unit_price'], currency)
-        total_txt = format_pounds(entry['total_cents'], currency)
-        lines.append(f"   @ {unit_txt} → {total_txt}")
-        note = entry["note"]
-        if note:
-            lines.append(f"ملاحظة: {note}")
-    lines.extend(
-        [
-            "------------------------------",
-            f"الإجمالي قبل الخصم: {format_pounds(subtotal, currency)}",
-            f"الخصم: {format_pounds(discount, currency)}",
-            f"الإجمالي المستحق: {format_pounds(total, currency)}",
-            "شكراً لزيارتكم",
-        ]
-    )
-    return lines
-
+# ---------- Public API ----------
+BAR_PRINTER_NAME = "Your-Bar-Printer-Name"
+CASHIER_PRINTER_NAME = "Your-Cashier-Printer-Name"
 
 class PrinterService:
-    """Render receipts to PDFs and forward them to the configured printers."""
-
+    """Render receipts to PDFs and forward them for printing."""
     __slots__ = ("bar_printer", "cashier_printer")
-
-    def __init__(self) -> None:
+    def __init__(self):
         _ensure_dirs()
         _register_font()
         self.bar_printer = BAR_PRINTER_NAME
         self.cashier_printer = CASHIER_PRINTER_NAME
         self.reload_from_settings()
 
-    def reload_from_settings(self) -> None:
-        bar = setting_get("bar_printer", "").strip()
-        cash = setting_get("cashier_printer", "").strip()
-        if bar:
-            self.bar_printer = bar
-        if cash:
-            self.cashier_printer = cash
+    def reload_from_settings(self):
+        bar  = (setting_get("bar_printer","") or "").strip()
+        cash = (setting_get("cashier_printer","") or "").strip()
+        if bar:  self.bar_printer = bar
+        if cash: self.cashier_printer = cash
 
-    def update_printers(self, bar: Optional[str], cashier: Optional[str]) -> None:
-        if bar is not None:
-            self.bar_printer = bar.strip() or BAR_PRINTER_NAME
-        if cashier is not None:
-            self.cashier_printer = cashier.strip() or CASHIER_PRINTER_NAME
+    def update_printers(self, bar: Optional[str], cashier: Optional[str]):
+        if bar is not None:    self.bar_printer = bar.strip() or BAR_PRINTER_NAME
+        if cashier is not None:self.cashier_printer = cashier.strip() or CASHIER_PRINTER_NAME
 
+    # -------- tickets --------
     def print_bar_ticket(self, table_code: str, items: Iterable) -> Path:
-        lines = _format_bar_lines(table_code, items)
-        pdf_path = _render_pdf("Bar Ticket", lines, _BAR_DIR, f"bar-{table_code}")
-        _dispatch_pdf(pdf_path, self.bar_printer)
-        return pdf_path
+        data = _collapse_items(items)
+        pdf = _render_bar_pdf(table_code, data)
+        _dispatch_pdf(pdf, self.bar_printer)
+        return pdf
 
+    # -------- receipts --------
     def print_cashier_receipt(
         self,
         table_code: str,
@@ -340,18 +241,261 @@ class PrinterService:
         total: int,
         method: str,
         cashier: str,
+        service: int | None = None,
+        tax: int | None = None,
     ) -> Path:
-        lines = _format_cashier_lines(table_code, items, subtotal, discount, total, method, cashier)
-        pdf_path = _render_pdf("Cashier Receipt", lines, _RECEIPTS_DIR, f"cashier-{table_code}")
-        _dispatch_pdf(pdf_path, self.cashier_printer)
-        return pdf_path
-
+        data = _collapse_items(items)
+        pdf = _render_receipt_pdf(
+            table_code=table_code,
+            items=data,
+            subtotal=subtotal,
+            discount=discount,
+            service=service or 0,
+            tax=tax or 0,
+            total=total,
+            method=method,
+            cashier=cashier,
+        )
+        _dispatch_pdf(pdf, self.cashier_printer)
+        return pdf
 
 printer = PrinterService()
 
-
-def _apply_printer_settings(bar: Optional[str], cashier: Optional[str]) -> None:
-    printer.update_printers(bar, cashier)
-
+def _apply_printer_settings(bar: Optional[str], cash: Optional[str]) -> None:
+    printer.update_printers(bar, cash)
 
 bus.subscribe("printers_changed", _apply_printer_settings)
+
+# ---------- Data shaping ----------
+def _collapse_items(items: Iterable) -> List[dict]:
+    out: List[dict] = []
+    for it in items:
+        out.append({
+            "name": getattr(it, "product", str(it)),
+            "qty": float(getattr(it, "qty", 1.0) or 1.0),
+            "unit_price": int(getattr(it, "unit_price_cents", 0) or 0),
+            "total_cents": int(getattr(it, "total_cents", 0) or 0),
+            "note": (getattr(it, "note", "") or "").strip(),
+        })
+    return out
+
+# ---------- Renderers ----------
+def _draw_logo_if_any(c: canvas.Canvas, y: float) -> float:
+    """
+    Draws the logo centered at current y if available.
+    Returns the new y after drawing (y decreased), or unchanged if no logo.
+    """
+    pack = _prepare_logo_from_settings()
+    if not pack:
+        return y
+    reader, w_pt, h_pt = pack
+    # center horizontally
+    x = (PAGE_W - w_pt) / 2.0
+    # drawImage uses (x, y) as lower-left corner; we want top-left anchored
+    c.drawImage(reader, x, y - h_pt, width=w_pt, height=h_pt, mask="auto", preserveAspectRatio=True, anchor='sw')
+    return y - h_pt - 6  # small gap after logo
+
+def _render_bar_pdf(table_code: str, items: List[dict]) -> Path:
+    _ensure_dirs(); _register_font()
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    currency = setting_get("currency","EGP") or "EGP"
+
+    # columns
+    col_w = {
+        "name": PAGE_W - (MARGIN_L+MARGIN_R) - 110,  # name gets most space
+        "qty": 30,
+        "total": 80,
+    }
+    content_h = 140 + _calc_height_for_items(items, col_w)
+    page_h = _page_h(content_h)
+
+    target = _RECEIPTS_DIR / f"{datetime.now():%Y%m%d-%H%M%S}-bar-{table_code}.pdf"
+    c = canvas.Canvas(str(target), pagesize=(PAGE_W, page_h))
+    c.setTitle("Bar Ticket"); c.setAuthor("Beirut POS")
+    c.setFont(_FONT_NAME, FONT_SIZE)
+
+    xL = MARGIN_L; xR = PAGE_W - MARGIN_R
+    y = page_h - MARGIN_T
+
+    # Logo (if any)
+    y = _draw_logo_if_any(c, y)
+
+    # Header
+    c.setFont(_FONT_NAME, FONT_BOLD_SIZE)
+    _text_r(c, xR, y, _rtl("تذكرة البار")); y -= LINE_H
+    c.setFont(_FONT_NAME, FONT_SIZE)
+    _text_r(c, xR, y, _rtl(f"الطاولة: {table_code}")); y -= LINE_H
+    _text_r(c, xR, y, _rtl(f"التوقيت: {ts}")); y -= LINE_H
+    _hr(c, xL, xR, y); y -= LINE_H
+
+    # Table header
+    _text_r(c, xR, y, _rtl("الإجمالي"))
+    _text_r(c, xR - col_w["total"] - 8, y, _rtl("الكمية"))
+    _text(c, xL, y, _rtl("الصنف")); y -= LINE_H
+    _hr(c, xL, xR, y); y -= 4
+
+    # Items
+    for it in items:
+        name_lines = _wrap_text(_rtl(it["name"]), col_w["name"], FONT_SIZE)
+        total_txt = _format_currency_cents(it["total_cents"], currency)
+        qty_txt   = str(int(it["qty"])) if abs(it["qty"]-round(it["qty"])) < 1e-6 else f"{it['qty']:.2f}"
+
+        _text_r(c, xR, y, _rtl(total_txt))
+        _text_r(c, xR - col_w["total"] - 8, y, _rtl(qty_txt))
+        _text(c, xL, y, name_lines[0]); y -= LINE_H
+
+        for extra in name_lines[1:]:
+            _text(c, xL, y, extra); y -= LINE_H
+
+        note = (it.get("note") or "").strip()
+        if note:
+            _text(c, xL+12, y, _rtl(f"ملاحظة: {note}")); y -= LINE_H
+
+    y -= 2
+    _hr(c, xL, xR, y); y -= LINE_H
+    c.showPage(); c.save()
+    return target
+
+def _render_receipt_pdf(
+    table_code: str,
+    items: List[dict],
+    subtotal: int,
+    discount: int,
+    service: int,
+    tax: int,
+    total: int,
+    method: str,
+    cashier: str,
+) -> Path:
+    _ensure_dirs(); _register_font()
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    company = setting_get("company_name", "Beirut") or "Beirut"
+    currency = setting_get("currency", "EGP") or "EGP"
+
+    # columns
+    col_w = {
+        "name": PAGE_W - (MARGIN_L+MARGIN_R) - 150,
+        "qty": 30,
+        "unit": 60,
+        "total": 60,
+    }
+    content_h = 220 + _calc_height_for_items(items, col_w)
+    page_h = _page_h(content_h)
+
+    target = _RECEIPTS_DIR / f"{datetime.now():%Y%m%d-%H%M%S}-cashier-{table_code}.pdf"
+    c = canvas.Canvas(str(target), pagesize=(PAGE_W, page_h))
+    c.setTitle("Cashier Receipt"); c.setAuthor("Beirut POS")
+    c.setFont(_FONT_NAME, FONT_SIZE)
+
+    xL = MARGIN_L; xR = PAGE_W - MARGIN_R
+    y = page_h - MARGIN_T
+
+    # Logo (if any)
+    y = _draw_logo_if_any(c, y)
+
+    # Header block
+    c.setFont(_FONT_NAME, FONT_BOLD_SIZE)
+    _text_r(c, xR, y, _rtl(company)); y -= LINE_H
+    c.setFont(_FONT_NAME, FONT_SIZE)
+    _text_r(c, xR, y, _rtl(f"الطاولة: {table_code} — الكاشير: {cashier}")); y -= LINE_H
+    _text_r(c, xR, y, _rtl(f"الوقت: {ts}")); y -= LINE_H
+    _text_r(c, xR, y, _rtl(f"طريقة الدفع: {method}")); y -= LINE_H
+    _hr(c, xL, xR, y); y -= LINE_H
+
+    # Table header
+    _text_r(c, xR, y, _rtl("الإجمالي"))
+    _text_r(c, xR - col_w["total"] - 8, y, _rtl("السعر"))
+    _text_r(c, xR - col_w["total"] - col_w["unit"] - 16, y, _rtl("الكمية"))
+    _text(c, xL, y, _rtl("الصنف")); y -= LINE_H
+    _hr(c, xL, xR, y); y -= 4
+
+    # Items
+    for it in items:
+        name_lines = _wrap_text(_rtl(it["name"]), col_w["name"], FONT_SIZE)
+        qty_txt  = str(int(it["qty"])) if abs(it["qty"]-round(it["qty"])) < 1e-6 else f"{it['qty']:.2f}"
+        unit_txt = _format_currency_cents(it["unit_price"], currency)
+        tot_txt  = _format_currency_cents(it["total_cents"], currency)
+
+        _text_r(c, xR, y, _rtl(tot_txt))
+        _text_r(c, xR - col_w["total"] - 8, y, _rtl(unit_txt))
+        _text_r(c, xR - col_w["total"] - col_w["unit"] - 16, y, _rtl(qty_txt))
+        _text(c, xL, y, name_lines[0]); y -= LINE_H
+
+        for extra in name_lines[1:]:
+            _text(c, xL, y, extra); y -= LINE_H
+
+        note = (it.get("note") or "").strip()
+        if note:
+            _text(c, xL+12, y, _rtl(f"ملاحظة: {note}")); y -= LINE_H
+
+    y -= 2
+    _hr(c, xL, xR, y); y -= LINE_H
+
+    # Totals block
+    _text_r(c, xR, y, _rtl(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}")); y -= LINE_H
+    if discount:
+        _text_r(c, xR, y, _rtl(f"الخصم: {_format_currency_cents(discount, currency)}")); y -= LINE_H
+    if service:
+        _text_r(c, xR, y, _rtl(f"الخدمة: {_format_currency_cents(service, currency)}")); y -= LINE_H
+    if tax:
+        _text_r(c, xR, y, _rtl(f"الضريبة: {_format_currency_cents(tax, currency)}")); y -= LINE_H
+
+    _hr(c, xL, xR, y); y -= LINE_H
+    _text_bold_r(c, xR, y, _rtl(f"الصافي: {_format_currency_cents(total, currency)}")); y -= LINE_H
+    _hr(c, xL, xR, y); y -= LINE_H
+
+    _text_r(c, xR, y, _rtl("شكراً لزيارتكم 💛")); y -= LINE_H
+
+    c.showPage(); c.save()
+    return target
+
+# ---------- PDF dispatch (Windows w/ Sumatra; CUPS elsewhere) ----------
+def _dispatch_pdf(pdf_path: Path, printer_name: Optional[str]):
+    pdf_path = Path(pdf_path)
+    if not pdf_path.exists():
+        return
+    if sys.platform.startswith("win"):
+        # Try SumatraPDF first
+        candidates = [
+            r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
+            r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
+            str(Path.home() / "AppData/Local/SumatraPDF/SumatraPDF.exe"),
+        ]
+        exe = next((p for p in candidates if Path(p).exists()), None)
+        if exe:
+            try:
+                args = [exe, "-silent"]
+                if printer_name:
+                    args += ["-print-to", printer_name]
+                args += ["-print-settings", "noscale", str(pdf_path)]
+                subprocess.run(args, check=False, timeout=20)
+                return
+            except Exception:
+                pass
+        # Adobe fallback (requires installed Reader)
+        acro_candidates = [
+            r"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+            r"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
+        ]
+        acro = next((p for p in acro_candidates if Path(p).exists()), None)
+        if acro and printer_name:
+            try:
+                subprocess.Popen([acro, "/t", str(pdf_path), printer_name, "", ""])
+                return
+            except Exception:
+                pass
+        # Last resort: default printer
+        try:
+            os.startfile(str(pdf_path), "print")  # type: ignore[attr-defined]
+            return
+        except Exception:
+            return
+    else:
+        try:
+            cmd = ["lp"]
+            if printer_name:
+                cmd += ["-d", printer_name, "-o", "fit-to-page=false", "-o", "media=Custom.80x200mm"]
+            cmd += [str(pdf_path)]
+            subprocess.Popen(cmd)
+        except Exception:
+            pass

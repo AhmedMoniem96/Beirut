@@ -43,10 +43,8 @@ def _shape_ar_escpos(text: str) -> str:
     if not text:
         return ""
     if not _AR_OK:
-        # fallback: at least keep original text
         return text
     reshaped = arabic_reshaper.reshape(text)
-    # get_display returns visual order suitable for LTR devices; send as-is
     return get_display(reshaped)
 
 def _shape_ar_textfile(text: str) -> str:
@@ -54,10 +52,12 @@ def _shape_ar_textfile(text: str) -> str:
     if not text:
         return ""
     if not _AR_OK:
-        # make it human-readable-ish in plain text
         return text[::-1]
     reshaped = arabic_reshaper.reshape(text)
     return get_display(reshaped)  # usually fine for viewing in editors
+
+# ✅ Backward compatibility alias
+_shape_arabic = _shape_ar_textfile
 
 
 def _format_currency_cents(cents: int | float, currency: str) -> str:
@@ -290,68 +290,66 @@ def _save_receipt_as_text(
     cashier: str,
     is_bar: bool = False
 ) -> Path:
-    """Save receipt as text file with proper Arabic encoding"""
+    """Save receipt as text file with proper Arabic shaping for viewing."""
     _ensure_dirs()
 
     currency = setting_get("currency", "EGP") or "EGP"
     company = setting_get("company_name", "Beirut") or "Beirut"
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    lines = []
+    lines: List[str] = []
 
     if is_bar:
         lines.append("=" * 40)
-        lines.append(_shape_arabic("تذكرة البار").center(40))
+        lines.append(_shape_ar_textfile("تذكرة البار").center(40))
         lines.append("=" * 40)
-        lines.append(_shape_arabic(f"الطاولة: {table_code}"))
-        lines.append(_shape_arabic(f"وقت الإصدار: {ts}"))
+        lines.append(_shape_ar_textfile(f"الطاولة: {table_code}"))
+        lines.append(_shape_ar_textfile(f"وقت الإصدار: {ts}"))
     else:
         lines.append("=" * 40)
-        lines.append(_shape_arabic(company).center(40))
+        lines.append(_shape_ar_textfile(company).center(40))
         lines.append("=" * 40)
-        lines.append(_shape_arabic(f"الطاولة: {table_code}"))
-        lines.append(_shape_arabic(f"الكاشير: {cashier}"))
-        lines.append(_shape_arabic(f"وقت الإصدار: {ts}"))
-        lines.append(_shape_arabic(f"طريقة الدفع: {method}"))
+        lines.append(_shape_ar_textfile(f"الطاولة: {table_code}"))
+        lines.append(_shape_ar_textfile(f"الكاشير: {cashier}"))
+        lines.append(_shape_ar_textfile(f"وقت الإصدار: {ts}"))
+        lines.append(_shape_ar_textfile(f"طريقة الدفع: {method}"))
 
     lines.append("-" * 40)
 
     for it in items:
-        name = _shape_arabic(str(it["name"]))
+        name = _shape_ar_textfile(str(it["name"]))
         qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.2f}"
         item_total = _format_currency_cents(it["total_cents"], currency)
 
         lines.append(f"{name}")
-        lines.append(f"  الكمية: {qty}  |  الإجمالي: {item_total}")
+        lines.append(_shape_ar_textfile(f"  الكمية: {qty}  |  الإجمالي: {item_total}"))
 
         note = (it.get("note") or "").strip()
         if note:
-            lines.append(f"  ملاحظة: {_shape_arabic(note)}")
+            lines.append(_shape_ar_textfile(f"  ملاحظة: {note}"))
 
     lines.append("-" * 40)
 
     if not is_bar:
-        lines.append(_shape_arabic(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}"))
+        lines.append(_shape_ar_textfile(f"الإجمالي قبل الخصم: {_format_currency_cents(subtotal, currency)}"))
         if discount:
-            lines.append(_shape_arabic(f"الخصم: {_format_currency_cents(discount, currency)}"))
+            lines.append(_shape_ar_textfile(f"الخصم: {_format_currency_cents(discount, currency)}"))
         if service:
-            lines.append(_shape_arabic(f"الخدمة: {_format_currency_cents(service, currency)}"))
+            lines.append(_shape_ar_textfile(f"الخدمة: {_format_currency_cents(service, currency)}"))
         if tax:
-            lines.append(_shape_arabic(f"الضريبة: {_format_currency_cents(tax, currency)}"))
+            lines.append(_shape_ar_textfile(f"الضريبة: {_format_currency_cents(tax, currency)}"))
         lines.append("=" * 40)
-        lines.append(_shape_arabic(f"الصافي: {_format_currency_cents(total, currency)}"))
+        lines.append(_shape_ar_textfile(f"الصافي: {_format_currency_cents(total, currency)}"))
         lines.append("=" * 40)
-        lines.append(_shape_arabic("شكراً لزيارتكم 💛").center(40))
+        lines.append(_shape_ar_textfile("شكراً لزيارتكم 💛").center(40))
 
     lines.append("\n" * 3)
-
-    content = "\n".join(lines)
 
     folder = _BAR_DIR if is_bar else _RECEIPTS_DIR
     filename = f"{datetime.now():%Y%m%d-%H%M%S}-{'bar' if is_bar else 'cashier'}-{table_code}.txt"
     target = folder / filename
 
-    target.write_text(content, encoding='utf-8')
+    target.write_text("\n".join(lines), encoding='utf-8')
     return target
 
 # ---------------- Public API ----------------

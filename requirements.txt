@@ -1,23 +1,17 @@
-# --- Core GUI / DB ---
 PyQt6==6.5.2
 PyQt6-Qt6==6.5.2
 PyQt6-sip>=13.5,<14
 SQLAlchemy==2.0.23
 
-# --- PDF receipts & printing ---
 reportlab==4.0.7
 pillow>=10.0.0
 
-# --- ESC/POS thermal printer ---
 python-escpos>=3.0.0
-pyusb>=1.2.1          # needed if you use Usb() backend (XP printers)
+pyusb>=1.2.1
 
-# --- Arabic text shaping ---
 arabic-reshaper>=3.0.0
 python-bidi>=0.4.2
 
-# --- Windows printing support ---
 pywin32>=305; sys_platform == 'win32'
 
-# --- Optional utilities ---
-pyserial>=3.5          # for serial/COM printers (some XP models)
+pyserial>=3.5     

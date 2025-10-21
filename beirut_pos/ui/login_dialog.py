@@ -14,7 +14,7 @@ from .forgot_password_dialog import ForgotPasswordDialog
 from .create_user_dialog import CreateUserDialog
 from .common.branding import get_logo_pixmap, get_logo_icon, build_login_stylesheet
 from ..core.bus import bus
-from ..services import texts
+from ..services.texts import texts
 from ..services import settings as settings_service
 
 class LoginDialog(QDialog):

@@ -23,7 +23,7 @@ from .components.ps_controls import PSControls
 from ..services.orders import order_manager, StockError, OrderError
 from ..services.printer import printer
 from ..services import reservations as reservations_service
-from ..services import texts
+from ..services.texts import texts
 from ..services import settings as settings_service
 from ..core.bus import bus
 from .login_dialog import LoginDialog
@@ -45,7 +45,6 @@ from .reservations_dialog import ReservationsDialog
 from .merge_tables_dialog import MergeTablesDialog
 from .purchases_dialog import PurchasesDialog
 from .sugar_level_dialog import SugarLevelDialog
-from ..texts import texts
 
 PAGE_TABLES = 0
 PAGE_ORDER = 1
@@ -696,6 +695,23 @@ class MainWindow(QMainWindow):
             self._update_totals(table_code)
             self._refresh_print_buttons()
 
+    def _apply_window_title(self):
+        client_name = settings_service.get_client_name()
+
+        # DIAGNOSTIC - Add these lines
+        print(f"texts object: {texts}")
+        print(f"texts.get method: {texts.get}")
+        import inspect
+        print(f"get() signature: {inspect.signature(texts.get)}")
+        # END DIAGNOSTIC
+
+        if getattr(self, "user", None):
+            title = texts.get(
+                "app.window_title",
+                client_name=client_name,
+                username=self.user.username,
+                role=self.user.role,
+            )
     def _apply_window_title(self):
         client_name = settings_service.get_client_name()
         if getattr(self, "user", None):

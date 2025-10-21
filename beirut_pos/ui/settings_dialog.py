@@ -14,7 +14,7 @@ from ..core.bus import bus
 from .common.big_dialog import BigDialog
 from .common import branding
 from ..services.orders import order_manager, get_category_order, set_category_order
-from ..services import texts
+from ..services.texts import texts
 from .voucher_dialog import VoucherDialog
 import sys
 from pathlib import Path

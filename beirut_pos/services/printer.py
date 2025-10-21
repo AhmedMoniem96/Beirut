@@ -20,7 +20,7 @@ from ..core.db import setting_get
 from ..core.paths import DATA_DIR
 from ..utils.currency import format_pounds
 from ..core.bus import bus
-from . import texts
+from .texts import texts
 from .settings import get_client_name
 
 # ---------------- Paths & constants ----------------

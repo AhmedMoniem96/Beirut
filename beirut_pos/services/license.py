@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..core.db import setting_get, setting_set
-from . import texts
+from .texts import texts
 from .settings import get_client_name
 
 _UNLOCK_CODE = 836

@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 
-from ..services import texts
+from ..services.texts import texts
 from ..services import settings as settings_service
 from .common import branding
 

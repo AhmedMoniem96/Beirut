@@ -1854,3 +1854,105 @@ def get_table_codes() -> List[str]:
 
 def set_table_codes(codes: List[str], *, actor: str = "system") -> List[str]:
     return order_manager.set_table_codes(codes, actor=actor)
+
+
+def get_table_history(
+    conn,
+    table_id: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    q: str | None = None,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """Return historical closed orders for *table_id*.
+
+    Results include paid and void orders. Date filtering is applied using UTC
+    timestamps (ISO8601 strings stored in the database). Free-text search is
+    matched against the order id, cashier name, and discount reason (used as a
+    note field).
+    """
+
+    limit = max(1, int(limit or 1))
+    offset = max(0, int(offset or 0))
+
+    filters: list[str] = []
+    params: list = [table_id]
+
+    if date_from:
+        filters.append("COALESCE(paid_at, closed_at, opened_at) >= ?")
+        params.append(date_from)
+    if date_to:
+        filters.append("COALESCE(paid_at, closed_at, opened_at) <= ?")
+        params.append(date_to)
+    if q:
+        term = f"%{q.strip()}%"
+        filters.append(
+            "(CAST(order_id AS TEXT) LIKE ? OR "
+            "UPPER(COALESCE(cashier, '')) LIKE UPPER(?) OR "
+            "UPPER(COALESCE(note, '')) LIKE UPPER(?))"
+        )
+        params.extend([term, term, term])
+
+    where_clause = " AND ".join(filters) if filters else "1=1"
+
+    query = f"""
+        WITH base AS (
+            SELECT
+                o.id AS order_id,
+                o.table_code,
+                o.opened_at,
+                o.closed_at,
+                CAST(COALESCE(o.discount_cents, 0) AS INTEGER) AS discount_cents,
+                COALESCE(o.discount_reason, '') AS note,
+                CAST(ROUND(COALESCE(SUM(oi.price_cents * oi.qty), 0)) AS INTEGER) AS subtotal_cents,
+                COALESCE(SUM(oi.qty), 0) AS items_count,
+                MAX(p.paid_at) AS paid_at,
+                MAX(p.cashier) AS cashier
+            FROM orders o
+            LEFT JOIN order_items oi ON oi.order_id = o.id
+            LEFT JOIN payments p ON p.order_id = o.id
+            WHERE o.table_code = ?
+              AND o.status IN ('paid', 'void')
+            GROUP BY o.id
+        )
+        SELECT
+            order_id,
+            opened_at,
+            paid_at,
+            closed_at,
+            subtotal_cents,
+            discount_cents,
+            note,
+            cashier,
+            items_count,
+            CASE
+                WHEN subtotal_cents > discount_cents THEN subtotal_cents - discount_cents
+                ELSE 0
+            END AS total_cents
+        FROM base
+        WHERE {where_clause}
+        ORDER BY COALESCE(paid_at, closed_at, opened_at) DESC, order_id DESC
+        LIMIT ? OFFSET ?
+    """
+
+    cur = conn.cursor()
+    rows = cur.execute(query, (*params, limit, offset)).fetchall()
+    result = []
+    for row in rows:
+        result.append(
+            {
+                "order_id": int(row["order_id"]),
+                "opened_at": row["opened_at"],
+                "paid_at": row["paid_at"],
+                "closed_at": row["closed_at"],
+                "subtotal_cents": int(row["subtotal_cents"] or 0),
+                "discount_cents": int(row["discount_cents"] or 0),
+                "total_cents": int(row["total_cents"] or 0),
+                "cashier": row["cashier"],
+                "items_count": float(row["items_count"] or 0),
+                "note": row["note"],
+            }
+        )
+    return result

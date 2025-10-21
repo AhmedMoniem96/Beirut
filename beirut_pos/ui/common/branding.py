@@ -10,6 +10,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtCore import Qt
 
 from beirut_pos.core.db import setting_get
+from beirut_pos.services.settings import get_client_logo_path
 from beirut_pos.utils.paths import resource_path
 
 
@@ -44,7 +45,7 @@ def _first_existing(*candidates: str) -> Optional[Path]:
 @lru_cache(maxsize=1)
 def _resolve_logo_path() -> Optional[Path]:
     # 1) user-configured (DB setting)
-    cfg = setting_get("logo_path", "").strip()
+    cfg = get_client_logo_path() or setting_get("logo_path", "").strip()
     if cfg:
         p = Path(cfg)
         if p.exists() and p.is_file():

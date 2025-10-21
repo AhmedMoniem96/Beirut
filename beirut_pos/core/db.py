@@ -112,8 +112,15 @@ def set_synchronous_mode(mode: str) -> str:
 
 
 def init_db() -> None:
+    safe_migrations()
+
+
+def safe_migrations() -> None:
     ensure_storage_dirs()
     first_time = not DB_PATH.exists()
+    if not first_time:
+        _backup_database()
+
     conn = get_conn()
     cur = conn.cursor()
 
@@ -265,22 +272,36 @@ def init_db() -> None:
             )"""
     )
 
+  
     # ensure/upgrade steps
     _ensure_product_columns(cur)
     _ensure_product_options_table(cur)
     _ensure_catalog_order_columns(cur)
-    _ensure_orders_discount_columns(cur)  # <-- NEW: add missing discount columns
-    _ensure_orders_payment_window_columns(cur)
+    _ensure_orders_discount_columns(cur)        # add missing discount columns
+    _ensure_orders_payment_window_columns(cur)  # add paid_at/editable_until columns
     _ensure_currency_unit(cur)
+    _ensure_ui_texts_table(cur)
     _ensure_default_settings(cur)
-
     conn.commit()
+
 
     if first_time:
         _seed_defaults(cur)
         conn.commit()
 
     conn.close()
+
+
+def _backup_database() -> None:
+    if not DB_PATH.exists():
+        return
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    target = DATA_DIR / f"{DB_PATH.stem}-{timestamp}.bak"
+    try:
+        shutil.copy2(DB_PATH, target)
+    except Exception:
+        # Best effort; ignore backup issues to avoid blocking migrations.
+        pass
 
 
 def _ensure_product_columns(cur) -> None:
@@ -325,6 +346,15 @@ def _ensure_product_options_table(cur) -> None:
                 order_index INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(product_id, label),
                 FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+            )"""
+    )
+
+
+def _ensure_ui_texts_table(cur) -> None:
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS ui_texts(
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             )"""
     )
 
@@ -446,6 +476,11 @@ def _ensure_default_settings(cur) -> None:
         "voucher_hash": "",
         "voucher_suffix": "",
         "voucher_migrated": "0",
+        "app_first_run_at": "",
+        "activated": "0",
+        "client_name": "My Client",
+        "client_logo_path": "",
+        "primary_color": "#C89A5B",
     }
     for key, value in defaults.items():
         cur.execute(

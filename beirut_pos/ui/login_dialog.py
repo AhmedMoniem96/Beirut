@@ -13,12 +13,14 @@ from ..core.auth import authenticate
 from .forgot_password_dialog import ForgotPasswordDialog
 from .create_user_dialog import CreateUserDialog
 from .common.branding import get_logo_pixmap, get_logo_icon, build_login_stylesheet
+from ..core.bus import bus
+from ..services import texts
+from ..services import settings as settings_service
 
 class LoginDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setObjectName("LoginDialog")
-        self.setWindowTitle("تسجيل الدخول — Beirut POS")
         self._user = None
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.setMinimumSize(820, 560)
@@ -54,27 +56,27 @@ class LoginDialog(QDialog):
         self._apply_logo()
         brand_layout.addWidget(self.logo)
 
-        brand_title = QLabel("مقهى بيروت")
-        brand_title.setObjectName("BrandTitle")
-        brand_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        brand_title.setStyleSheet("font-size: 30px; font-weight: 700;")
-        brand_layout.addWidget(brand_title)
+        self.brand_title = QLabel()
+        self.brand_title.setObjectName("BrandTitle")
+        self.brand_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.brand_title.setStyleSheet("font-size: 30px; font-weight: 700;")
+        brand_layout.addWidget(self.brand_title)
 
-        hero = QLabel("مرحباً بكم في نظام نقاط البيع الخاص بنا — ترتيب الطلبات أصبح أسهل")
-        hero.setObjectName("LoginHero")
-        hero.setWordWrap(True)
-        hero.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hero.setMaximumWidth(420)
-        hero.setStyleSheet("font-size: 17px; line-height: 1.5;")
-        brand_layout.addWidget(hero)
+        self.hero = QLabel()
+        self.hero.setObjectName("LoginHero")
+        self.hero.setWordWrap(True)
+        self.hero.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.hero.setMaximumWidth(420)
+        self.hero.setStyleSheet("font-size: 17px; line-height: 1.5;")
+        brand_layout.addWidget(self.hero)
 
-        hero_hint = QLabel("جهز فريقك، تابع الطاولات، وراقب الأداء في نظرة واحدة.")
-        hero_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hero_hint.setObjectName("HeroHint")
-        hero_hint.setWordWrap(True)
-        hero_hint.setMaximumWidth(420)
-        hero_hint.setStyleSheet("font-size: 15px; line-height: 1.5; color: #f0ebe2;")
-        brand_layout.addWidget(hero_hint)
+        self.hero_hint = QLabel()
+        self.hero_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.hero_hint.setObjectName("HeroHint")
+        self.hero_hint.setWordWrap(True)
+        self.hero_hint.setMaximumWidth(420)
+        self.hero_hint.setStyleSheet("font-size: 15px; line-height: 1.5; color: #f0ebe2;")
+        brand_layout.addWidget(self.hero_hint)
 
         card_layout.addWidget(brand_frame, 3)
 
@@ -85,19 +87,18 @@ class LoginDialog(QDialog):
         form_layout.setSpacing(18)
         form_layout.setContentsMargins(28, 28, 28, 28)
 
-        form_title = QLabel("تسجيل الدخول")
-        form_title.setObjectName("FormTitle")
-        form_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        form_layout.addWidget(form_title)
+        self.form_title = QLabel()
+        self.form_title.setObjectName("FormTitle")
+        self.form_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        form_layout.addWidget(self.form_title)
 
-        self.msg = QLabel("أدخل بياناتك للمتابعة")
+        self.msg = QLabel()
         self.msg.setObjectName("LoginHint")
         self.msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.msg.setWordWrap(True)
         form_layout.addWidget(self.msg)
 
         self.u = QLineEdit()
-        self.u.setPlaceholderText("اسم المستخدم")
         self.u.setMinimumWidth(360)
         self.u.setFixedHeight(52)
         self.u.setClearButtonEnabled(True)
@@ -105,7 +106,6 @@ class LoginDialog(QDialog):
         form_layout.addWidget(self.u)
 
         self.p = QLineEdit()
-        self.p.setPlaceholderText("كلمة المرور")
         self.p.setEchoMode(QLineEdit.EchoMode.Password)
         self.p.setFixedHeight(52)
         self.p.setClearButtonEnabled(True)
@@ -114,14 +114,14 @@ class LoginDialog(QDialog):
 
         row = QHBoxLayout()
         row.setSpacing(12)
-        self.btn = QPushButton("تسجيل الدخول")
-        self.forgot = QPushButton("هل نسيت كلمة المرور؟")
+        self.btn = QPushButton()
+        self.forgot = QPushButton()
         self.forgot.setProperty("class", "link")
         row.addWidget(self.btn, 2)
         row.addWidget(self.forgot, 1)
         form_layout.addLayout(row)
 
-        self.create_user = QPushButton("إنشاء حساب موظف جديد")
+        self.create_user = QPushButton()
         self.create_user.setProperty("class", "link")
         self.create_user.setCursor(Qt.CursorShape.PointingHandCursor)
         form_layout.addWidget(self.create_user, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -136,6 +136,11 @@ class LoginDialog(QDialog):
         self.forgot.clicked.connect(self._open_forgot)
         self.create_user.clicked.connect(self._open_create_user)
 
+        self._apply_texts()
+        bus.subscribe("ui_texts_changed", self._apply_texts)
+        bus.subscribe("client_branding_changed", self._apply_texts)
+        bus.subscribe("client_branding_changed", self._apply_logo)
+
     def _do_login(self):
         user = authenticate(self.u.text().strip(), self.p.text())
         if user:
@@ -143,7 +148,7 @@ class LoginDialog(QDialog):
             self.msg.setStyleSheet("")
             self.accept()
         else:
-            self.msg.setText("بيانات غير صحيحة. حاول مرة أخرى.")
+            self.msg.setText(texts.get("login.error"))
             self.msg.setStyleSheet("color: #FFB4A2; font-weight: 600;")
 
     def _open_forgot(self):
@@ -157,7 +162,7 @@ class LoginDialog(QDialog):
             if new_user:
                 self.u.setText(new_user)
                 self.p.clear()
-                self.msg.setText("تم إنشاء الحساب. أدخل كلمة المرور وسجل الدخول.")
+                self.msg.setText(texts.get("login.create_success"))
                 self.msg.setStyleSheet("color: #A7F3D0; font-weight: 600;")
 
     def get_user(self): return self._user
@@ -171,5 +176,20 @@ class LoginDialog(QDialog):
             self.logo.setStyleSheet("")
         else:
             self.logo.clear()
-            self.logo.setText("Beirut POS")
+            self.logo.setText(settings_service.get_client_name())
             self.logo.setStyleSheet("font-size: 32pt; font-weight: 800; letter-spacing: 1px;")
+
+    def _apply_texts(self):
+        client_name = settings_service.get_client_name()
+        self.setWindowTitle(texts.get("login.window_title", client_name=client_name))
+        self.brand_title.setText(texts.get("login.brand_title", client_name=client_name))
+        self.hero.setText(texts.get("login.hero"))
+        self.hero_hint.setText(texts.get("login.hero_hint"))
+        self.form_title.setText(texts.get("login.form_title"))
+        self.msg.setText(texts.get("login.form_hint"))
+        self.msg.setStyleSheet("")
+        self.u.setPlaceholderText(texts.get("login.username_placeholder"))
+        self.p.setPlaceholderText(texts.get("login.password_placeholder"))
+        self.btn.setText(texts.get("login.submit"))
+        self.forgot.setText(texts.get("login.forgot"))
+        self.create_user.setText(texts.get("login.create_user"))

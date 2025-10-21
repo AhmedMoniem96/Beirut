@@ -224,7 +224,8 @@ def _print_escpos_cashier_receipt(
         total: int,
         method: str,
         cashier: str,
-        printer_name: str
+        printer_name: str,
+        discount_label: str,
 ) -> bool:
     """ULTRA COMPACT receipt - minimum paper usage!"""
     p = _get_escpos_printer(printer_name)
@@ -331,7 +332,8 @@ def _save_receipt_as_text(
         total: int,
         method: str,
         cashier: str,
-        is_bar: bool = False
+        is_bar: bool = False,
+        discount_label: str | None = None,
 ) -> Path:
     """ULTRA-COMPACT text file receipt"""
     _ensure_dirs()
@@ -455,29 +457,68 @@ class PrinterService:
         return txt
 
     def print_cashier_receipt(
-        self, table_code: str, items: Iterable,
-        subtotal: int, discount: int, total: int,
-        method: str, cashier: str, service: int | None = None, tax: int | None = None,
+        self,
+        table_code: str,
+        items: Iterable,
+        subtotal: int,
+        discount: int,
+        total: int,
+        method: str,
+        cashier: str,
+        service: int | None = None,
+        tax: int | None = None,
+        *,
+        discount_label: str | None = None,
     ) -> Path:
         data = _collapse_items(items)
         svc = service or 0
         tx = tax or 0
+        label_text = discount_label or texts.get("orders.discount_summary_label")
 
         # Try ESC/POS first
         if _ESCPOS_OK and not _DISABLE_ESCPOS:
             success = _print_escpos_cashier_receipt(
-                table_code, data, subtotal, discount, svc, tx, total, method, cashier,
-                self.cashier_printer
+                table_code,
+                data,
+                subtotal,
+                discount,
+                svc,
+                tx,
+                total,
+                method,
+                cashier,
+                self.cashier_printer,
+                label_text,
             )
             if success:
                 # Save text file for records, DON'T send to printer again
                 return _save_receipt_as_text(
-                    table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
+                    table_code,
+                    data,
+                    subtotal,
+                    discount,
+                    svc,
+                    tx,
+                    total,
+                    method,
+                    cashier,
+                    is_bar=False,
+                    discount_label=label_text,
                 )
 
         # Fallback ONLY if ESC/POS failed: save and (optionally) CUPS-print text file
         txt = _save_receipt_as_text(
-            table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
+            table_code,
+            data,
+            subtotal,
+            discount,
+            svc,
+            tx,
+            total,
+            method,
+            cashier,
+            is_bar=False,
+            discount_label=label_text,
         )
 
         if sys.platform.startswith("win"):

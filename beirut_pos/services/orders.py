@@ -1,8 +1,9 @@
 """Order lifecycle management, stock enforcement, and PS session handling."""
 
 import json
+import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 
 from ..core.bus import bus
@@ -14,11 +15,15 @@ from ..core.db import (
     setting_get,
     setting_set,
 )
+from ..texts import texts
 import logging
 
 # Add this after imports, before init_db()
 logger = logging.getLogger(__name__)
 init_db()
+
+EDIT_WINDOW_SECONDS = 300
+ALLOW_LATE_EDIT_OVERRIDE = os.getenv("ALLOW_ADMIN_EDIT_AFTER_WINDOW", "0") == "1"
 
 class OrderError(Exception):
     """Base exception for order-related errors"""
@@ -35,6 +40,13 @@ class MergeError(OrderError):
 class MoveError(OrderError):
     """Raised when move operations fail"""
     pass
+
+
+class EditWindowError(OrderError):
+    """Raised when attempting to edit outside the allowed window."""
+
+    def __init__(self, message: str | None = None):
+        super().__init__(message or texts.get("orders.edit_locked"))
 
 # --- ONE-TIME migration to add inventory columns if missing ----------------
 def _ensure_inventory_columns():
@@ -955,16 +967,38 @@ class Order:
     table_code: str
     items: List[OrderItem] = field(default_factory=list)
     status: str = "open"  # open/paid/void
-    discount_cents: int = 0
     opened_by: str = ""
+    discount_type: str = "amount"
+    discount_value: float = 0.0
+    discount_reason: str = ""
+    paid_at: datetime | None = None
+    editable_until: datetime | None = None
 
     @property
     def subtotal_cents(self) -> int:
         return sum(i.total_cents for i in self.items)
 
     @property
+    def discount_cents(self) -> int:
+        subtotal = max(int(self.subtotal_cents), 0)
+        if self.discount_type == "percent":
+            value = max(float(self.discount_value or 0.0), 0.0)
+            discount = int(round(subtotal * (value / 100.0)))
+        else:
+            discount = int(round(float(self.discount_value or 0.0)))
+        return max(0, min(subtotal, discount))
+
+    @property
     def total_cents(self) -> int:
         return max(self.subtotal_cents - self.discount_cents, 0)
+
+    @property
+    def discount_label_key(self) -> str:
+        return (
+            "orders.discount_label_percent"
+            if self.discount_type == "percent"
+            else "orders.discount_label_amount"
+        )
 
 
 @dataclass(slots=True)
@@ -972,6 +1006,15 @@ class PSSession:
     mode: str
     started_at: datetime
     total_seconds: int = 0
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except Exception:
+        return None
 
 
 class OrderManager:
@@ -990,13 +1033,28 @@ class OrderManager:
         # Rehydrate open orders on startup
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT id, table_code, status, opened_by FROM orders WHERE status='open'")
+        cur.execute(
+            """SELECT id, table_code, status, opened_by,
+                      COALESCE(discount_type, 'amount') AS discount_type,
+                      COALESCE(discount_value, 0)      AS discount_value,
+                      COALESCE(discount_reason, '')    AS discount_reason,
+                      paid_at, editable_until
+                   FROM orders
+                   WHERE status='open'"""
+        )
         for o in cur.fetchall():
             order = Order(
                 id=o["id"],
                 table_code=o["table_code"],
                 status=o["status"],
                 opened_by=o["opened_by"],
+                discount_type=(o["discount_type"] or "amount"),
+                discount_value=float(o["discount_value"] or 0),
+                discount_reason=o["discount_reason"] or "",
+                paid_at=_parse_iso_datetime(o["paid_at"] if "paid_at" in o.keys() else None),
+                editable_until=_parse_iso_datetime(
+                    o["editable_until"] if "editable_until" in o.keys() else None
+                ),
             )
             cur.execute(
                 """
@@ -1058,6 +1116,30 @@ class OrderManager:
         self.table_codes.extend(missing)
         _store_table_codes(self.table_codes)
         bus.emit("tables_changed", list(self.table_codes))
+
+    def _is_order_edit_locked(self, order: Order) -> bool:
+        if order.editable_until is None:
+            return False
+        if ALLOW_LATE_EDIT_OVERRIDE:
+            return False
+        now = datetime.utcnow()
+        return now > order.editable_until
+
+    def _ensure_order_editable(self, order: Order) -> None:
+        if self._is_order_edit_locked(order):
+            raise EditWindowError()
+
+    def can_edit(self, table_code: str) -> bool:
+        order = self.orders.get(table_code)
+        if not order:
+            return False
+        return not self._is_order_edit_locked(order)
+
+    def get_discount_label_key(self, table_code: str) -> str:
+        order = self.orders.get(table_code)
+        if not order:
+            return "orders.discount_label_amount"
+        return order.discount_label_key
 
     @property
     def categories(self):
@@ -1138,6 +1220,7 @@ class OrderManager:
                     low_stock_event = (product, stock, new_stock, min_stock)
             with db_transaction() as conn:
                 order, created = self._ensure_db_order_tx(conn, table_code, opened_by=cashier)
+                self._ensure_order_editable(order)
                 state = self.catalog.dec_stock(product, qty, conn=conn)
                 _check_state(state)
                 cursor = conn.execute(
@@ -1152,6 +1235,7 @@ class OrderManager:
         else:
             with db_transaction() as conn:
                 order, created = self._ensure_db_order_tx(conn, table_code, opened_by=cashier)
+                self._ensure_order_editable(order)
                 cursor = conn.execute(
                     "INSERT INTO order_items(order_id, product_name, price_cents, qty, note, printed_qty) VALUES(?,?,?,?,?,?)",
                     (order.id, product, price_cents, qty, note, 0),
@@ -1181,6 +1265,7 @@ class OrderManager:
         order = self.orders.get(table_code)
         if not order:
             return
+        self._ensure_order_editable(order)
         if 0 <= index < len(order.items):
             item = order.items.pop(index)
 
@@ -1244,6 +1329,7 @@ class OrderManager:
         order = self.orders.get(table_code)
         if not order or not (0 <= index < len(order.items)):
             return False
+        self._ensure_order_editable(order)
         item = order.items[index]
         new_qty = float(qty) if qty is not None else float(item.qty)
         if new_qty <= 0:
@@ -1368,8 +1454,8 @@ class OrderManager:
     def get_totals(self, table_code: str):
         o = self.orders.get(table_code)
         if not o:
-            return 0, 0, 0
-        return o.subtotal_cents, o.discount_cents, o.total_cents
+            return 0, 0, 0, "orders.discount_label_amount"
+        return o.subtotal_cents, o.discount_cents, o.total_cents, o.discount_label_key
 
     # ---------- CORE MERGE (no recursion) ----------
     def move_table(self, source_table: str, dest_table: str, *, username: str = "system") -> bool:
@@ -1512,9 +1598,12 @@ class OrderManager:
                     # Merge discounts
                     merged_disc = max(0, int(primary.discount_cents) + int(secondary.discount_cents))
                     try:
-                        cur.execute("UPDATE orders SET discount_cents=? WHERE id=?", (merged_disc, primary.id))
+                        cur.execute(
+                            "UPDATE orders SET discount_cents=?, discount_type='amount', discount_value=?, discount_reason='' WHERE id=?",
+                            (merged_disc, float(merged_disc), primary.id),
+                        )
                     except Exception as e:
-                        logger.warning(f"Could not update discount_cents (old DB?): {e}")
+                        logger.warning(f"Could not update discount columns (old DB?): {e}")
                         # Continue without discount if column doesn't exist
 
                     # Void the source order
@@ -1530,7 +1619,9 @@ class OrderManager:
             # Update in-memory state
             try:
                 primary.items.extend(secondary.items)
-                primary.discount_cents = merged_disc
+                primary.discount_type = "amount"
+                primary.discount_value = float(merged_disc)
+                primary.discount_reason = ""
 
                 secondary.items = []
                 secondary.status = "void"
@@ -1625,19 +1716,58 @@ class OrderManager:
         except Exception:
             return False
 
-    def apply_discount(self, table_code: str, amount_cents: int):
-        o = self.orders.get(table_code)
-        if not o:
+    def apply_discount(
+        self,
+        table_code: str,
+        value: float,
+        discount_type: str = "amount",
+        *,
+        reason: str = "",
+        username: str = "system",
+    ) -> None:
+        order = self.orders.get(table_code)
+        if not order:
             return
-        o.discount_cents = max(amount_cents, 0)
-        bus.emit("table_total_changed", table_code, o.total_cents)
+        self._ensure_order_editable(order)
+        dtype = "percent" if discount_type == "percent" else "amount"
+        try:
+            raw_value = float(value)
+        except (TypeError, ValueError):
+            raw_value = 0.0
+        raw_value = max(raw_value, 0.0)
 
-    def clear_discount(self, table_code: str):
-        o = self.orders.get(table_code)
-        if not o:
+        subtotal = order.subtotal_cents
+        if dtype == "percent":
+            discount_cents = int(round(subtotal * (raw_value / 100.0)))
+        else:
+            discount_cents = int(round(raw_value))
+        discount_cents = max(0, min(subtotal, discount_cents))
+
+        with db_transaction() as conn:
+            conn.execute(
+                "UPDATE orders SET discount_cents=?, discount_type=?, discount_value=?, discount_reason=? WHERE id=?",
+                (discount_cents, dtype, raw_value, reason or "", order.id),
+            )
+
+        order.discount_type = dtype
+        order.discount_value = raw_value
+        order.discount_reason = reason or ""
+        bus.emit("table_total_changed", table_code, order.total_cents)
+
+    def clear_discount(self, table_code: str, username: str = "system") -> None:
+        order = self.orders.get(table_code)
+        if not order:
             return
-        o.discount_cents = 0
-        bus.emit("table_total_changed", table_code, o.total_cents)
+        self._ensure_order_editable(order)
+        order.discount_type = "amount"
+        order.discount_value = 0.0
+        order.discount_reason = ""
+        with db_transaction() as conn:
+            conn.execute(
+                "UPDATE orders SET discount_cents=0, discount_type='amount', discount_value=0, discount_reason='' WHERE id=?",
+                (order.id,),
+            )
+        bus.emit("table_total_changed", table_code, order.total_cents)
 
     # ----- PlayStation -----
     def _close_session_and_bill(self, table_code: str):
@@ -1817,7 +1947,9 @@ class OrderManager:
         amount = o.total_cents
 
         # Persist payment & close order in DB
-        paid_at = datetime.utcnow().isoformat()
+        paid_dt = datetime.utcnow()
+        paid_at = paid_dt.isoformat()
+        editable_until = (paid_dt + timedelta(seconds=EDIT_WINDOW_SECONDS)).isoformat()
         with db_transaction() as conn:
             conn.execute(
                 """INSERT INTO payments(order_id, method, amount_cents, paid_at, cashier)
@@ -1826,9 +1958,9 @@ class OrderManager:
             )
             conn.execute(
                 """UPDATE orders
-                   SET status='paid', closed_at=?, closed_by=?
+                   SET status='paid', closed_at=?, closed_by=?, paid_at=?, editable_until=?
                    WHERE id=?""",
-                (paid_at, cashier, o.id),
+                (paid_at, cashier, paid_at, editable_until, o.id),
             )
 
         # Clear in-memory + update UI

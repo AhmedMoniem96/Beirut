@@ -23,8 +23,8 @@ from .components.ps_controls import PSControls
 from ..services.orders import order_manager, StockError, OrderError
 from ..services.printer import printer
 from ..services import reservations as reservations_service
-from ..services import texts
-from ..services import settings as settings_service
+from beirut_pos.services.texts import texts
+from beirut_pos.services import settings as settings_service
 from ..core.bus import bus
 from .login_dialog import LoginDialog
 from .catalog_manager_dialog import CatalogManagerDialog
@@ -45,7 +45,7 @@ from .reservations_dialog import ReservationsDialog
 from .merge_tables_dialog import MergeTablesDialog
 from .purchases_dialog import PurchasesDialog
 from .sugar_level_dialog import SugarLevelDialog
-from ..texts import texts
+from .dialogs.table_history_dialog import TableHistoryDialog
 
 PAGE_TABLES = 0
 PAGE_ORDER = 1
@@ -213,6 +213,11 @@ class MainWindow(QMainWindow):
         self.btn_merge.setEnabled(False)
         head_row.addWidget(self.btn_merge, 0)
 
+        self.btn_table_history = QPushButton()
+        self.btn_table_history.clicked.connect(self._open_table_history)
+        self.btn_table_history.setEnabled(False)
+        head_row.addWidget(self.btn_table_history, 0)
+
         self.back_big = QPushButton()
         self.back_big.clicked.connect(self._go_back)
         head_row.addWidget(self.back_big, 0)
@@ -285,6 +290,10 @@ class MainWindow(QMainWindow):
         has_items = bool(self.current_table and order_manager.get_items(self.current_table))
         self.btn_print_bar.setEnabled(has_items)
         self.btn_print_cashier.setEnabled(has_items)
+        self._refresh_history_button()
+
+    def _refresh_history_button(self):
+        self.btn_table_history.setEnabled(bool(self.current_table))
 
     def _refresh_edit_lock_state(self):
         message = texts.get("orders.edit_locked")
@@ -396,6 +405,12 @@ class MainWindow(QMainWindow):
         self._refresh_print_buttons()
         self._status.showMessage(random_tip(), 10000)
         self.btn_merge.setEnabled(False)
+
+    def _open_table_history(self):
+        if not self.current_table:
+            return
+        dlg = TableHistoryDialog(self.current_table, parent=self)
+        dlg.exec()
 
     def _switch_user(self):
         dlg = LoginDialog()
@@ -731,6 +746,8 @@ class MainWindow(QMainWindow):
         self.tables_title.setText(texts.get("main.tables.title"))
         self.btn_print_bar.setText(texts.get("main.order.print_bar"))
         self.btn_print_cashier.setText(texts.get("main.order.print_cashier"))
+        self.btn_table_history.setText(texts.get("tables.history.button"))
+        self.btn_table_history.setToolTip(texts.get("tables.history.button"))
         self.back_big.setText(texts.get("main.toolbar.back"))
         self._apply_order_header()
 

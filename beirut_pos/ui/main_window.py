@@ -20,7 +20,7 @@ from .components.category_grid import CategoryGrid
 from .components.order_list import OrderList
 from .components.payment_panel import PaymentPanel
 from .components.ps_controls import PSControls
-from ..services.orders import order_manager, StockError
+from ..services.orders import order_manager, StockError, OrderError
 from ..services.printer import printer
 from ..services import reservations as reservations_service
 from ..core.bus import bus
@@ -43,6 +43,7 @@ from .reservations_dialog import ReservationsDialog
 from .merge_tables_dialog import MergeTablesDialog
 from .purchases_dialog import PurchasesDialog
 from .sugar_level_dialog import SugarLevelDialog
+from ..texts import texts
 
 PAGE_TABLES = 0
 PAGE_ORDER = 1
@@ -267,17 +268,34 @@ class MainWindow(QMainWindow):
         bus.subscribe("reservations_changed", self._on_reservations_changed)
 
         self.current_table = None
+        self._edit_locked = False
         self._coffee_categories = {"Coffee Corner", "Hot Drinks", "Fresh Drinks"}
 
         # Initial state for print buttons
         self._refresh_print_buttons()
         self._refresh_branding()
+        self._refresh_edit_lock_state()
 
     # ---------------- helpers: printing ----------------
     def _refresh_print_buttons(self):
         has_items = bool(self.current_table and order_manager.get_items(self.current_table))
         self.btn_print_bar.setEnabled(has_items)
         self.btn_print_cashier.setEnabled(has_items)
+
+    def _refresh_edit_lock_state(self):
+        message = texts.get("orders.edit_locked")
+        editable = bool(self.current_table) and order_manager.can_edit(self.current_table)
+        locked = bool(self.current_table) and not editable
+        targets = [self.order_list.edit_btn, self.order_list.remove_btn, self.payment.discount_btn]
+        for btn in targets:
+            btn.setEnabled(editable)
+            btn.setToolTip(message if locked else "")
+        if locked and not self._edit_locked:
+            self._show_banner(message, "warn", duration=6000)
+        if not locked and self._edit_locked:
+            for btn in targets:
+                btn.setToolTip("")
+        self._edit_locked = locked
 
     def _update_totals(self, table_code: str | None = None):
         """Refresh subtotal/discount/total summaries for the active table."""
@@ -286,15 +304,19 @@ class MainWindow(QMainWindow):
             table_code = self.current_table
 
         if not table_code:
-            self.order_list.set_totals(0, 0, 0)
-            self.payment.set_totals(0, 0, 0)
-            return 0, 0, 0
+            label_text = texts.get("orders.discount_label_amount")
+            self.order_list.set_totals(0, 0, 0, label_text)
+            self.payment.set_totals(0, 0, 0, label_text)
+            self._refresh_edit_lock_state()
+            return 0, 0, 0, "orders.discount_label_amount"
 
-        subtotal, discount, total = order_manager.get_totals(table_code)
+        subtotal, discount, total, label_key = order_manager.get_totals(table_code)
+        label_text = texts.get(label_key)
         if table_code == self.current_table:
-            self.order_list.set_totals(subtotal, discount, total)
-            self.payment.set_totals(subtotal, discount, total)
-        return subtotal, discount, total
+            self.order_list.set_totals(subtotal, discount, total, label_text)
+            self.payment.set_totals(subtotal, discount, total, label_text)
+            self._refresh_edit_lock_state()
+        return subtotal, discount, total, label_key
 
     def _print_bar(self):
         if not self.current_table:
@@ -327,10 +349,18 @@ class MainWindow(QMainWindow):
         if not items:
             self._show_banner("لا توجد عناصر في الطلب الحالي.", "warn")
             return
-        sub, disc, tot = self._update_totals(self.current_table)
+        sub, disc, tot, label_key = self._update_totals(self.current_table)
         # طباعة إيصال يدوي بدون تحصيل/إقفال
-        printer.print_cashier_receipt(self.current_table, items, sub, disc, tot, method="manual",
-                                      cashier=self.user.username)
+        printer.print_cashier_receipt(
+            self.current_table,
+            items,
+            sub,
+            disc,
+            tot,
+            method="manual",
+            cashier=self.user.username,
+            discount_label=texts.get(label_key),
+        )
         self._show_banner("تم إرسال إيصال الكاشير للطابعة.", "success")
 
     # Quick helper for Del key
@@ -356,6 +386,7 @@ class MainWindow(QMainWindow):
         self.act_back.setVisible(False)
         self.table_map.clear_selection()
         self.current_table = None
+        self._refresh_edit_lock_state()
         self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self.order_header.setText("طلب:")
         self._refresh_print_buttons()
@@ -489,6 +520,9 @@ class MainWindow(QMainWindow):
         except StockError as e:
             self._show_banner(str(e), "error", duration=8000)
             return
+        except OrderError as exc:
+            self._show_banner(str(exc), "error", duration=8000)
+            return
         self.order_list.set_items(order_manager.get_items(self.current_table))
         self._update_totals()
         self._refresh_print_buttons()
@@ -497,7 +531,11 @@ class MainWindow(QMainWindow):
         if not self.current_table:
             self._show_banner("اختر طاولة لإزالة العناصر.", "warn")
             return
-        order_manager.remove_item(self.current_table, index, username=self.user.username)
+        try:
+            order_manager.remove_item(self.current_table, index, username=self.user.username)
+        except OrderError as exc:
+            self._show_banner(str(exc), "error", duration=8000)
+            return
         self.order_list.set_items(order_manager.get_items(self.current_table))
         self._update_totals()
         self._refresh_print_buttons()
@@ -570,6 +608,9 @@ class MainWindow(QMainWindow):
         except StockError as exc:
             self._show_banner(str(exc), "error", duration=8000)
             return
+        except OrderError as exc:
+            self._show_banner(str(exc), "error", duration=8000)
+            return
         self.order_list.set_items(order_manager.get_items(self.current_table))
         self._update_totals()
         self._refresh_print_buttons()
@@ -578,9 +619,19 @@ class MainWindow(QMainWindow):
         if not self.current_table:
             self._show_banner("اختر طاولة لتطبيق الخصم.", "warn")
             return
-        dlg = DiscountDialog()
+        dlg = DiscountDialog(self)
         if dlg.exec() == dlg.DialogCode.Accepted:
-            order_manager.apply_discount(self.current_table, dlg.amount)
+            try:
+                order_manager.apply_discount(
+                    self.current_table,
+                    dlg.value,
+                    dlg.discount_type,
+                    reason=dlg.reason,
+                    username=self.user.username,
+                )
+            except OrderError as exc:
+                self._show_banner(str(exc), "error", duration=8000)
+                return
             self._update_totals()
             self._refresh_print_buttons()
 
@@ -590,13 +641,21 @@ class MainWindow(QMainWindow):
             return
 
         # Get the actual totals BEFORE settling
-        subtotal, discount, total = order_manager.get_totals(self.current_table)
+        subtotal, discount, total, label_key = order_manager.get_totals(self.current_table)
         items = order_manager.get_items(self.current_table)
 
         if order_manager.settle(self.current_table, "cash" if method == "نقدي" else "visa", cashier=self.user.username):
             # Pass the REAL totals, not zeros!
-            printer.print_cashier_receipt(self.current_table, items, subtotal, discount, total, method,
-                                          self.user.username)
+            printer.print_cashier_receipt(
+                self.current_table,
+                items,
+                subtotal,
+                discount,
+                total,
+                method,
+                self.user.username,
+                discount_label=texts.get(label_key),
+            )
             self.order_list.set_items([])
             self._update_totals(None)
             self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")

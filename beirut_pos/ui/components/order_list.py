@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QFrame, QSizePolicy, QSpacerItem
 )
 from ...utils.currency import format_pounds
+from ...texts import texts
 
 
 class OrderList(QWidget):
@@ -46,9 +47,9 @@ class OrderList(QWidget):
         s.setSpacing(4)
 
         # Create labels - COMPACT
-        self.subtotal_label = QLabel("المجموع: ج.م 0")
-        self.discount_label = QLabel("الخصم: ج.م 0")
-        self.total_after_label = QLabel("الإجمالي: ج.م 0")
+        self.subtotal_label = QLabel(f"{texts.get('orders.subtotal_label')}: {format_pounds(0)}")
+        self.discount_label = QLabel(f"{texts.get('orders.discount_summary_label')}: {format_pounds(0)}")
+        self.total_after_label = QLabel(f"{texts.get('orders.total_label')}: {format_pounds(0)}")
 
         # Ensure RTL and right alignment
         for lab in (self.subtotal_label, self.discount_label, self.total_after_label):
@@ -115,12 +116,22 @@ class OrderList(QWidget):
                 text += f"\n    ملاحظة: {note}"
             self.list.addItem(text)
 
-    def set_totals(self, subtotal_cents: int, discount_cents: int, total_cents: int) -> None:
+    def set_totals(
+        self,
+        subtotal_cents: int,
+        discount_cents: int,
+        total_cents: int,
+        discount_label: str | None = None,
+    ) -> None:
         subtotal_cents = int(subtotal_cents or 0)
         discount_cents = int(discount_cents or 0)
         final_payable = int(total_cents or max(subtotal_cents - discount_cents, 0))
 
         # Update labels - shorter text
-        self.subtotal_label.setText(f"المجموع: {format_pounds(subtotal_cents)}")
-        self.discount_label.setText(f"الخصم: {format_pounds(discount_cents)}")
-        self.total_after_label.setText(f"الإجمالي: {format_pounds(final_payable)}")
+        subtotal_text = texts.get("orders.subtotal_label")
+        total_text = texts.get("orders.total_label")
+        discount_text = discount_label or texts.get("orders.discount_summary_label")
+
+        self.subtotal_label.setText(f"{subtotal_text}: {format_pounds(subtotal_cents)}")
+        self.discount_label.setText(f"{discount_text}: {format_pounds(discount_cents)}")
+        self.total_after_label.setText(f"{total_text}: {format_pounds(final_payable)}")

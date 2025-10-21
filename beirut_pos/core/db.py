@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -12,7 +13,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from .config_store import get_config_value, set_config_value
-from .paths import BACKUP_DIR, DB_PATH, ensure_storage_dirs
+from .paths import BACKUP_DIR, DATA_DIR, DB_PATH, ensure_storage_dirs
 
 _VALID_SYNC = {"OFF", "NORMAL", "FULL", "EXTRA"}
 _DEFAULT_SYNC = "FULL"
@@ -25,6 +26,27 @@ _ENGINE = create_engine(
 )
 
 SessionLocal = sessionmaker(bind=_ENGINE, expire_on_commit=False)
+
+
+_SCHEMA_BACKUP_CREATED = False
+
+
+def _ensure_schema_backup() -> None:
+    """Create a one-time .bak copy before altering the schema."""
+
+    global _SCHEMA_BACKUP_CREATED
+    if _SCHEMA_BACKUP_CREATED or not DB_PATH.exists():
+        return
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    backup_name = f"{DB_PATH.stem}.{timestamp}.bak"
+    backup_path = DATA_DIR / backup_name
+    try:
+        ensure_storage_dirs()
+        shutil.copy2(DB_PATH, backup_path)
+    except Exception:
+        return
+    _SCHEMA_BACKUP_CREATED = True
 
 
 def _current_sync() -> str:
@@ -248,6 +270,7 @@ def init_db() -> None:
     _ensure_product_options_table(cur)
     _ensure_catalog_order_columns(cur)
     _ensure_orders_discount_columns(cur)  # <-- NEW: add missing discount columns
+    _ensure_orders_payment_window_columns(cur)
     _ensure_currency_unit(cur)
     _ensure_default_settings(cur)
 
@@ -338,9 +361,34 @@ def _ensure_orders_discount_columns(cur) -> None:
     cur.execute("PRAGMA table_info(orders)")
     cols = {row[1] for row in cur.fetchall()}
     if "discount_cents" not in cols:
+        _ensure_schema_backup()
         cur.execute("ALTER TABLE orders ADD COLUMN discount_cents INTEGER NOT NULL DEFAULT 0")
     if "discount_reason" not in cols:
+        _ensure_schema_backup()
         cur.execute("ALTER TABLE orders ADD COLUMN discount_reason TEXT NOT NULL DEFAULT ''")
+    if "discount_type" not in cols:
+        _ensure_schema_backup()
+        cur.execute("ALTER TABLE orders ADD COLUMN discount_type TEXT NOT NULL DEFAULT 'amount'")
+    if "discount_value" not in cols:
+        _ensure_schema_backup()
+        cur.execute("ALTER TABLE orders ADD COLUMN discount_value REAL NOT NULL DEFAULT 0")
+    cur.execute(
+        "UPDATE orders SET discount_type='amount' WHERE discount_type IS NULL OR discount_type=''"
+    )
+    cur.execute(
+        "UPDATE orders SET discount_value=0 WHERE discount_value IS NULL"
+    )
+
+
+def _ensure_orders_payment_window_columns(cur) -> None:
+    cur.execute("PRAGMA table_info(orders)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "paid_at" not in cols:
+        _ensure_schema_backup()
+        cur.execute("ALTER TABLE orders ADD COLUMN paid_at TEXT")
+    if "editable_until" not in cols:
+        _ensure_schema_backup()
+        cur.execute("ALTER TABLE orders ADD COLUMN editable_until TEXT")
 
 
 def _ensure_currency_unit(cur) -> None:

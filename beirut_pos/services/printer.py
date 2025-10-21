@@ -20,6 +20,7 @@ from ..core.db import setting_get
 from ..core.paths import DATA_DIR
 from ..utils.currency import format_pounds
 from ..core.bus import bus
+from ..texts import texts
 
 # ---------------- Paths & constants ----------------
 _OUTPUT_ROOT  = DATA_DIR / "prints"
@@ -222,7 +223,8 @@ def _print_escpos_cashier_receipt(
         total: int,
         method: str,
         cashier: str,
-        printer_name: str
+        printer_name: str,
+        discount_label: str,
 ) -> bool:
     """ULTRA COMPACT receipt - minimum paper usage!"""
     p = _get_escpos_printer(printer_name)
@@ -278,7 +280,12 @@ def _print_escpos_cashier_receipt(
         p.set(align='right')
         p.text(_shape_ar_escpos(f"المجموع:{_format_currency_cents(subtotal, currency)}") + "\n")
         if discount:
-            p.text(_shape_ar_escpos(f"الخصم:{_format_currency_cents(discount, currency)}") + "\n")
+            p.text(
+                _shape_ar_escpos(
+                    f"{discount_label}:{_format_currency_cents(discount, currency)}"
+                )
+                + "\n"
+            )
         p.text(_shape_ar_escpos(f"الصافي:{_format_currency_cents(total, currency)}") + "\n")
 
         p.set(align='center')
@@ -309,7 +316,8 @@ def _save_receipt_as_text(
         total: int,
         method: str,
         cashier: str,
-        is_bar: bool = False
+        is_bar: bool = False,
+        discount_label: str | None = None,
 ) -> Path:
     """ULTRA-COMPACT text file receipt"""
     _ensure_dirs()
@@ -345,15 +353,16 @@ def _save_receipt_as_text(
     lines.append("-" * 32)
 
     if not is_bar:
-        lines.append(_shape_ar_textfile(f"المجموع: {_format_currency_cents(subtotal, currency)}"))
+        lines.append(_shape_ar_textfile(f"{texts.get('orders.subtotal_label')}: {_format_currency_cents(subtotal, currency)}"))
         if discount:
-            lines.append(_shape_ar_textfile(f"الخصم: {_format_currency_cents(discount, currency)}"))
+            label = discount_label or texts.get("orders.discount_summary_label")
+            lines.append(_shape_ar_textfile(f"{label}: {_format_currency_cents(discount, currency)}"))
         if service:
             lines.append(_shape_ar_textfile(f"الخدمة: {_format_currency_cents(service, currency)}"))
         if tax:
             lines.append(_shape_ar_textfile(f"الضريبة: {_format_currency_cents(tax, currency)}"))
         lines.append("=" * 32)
-        lines.append(_shape_ar_textfile(f"الصافي: {_format_currency_cents(total, currency)}"))
+        lines.append(_shape_ar_textfile(f"{texts.get('orders.total_label')}: {_format_currency_cents(total, currency)}"))
         lines.append(_shape_ar_textfile("شكراً"))
 
     lines.append("\n")
@@ -417,29 +426,68 @@ class PrinterService:
         return txt
 
     def print_cashier_receipt(
-        self, table_code: str, items: Iterable,
-        subtotal: int, discount: int, total: int,
-        method: str, cashier: str, service: int | None = None, tax: int | None = None,
+        self,
+        table_code: str,
+        items: Iterable,
+        subtotal: int,
+        discount: int,
+        total: int,
+        method: str,
+        cashier: str,
+        service: int | None = None,
+        tax: int | None = None,
+        *,
+        discount_label: str | None = None,
     ) -> Path:
         data = _collapse_items(items)
         svc = service or 0
         tx = tax or 0
+        label_text = discount_label or texts.get("orders.discount_summary_label")
 
         # Try ESC/POS first
         if _ESCPOS_OK and not _DISABLE_ESCPOS:
             success = _print_escpos_cashier_receipt(
-                table_code, data, subtotal, discount, svc, tx, total, method, cashier,
-                self.cashier_printer
+                table_code,
+                data,
+                subtotal,
+                discount,
+                svc,
+                tx,
+                total,
+                method,
+                cashier,
+                self.cashier_printer,
+                label_text,
             )
             if success:
                 # Save text file for records, DON'T send to printer again
                 return _save_receipt_as_text(
-                    table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
+                    table_code,
+                    data,
+                    subtotal,
+                    discount,
+                    svc,
+                    tx,
+                    total,
+                    method,
+                    cashier,
+                    is_bar=False,
+                    discount_label=label_text,
                 )
 
         # Fallback ONLY if ESC/POS failed: save and (optionally) CUPS-print text file
         txt = _save_receipt_as_text(
-            table_code, data, subtotal, discount, svc, tx, total, method, cashier, is_bar=False
+            table_code,
+            data,
+            subtotal,
+            discount,
+            svc,
+            tx,
+            total,
+            method,
+            cashier,
+            is_bar=False,
+            discount_label=label_text,
         )
 
         if sys.platform.startswith("win"):

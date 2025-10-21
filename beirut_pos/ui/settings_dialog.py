@@ -14,12 +14,14 @@ from ..core.bus import bus
 from .common.big_dialog import BigDialog
 from .common import branding
 from ..services.orders import order_manager, get_category_order, set_category_order
+from ..services import texts
 from .voucher_dialog import VoucherDialog
 import sys
 from pathlib import Path
 
 from ..core.paths import DB_PATH, BACKUP_DIR, CONFIG_DIR
 from ..services.backup import backup_now, restore_backup
+from .settings_branding import BrandingTextsPage
 
 
 def _list_printers():
@@ -247,6 +249,9 @@ class SettingsDialog(BigDialog):
         br_v.addWidget(reset_colors, 0, alignment=Qt.AlignmentFlag.AlignLeft)
         tabs.addTab(br, "الهوية")
 
+        self.branding_texts = BrandingTextsPage(self)
+        tabs.addTab(self.branding_texts, texts.get("settings.branding.tab"))
+
         # --- Category order tab ---
         cat_tab = QWidget(); cat_v = QVBoxLayout(cat_tab)
         cat_hint = QLabel("رتّب الأقسام بالسحب والإفلات لتظهر بالترتيب نفسه في شاشة الطلبات.")
@@ -339,6 +344,12 @@ class SettingsDialog(BigDialog):
         )
 
     def _save(self):
+        try:
+            self.branding_texts.apply_changes()
+        except ValueError as exc:
+            QMessageBox.warning(self, texts.get("settings.branding.tab"), str(exc))
+            return
+
         company = self.company.text().strip()
         currency = self.currency.text().strip()
         service_pct = str(self.service.value())

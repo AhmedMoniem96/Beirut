@@ -13,6 +13,7 @@ from .ui.common.branding import get_logo_icon
 from .ui.login_dialog import LoginDialog
 from .ui.main_window import MainWindow
 from .ui.voucher_dialog import VoucherDialog
+from .services.license import ensure_trial_allowed
 
 def _qt_excepthook(exctype, value, tb):
     # Show the exception instead of killing the app silently
@@ -35,6 +36,9 @@ def main():
     icon = get_logo_icon(128)
     if icon:
         app.setWindowIcon(icon)
+
+    if not ensure_trial_allowed():
+        sys.exit(0)
 
     ok, result = maybe_run_integrity_check()
     if not ok:

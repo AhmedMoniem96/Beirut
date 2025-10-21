@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Dict, Iterable, Mapping
+from types import SimpleNamespace
+from typing import Dict, Iterable, Mapping, Optional
 
 from ..core.bus import bus
 from ..core.db import db_transaction, get_conn
@@ -22,7 +23,7 @@ DEFAULT_TEXTS: Dict[str, str] = {
     "login.hero": "مرحباً بكم في نظام نقاط البيع الخاص بنا — ترتيب الطلبات أصبح أسهل",
     "login.hero_hint": "جهز فريقك، تابع الطاولات، وراقب الأداء في نظرة واحدة.",
     "login.form_title": "تسجيل الدخول",
-    "login.form_hint": "أدخل بياناتك للمتابعة",
+    "login.form_hint": "أدخل بياناتك للالمتابعة",
     "login.username_placeholder": "اسم المستخدم",
     "login.password_placeholder": "كلمة المرور",
     "login.submit": "تسجيل الدخول",
@@ -135,23 +136,48 @@ DEFAULT_TEXTS: Dict[str, str] = {
 }
 
 
-_CACHE: Dict[str, str] | None = None
-_OVERRIDES_CACHE: Dict[str, str] | None = None
+_CACHE: Optional[Dict[str, str]] = None
+_OVERRIDES_CACHE: Optional[Dict[str, str]] = None
 
 
 def _load_overrides() -> Dict[str, str]:
-    conn = get_conn()
+    """
+    Load overrides from 'ui_texts' table if available.
+    Returns empty dict if DB/table missing or not ready.
+    """
+    try:
+        conn = get_conn()
+    except Exception:
+        return {}
+
     try:
         cur = conn.cursor()
         cur.execute("CREATE TABLE IF NOT EXISTS ui_texts(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         cur.execute("SELECT key, value FROM ui_texts")
         rows = cur.fetchall()
-        return {str(row["key"]): str(row["value"]) for row in rows}
+        # rows may be tuples or sqlite Row; index safely
+        result: Dict[str, str] = {}
+        for row in rows:
+            try:
+                k = row[0]
+                v = row[1]
+            except Exception:
+                # fallback to dict-like access
+                k = row.get("key") if isinstance(row, Mapping) else None
+                v = row.get("value") if isinstance(row, Mapping) else None
+            if k is not None and v is not None:
+                result[str(k)] = str(v)
+        return result
     except sqlite3.OperationalError:
         # The table may not exist yet if init_db() hasn't been executed.
         return {}
+    except Exception:
+        return {}
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def _ensure_cache() -> None:
@@ -167,25 +193,30 @@ def _ensure_cache() -> None:
 
 def invalidate() -> None:
     """Clear caches and notify listeners that texts have changed."""
-
     global _CACHE, _OVERRIDES_CACHE
     _CACHE = None
     _OVERRIDES_CACHE = None
-    bus.emit("ui_texts_changed")
+    try:
+        bus.emit("ui_texts_changed")
+    except Exception:
+        # ignore bus errors (best-effort notification)
+        pass
 
 
-def get(key: str, default: str | None = None, **vars) -> str:
-    """Return text for *key*, formatting with any provided variables."""
-
+def get(key: str, default: Optional[str] = None, **tpl_vars) -> str:
+    """Return text for *key*, formatting with any provided template variables."""
     _ensure_cache()
     assert _CACHE is not None
     value = _CACHE.get(key, DEFAULT_TEXTS.get(key, default))
     if value is None:
-        return ""
+        return "" if default is None else str(default)
+    if not tpl_vars:
+        return str(value)
     try:
-        return value.format(**vars)
+        return str(value).format(**tpl_vars)
     except Exception:
-        return value
+        # If formatting fails, return the raw value (avoid crashing UI)
+        return str(value)
 
 
 def get_overrides() -> Dict[str, str]:
@@ -202,7 +233,6 @@ def get_all() -> Dict[str, str]:
 
 def calculate_overrides(all_values: Mapping[str, str]) -> Dict[str, str]:
     """Return the subset of *all_values* that differ from defaults."""
-
     overrides: Dict[str, str] = {}
     for key, value in all_values.items():
         value = value if value is not None else ""
@@ -214,7 +244,6 @@ def calculate_overrides(all_values: Mapping[str, str]) -> Dict[str, str]:
 
 def replace_overrides(new_overrides: Mapping[str, str]) -> None:
     """Replace all overrides with *new_overrides* in a transaction."""
-
     with db_transaction() as conn:
         conn.execute("DELETE FROM ui_texts")
         for key, value in new_overrides.items():
@@ -248,3 +277,18 @@ def import_json(raw: str) -> Dict[str, str]:
         clean[str(key)] = "" if value is None else str(value)
     return clean
 
+
+# Backwards-compatibility: expose a module-level `texts` object with the common API
+# so older code that does `from beirut_pos.services.texts import texts` keeps working.
+_texts_ns = SimpleNamespace(
+    get=get,
+    get_all=get_all,
+    get_overrides=get_overrides,
+    calculate_overrides=calculate_overrides,
+    replace_overrides=replace_overrides,
+    reset_keys=reset_keys,
+    export_json=export_json,
+    import_json=import_json,
+    invalidate=invalidate,
+)
+texts = _texts_ns

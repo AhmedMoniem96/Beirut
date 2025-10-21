@@ -23,6 +23,8 @@ from .components.ps_controls import PSControls
 from ..services.orders import order_manager, StockError
 from ..services.printer import printer
 from ..services import reservations as reservations_service
+from ..services import texts
+from ..services import settings as settings_service
 from ..core.bus import bus
 from .login_dialog import LoginDialog
 from .catalog_manager_dialog import CatalogManagerDialog
@@ -55,7 +57,7 @@ class MainWindow(QMainWindow):
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.resize(1440, 900)
         self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
-        self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")  # cashier name on top
+        self._apply_window_title()
         self.setStyleSheet(build_main_window_stylesheet())
         icon = get_logo_icon(64)
         if icon:
@@ -83,28 +85,28 @@ class MainWindow(QMainWindow):
         self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bar.addWidget(self.logo_label)
         bar.addSeparator()
-        self.act_back = QAction("رجوع", self)
+        self.act_back = QAction(self)
         self.act_back.triggered.connect(self._go_back)
         self.act_back.setVisible(False)
         bar.addAction(self.act_back)
-        act_switch = QAction("تبديل المستخدم", self)
-        act_switch.triggered.connect(self._switch_user)
-        bar.addAction(act_switch)
-        self.act_manage = QAction("إدارة الأصناف (مدير)", self)
+        self.act_switch = QAction(self)
+        self.act_switch.triggered.connect(self._switch_user)
+        bar.addAction(self.act_switch)
+        self.act_manage = QAction(self)
         self.act_manage.triggered.connect(self._open_manage_products)
-        self.act_users = QAction("إدارة المستخدمين", self)
+        self.act_users = QAction(self)
         self.act_users.triggered.connect(self._open_users)
-        self.act_reports = QAction("التقارير", self)
+        self.act_reports = QAction(self)
         self.act_reports.triggered.connect(self._open_reports)
-        self.act_tables = QAction("إدارة الطاولات", self)
+        self.act_tables = QAction(self)
         self.act_tables.triggered.connect(self._open_tables_admin)
-        self.act_purchases = QAction("المشتريات", self)
+        self.act_purchases = QAction(self)
         self.act_purchases.triggered.connect(self._open_purchases)
-        self.act_reservations = QAction("الحجوزات", self)
+        self.act_reservations = QAction(self)
         self.act_reservations.triggered.connect(self._open_reservations)
 
         # NEW: Settings & Daily Z-Report (admin only)
-        self.act_settings = QAction("الإعدادات", self)
+        self.act_settings = QAction(self)
         self.act_settings.triggered.connect(self._open_settings)
         # self.act_zreport=QAction("تقرير يومي (Z)", self); self.act_zreport.triggered.connect(self._open_zreport)
 
@@ -149,7 +151,7 @@ class MainWindow(QMainWindow):
         banner_layout.setSpacing(12)
         self.banner_label = QLabel()
         self.banner_label.setWordWrap(True)
-        self.banner_close = QPushButton("✕")
+        self.banner_close = QPushButton()
         self.banner_close.setFixedWidth(36)
         self.banner_close.setFlat(True)
         self.banner_close.clicked.connect(self._hide_banner)
@@ -170,9 +172,9 @@ class MainWindow(QMainWindow):
         tables_page = QWidget()
         tables_page.setObjectName("TablesPage")
         tv = QVBoxLayout(tables_page)
-        title = QLabel("الطاولات — اختر طاولة")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tv.addWidget(title)
+        self.tables_title = QLabel()
+        self.tables_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tv.addWidget(self.tables_title)
         self.table_codes = order_manager.get_table_codes()
         self.table_map = TableMap(self.table_codes, self._on_table_select)
         tv.addWidget(self.table_map, 1)
@@ -188,18 +190,18 @@ class MainWindow(QMainWindow):
         # Compact header with all buttons in ONE row
         head_row = QHBoxLayout()
         head_row.setSpacing(6)
-        self.order_header = QLabel("طلب:")
+        self.order_header = QLabel()
         self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.order_header.setMinimumWidth(120)
         head_row.addWidget(self.order_header, 0)
 
         # All action buttons together
-        self.btn_print_bar = QPushButton("🧾 بار")
+        self.btn_print_bar = QPushButton()
         self.btn_print_bar.setToolTip("طباعة تذكرة البار")
         self.btn_print_bar.clicked.connect(self._print_bar)
         head_row.addWidget(self.btn_print_bar, 0)
 
-        self.btn_print_cashier = QPushButton("🧾 كاشير")
+        self.btn_print_cashier = QPushButton()
         self.btn_print_cashier.setToolTip("طباعة إيصال الكاشير")
         self.btn_print_cashier.clicked.connect(self._print_cashier)
         head_row.addWidget(self.btn_print_cashier, 0)
@@ -210,7 +212,7 @@ class MainWindow(QMainWindow):
         self.btn_merge.setEnabled(False)
         head_row.addWidget(self.btn_merge, 0)
 
-        self.back_big = QPushButton("⬅ رجوع")
+        self.back_big = QPushButton()
         self.back_big.clicked.connect(self._go_back)
         head_row.addWidget(self.back_big, 0)
 
@@ -265,6 +267,8 @@ class MainWindow(QMainWindow):
         bus.subscribe("settings_saved", self._on_settings_saved)
         bus.subscribe("tables_changed", self._on_tables_changed)
         bus.subscribe("reservations_changed", self._on_reservations_changed)
+        bus.subscribe("ui_texts_changed", self._apply_texts)
+        bus.subscribe("client_branding_changed", self._apply_texts)
 
         self.current_table = None
         self._coffee_categories = {"Coffee Corner", "Hot Drinks", "Fresh Drinks"}
@@ -272,6 +276,7 @@ class MainWindow(QMainWindow):
         # Initial state for print buttons
         self._refresh_print_buttons()
         self._refresh_branding()
+        self._apply_texts()
 
     # ---------------- helpers: printing ----------------
     def _refresh_print_buttons(self):
@@ -357,7 +362,7 @@ class MainWindow(QMainWindow):
         self.table_map.clear_selection()
         self.current_table = None
         self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
-        self.order_header.setText("طلب:")
+        self._apply_order_header()
         self._refresh_print_buttons()
         self._status.showMessage(random_tip(), 10000)
         self.btn_merge.setEnabled(False)
@@ -366,7 +371,7 @@ class MainWindow(QMainWindow):
         dlg = LoginDialog()
         if dlg.exec() == dlg.DialogCode.Accepted:
             self.user = dlg.get_user()
-            self.setWindowTitle(f"Beirut POS — {self.user.username} ({self.user.role})")
+            self._apply_window_title()
             for action in self._admin_actions:
                 action.setVisible(self.user.role == "admin")
             self._session_started = datetime.now()
@@ -424,7 +429,7 @@ class MainWindow(QMainWindow):
     def _on_table_select(self, code):
         self.current_table = code
         self.act_back.setVisible(True)
-        self.order_header.setText(f"طلب: {code}")
+        self._apply_order_header()
         self.order_list.set_items(order_manager.get_items(code))
         self._update_totals(code)
         self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
@@ -632,6 +637,44 @@ class MainWindow(QMainWindow):
         if self.current_table == table_code and self.pages.currentIndex() == PAGE_ORDER:
             self._update_totals(table_code)
             self._refresh_print_buttons()
+
+    def _apply_window_title(self):
+        client_name = settings_service.get_client_name()
+        if getattr(self, "user", None):
+            title = texts.get(
+                "app.window_title",
+                client_name=client_name,
+                username=self.user.username,
+                role=self.user.role,
+            )
+        else:
+            title = texts.get("app.window_title_fallback", client_name=client_name)
+        self.setWindowTitle(title)
+
+    def _apply_order_header(self):
+        base = texts.get("main.order.header")
+        if self.current_table:
+            self.order_header.setText(f"{base} {self.current_table}".strip())
+        else:
+            self.order_header.setText(base)
+
+    def _apply_texts(self, *_args):
+        self._apply_window_title()
+        self.act_back.setText(texts.get("main.toolbar.back"))
+        self.act_switch.setText(texts.get("main.toolbar.switch"))
+        self.act_manage.setText(texts.get("main.toolbar.manage_products"))
+        self.act_users.setText(texts.get("main.toolbar.users"))
+        self.act_reports.setText(texts.get("main.toolbar.reports"))
+        self.act_tables.setText(texts.get("main.toolbar.tables"))
+        self.act_purchases.setText(texts.get("main.toolbar.purchases"))
+        self.act_settings.setText(texts.get("main.toolbar.settings"))
+        self.act_reservations.setText(texts.get("main.toolbar.reservations"))
+        self.banner_close.setText(texts.get("main.banner.close"))
+        self.tables_title.setText(texts.get("main.tables.title"))
+        self.btn_print_bar.setText(texts.get("main.order.print_bar"))
+        self.btn_print_cashier.setText(texts.get("main.order.print_cashier"))
+        self.back_big.setText(texts.get("main.toolbar.back"))
+        self._apply_order_header()
 
     def _on_table_state_changed(self, table_code, state):
         self.table_map.update_table(table_code, state=state)

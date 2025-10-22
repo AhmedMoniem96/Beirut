@@ -19,7 +19,6 @@ from .components.table_map import TableMap
 from .components.category_grid import CategoryGrid
 from .components.order_list import OrderList
 from .components.payment_panel import PaymentPanel
-from .components.ps_controls import PSControls
 from ..services.orders import order_manager, StockError, OrderError
 from ..services.printer import printer
 from ..services import reservations as reservations_service
@@ -31,9 +30,7 @@ from .catalog_manager_dialog import CatalogManagerDialog
 from .discount_dialog import DiscountDialog
 from .admin_users_dialog import AdminUsersDialog
 from .admin_reports_dialog import AdminReportsDialog
-from beirut_pos.services.ps_sessions import load_ps_session_from_db  # <-- adjust if different
-from beirut_pos.events import bus
-
+from beirut_pos.services.ps_sessions import load_ps_session_from_db  # loader for persisted PS sessions
 
 # NEW: settings & daily Z-report dialogs
 from .settings_dialog import SettingsDialog
@@ -88,56 +85,7 @@ class MainWindow(QMainWindow):
         self._ps_snapshot_timer.timeout.connect(self._on_ps_snapshot)  # wrap to avoid weakref to OrderManager
         self._ps_snapshot_timer.start()
 
-        # --- PlayStation controls widget (visible in status bar) ---
-        # PSControls constructor signature: PSControls(on_start_p2, on_start_p4, on_switch_p2, on_switch_p4, on_stop)
-        # we wrap your main_window handlers so PSControls calls need no params
-        self.ps_controls = PSControls(
-            lambda: self._ps_start("P2"),
-            lambda: self._ps_start("P4"),
-            lambda: self._ps_switch("P2"),
-            lambda: self._ps_switch("P4"),
-            lambda: self._ps_stop(),
-        )
-        # add PSControls to status bar as a permanent widget so timer is always visible
-        try:
-            self._status.addPermanentWidget(self.ps_controls)
-        except Exception:
-            # fallback: add to toolbar area if status bar addition fails
-            try:
-                bar.addWidget(self.ps_controls)  # `bar` is created later in the original __init__, OK if moved before
-            except Exception:
-                # ignore if neither works — widget still exists and can be placed elsewhere
-                pass
-
-        # Bus handler for ps state changes: update PSControls if current table affected
-        def _ps_bus_handler(table_code: str, running: bool):
-            try:
-                # only update visible timer if it affects the currently selected table
-                if getattr(self, "current_table", None) == table_code:
-                    if running:
-                        # loader returns dict or None: {"mode","started_at","total_seconds"}
-                        try:
-                            sess = load_ps_session_from_db(table_code)
-                        except Exception:
-                            sess = None
-                        self.ps_controls.update_session(sess)
-                    else:
-                        self.ps_controls.update_session(None)
-            except Exception:
-                # protect UI from bus exceptions
-                pass
-
-        # Subscribe to bus event (try common APIs)
-        try:
-            bus.on("ps_state_changed", _ps_bus_handler)
-        except Exception:
-            try:
-                bus.subscribe("ps_state_changed", _ps_bus_handler)
-            except Exception:
-                # If bus isn't available or API differs, that's OK — nothing to subscribe to.
-                pass
-
-        # Tool bar (create after PSControls subscription so fallback add works)
+        # Tool bar
         bar = QToolBar("Main")
         self.addToolBar(bar)
         self.logo_label = QLabel()
@@ -227,15 +175,6 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(container)
 
-        # --- try to restore PS session for currently selected table (if any) ---
-        try:
-            if getattr(self, "current_table", None):
-                sess = load_ps_session_from_db(self.current_table)
-                self.ps_controls.update_session(sess)
-        except Exception:
-            # ignore restore errors during startup
-            pass
-
         # Tables page
         tables_page = QWidget()
         tables_page.setObjectName("TablesPage")
@@ -244,9 +183,19 @@ class MainWindow(QMainWindow):
         self.tables_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tv.addWidget(self.tables_title)
         self.table_codes = order_manager.get_table_codes()
-        self.table_map = TableMap(self.table_codes, self._on_table_select)
+        self.table_map = TableMap(self.table_codes, self._on_table_select, on_ps_action=self._on_table_ps_action)
         tv.addWidget(self.table_map, 1)
         self._refresh_reservation_overlays()
+
+        # Try to restore PS session for currently selected table (if any)
+        try:
+            if getattr(self, "current_table", None):
+                sess = load_ps_session_from_db(self.current_table)
+                # we only toggle ps_active on the tile here; tile itself is responsible for showing time if implemented
+                self._update_table_ps_display(self.current_table, sess)
+        except Exception:
+            # ignore restore errors during startup
+            pass
 
         # Order page - REDESIGNED for maximum products space
         order_page = QWidget()
@@ -292,23 +241,13 @@ class MainWindow(QMainWindow):
         head_row.addStretch(1)
         ov.addLayout(head_row, 0)
 
-        # Main content: 3 columns (products + PS controls + order details)
+        # Main content: 2 columns (products + order details)
         main_row = QHBoxLayout()
         main_row.setSpacing(8)
 
         # LEFT: Products grid - MAXIMUM space (65% width)
         self.cat_grid = CategoryGrid(order_manager.categories, self._on_pick)
         main_row.addWidget(self.cat_grid, 13)
-
-        # MIDDLE: PS Controls (10% width)
-        self.ps_controls = PSControls(
-            on_start_p2=lambda: self._ps_start("P2"),
-            on_start_p4=lambda: self._ps_start("P4"),
-            on_switch_p2=lambda: self._ps_switch("P2"),
-            on_switch_p4=lambda: self._ps_switch("P4"),
-            on_stop=self._ps_stop
-        )
-        main_row.addWidget(self.ps_controls, 2)
 
         # RIGHT COLUMN: Order list + Payment (compact - 30% width)
         right_col = QVBoxLayout()
@@ -333,7 +272,8 @@ class MainWindow(QMainWindow):
         bus.subscribe("table_total_changed", self._on_table_total_changed)
         bus.subscribe("table_state_changed", self._on_table_state_changed)
         bus.subscribe("catalog_changed", self._on_catalog_changed)
-        bus.subscribe("ps_state_changed", self._on_ps_state_changed)  # NEW
+        # keep PS bus subscription so each table tile can be updated when sessions change
+        bus.subscribe("ps_state_changed", self._on_ps_state_changed)
         bus.subscribe("inventory_low", self._on_inventory_low)
         bus.subscribe("inventory_recovered", self._on_inventory_recovered)
         bus.subscribe("branding_changed", self._on_branding_changed)
@@ -467,7 +407,6 @@ class MainWindow(QMainWindow):
         self.table_map.clear_selection()
         self.current_table = None
         self._refresh_edit_lock_state()
-        self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
         self._apply_order_header()
         self._refresh_print_buttons()
         self._status.showMessage(random_tip(), 10000)
@@ -531,12 +470,6 @@ class MainWindow(QMainWindow):
             return
         SettingsDialog(self).exec()
 
-    # def _open_zreport(self):
-    #     if self.user.role!="admin":
-    #         self._show_banner("هذه العملية للمدير فقط.", "warn")
-    #         return
-    #     ZReportDialog(self).exec()
-
     # POS flow
     def _on_table_select(self, code):
         self.current_table = code
@@ -544,11 +477,37 @@ class MainWindow(QMainWindow):
         self._apply_order_header()
         self.order_list.set_items(order_manager.get_items(code))
         self._update_totals(code)
-        self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
+        # update the tile (and the order page) PS display from persisted session
+        self._update_table_ps_display(code)
         self.pages.setCurrentIndex(PAGE_ORDER)
         self._refresh_print_buttons()
         self._status.showMessage(random_tip(), 9000)
         self.btn_merge.setEnabled(True)
+
+    def _on_table_ps_action(self, table_code: str, action: str):
+        """Callback from a tile when user clicks inline PS controls."""
+        try:
+            if action == "start_p2":
+                order_manager.ps_start(table_code, "P2")
+            elif action == "start_p4":
+                order_manager.ps_start(table_code, "P4")
+            elif action == "switch_p2":
+                order_manager.ps_switch(table_code, "P2")
+            elif action == "switch_p4":
+                order_manager.ps_switch(table_code, "P4")
+            elif action == "stop":
+                order_manager.ps_stop(table_code)
+            # update tile display after action (re-read persisted session or none)
+            self._update_table_ps_display(table_code)
+            # if this table is currently open in order page, refresh order/totals
+            if self.current_table == table_code:
+                self.order_list.set_items(order_manager.get_items(table_code))
+                self._update_totals(table_code)
+                self._refresh_print_buttons()
+        except Exception as e:
+            # show banner so operator sees failure
+            self._show_banner(f"PS action failed: {e}", "error", duration=6000)
+
 
     def _on_pick(self, label, price_cents):
         if not self.current_table:
@@ -674,6 +633,7 @@ class MainWindow(QMainWindow):
         # If you later want to re-enable editing, restore the old implementation.
         self._show_banner("تعديل العناصر مُعطّل. تم إزالة ميزة التعديل بعد الدفع.", "warn")
         return
+
     def _on_discount(self):
         if not self.current_table:
             self._show_banner("اختر طاولة لتطبيق الخصم.", "warn")
@@ -717,21 +677,27 @@ class MainWindow(QMainWindow):
             )
             self.order_list.set_items([])
             self._update_totals(None)
-            self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
+            # after settle, update the table tile PS display (persisted sessions might be cleaned up elsewhere)
+            if self.current_table:
+                self._update_table_ps_display(self.current_table)
             self._refresh_print_buttons()
             self._show_banner("تم إغلاق الطلب وطباعة الإيصالات.", "success")
-    # PS controls
+
+    # PS controls are now handled per-table in table_map; these methods drive backend and then update tiles
     def _ps_start(self, mode):
         if not self.current_table:
             return
         order_manager.ps_start(self.current_table, mode)
-        self.ps_controls.show_running("P2" if mode == "P2" else "P4")
+        # update the tile to show running session immediately (tile should handle showing a timer if implemented)
+        self._update_table_ps_display(self.current_table)
+        self._update_totals()
+        self._refresh_print_buttons()
 
     def _ps_switch(self, mode):
         if not self.current_table:
             return
         order_manager.ps_switch(self.current_table, mode)
-        self.ps_controls.show_running(mode)
+        self._update_table_ps_display(self.current_table)
         self._update_totals()
         self._refresh_print_buttons()
 
@@ -739,7 +705,7 @@ class MainWindow(QMainWindow):
         if not self.current_table:
             return
         order_manager.ps_stop(self.current_table)
-        self.ps_controls.show_stopped("لا توجد جلسة بلايستيشن")
+        self._update_table_ps_display(self.current_table)
         self.order_list.set_items(order_manager.get_items(self.current_table))
         self._update_totals()
         self._refresh_print_buttons()
@@ -800,28 +766,25 @@ class MainWindow(QMainWindow):
     def _on_ps_state_changed(self, table_code: str, running: bool):
         """
         Called whenever backend emits ps_state_changed(table_code, running).
-        Update PSControls if the current table is affected.
+        Update the table tile so it can show a timer indicator (tile must implement timer display).
         """
-        # update only if current table is the relevant one (or always update a global widget)
-        if table_code == self.current_table:
-            if running:
-                sess = load_ps_session_from_db(table_code)
-                self.ps_controls.update_session(sess)
-            else:
-                self.ps_controls.update_session(None)
+        try:
+            sess = load_ps_session_from_db(table_code) if running else None
+        except Exception:
+            sess = None
+        self._update_table_ps_display(table_code, sess)
 
     def _on_table_selected(self, table_code: str):
         # existing code that sets self.current_table...
         self.current_table = table_code
 
-        # load PS session persisted in DB and restore UI timer immediately
+        # load PS session persisted in DB and restore UI timer on the tile (tile must render timer)
         sess = load_ps_session_from_db(table_code)
-        self.ps_controls.update_session(sess)
+        self._update_table_ps_display(table_code, sess)
 
         # also update order list / totals as before
         self.order_list.set_items(order_manager.get_items(table_code))
         self._update_totals(table_code)
-
 
     def _on_inventory_low(self, product, prev_stock, new_stock, min_stock):
         if new_stock is None:
@@ -926,10 +889,12 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self._session_timer.isActive():
             self._session_timer.stop()
+        if self._ps_snapshot_timer.isActive():
+            self._ps_snapshot_timer.stop()
         super().closeEvent(event)
 
     def _on_ps_snapshot(self):
-        # keep this tiny and exception-safe
+        # keep this tiny and exception-safe (persists ps_sessions to DB)
         try:
             order_manager.snapshot_ps_sessions()
         except Exception:
@@ -950,3 +915,40 @@ class MainWindow(QMainWindow):
                     note=it.note
                 ))
         return out
+
+    # ---------- PS helpers ----------
+    def _update_table_ps_display(self, table_code: str, sess=None):
+        """
+        Load PS session info (or use given sess) and update the table tile with:
+            ps_active: True/False
+        Note: the TableTile / TableMap must implement the actual timer rendering if you want
+        HH:MM:SS shown. This function only toggles the tile's ps indicator based on persisted session.
+        """
+        try:
+            if sess is None:
+                try:
+                    sess = load_ps_session_from_db(table_code)
+                except Exception:
+                    sess = None
+
+            if not sess:
+                # clear PS indicator on tile
+                try:
+                    self.table_map.update_table(table_code, ps_active=False)
+                except Exception:
+                    # fallback: call without kwargs if update_table signature is strict
+                    try:
+                        self.table_map.update_table(table_code)
+                    except Exception:
+                        pass
+                return
+
+            # If we have a persisted session, mark tile as active.
+            try:
+                self.table_map.update_table(table_code, ps_active=True)
+            except Exception:
+                # ignore if update_table signature doesn't accept kwargs
+                pass
+        except Exception:
+            # protect UI from exceptions while updating tiles
+            pass

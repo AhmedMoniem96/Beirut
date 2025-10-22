@@ -1,56 +1,65 @@
 # beirut_pos/services/ps_sessions.py
-from __future__ import annotations
-
-from datetime import datetime, timezone
 from typing import Optional, Dict, Any
-
+from datetime import datetime, timezone
 from ..core.db import get_conn
 
-
-def _ensure_iso_with_tz(value: str | None) -> Optional[str]:
-    """Return ISO string with timezone if possible, else None."""
-    if not value:
+def _parse_iso(dt_iso: str | None) -> Optional[datetime]:
+    if not dt_iso:
         return None
-    # assume value is an ISO string saved by backend; try to normalize to tz-aware ISO
     try:
-        dt = datetime.fromisoformat(value)
+        dt = datetime.fromisoformat(dt_iso)
+        # ensure timezone-awareness: consider naive stored times as UTC
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt.isoformat()
+        return dt
     except Exception:
-        # value might already be a plain string that isn't ISO; return as-is
-        return str(value)
-
+        return None
 
 def load_ps_session_from_db(table_code: str) -> Optional[Dict[str, Any]]:
     """
-    Load playstation session for `table_code` from DB.
-
-    Returns either None (no session) or dict:
-      {
-        "mode": "P2" or "P4",
-        "started_at": "2025-10-21T12:34:56+00:00",   # ISO string (tz-aware if possible)
-        "total_seconds": 1234                         # persisted accumulated seconds
-      }
+    Return a dict for a given table or None:
+    {
+      "table_code": "T10",
+      "mode": "P2" or "P4",
+      "started_at": "2025-10-22T13:00:00Z" (string as stored),
+      "total_seconds": 123   # persisted accumulated seconds before current run
+    }
     """
     conn = get_conn()
     try:
-        row = conn.execute(
-            "SELECT mode, started_at, total_seconds FROM ps_sessions WHERE table_code=?",
-            (table_code,),
-        ).fetchone()
-        if not row:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT table_code, mode, started_at, total_seconds FROM ps_sessions WHERE table_code=?",
+            (table_code.upper(),),
+        )
+        r = cur.fetchone()
+        if not r:
             return None
-
-        # row[...] is sqlite3.Row (mapping-like)
-        mode = row["mode"] if "mode" in row.keys() else row[0]
-        started_at = row["started_at"] if "started_at" in row.keys() else row[1]
-        total_seconds = row["total_seconds"] if "total_seconds" in row.keys() else row[2]
-
         return {
-            "mode": mode,
-            "started_at": _ensure_iso_with_tz(started_at),
-            "total_seconds": int(total_seconds or 0),
+            "table_code": r["table_code"],
+            "mode": r["mode"],
+            "started_at": r["started_at"],
+            "total_seconds": int(r["total_seconds"] or 0),
         }
     finally:
         conn.close()
+
+def load_all_ps_sessions_from_db() -> Dict[str, Dict[str, Any]]:
+    """
+    Return mapping table_code -> session dict (same shape as load_ps_session_from_db).
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT table_code, mode, started_at, total_seconds FROM ps_sessions")
+        for r in cur.fetchall():
+            out[r["table_code"]] = {
+                "table_code": r["table_code"],
+                "mode": r["mode"],
+                "started_at": r["started_at"],
+                "total_seconds": int(r["total_seconds"] or 0),
+            }
+    finally:
+        conn.close()
+    return out

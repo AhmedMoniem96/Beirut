@@ -31,6 +31,9 @@ from .catalog_manager_dialog import CatalogManagerDialog
 from .discount_dialog import DiscountDialog
 from .admin_users_dialog import AdminUsersDialog
 from .admin_reports_dialog import AdminReportsDialog
+from beirut_pos.services.ps_sessions import load_ps_session_from_db  # <-- adjust if different
+from beirut_pos.events import bus
+
 
 # NEW: settings & daily Z-report dialogs
 from .settings_dialog import SettingsDialog
@@ -63,22 +66,78 @@ class MainWindow(QMainWindow):
         icon = get_logo_icon(64)
         if icon:
             self.setWindowIcon(icon)
+
+        # Status bar + session timer
         self._status = self.statusBar()
         self._status.setSizeGripEnabled(False)
         self._status.showMessage(random_tip(), 12000)
+
         self._session_started = datetime.now()
         self._session_label = QLabel()
         self._session_label.setObjectName("sessionTimer")
         self._status.addPermanentWidget(self._session_label)
+
         self._session_timer = QTimer(self)
         self._session_timer.timeout.connect(self._update_session_timer)
         self._session_timer.start(1000)
         self._update_session_timer()
+
+        # PlayStation snapshot timer (persist sessions periodically)
         self._ps_snapshot_timer = QTimer(self)
         self._ps_snapshot_timer.setInterval(5000)
         self._ps_snapshot_timer.timeout.connect(self._on_ps_snapshot)  # wrap to avoid weakref to OrderManager
         self._ps_snapshot_timer.start()
 
+        # --- PlayStation controls widget (visible in status bar) ---
+        # PSControls constructor signature: PSControls(on_start_p2, on_start_p4, on_switch_p2, on_switch_p4, on_stop)
+        # we wrap your main_window handlers so PSControls calls need no params
+        self.ps_controls = PSControls(
+            lambda: self._ps_start("P2"),
+            lambda: self._ps_start("P4"),
+            lambda: self._ps_switch("P2"),
+            lambda: self._ps_switch("P4"),
+            lambda: self._ps_stop(),
+        )
+        # add PSControls to status bar as a permanent widget so timer is always visible
+        try:
+            self._status.addPermanentWidget(self.ps_controls)
+        except Exception:
+            # fallback: add to toolbar area if status bar addition fails
+            try:
+                bar.addWidget(self.ps_controls)  # `bar` is created later in the original __init__, OK if moved before
+            except Exception:
+                # ignore if neither works — widget still exists and can be placed elsewhere
+                pass
+
+        # Bus handler for ps state changes: update PSControls if current table affected
+        def _ps_bus_handler(table_code: str, running: bool):
+            try:
+                # only update visible timer if it affects the currently selected table
+                if getattr(self, "current_table", None) == table_code:
+                    if running:
+                        # loader returns dict or None: {"mode","started_at","total_seconds"}
+                        try:
+                            sess = load_ps_session_from_db(table_code)
+                        except Exception:
+                            sess = None
+                        self.ps_controls.update_session(sess)
+                    else:
+                        self.ps_controls.update_session(None)
+            except Exception:
+                # protect UI from bus exceptions
+                pass
+
+        # Subscribe to bus event (try common APIs)
+        try:
+            bus.on("ps_state_changed", _ps_bus_handler)
+        except Exception:
+            try:
+                bus.subscribe("ps_state_changed", _ps_bus_handler)
+            except Exception:
+                # If bus isn't available or API differs, that's OK — nothing to subscribe to.
+                pass
+
+        # Tool bar (create after PSControls subscription so fallback add works)
         bar = QToolBar("Main")
         self.addToolBar(bar)
         self.logo_label = QLabel()
@@ -86,6 +145,7 @@ class MainWindow(QMainWindow):
         self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bar.addWidget(self.logo_label)
         bar.addSeparator()
+
         self.act_back = QAction(self)
         self.act_back.triggered.connect(self._go_back)
         self.act_back.setVisible(False)
@@ -109,7 +169,6 @@ class MainWindow(QMainWindow):
         # NEW: Settings & Daily Z-Report (admin only)
         self.act_settings = QAction(self)
         self.act_settings.triggered.connect(self._open_settings)
-        # self.act_zreport=QAction("تقرير يومي (Z)", self); self.act_zreport.triggered.connect(self._open_zreport)
 
         self._admin_actions = [
             self.act_manage,
@@ -118,7 +177,6 @@ class MainWindow(QMainWindow):
             self.act_tables,
             self.act_purchases,
             self.act_settings,
-            # self.act_zreport,
         ]
         for action in self._admin_actions:
             action.setVisible(self.user.role == "admin")
@@ -168,6 +226,15 @@ class MainWindow(QMainWindow):
         self.banner_timer.timeout.connect(self._hide_banner)
 
         self.setCentralWidget(container)
+
+        # --- try to restore PS session for currently selected table (if any) ---
+        try:
+            if getattr(self, "current_table", None):
+                sess = load_ps_session_from_db(self.current_table)
+                self.ps_controls.update_session(sess)
+        except Exception:
+            # ignore restore errors during startup
+            pass
 
         # Tables page
         tables_page = QWidget()
@@ -603,37 +670,10 @@ class MainWindow(QMainWindow):
             self._show_banner(f"تم نقل الطلب إلى الطاولة {target} بنجاح.", "success")
 
     def _on_edit_item(self, index: int) -> None:
-        if not self.current_table:
-            self._show_banner("اختر طاولة لتعديل العناصر.", "warn")
-            return
-        items = order_manager.get_items(self.current_table)
-        if not (0 <= index < len(items)):
-            return
-        item = items[index]
-        editor = OrderItemEditor(item.product, item.qty, item.note, self)
-        if editor.exec() != editor.DialogCode.Accepted:
-            return
-        values = editor.get_values()
-        if not values:
-            return
-        try:
-            order_manager.update_item(
-                self.current_table,
-                index,
-                qty=values["qty"],
-                note=values["note"],
-                username=self.user.username,
-            )
-        except StockError as exc:
-            self._show_banner(str(exc), "error", duration=8000)
-            return
-        except OrderError as exc:
-            self._show_banner(str(exc), "error", duration=8000)
-            return
-        self.order_list.set_items(order_manager.get_items(self.current_table))
-        self._update_totals()
-        self._refresh_print_buttons()
-
+        # Editing removed — show a warning to the user.
+        # If you later want to re-enable editing, restore the old implementation.
+        self._show_banner("تعديل العناصر مُعطّل. تم إزالة ميزة التعديل بعد الدفع.", "warn")
+        return
     def _on_discount(self):
         if not self.current_table:
             self._show_banner("اختر طاولة لتطبيق الخصم.", "warn")
@@ -757,8 +797,31 @@ class MainWindow(QMainWindow):
     def _on_catalog_changed(self):
         self.cat_grid.set_categories(order_manager.categories)
 
-    def _on_ps_state_changed(self, table_code, active):
-        self.table_map.update_table(table_code, ps_active=active)
+    def _on_ps_state_changed(self, table_code: str, running: bool):
+        """
+        Called whenever backend emits ps_state_changed(table_code, running).
+        Update PSControls if the current table is affected.
+        """
+        # update only if current table is the relevant one (or always update a global widget)
+        if table_code == self.current_table:
+            if running:
+                sess = load_ps_session_from_db(table_code)
+                self.ps_controls.update_session(sess)
+            else:
+                self.ps_controls.update_session(None)
+
+    def _on_table_selected(self, table_code: str):
+        # existing code that sets self.current_table...
+        self.current_table = table_code
+
+        # load PS session persisted in DB and restore UI timer immediately
+        sess = load_ps_session_from_db(table_code)
+        self.ps_controls.update_session(sess)
+
+        # also update order list / totals as before
+        self.order_list.set_items(order_manager.get_items(table_code))
+        self._update_totals(table_code)
+
 
     def _on_inventory_low(self, product, prev_stock, new_stock, min_stock):
         if new_stock is None:

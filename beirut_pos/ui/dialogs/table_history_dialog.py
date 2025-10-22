@@ -1,7 +1,8 @@
+# table_history_dialog.py
 from __future__ import annotations
 
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from PyQt6.QtCore import Qt, QDate
@@ -207,7 +208,8 @@ class TableHistoryDialog(BigDialog):
 
         self.table.setRowCount(len(rows))
         for row_idx, data in enumerate(rows):
-            self.table.setItem(row_idx, 0, QTableWidgetItem(str(data["order_id"])))
+            # data from get_table_history is dict-like; use .get for safety
+            self.table.setItem(row_idx, 0, QTableWidgetItem(str(data.get("order_id"))))
             self.table.setItem(row_idx, 1, QTableWidgetItem(data.get("opened_at") or ""))
             paid_display = data.get("paid_at") or data.get("closed_at") or ""
             self.table.setItem(row_idx, 2, QTableWidgetItem(paid_display))
@@ -241,6 +243,8 @@ class TableHistoryDialog(BigDialog):
         order_id = self._rows[row]["order_id"]
         dlg = OrderDetailsDialog(order_id, parent=self)
         dlg.exec()
+        # refresh the listing so totals / status reflect anything changed externally
+        self._refresh()
 
     def _export_csv(self) -> None:
         if not self._rows:
@@ -338,14 +342,41 @@ class OrderDetailsDialog(BigDialog):
             self.meta_grid.addWidget(value, row, 1)
             return value
 
+        # Meta rows: explicitly include opened, closed, paid so times are unambiguous
         self.table_label = _add_row(0, "tables.history.details.table", "الطاولة")
         self.opened_label = _add_row(1, "tables.history.details.opened_at", "وقت الفتح")
-        self.paid_label = _add_row(2, "tables.history.details.paid_at", "وقت الدفع")
-        self.cashier_label = _add_row(3, "tables.history.details.cashier", "الكاشير")
-        self.subtotal_label = _add_row(4, "tables.history.details.subtotal", "الإجمالي قبل الخصم")
-        self.discount_label = _add_row(5, "tables.history.details.discount", "الخصم")
-        self.total_label = _add_row(6, "tables.history.details.total", "الإجمالي بعد الخصم")
-        self.note_label = _add_row(7, "tables.history.details.discount_reason", "سبب الخصم")
+        self.closed_label = _add_row(2, "tables.history.details.closed_at", "وقت الإغلاق")
+        self.paid_label = _add_row(3, "tables.history.details.paid_at", "وقت الدفع")
+        self.cashier_label = _add_row(4, "tables.history.details.cashier", "الكاشير")
+        self.subtotal_label = _add_row(5, "tables.history.details.subtotal", "الإجمالي قبل الخصم")
+        self.discount_label = _add_row(6, "tables.history.details.discount", "الخصم")
+        self.total_label = _add_row(7, "tables.history.details.total", "الإجمالي بعد الخصم")
+        self.note_label = _add_row(8, "tables.history.details.discount_reason", "سبب الخصم")
+
+        # helper to format ISO -> local nicely as Arabic-style: DD-MM-YYYY H:MM ص/م
+        # assumes stored ISO is UTC when no tzinfo is present (project currently writes datetime.utcnow())
+        def _fmt_dt(iso_str: str | None) -> str:
+            if not iso_str:
+                return ""
+            try:
+                dt = datetime.fromisoformat(str(iso_str))
+            except Exception:
+                return str(iso_str)
+            # treat naive datetimes as UTC (project uses utcnow())
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            try:
+                local = dt.astimezone()  # convert to local system tz
+            except Exception:
+                local = dt
+            hour = local.hour
+            minute = local.minute
+            hour12 = hour % 12 or 12
+            suffix = "ص" if hour < 12 else "م"
+            return f"{local.day:02d}-{local.month:02d}-{local.year} {hour12}:{minute:02d} {suffix}"
+
+        # attach helper to instance so _load can use it
+        self._fmt_dt = _fmt_dt
 
         self.items_table = QTableWidget(0, 5)
         self.items_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -370,10 +401,16 @@ class OrderDetailsDialog(BigDialog):
         self.payments_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         root.addWidget(self.payments_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
-        root.addWidget(buttons)
+        # buttons area: only Close (view-only)
+        btns_layout = QHBoxLayout()
+        btns_layout.addStretch(1)
+
+        close_buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close_buttons.rejected.connect(self.reject)
+        close_buttons.accepted.connect(self.accept)
+        btns_layout.addWidget(close_buttons)
+
+        root.addLayout(btns_layout)
 
         self._load()
 
@@ -381,9 +418,10 @@ class OrderDetailsDialog(BigDialog):
         conn = get_conn()
         try:
             cur = conn.cursor()
+            # fetch order metadata and times
             order = cur.execute(
                 """
-                SELECT table_code, opened_at, closed_at, discount_cents, discount_reason
+                SELECT table_code, opened_at, closed_at, status, paid_at, discount_cents, discount_reason, opened_by
                 FROM orders
                 WHERE id=?
                 """,
@@ -423,6 +461,7 @@ class OrderDetailsDialog(BigDialog):
         finally:
             conn.close()
 
+        # compute totals
         subtotal = 0
         for it in items:
             price = int(it["price_cents"] or 0)
@@ -432,18 +471,29 @@ class OrderDetailsDialog(BigDialog):
         discount = int(order["discount_cents"] or 0)
         total = max(subtotal - discount, 0)
 
-        self.table_label.setText(order["table_code"] or "")
-        self.opened_label.setText(order["opened_at"] or "")
-        paid_at = payments[-1]["paid_at"] if payments else order["closed_at"]
-        self.paid_label.setText(paid_at or "")
+        # --- set meta fields (use sqlite3.Row indexing) ---
+        self.table_label.setText(order["table_code"] or "" if "table_code" in order.keys() else "")
+        self.opened_label.setText(self._fmt_dt(order["opened_at"] if "opened_at" in order.keys() else None))
+        self.closed_label.setText(self._fmt_dt(order["closed_at"] if "closed_at" in order.keys() else None))
+
+        # paid_at: prefer last payment timestamp when available, otherwise fall back to closed_at
+        if payments:
+            paid_at_raw = payments[-1]["paid_at"] if "paid_at" in payments[-1].keys() else payments[-1]["paid_at"]
+        else:
+            paid_at_raw = order["closed_at"] if "closed_at" in order.keys() else None
+        self.paid_label.setText(self._fmt_dt(paid_at_raw))
+
         cashiers = ", ".join(sorted({p["cashier"] for p in payments if p["cashier"]}))
         self.cashier_label.setText(cashiers or "-")
         self.subtotal_label.setText(format_pounds(subtotal))
         self.discount_label.setText(format_pounds(discount))
         self.total_label.setText(format_pounds(total))
-        note = (order["discount_reason"] or "").strip()
+
+        note = (order["discount_reason"] if "discount_reason" in order.keys() else "").strip()
         self.note_label.setText(note or "-")
 
+        # ensure table cleared then populate
+        self.items_table.clearContents()
         self.items_table.setRowCount(len(items))
         for idx, it in enumerate(items):
             self.items_table.setItem(idx, 0, QTableWidgetItem(it["product_name"]))
@@ -456,20 +506,29 @@ class OrderDetailsDialog(BigDialog):
             self.items_table.setItem(idx, 3, QTableWidgetItem(format_pounds(line_total)))
             self.items_table.setItem(idx, 4, QTableWidgetItem(it["note"] or ""))
 
+        # payments: format times robustly
+        prefix = texts.get("tables.history.details.payments", default="المدفوعات")
         if payments:
             parts = []
             for pay in payments:
+                try:
+                    paid_at_raw = pay["paid_at"] if "paid_at" in pay.keys() else None
+                except Exception:
+                    paid_at_raw = None
+                pay_time = self._fmt_dt(paid_at_raw)
+                method = pay["method"] if "method" in pay.keys() else ""
+                amount_cents = int(pay["amount_cents"] or 0) if "amount_cents" in pay.keys() else int(pay[1] or 0)
                 parts.append(
                     texts.get(
                         "tables.history.details.payments_entry",
-                        default=f"{pay['method']} — {format_pounds(int(pay['amount_cents'] or 0))} في {pay['paid_at']}",
-                        method=pay["method"],
-                        amount=format_pounds(int(pay["amount_cents"] or 0)),
-                        time=pay["paid_at"],
+                        default=f"{method} — {format_pounds(amount_cents)} في {pay_time}",
+                        method=method,
+                        amount=format_pounds(amount_cents),
+                        time=pay_time,
                     )
                 )
             payments_text = "\n".join(parts)
         else:
             payments_text = texts.get("tables.history.details.no_payments", default="لا يوجد مدفوعات مسجلة.")
-        prefix = texts.get("tables.history.details.payments", default="المدفوعات")
+
         self.payments_label.setText(f"{prefix}:\n{payments_text}")

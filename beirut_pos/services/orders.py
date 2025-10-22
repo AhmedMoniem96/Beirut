@@ -3,7 +3,7 @@
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple, Optional
 
 from ..core.bus import bus
@@ -1012,9 +1012,13 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value))
+        dt = datetime.fromisoformat(str(value))
     except Exception:
         return None
+    # treat naive datetimes as UTC (project currently writes datetime.utcnow())
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 class OrderManager:
@@ -1086,6 +1090,119 @@ class OrderManager:
             bus.emit("table_total_changed", order.table_code, order.total_cents)
         conn.close()
 
+    # make sure EditWindowError and _parse_iso_datetime are in scope
+
+    def reopen_for_edit(self, order_id: int, username: str = "system", reason: str = "") -> bool:
+        """
+        Reopen a paid order for editing:
+        - delete payments
+        - set status -> 'open' and clear paid/closed timestamps
+        - set editable_until to now(UTC)+5min (ISO string)
+        - rehydrate in-memory Order/OrderItem so UI shows items immediately
+        - emit bus events so UI updates
+        """
+        try:
+            with db_transaction() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM orders WHERE id=?", (order_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise OrderError("الطلب غير موجود")
+
+                # require paid orders only (adjust policy as needed)
+                if row["status"] != "paid":
+                    raise OrderError("لا يمكن إعادة فتح طلب غير مدفوع")
+
+                table_code = row["table_code"]
+
+                # load items and convert to dicts so we can use .get safely
+                cur.execute(
+                    "SELECT id, product_name, price_cents, qty, COALESCE(printed_qty,0) AS printed_qty, COALESCE(note,'') AS note "
+                    "FROM order_items WHERE order_id=? ORDER BY id",
+                    (order_id,),
+                )
+                item_rows = [dict(r) for r in cur.fetchall()]
+
+                # delete payments so order becomes editable
+                cur.execute("DELETE FROM payments WHERE order_id=?", (order_id,))
+
+                # set editable_until as aware UTC ISO (5 minutes window)
+                editable_until_dt = datetime.now(timezone.utc) + timedelta(minutes=5)
+                editable_until_iso = editable_until_dt.isoformat()
+
+                # update only the known columns (do NOT touch total_cents if it doesn't exist)
+                cur.execute(
+                    "UPDATE orders SET status = 'open', closed_at = NULL, closed_by = NULL, paid_at = NULL, editable_until = ? WHERE id = ?",
+                    (editable_until_iso, order_id),
+                )
+
+                # take a snapshot of order row as dict for later use outside transaction
+                order_row = dict(row)
+
+            # --- build in-memory items (outside transaction) ---
+            items = []
+            for r in item_rows:
+                items.append(
+                    OrderItem(
+                        product=r.get("product_name", ""),
+                        unit_price_cents=int(r.get("price_cents") or 0),
+                        qty=float(r.get("qty") or 0.0),
+                        note=r.get("note") or "",
+                        row_id=r.get("id"),
+                        printed_qty=float(r.get("printed_qty") or 0.0),
+                    )
+                )
+
+            # create in-memory Order object (adjust args to your Order ctor)
+            order = Order(
+                id=order_id,
+                table_code=table_code,
+                items=items,
+                status="open",
+                opened_by=order_row.get("opened_by", "") if order_row else "",
+                discount_type="amount",
+                discount_value=0.0,
+                discount_reason="",
+                paid_at=None,
+                editable_until=editable_until_iso,
+            )
+
+            # put in-memory map & emit events so UI updates immediately
+            self.orders[table_code] = order
+            try:
+                bus.emit("table_state_changed", table_code, "occupied")
+                # emit total in cents computed from items (UI expects numeric cents)
+                subtotal_cents = sum(int(round(it.unit_price_cents * it.qty)) for it in items)
+                bus.emit("table_total_changed", table_code, int(round(subtotal_cents)))
+            except Exception:
+                pass
+
+            # log the action
+            try:
+                log_action(username, "reopen_for_edit", "order", table_code, str(order_id), reason or "")
+            except Exception:
+                pass
+
+            return True
+
+        except OrderError:
+            raise
+        except Exception as e:
+            logger.exception("Failed to reopen order %s: %s", order_id, e)
+            raise OrderError(f"فشل إعادة فتح الطلب: {e}")
+
+        except OrderError:
+            # preserve OrderError to show to caller
+            raise
+        except Exception as e:
+            logger.exception("Failed to reopen order %s: %s", order_id, e)
+            raise OrderError(f"فشل إعادة فتح الطلب: {e}")
+
+    def load_order_for_edit(self, order_id: int, username: str = "admin"):
+        import warnings
+        warnings.warn("load_order_for_edit is deprecated; use reopen_for_edit()", DeprecationWarning)
+        return self.reopen_for_edit(order_id, username=username)
+
     def _load_ps_sessions(self) -> None:
         conn = get_conn()
         cur = conn.cursor()
@@ -1117,13 +1234,40 @@ class OrderManager:
         _store_table_codes(self.table_codes)
         bus.emit("tables_changed", list(self.table_codes))
 
+    from datetime import datetime, timezone
+
     def _is_order_edit_locked(self, order: Order) -> bool:
+        """
+        Return True if the order is locked for editing.
+        Accepts editable_until as None, str (ISO), naive datetime or aware datetime.
+        Comparison is always done against UTC-aware now().
+        """
         if order.editable_until is None:
             return False
+        # allow admin override
         if ALLOW_LATE_EDIT_OVERRIDE:
             return False
-        now = datetime.utcnow()
-        return now > order.editable_until
+
+        eu = order.editable_until
+        # if editable_until stored as str, parse ISO
+        if isinstance(eu, str):
+            try:
+                parsed = datetime.fromisoformat(eu)
+            except Exception:
+                # if parsing fails, be conservative: not locked (or choose locked)
+                return False
+            eu = parsed
+
+        # if naive -> treat as UTC (project uses utcnow())
+        if isinstance(eu, datetime) and eu.tzinfo is None:
+            eu = eu.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        # if for some reason eu is not a datetime now, be conservative
+        try:
+            return now > eu
+        except Exception:
+            return False
 
     def _ensure_order_editable(self, order: Order) -> None:
         if self._is_order_edit_locked(order):
@@ -1770,6 +1914,41 @@ class OrderManager:
         bus.emit("table_total_changed", table_code, order.total_cents)
 
     # ----- PlayStation -----
+    import math
+    from datetime import datetime, timezone
+
+    # helper to parse stored started_at (accepts datetime or ISO string or None)
+    def _ensure_dt(value) -> datetime | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            dt = value
+        else:
+            # value may be an ISO string saved earlier
+            try:
+                dt = datetime.fromisoformat(str(value))
+            except Exception:
+                # fallback: try naive parsing and assume UTC
+                try:
+                    dt = datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%S")
+                except Exception:
+                    return None
+        # If naive, treat as UTC (project writes utcnow() historically).
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    def _isoutc(dt: datetime | None) -> str | None:
+        if dt is None:
+            return None
+        # ensure tz-aware UTC then toisoformat()
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat()
+
+    import math
+    from datetime import datetime, timezone
+
     def _close_session_and_bill(self, table_code: str):
         """Close PlayStation session and bill it to the order"""
         sess = self.ps_sessions.get(table_code)
@@ -1777,11 +1956,26 @@ class OrderManager:
             return
 
         try:
-            now = datetime.utcnow()
-            elapsed = sess.total_seconds + max(0, int((now - sess.started_at).total_seconds()))
-            minutes = max(1, elapsed // 60)
-            rate = self.catalog.get_ps_rate_hour_cents(sess.mode)
+            now = datetime.utcnow().replace(tzinfo=timezone.utc)
+            # sess.started_at should be tz-aware (see saver/loader changes below).
+            # If sess.started_at is naive, treat it as UTC:
+            started = sess.started_at
+            if isinstance(started, str):
+                try:
+                    started_dt = datetime.fromisoformat(started)
+                except Exception:
+                    started_dt = now
+            else:
+                started_dt = started
 
+            if started_dt.tzinfo is None:
+                started_dt = started_dt.replace(tzinfo=timezone.utc)
+
+            elapsed = int(sess.total_seconds or 0) + max(0, int((now - started_dt).total_seconds()))
+            # bill by full minutes, rounding UP so partial minutes count
+            minutes = max(1, math.ceil(elapsed / 60.0))
+
+            rate = self.catalog.get_ps_rate_hour_cents(sess.mode)
             if rate and rate > 0:
                 per_min = rate / 60.0
                 amount = int(round(per_min * minutes))
@@ -1811,26 +2005,29 @@ class OrderManager:
                 bus.emit("ps_state_changed", table_code, False)
             except Exception as e:
                 logger.error(f"Failed to cleanup PS session for '{table_code}': {e}")
+
     def ps_start(self, table_code: str, mode: str):
         # if there’s an open session, bill it first
         self._close_session_and_bill(table_code)
-        now = datetime.utcnow()
-        self.ps_sessions[table_code] = PSSession(mode=mode, started_at=now)
+        now = datetime.now(timezone.utc)
+        # keep started_at as datetime on object, store ISO in DB
+        self.ps_sessions[table_code] = PSSession(mode=mode, started_at=now, total_seconds=0)
         with db_transaction() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO ps_sessions(table_code, mode, started_at, total_seconds) VALUES(?,?,?,?)",
-                (table_code, mode, now.isoformat(), 0),
+                (table_code, mode, _isoutc(now), 0),
             )
         bus.emit("ps_state_changed", table_code, True)
 
     def ps_switch(self, table_code: str, new_mode: str):
+        # close and bill current session first
         self._close_session_and_bill(table_code)
-        now = datetime.utcnow()
-        self.ps_sessions[table_code] = PSSession(mode=new_mode, started_at=now)
+        now = datetime.now(timezone.utc)
+        self.ps_sessions[table_code] = PSSession(mode=new_mode, started_at=now, total_seconds=0)
         with db_transaction() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO ps_sessions(table_code, mode, started_at, total_seconds) VALUES(?,?,?,?)",
-                (table_code, new_mode, now.isoformat(), 0),
+                (table_code, new_mode, _isoutc(now), 0),
             )
         bus.emit("ps_state_changed", table_code, True)
 
@@ -1838,17 +2035,22 @@ class OrderManager:
         self._close_session_and_bill(table_code)
 
     def snapshot_ps_sessions(self) -> None:
+        """Persist current sessions: update total_seconds and started_at (reset to now)."""
         if not self.ps_sessions:
             return
         with db_transaction() as conn:
             for table_code, sess in list(self.ps_sessions.items()):
-                now = datetime.utcnow()
-                elapsed = max(0, int((now - sess.started_at).total_seconds()))
-                sess.total_seconds += elapsed
+                now = datetime.now(timezone.utc)
+                started_at = _ensure_dt(sess.started_at)
+                if started_at is None:
+                    started_at = now
+                elapsed = max(0, int((now - started_at).total_seconds()))
+                sess.total_seconds = int(getattr(sess, "total_seconds", 0) or 0) + elapsed
+                # reset started_at to now (persisted)
                 sess.started_at = now
                 conn.execute(
                     "INSERT OR REPLACE INTO ps_sessions(table_code, mode, started_at, total_seconds) VALUES(?,?,?,?)",
-                    (table_code, sess.mode, sess.started_at.isoformat(), sess.total_seconds),
+                    (table_code, sess.mode, _isoutc(sess.started_at), sess.total_seconds),
                 )
 
     # ----- Bar printing helpers (ONLY NEW items) -----
@@ -2088,3 +2290,147 @@ def get_table_history(
             }
         )
     return result
+# ----- Historical order helpers (edit within edit-window) -----
+def load_order_by_id(order_id: int) -> dict | None:
+    """Return a lightweight dict for a historical order (paid/void).
+    Similar shape to get_table_history() rows but includes order_items rows with id so we can edit.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, table_code, opened_at, closed_at,
+               COALESCE(discount_cents,0) as discount_cents,
+               COALESCE(discount_reason,'') as discount_reason,
+               COALESCE(discount_type,'amount') as discount_type,
+               COALESCE(discount_value,0) as discount_value,
+               paid_at, editable_until
+        FROM orders
+        WHERE id=?
+        """,
+        (order_id,),
+    )
+    o = cur.fetchone()
+    if not o:
+        conn.close()
+        return None
+
+    cur.execute(
+        "SELECT id, product_name, price_cents, qty, COALESCE(note,'') as note, COALESCE(printed_qty,0) as printed_qty "
+        "FROM order_items WHERE order_id=? ORDER BY id",
+        (order_id,),
+    )
+    items = [
+        {
+            "row_id": r["id"],
+            "product": r["product_name"],
+            "unit_price_cents": int(r["price_cents"]),
+            "qty": float(r["qty"]),
+            "note": r["note"],
+            "printed_qty": float(r["printed_qty"]),
+        }
+        for r in cur.fetchall()
+    ]
+    conn.close()
+    return {
+        "id": int(o["id"]),
+        "table_code": o["table_code"],
+        "opened_at": o["opened_at"],
+        "closed_at": o["closed_at"],
+        "discount_cents": int(o["discount_cents"]),
+        "discount_reason": o["discount_reason"],
+        "discount_type": o["discount_type"],
+        "discount_value": float(o["discount_value"]),
+        "paid_at": o["paid_at"],
+        "editable_until": o["editable_until"],
+        "items": items,
+    }
+
+
+def _parse_iso_dt(v: str | None):
+    if not v:
+        return None
+    try:
+        return datetime.fromisoformat(str(v))
+    except Exception:
+        return None
+
+
+def edit_historical_order_item(order_id: int, row_id: int, qty: float, note: str, username: str = "system") -> bool:
+    """Edit order_items.id==row_id for a historical order (must be within editable window).
+    Returns True if updated, False if validation prevents update.
+    Raises OrderError on DB/logic failures.
+    """
+    # load order header and editable_until
+    o = load_order_by_id(order_id)
+    if not o:
+        raise OrderError("الطلب غير موجود")
+
+    # Check editable window
+    if o.get("editable_until") is not None:
+        editable_until = _parse_iso_dt(o["editable_until"])
+        if not ALLOW_LATE_EDIT_OVERRIDE:
+            now = datetime.utcnow()
+            if editable_until is None or now > editable_until:
+                raise EditWindowError()  # same error used for open orders
+    else:
+        # no editable window on this historic order
+        raise EditWindowError()
+
+    # Validate qty
+    qty_val = float(qty)
+    if qty_val <= 0:
+        # if qty <= 0 treat as delete of the item: delete row
+        with db_transaction() as conn:
+            conn.execute("DELETE FROM order_items WHERE id=?", (row_id,))
+        # recalc payments/totals is out-of-scope here — UI should warn if needed
+        bus.emit("ui_texts_changed")  # nudge UI re-synch if desired
+        return True
+
+    # Before applying, ensure stock constraints if product is tracked
+    # get product name for row
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT product_name, price_cents, qty, printed_qty FROM order_items WHERE id=?", (row_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise OrderError("بند الطلب غير موجود")
+    product_name = row["product_name"]
+    old_qty = float(row["qty"] or 0.0)
+    printed_qty = float(row["printed_qty"] or 0.0)
+    # If new qty < printed_qty, refuse (can't reduce below printed)
+    if qty_val < printed_qty - 1e-6:
+        conn.close()
+        raise OrderError("لا يمكن تقليل الكمية تحت كمية المطبوع")
+
+    # handle stock adjustments if product tracks stock (similar logic to update_item)
+    prod = None
+    try:
+        prod = OrderManager().catalog.get_product(product_name)  # lightweight catalog access
+    except Exception:
+        prod = None
+
+    try:
+        with db_transaction() as tx:
+            # if tracked and qty increases -> dec_stock, if decreases -> inc_stock
+            delta = qty_val - old_qty
+            if prod and prod.get("track_stock") == 1:
+                if delta > 0:
+                    # check available
+                    before = float(prod["stock_qty"] or 0.0)
+                    if before < delta - 1e-6:
+                        raise StockError(f"المنتج '{product_name}' غير متوفر بالكميات المطلوبة")
+                    # decrement
+                    OrderManager().catalog.dec_stock(product_name, delta, conn=tx)
+                elif delta < 0:
+                    OrderManager().catalog.inc_stock(product_name, -delta, conn=tx)
+
+            # persist change
+            tx.execute("UPDATE order_items SET qty=?, note=? WHERE id=?", (qty_val, str(note or ""), row_id))
+    except Exception as e:
+        raise OrderError(f"تعذر تعديل بند الطلب: {e}")
+
+    # optionally emit an event so UI/listeners can refresh relevant screens
+    bus.emit("tables_changed", OrderManager().get_table_codes())
+    return True

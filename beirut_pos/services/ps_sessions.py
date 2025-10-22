@@ -1,65 +1,34 @@
 # beirut_pos/services/ps_sessions.py
-from typing import Optional, Dict, Any
-from datetime import datetime, timezone
-from ..core.db import get_conn
+from datetime import datetime
+from typing import Optional
+from .orders import PSSession
 
-def _parse_iso(dt_iso: str | None) -> Optional[datetime]:
-    if not dt_iso:
+
+def load_ps_session_from_db(table_code: str) -> Optional[PSSession]:
+    """Load PS session from database for a table."""
+    from .core.db import get_conn
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT table_code, mode, started_at, total_seconds FROM ps_sessions WHERE table_code=?",
+        (table_code,)
+    )
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
         return None
+
+    # Convert database row to PSSession object
+    started_raw = row["started_at"] or ""
     try:
-        dt = datetime.fromisoformat(dt_iso)
-        # ensure timezone-awareness: consider naive stored times as UTC
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        started_at = datetime.fromisoformat(started_raw)
     except Exception:
-        return None
+        started_at = datetime.utcnow()
 
-def load_ps_session_from_db(table_code: str) -> Optional[Dict[str, Any]]:
-    """
-    Return a dict for a given table or None:
-    {
-      "table_code": "T10",
-      "mode": "P2" or "P4",
-      "started_at": "2025-10-22T13:00:00Z" (string as stored),
-      "total_seconds": 123   # persisted accumulated seconds before current run
-    }
-    """
-    conn = get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT table_code, mode, started_at, total_seconds FROM ps_sessions WHERE table_code=?",
-            (table_code.upper(),),
-        )
-        r = cur.fetchone()
-        if not r:
-            return None
-        return {
-            "table_code": r["table_code"],
-            "mode": r["mode"],
-            "started_at": r["started_at"],
-            "total_seconds": int(r["total_seconds"] or 0),
-        }
-    finally:
-        conn.close()
-
-def load_all_ps_sessions_from_db() -> Dict[str, Dict[str, Any]]:
-    """
-    Return mapping table_code -> session dict (same shape as load_ps_session_from_db).
-    """
-    out: Dict[str, Dict[str, Any]] = {}
-    conn = get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT table_code, mode, started_at, total_seconds FROM ps_sessions")
-        for r in cur.fetchall():
-            out[r["table_code"]] = {
-                "table_code": r["table_code"],
-                "mode": r["mode"],
-                "started_at": r["started_at"],
-                "total_seconds": int(r["total_seconds"] or 0),
-            }
-    finally:
-        conn.close()
-    return out
+    return PSSession(
+        mode=row["mode"],
+        started_at=started_at,
+        total_seconds=int(row["total_seconds"] or 0),
+    )

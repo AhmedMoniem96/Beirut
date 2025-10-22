@@ -18,8 +18,7 @@ QPushButton#tableBtn {
 QPushButton#tableBtn:checked { border:2px solid #4fc3f7; }
 QLabel#badge { background:#111; color:#fff; border-radius:10px; padding:2px 8px; }
 QLabel#reservedLabel { color:#f8bbd0; font-weight:600; }
-QLabel#psTimer { color:#fff; font-weight:700; padding:0 6px; }
-QPushButton.psCtrl { background:#5d4037; color:#fff; border-radius:6px; padding:4px 6px; }
+QLabel#psTimer { color:#ff9800; font-weight:700; padding:0 6px; font-size:11px; }
 """
 
 RESERVED_BORDER = "#8e24aa"
@@ -32,7 +31,7 @@ def _format_ampm(dt: datetime) -> str:
 
 
 class TableTile(QFrame):
-    def __init__(self, code: str, on_select: Callable[[str], None], on_ps_action: Optional[Callable[[str, str], None]] = None):
+    def __init__(self, code: str, on_select: Callable[[str], None]):
         super().__init__()
         self.setObjectName("tile")
         self.setStyleSheet(STYLE)
@@ -40,27 +39,20 @@ class TableTile(QFrame):
         self._state = "free"
         self._reservations = None
         self._ps_running = False
-        self._ps_mode = None
         self._ps_elapsed = 0  # seconds
-        self._on_ps_action = on_ps_action
 
         v = QVBoxLayout(self)
         v.setContentsMargins(10, 10, 10, 10)
         v.setSpacing(6)
 
-        # Top: PS icon + timer + badge on the right
+        # Top: PS timer + badge on the right
         top = QHBoxLayout()
         top.setSpacing(6)
 
-        self.ps_icon = QLabel()              # 🎮 tiny indicator
-        self.ps_icon.setFixedSize(18, 18)
-        self.ps_icon.hide()
-
-        self.ps_timer = QLabel("")           # live timer text
+        self.ps_timer = QLabel("")  # timer text only
         self.ps_timer.setObjectName("psTimer")
         self.ps_timer.hide()
 
-        top.addWidget(self.ps_icon)
         top.addStretch(1)
         top.addWidget(self.ps_timer)
         self.badge = QLabel("")
@@ -84,31 +76,6 @@ class TableTile(QFrame):
         self.reserved_label.hide()
         v.addWidget(self.reserved_label)
 
-        # PS controls row (hidden unless needed)
-        ctrl_row = QHBoxLayout()
-        ctrl_row.setSpacing(6)
-        self.btn_start_p2 = QPushButton("Start 2")
-        self.btn_start_p4 = QPushButton("Start 4")
-        self.btn_switch_p2 = QPushButton("Switch 2")
-        self.btn_switch_p4 = QPushButton("Switch 4")
-        self.btn_stop = QPushButton("Stop")
-        for b in (self.btn_start_p2, self.btn_start_p4, self.btn_switch_p2, self.btn_switch_p4, self.btn_stop):
-            b.setObjectName("psCtrl")
-            b.setProperty("class", "psCtrl")
-            b.setFixedHeight(24)
-            b.setVisible(False)
-            ctrl_row.addWidget(b)
-
-        v.addLayout(ctrl_row)
-
-        # Hook buttons to callbacks (if provided)
-        if self._on_ps_action:
-            self.btn_start_p2.clicked.connect(lambda: self._on_ps_action(self.code, "start_p2"))
-            self.btn_start_p4.clicked.connect(lambda: self._on_ps_action(self.code, "start_p4"))
-            self.btn_switch_p2.clicked.connect(lambda: self._on_ps_action(self.code, "switch_p2"))
-            self.btn_switch_p4.clicked.connect(lambda: self._on_ps_action(self.code, "switch_p4"))
-            self.btn_stop.clicked.connect(lambda: self._on_ps_action(self.code, "stop"))
-
         # timer for live update when running
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
@@ -124,7 +91,7 @@ class TableTile(QFrame):
         h = sec // 3600
         m = (sec % 3600) // 60
         s = sec % 60
-        self.ps_timer.setText(f"{h:02d}:{m:02d}:{s:02d}")
+        self.ps_timer.setText(f"🎮 {h:02d}:{m:02d}:{s:02d}")
 
     def set_state(self, state: str):
         self._state = state
@@ -137,39 +104,19 @@ class TableTile(QFrame):
         else:
             self.badge.hide()
 
-    def set_ps_active(self, active: bool, elapsed_seconds: int = 0, mode: Optional[str] = None):
-        """Turn PS indicator and timer on/off for this tile.
-
-        active: bool
-        elapsed_seconds: starting elapsed seconds (int)
-        mode: optional string (e.g. "P2" or "P4")
-        """
-        self._ps_mode = mode
+    def set_ps_active(self, active: bool, elapsed_seconds: int = 0):
+        """Turn PS timer on/off for this tile."""
         if active:
-            self.ps_icon.setText("🎮")
-            self.ps_icon.show()
             self._ps_elapsed = int(elapsed_seconds or 0)
             self._render_timer_label()
             self.ps_timer.show()
-            # show inline controls: stop + switch buttons
-            self.btn_start_p2.setVisible(True)
-            self.btn_start_p4.setVisible(True)
-            self.btn_switch_p2.setVisible(True)
-            self.btn_switch_p4.setVisible(True)
-            self.btn_stop.setVisible(True)
             if not self._timer.isActive():
                 self._timer.start()
         else:
             # stop timer and hide
             if self._timer.isActive():
                 self._timer.stop()
-            self.ps_icon.hide()
             self.ps_timer.hide()
-            self.btn_start_p2.setVisible(False)
-            self.btn_start_p4.setVisible(False)
-            self.btn_switch_p2.setVisible(False)
-            self.btn_switch_p4.setVisible(False)
-            self.btn_stop.setVisible(False)
 
     def set_checked(self, checked: bool):
         self.btn.setChecked(checked)
@@ -216,12 +163,11 @@ class TableTile(QFrame):
 class TableMap(QWidget):
     MIN_TILE = QSize(160, 120)
 
-    def __init__(self, table_codes, on_select, on_ps_action: Optional[Callable[[str, str], None]] = None):
+    def __init__(self, table_codes, on_select):
         super().__init__()
         self.tiles = {}
         self._current = None
         self._external_select_cb = on_select
-        self._on_ps_action = on_ps_action
         self._table_codes = []
         self._last_cols = -1
         self._reservations = {}
@@ -264,7 +210,7 @@ class TableMap(QWidget):
 
         for code in cleaned:
             if code not in self.tiles:
-                tile = TableTile(code, self._on_click, on_ps_action=self._on_ps_action)
+                tile = TableTile(code, self._on_click)
                 tile.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
                 tile.set_reserved(self._reservations.get(code))
                 self.tiles[code] = tile
@@ -275,9 +221,9 @@ class TableMap(QWidget):
         self._relayout(force=True)
 
     def update_table(self, code, state: str = None, total_cents: int = None, ps_active: Optional[bool] = None,
-                     ps_elapsed_seconds: Optional[int] = None, ps_mode: Optional[str] = None, **kwargs):
+                     ps_elapsed_seconds: Optional[int] = None, **kwargs):
         """
-        Robust update_table that accepts multiple synonyms for PS args for backward compatibility.
+        Update table tile with state, total, and PS status.
         """
         t = self.tiles.get(code)
         if not t:
@@ -287,12 +233,13 @@ class TableMap(QWidget):
         if total_cents is not None:
             t.set_total(total_cents)
 
-        # synonyms handling
+        # Handle PS display
         if ps_active is None:
             if "ps_running" in kwargs:
                 ps_active = bool(kwargs.get("ps_running"))
             elif "ps_active" in kwargs:
                 ps_active = bool(kwargs.get("ps_active"))
+
         if ps_elapsed_seconds is None:
             for k in ("ps_elapsed_seconds", "ps_elapsed", "elapsed_seconds", "elapsed"):
                 if k in kwargs:
@@ -301,17 +248,12 @@ class TableMap(QWidget):
                         break
                     except Exception:
                         ps_elapsed_seconds = 0
-        if ps_mode is None:
-            ps_mode = kwargs.get("ps_mode") or kwargs.get("mode")
 
-        if ps_active is None:
-            # nothing to change re PS display
-            return
-
-        try:
-            t.set_ps_active(bool(ps_active), int(ps_elapsed_seconds or 0), ps_mode)
-        except Exception:
-            pass
+        if ps_active is not None:
+            try:
+                t.set_ps_active(bool(ps_active), int(ps_elapsed_seconds or 0))
+            except Exception:
+                pass
 
     def set_reservations(self, reservations: dict[str, str]):
         normalized: dict[str, str] = {}

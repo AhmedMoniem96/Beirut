@@ -128,8 +128,9 @@ def _get_escpos_printer(printer_name: str):
         print(f"[DEBUG] Error initializing ESC/POS printer: {e}")
         return None
 
+
 def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: str) -> bool:
-    """Print bar ticket using ESC/POS commands (DIRECT TO PRINTER)"""
+    """Print bar ticket with BOX STYLE - only unprinted items + customizations"""
     print(f"[DEBUG] _print_escpos_bar_ticket called for table {table_code}")
 
     p = _get_escpos_printer(printer_name)
@@ -154,46 +155,43 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
 
         # Initialize printer + Arabic codepage
         _set_ar_codepage(p)
-        p.set(align='right')  # alignment only
-
-        # Header
-        p.set(align='center', text_type='B', width=2, height=2)
-        p.text(_shape_ar_escpos(texts.get("receipt.bar.header")) + "\n")
-
-        # Info
-        p.set(align='right', text_type='NORMAL', width=1, height=1)
-        p.text(_shape_ar_escpos(texts.get("receipt.bar.table", table_code=table_code)) + "\n")
-        p.text(_shape_ar_escpos(texts.get("receipt.bar.issued_at", timestamp=ts)) + "\n")
-
         p.set(align='center')
-        p.text("=" * 32 + "\n")
 
-        # Table header
-        p.set(align='right', text_type='NORMAL')
-        p.text(_shape_ar_escpos("الصنف               الكمية    الإجمالي") + "\n")
-        p.set(align='center')
-        p.text("-" * 32 + "\n")
+        # HEADER BOX
+        p.text("┌──────────────────────────────┐\n")
+        p.set(text_type='B', width=2, height=2)
+        p.text(f"│{_shape_ar_escpos(texts.get('receipt.bar.header')):^30}│\n")
+        p.set(text_type='NORMAL', width=1, height=1)
+        p.text("├──────────────────────────────┤\n")
+        p.set(align='right')
+        p.text(f"│{_shape_ar_escpos(texts.get('receipt.bar.table', table_code=table_code)):<30}│\n")
+        p.text(f"│{_shape_ar_escpos(texts.get('receipt.bar.issued_at', timestamp=ts)):<30}│\n")
+        p.text("├──────────────────────────────┤\n")
 
-        # Items
+        # ITEMS HEADER
+        p.text(f"│{'الصنف':<18} {'الكمية':<8}│\n")
+        p.text("├──────────────────────────────┤\n")
+
+        # ITEMS LIST
         for it in items:
             name = _shape_ar_escpos(str(it["name"]))
             qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
-            total = _format_currency_cents(it["total_cents"], currency)
 
-            p.set(align='left')
-            p.text(name)
-            spaces_needed = 32 - len(name) - len(str(qty)) - len(total) - 4
-            if spaces_needed < 1:
-                spaces_needed = 1
-            p.text(" " * spaces_needed + f"{qty}    {total}\n")
+            # Truncate long names
+            if len(name) > 18:
+                name = name[:15] + "..."
 
+            p.text(f"│ {name:<18} {qty:>8} │\n")
+
+            # Show notes/customizations if any
             note = (it.get("note") or "").strip()
             if note:
-                p.set(align='right')
-                p.text(_shape_ar_escpos(texts.get("receipt.note", note=note)) + "\n")
+                note_display = _shape_ar_escpos(f"• {note}")
+                if len(note_display) > 28:
+                    note_display = note_display[:25] + "..."
+                p.text(f"│ {note_display:<28} │\n")
 
-        p.set(align='center')
-        p.text("=" * 32 + "\n")
+        p.text("└──────────────────────────────┘\n")
         p.text("\n\n")
 
         # Cut
@@ -212,8 +210,6 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
             p.close()
         except Exception:
             pass
-
-
 def _print_escpos_cashier_receipt(
         table_code: str,
         items: List[dict],
@@ -227,7 +223,7 @@ def _print_escpos_cashier_receipt(
         printer_name: str,
         discount_label: str,
 ) -> bool:
-    """ULTRA COMPACT receipt - minimum paper usage!"""
+    """BOX STYLE receipt - Section boxes for better organization!"""
     p = _get_escpos_printer(printer_name)
     if not p:
         return False
@@ -247,66 +243,76 @@ def _print_escpos_cashier_receipt(
 
         # Initialize printer
         _set_ar_codepage(p)
+        p.set(align='center')
 
-        # ULTRA COMPACT HEADER - ONE LINE
-        p.set(align='center', text_type='B')
-        p.text(_shape_ar_escpos(texts.get("receipt.cashier.header", client_name=client_name)) + "\n")
-        p.set(align='center', text_type='NORMAL')
-        p.text(
-            _shape_ar_escpos(texts.get("receipt.cashier.meta", table_code=table_code, cashier=cashier))
-            + "\n"
-        )
-        p.text(_shape_ar_escpos(texts.get("receipt.bar.issued_at", timestamp=ts)) + "\n")
-        p.text(_shape_ar_escpos(texts.get("receipt.cashier.method", method=method)) + "\n")
-        p.text("─" * 32 + "\n")
+        # HEADER BOX
+        p.text("┌──────────────────────────────┐\n")
+        p.set(text_type='B')
+        p.text(f"│{client_name:^30}│\n")
+        p.text(f"│{'إيصال دفع':^30}│\n")
+        p.set(text_type='NORMAL')
+        p.text("├──────────────────────────────┤\n")
+        p.set(align='right')
+        p.text(f"│ الطاولة: {table_code:<19} │\n")
+        p.text(f"│ الكاشير: {cashier:<19} │\n")
+        p.text(f"│ الوقت: {ts:<21} │\n")
+        p.text(f"│ الدفع: {method:<21} │\n")
+        p.text("└──────────────────────────────┘\n")
+        p.text("\n")
 
-        # ULTRA COMPACT ITEMS - MINIMAL LINES
+        # ITEMS BOX
+        p.text("┌─────────── Items ────────────┐\n")
+        p.set(align='right')
+        p.text(f"│{'الصنف':<16} {'الكمية':<4} {'المبلغ':<6}│\n")
+        p.text("├──────────────────────────────┤\n")
+
         for it in items:
             name = _shape_ar_escpos(str(it["name"]))
             qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
             item_total = _format_currency_cents(it["total_cents"], currency)
 
-            # Product + Qty + Total in ONE line
-            main_line = f"{name} {qty} {item_total}"
-            if len(main_line) > 32:
-                main_line = name[:25] + f" {qty} {item_total}"
-            p.text(main_line + "\n")
+            # Truncate long names
+            if len(name) > 16:
+                name = name[:13] + "..."
 
-            # Notes only if absolutely necessary, in parentheses
+            p.text(f"│ {name:<16} {qty:>4} {item_total:>6} │\n")
+
+            # Show notes/customizations if any
             note = (it.get("note") or "").strip()
             if note:
-                note_line = _shape_ar_escpos(texts.get("receipt.note", note=note))
-                if len(note_line) > 32:
-                    note_line = note_line[:29] + "..."
-                p.text(note_line + "\n")
+                note_display = _shape_ar_escpos(f"({note})")
+                if len(note_display) > 28:
+                    note_display = note_display[:25] + "..."
+                p.text(f"│ {note_display:<28} │\n")
 
-        p.text("─" * 32 + "\n")
+        p.text("└──────────────────────────────┘\n")
+        p.text("\n")
 
-        # ULTRA COMPACT TOTALS - NO EXTRA SPACING
+        # TOTALS BOX
+        p.text("┌────────── Totals ────────────┐\n")
         p.set(align='right')
-        p.text(
-            _shape_ar_escpos(
-                texts.get("receipt.cashier.subtotal", amount=_format_currency_cents(subtotal, currency))
-            )
-            + "\n"
-        )
-        if discount:
-            p.text(
-                _shape_ar_escpos(
-                    texts.get("receipt.cashier.discount", amount=_format_currency_cents(discount, currency))
-                )
-                + "\n"
-            )
-        p.text(
-            _shape_ar_escpos(
-                texts.get("receipt.cashier.total", amount=_format_currency_cents(total, currency))
-            )
-            + "\n"
-        )
+        p.text(f"│ المجموع: {_format_currency_cents(subtotal, ''):>19} │\n")
 
+        if discount:
+            p.text(f"│ الخصم: {_format_currency_cents(discount, ''):>21} │\n")
+
+        if service:
+            p.text(f"│ الخدمة: {_format_currency_cents(service, ''):>20} │\n")
+
+        if tax:
+            p.text(f"│ الضريبة: {_format_currency_cents(tax, ''):>19} │\n")
+
+        p.text("├──────────────────────────────┤\n")
+        p.set(text_type='B')
+        p.text(f"│ الإجمالي: {_format_currency_cents(total, ''):>18} │\n")
+        p.set(text_type='NORMAL')
+        p.text("└──────────────────────────────┘\n")
+        p.text("\n")
+
+        # FOOTER
         p.set(align='center')
         p.text(_shape_ar_escpos(texts.get("receipt.footer")) + "\n")
-        p.text("\n")  # Just ONE line break before cut
+        p.text("\n")
 
         # Cut
         p.cut()

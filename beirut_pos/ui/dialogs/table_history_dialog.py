@@ -98,7 +98,7 @@ class TableHistoryDialog(BigDialog):
 
         root.addLayout(filters)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -107,10 +107,12 @@ class TableHistoryDialog(BigDialog):
         header.setStretchLastSection(False)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         headers = [
             texts.get("tables.history.headers.order_id", default="رقم الطلب"),
+            texts.get("tables.history.headers.client_name", default="اسم العميل"),
             texts.get("tables.history.headers.opened_at", default="وقت الفتح"),
             texts.get("tables.history.headers.paid_at", default="وقت الدفع"),
             texts.get("tables.history.headers.total", default="الإجمالي"),
@@ -210,12 +212,14 @@ class TableHistoryDialog(BigDialog):
         for row_idx, data in enumerate(rows):
             # data from get_table_history is dict-like; use .get for safety
             self.table.setItem(row_idx, 0, QTableWidgetItem(str(data.get("order_id"))))
-            self.table.setItem(row_idx, 1, QTableWidgetItem(data.get("opened_at") or ""))
+            client_cell = (data.get("client_name") or "").strip()
+            self.table.setItem(row_idx, 1, QTableWidgetItem(client_cell))
+            self.table.setItem(row_idx, 2, QTableWidgetItem(data.get("opened_at") or ""))
             paid_display = data.get("paid_at") or data.get("closed_at") or ""
-            self.table.setItem(row_idx, 2, QTableWidgetItem(paid_display))
-            self.table.setItem(row_idx, 3, QTableWidgetItem(format_pounds(data.get("total_cents", 0))))
-            self.table.setItem(row_idx, 4, QTableWidgetItem(format_pounds(data.get("discount_cents", 0))))
-            self.table.setItem(row_idx, 5, QTableWidgetItem(data.get("cashier") or ""))
+            self.table.setItem(row_idx, 3, QTableWidgetItem(paid_display))
+            self.table.setItem(row_idx, 4, QTableWidgetItem(format_pounds(data.get("total_cents", 0))))
+            self.table.setItem(row_idx, 5, QTableWidgetItem(format_pounds(data.get("discount_cents", 0))))
+            self.table.setItem(row_idx, 6, QTableWidgetItem(data.get("cashier") or ""))
             items_count_raw = data.get("items_count", 0)
             try:
                 items_count = float(items_count_raw)
@@ -225,7 +229,7 @@ class TableHistoryDialog(BigDialog):
                 items_str = str(int(round(items_count)))
             else:
                 items_str = f"{items_count:g}"
-            self.table.setItem(row_idx, 6, QTableWidgetItem(items_str))
+            self.table.setItem(row_idx, 7, QTableWidgetItem(items_str))
 
         self.table.setVisible(bool(rows))
         self.empty_label.setVisible(not rows)
@@ -275,6 +279,7 @@ class TableHistoryDialog(BigDialog):
                 writer = csv.writer(fh)
                 writer.writerow([
                     texts.get("tables.history.headers.order_id", default="رقم الطلب"),
+                    texts.get("tables.history.headers.client_name", default="اسم العميل"),
                     texts.get("tables.history.headers.opened_at", default="وقت الفتح"),
                     texts.get("tables.history.headers.paid_at", default="وقت الدفع"),
                     texts.get("tables.history.headers.total", default="الإجمالي"),
@@ -294,6 +299,7 @@ class TableHistoryDialog(BigDialog):
                         items_cell = items_count
                     writer.writerow([
                         row.get("order_id"),
+                        (row.get("client_name") or "").strip(),
                         row.get("opened_at", ""),
                         row.get("paid_at") or row.get("closed_at") or "",
                         format_pounds(row.get("total_cents", 0)),
@@ -344,14 +350,15 @@ class OrderDetailsDialog(BigDialog):
 
         # Meta rows: explicitly include opened, closed, paid so times are unambiguous
         self.table_label = _add_row(0, "tables.history.details.table", "الطاولة")
-        self.opened_label = _add_row(1, "tables.history.details.opened_at", "وقت الفتح")
-        self.closed_label = _add_row(2, "tables.history.details.closed_at", "وقت الإغلاق")
-        self.paid_label = _add_row(3, "tables.history.details.paid_at", "وقت الدفع")
-        self.cashier_label = _add_row(4, "tables.history.details.cashier", "الكاشير")
-        self.subtotal_label = _add_row(5, "tables.history.details.subtotal", "الإجمالي قبل الخصم")
-        self.discount_label = _add_row(6, "tables.history.details.discount", "الخصم")
-        self.total_label = _add_row(7, "tables.history.details.total", "الإجمالي بعد الخصم")
-        self.note_label = _add_row(8, "tables.history.details.discount_reason", "سبب الخصم")
+        self.client_label = _add_row(1, "tables.history.details.client_name", "اسم العميل")
+        self.opened_label = _add_row(2, "tables.history.details.opened_at", "وقت الفتح")
+        self.closed_label = _add_row(3, "tables.history.details.closed_at", "وقت الإغلاق")
+        self.paid_label = _add_row(4, "tables.history.details.paid_at", "وقت الدفع")
+        self.cashier_label = _add_row(5, "tables.history.details.cashier", "الكاشير")
+        self.subtotal_label = _add_row(6, "tables.history.details.subtotal", "الإجمالي قبل الخصم")
+        self.discount_label = _add_row(7, "tables.history.details.discount", "الخصم")
+        self.total_label = _add_row(8, "tables.history.details.total", "الإجمالي بعد الخصم")
+        self.note_label = _add_row(9, "tables.history.details.discount_reason", "سبب الخصم")
 
         # helper to format ISO -> local nicely as Arabic-style: DD-MM-YYYY H:MM ص/م
         # assumes stored ISO is UTC when no tzinfo is present (project currently writes datetime.utcnow())
@@ -421,9 +428,18 @@ class OrderDetailsDialog(BigDialog):
             # fetch order metadata and times
             order = cur.execute(
                 """
-                SELECT table_code, opened_at, closed_at, status, paid_at, discount_cents, discount_reason, opened_by
-                FROM orders
-                WHERE id=?
+                SELECT o.table_code,
+                       COALESCE(tc.client_name, '') AS client_name,
+                       o.opened_at,
+                       o.closed_at,
+                       o.status,
+                       o.paid_at,
+                       o.discount_cents,
+                       o.discount_reason,
+                       o.opened_by
+                FROM orders o
+                LEFT JOIN table_clients tc ON tc.table_code = UPPER(o.table_code)
+                WHERE o.id=?
                 """,
                 (self.order_id,),
             ).fetchone()
@@ -472,7 +488,10 @@ class OrderDetailsDialog(BigDialog):
         total = max(subtotal - discount, 0)
 
         # --- set meta fields (use sqlite3.Row indexing) ---
-        self.table_label.setText(order["table_code"] or "" if "table_code" in order.keys() else "")
+        table_code = order["table_code"] if "table_code" in order.keys() else ""
+        client_name = (order["client_name"] if "client_name" in order.keys() else "") or ""
+        self.table_label.setText(table_code or "")
+        self.client_label.setText(client_name.strip() or "-")
         self.opened_label.setText(self._fmt_dt(order["opened_at"] if "opened_at" in order.keys() else None))
         self.closed_label.setText(self._fmt_dt(order["closed_at"] if "closed_at" in order.keys() else None))
 

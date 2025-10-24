@@ -2346,10 +2346,12 @@ def get_table_history(
                 CAST(ROUND(COALESCE(SUM(oi.price_cents * oi.qty), 0)) AS INTEGER) AS subtotal_cents,
                 COALESCE(SUM(oi.qty), 0) AS items_count,
                 MAX(p.paid_at) AS paid_at,
-                MAX(p.cashier) AS cashier
+                MAX(p.cashier) AS cashier,
+                MAX(COALESCE(tc.client_name, '')) AS client_name
             FROM orders o
             LEFT JOIN order_items oi ON oi.order_id = o.id
             LEFT JOIN payments p ON p.order_id = o.id
+            LEFT JOIN table_clients tc ON tc.table_code = UPPER(o.table_code)
             WHERE o.table_code = ?
               AND o.status IN ('paid', 'void')
             GROUP BY o.id
@@ -2364,6 +2366,7 @@ def get_table_history(
             note,
             cashier,
             items_count,
+            client_name,
             CASE
                 WHEN subtotal_cents > discount_cents THEN subtotal_cents - discount_cents
                 ELSE 0
@@ -2390,6 +2393,7 @@ def get_table_history(
                 "cashier": row["cashier"],
                 "items_count": float(row["items_count"] or 0),
                 "note": row["note"],
+                "client_name": row["client_name"],
             }
         )
     return result

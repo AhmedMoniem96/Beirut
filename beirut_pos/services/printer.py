@@ -99,6 +99,7 @@ def _shape_ar_escpos(text: str) -> str:
     try:
         # For ESC/POS thermal printers: reshape but DON'T apply bidi algorithm
         reshaped = arabic_reshaper.reshape(text)
+        print(f"[DEBUG _shape_ar_escpos] '{text}' -> '{reshaped}'")
         return reshaped  # ← CRITICAL FIX: Remove get_display() for thermal printers
     except Exception as e:
         print(f"[WARN] Arabic reshaping failed: {e}")
@@ -107,7 +108,10 @@ def _shape_ar_escpos(text: str) -> str:
 def _shape_ar_textfile(text: str) -> str:
     """Arabic shaping for text files - use same as ESC/POS for consistency."""
     # SIMPLIFIED: Use the same shaping as ESC/POS to avoid reversed text
-    return _shape_ar_escpos(text)
+    print(f"[DEBUG _shape_ar_textfile] Input: '{text}'")
+    result = _shape_ar_escpos(text)
+    print(f"[DEBUG _shape_ar_textfile] Output: '{result}'")
+    return result
 
 _shape_arabic = _shape_ar_textfile
 
@@ -410,21 +414,43 @@ def _save_receipt_as_text(
     divider_heavy = "═" * 32
     divider_light = "─" * 32
 
+    print(f"[DEBUG _save_receipt_as_text] Starting to build receipt for table {table_code}")
+    print(f"[DEBUG _save_receipt_as_text] is_bar: {is_bar}")
+
     if is_bar:
         lines.append(divider_heavy)
-        lines.append(_shape_ar_textfile(texts.get("receipt.bar.header")))
+        bar_header = texts.get("receipt.bar.header")
+        print(f"[DEBUG _save_receipt_as_text] Bar header raw: '{bar_header}'")
+        shaped_bar_header = _shape_ar_textfile(bar_header)
+        print(f"[DEBUG _save_receipt_as_text] Bar header shaped: '{shaped_bar_header}'")
+        lines.append(shaped_bar_header)
         lines.append(divider_heavy)
-        lines.append(_shape_ar_textfile(texts.get("receipt.bar.table", table_code=table_code)))
-        lines.append(_shape_ar_textfile(texts.get("receipt.bar.issued_at", timestamp=ts)))
+
+        bar_table = texts.get("receipt.bar.table", table_code=table_code)
+        print(f"[DEBUG _save_receipt_as_text] Bar table raw: '{bar_table}'")
+        lines.append(_shape_ar_textfile(bar_table))
+
+        bar_issued = texts.get("receipt.bar.issued_at", timestamp=ts)
+        print(f"[DEBUG _save_receipt_as_text] Bar issued raw: '{bar_issued}'")
+        lines.append(_shape_ar_textfile(bar_issued))
         lines.append(divider_light)
 
         for it in items:
-            name = _shape_ar_textfile(str(it["name"]))
+            name_raw = str(it["name"])
+            print(f"[DEBUG _save_receipt_as_text] Item name raw: '{name_raw}'")
+            name_shaped = _shape_ar_textfile(name_raw)
+            print(f"[DEBUG _save_receipt_as_text] Item name shaped: '{name_shaped}'")
+            lines.append(name_shaped)
+
             qty_display = _format_qty(float(it.get("qty", 0) or 0))
-            lines.append(name)
-            lines.append(_shape_ar_textfile(f"الكمية: {qty_display}"))
+            qty_text = f"الكمية: {qty_display}"
+            print(f"[DEBUG _save_receipt_as_text] Qty text raw: '{qty_text}'")
+            lines.append(_shape_ar_textfile(qty_text))
+
             for segment in _note_segments(it.get("note", "")):
-                lines.append(_shape_ar_textfile(f"• {segment}"))
+                note_text = f"• {segment}"
+                print(f"[DEBUG _save_receipt_as_text] Note text raw: '{note_text}'")
+                lines.append(_shape_ar_textfile(note_text))
             lines.append(divider_light)
     else:
         subtitle = texts.get("receipt.cashier.subtitle")
@@ -438,48 +464,96 @@ def _save_receipt_as_text(
         total_qty = sum(float(it.get("qty", 0) or 0) for it in items)
         discount_label_text = discount_label or texts.get("receipt.cashier.discount")
 
+        print(f"[DEBUG _save_receipt_as_text] Client name raw: '{client_name}'")
         lines.append(divider_heavy)
         lines.append(_shape_ar_textfile(client_name))
         if subtitle:
+            print(f"[DEBUG _save_receipt_as_text] Subtitle raw: '{subtitle}'")
             lines.append(_shape_ar_textfile(subtitle))
         lines.append(divider_heavy)
-        lines.append(_shape_ar_textfile(f"التاريخ والوقت: {ts}"))
-        lines.append(_shape_ar_textfile(f"الطاولة: {table_code}"))
-        lines.append(_shape_ar_textfile(f"النادل: {cashier}"))
-        lines.append(_shape_ar_textfile(f"طريقة الدفع: {method}"))
+
+        date_text = f"التاريخ والوقت: {ts}"
+        print(f"[DEBUG _save_receipt_as_text] Date text raw: '{date_text}'")
+        lines.append(_shape_ar_textfile(date_text))
+
+        table_text = f"الطاولة: {table_code}"
+        print(f"[DEBUG _save_receipt_as_text] Table text raw: '{table_text}'")
+        lines.append(_shape_ar_textfile(table_text))
+
+        cashier_text = f"النادل: {cashier}"
+        print(f"[DEBUG _save_receipt_as_text] Cashier text raw: '{cashier_text}'")
+        lines.append(_shape_ar_textfile(cashier_text))
+
+        method_text = f"طريقة الدفع: {method}"
+        print(f"[DEBUG _save_receipt_as_text] Method text raw: '{method_text}'")
+        lines.append(_shape_ar_textfile(method_text))
         lines.append(divider_light)
-        lines.append(_shape_ar_textfile("الأصناف المطلوبة"))
+
+        items_header = "الأصناف المطلوبة"
+        print(f"[DEBUG _save_receipt_as_text] Items header raw: '{items_header}'")
+        lines.append(_shape_ar_textfile(items_header))
         lines.append(divider_light)
 
         for it in items:
-            name = _shape_ar_textfile(str(it["name"]))
+            name_raw = str(it["name"])
+            print(f"[DEBUG _save_receipt_as_text] Item name raw: '{name_raw}'")
+            name_shaped = _shape_ar_textfile(name_raw)
+            print(f"[DEBUG _save_receipt_as_text] Item name shaped: '{name_shaped}'")
+            lines.append(name_shaped)
+
             qty_display = _format_qty(float(it.get("qty", 0) or 0))
             unit_display = _format_currency_cents(it.get("unit_price", 0), currency)
-            item_total_display = _format_currency_cents(it.get("total_cents", 0), currency)
+            qty_price_text = f"الكمية: {qty_display}  السعر: {unit_display}"
+            print(f"[DEBUG _save_receipt_as_text] Qty/Price text raw: '{qty_price_text}'")
+            lines.append(_shape_ar_textfile(qty_price_text))
 
-            lines.append(name)
-            lines.append(_shape_ar_textfile(f"الكمية: {qty_display}  السعر: {unit_display}"))
-            lines.append(_shape_ar_textfile(f"الإجمالي: {item_total_display}"))
+            item_total_display = _format_currency_cents(it.get("total_cents", 0), currency)
+            total_text = f"الإجمالي: {item_total_display}"
+            print(f"[DEBUG _save_receipt_as_text] Total text raw: '{total_text}'")
+            lines.append(_shape_ar_textfile(total_text))
+
             for segment in _note_segments(it.get("note", "")):
-                lines.append(_shape_ar_textfile(f"• {segment}"))
+                note_text = f"• {segment}"
+                print(f"[DEBUG _save_receipt_as_text] Note text raw: '{note_text}'")
+                lines.append(_shape_ar_textfile(note_text))
             lines.append(divider_light)
 
-        lines.append(_shape_ar_textfile(f"إجمالي القطع: {_format_qty(total_qty)}"))
-        lines.append(_shape_ar_textfile(f"المجموع الفرعي: {subtotal_display}"))
-        lines.append(_shape_ar_textfile(f"{discount_label_text}: {discount_display}"))
+        total_qty_text = f"إجمالي القطع: {_format_qty(total_qty)}"
+        print(f"[DEBUG _save_receipt_as_text] Total qty text raw: '{total_qty_text}'")
+        lines.append(_shape_ar_textfile(total_qty_text))
+
+        subtotal_text = f"المجموع الفرعي: {subtotal_display}"
+        print(f"[DEBUG _save_receipt_as_text] Subtotal text raw: '{subtotal_text}'")
+        lines.append(_shape_ar_textfile(subtotal_text))
+
+        discount_text = f"{discount_label_text}: {discount_display}"
+        print(f"[DEBUG _save_receipt_as_text] Discount text raw: '{discount_text}'")
+        lines.append(_shape_ar_textfile(discount_text))
+
         if service:
-            lines.append(_shape_ar_textfile(f"الخدمة: {service_display}"))
+            service_text = f"الخدمة: {service_display}"
+            print(f"[DEBUG _save_receipt_as_text] Service text raw: '{service_text}'")
+            lines.append(_shape_ar_textfile(service_text))
         if tax:
-            lines.append(_shape_ar_textfile(f"الضريبة: {tax_display}"))
+            tax_text = f"الضريبة: {tax_display}"
+            print(f"[DEBUG _save_receipt_as_text] Tax text raw: '{tax_text}'")
+            lines.append(_shape_ar_textfile(tax_text))
         lines.append(divider_light)
-        lines.append(_shape_ar_textfile(f"الإجمالي المستحق: {total_display}"))
+
+        total_due_text = f"الإجمالي المستحق: {total_display}"
+        print(f"[DEBUG _save_receipt_as_text] Total due text raw: '{total_due_text}'")
+        lines.append(_shape_ar_textfile(total_due_text))
         lines.append(divider_light)
+
         if contact_address:
+            print(f"[DEBUG _save_receipt_as_text] Address raw: '{contact_address}'")
             lines.append(_shape_ar_textfile(contact_address))
         if contact_phone:
+            print(f"[DEBUG _save_receipt_as_text] Phone raw: '{contact_phone}'")
             lines.append(_shape_ar_textfile(contact_phone))
         footer = texts.get("receipt.footer")
         if footer:
+            print(f"[DEBUG _save_receipt_as_text] Footer raw: '{footer}'")
             lines.append(_shape_ar_textfile(footer))
 
     lines.append("\n")
@@ -488,7 +562,18 @@ def _save_receipt_as_text(
     filename = f"{datetime.now():%Y%m%d-%H%M%S}-{'bar' if is_bar else 'cashier'}-{table_code}.txt"
     target = folder / filename
 
+    print(f"[DEBUG _save_receipt_as_text] Writing to file: {target}")
+    print(f"[DEBUG _save_receipt_as_text] First few lines preview:")
+    for i, line in enumerate(lines[:10]):
+        print(f"[DEBUG _save_receipt_as_text] Line {i}: '{line}'")
+
     target.write_text("\n".join(lines), encoding='utf-8')
+
+    # Verify what was actually written
+    written_content = target.read_text(encoding='utf-8')
+    print(f"[DEBUG _save_receipt_as_text] ACTUAL FILE CONTENT (first 500 chars):")
+    print(written_content[:500])
+
     return target
 
 # ---------------- Public API ----------------
@@ -526,7 +611,7 @@ class PrinterService:
                 # Save text file for records, DON'T send to printer again
                 return _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
 
-        # Fallback ONLY if ESC/POS failed: save and (optionally) CUPS-print text file
+        # Fallback ONLY if ESC/POS failed: save and (optionably) CUPS-print text file
         txt = _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
 
         if sys.platform.startswith("win"):

@@ -104,8 +104,20 @@ class OrderList(QWidget):
             self.on_edit(row)
 
     # API
-    def set_table(self, code: str):
-        self.title.setText(f"طلب: {code}")
+    def set_table(self, code: str, client_name: str | None = None):
+        base = texts.get("main.order.header")
+        label = (code or "").strip()
+        extra = (client_name or "").strip()
+        if label and extra:
+            display = f"{label} — {extra}"
+        elif extra:
+            display = extra
+        else:
+            display = label
+        if display:
+            self.title.setText(f"{base} {display}".strip())
+        else:
+            self.title.setText(base)
 
     def set_items(self, items):
         self.list.clear()

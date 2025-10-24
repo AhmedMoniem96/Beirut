@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QFrame,
     QMessageBox,
+    QLineEdit,
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
@@ -47,6 +48,7 @@ from .merge_tables_dialog import MergeTablesDialog
 from .purchases_dialog import PurchasesDialog
 from .sugar_level_dialog import SugarLevelDialog
 from .dialogs.table_history_dialog import TableHistoryDialog
+from ..services import staff as staff_service
 
 PAGE_TABLES = 0
 PAGE_ORDER = 1
@@ -56,6 +58,11 @@ class MainWindow(QMainWindow):
     def __init__(self, current_user):
         super().__init__()
         self.user = current_user
+        self._active_session_id = None
+        try:
+            self._active_session_id = staff_service.start_session(self.user.username)
+        except Exception:
+            self._active_session_id = None
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.resize(1440, 900)
         self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
@@ -185,6 +192,7 @@ class MainWindow(QMainWindow):
         tv.addWidget(self.tables_title)
         self.table_codes = order_manager.get_table_codes()
         self.table_map = TableMap(self.table_codes, self._on_table_select)  # REMOVED: on_ps_action parameter
+        self.table_map.set_client_names(order_manager.list_client_names())
         tv.addWidget(self.table_map, 1)
         self._refresh_reservation_overlays()
 
@@ -214,6 +222,14 @@ class MainWindow(QMainWindow):
         self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.order_header.setMinimumWidth(120)
         head_row.addWidget(self.order_header, 0)
+
+        self.client_name_edit = QLineEdit()
+        self.client_name_edit.setPlaceholderText("اسم العميل")
+        self.client_name_edit.setClearButtonEnabled(True)
+        self.client_name_edit.setFixedWidth(200)
+        self.client_name_edit.setEnabled(False)
+        self.client_name_edit.editingFinished.connect(self._commit_client_name)
+        head_row.addWidget(self.client_name_edit, 0)
 
         # All action buttons together
         self.btn_print_bar = QPushButton()
@@ -303,6 +319,7 @@ class MainWindow(QMainWindow):
         bus.subscribe("reservations_changed", self._on_reservations_changed)
         bus.subscribe("ui_texts_changed", self._apply_texts)
         bus.subscribe("client_branding_changed", self._apply_texts)
+        bus.subscribe("table_client_name_changed", self._on_table_client_name_changed)
 
         self.current_table = None
         self._edit_locked = False
@@ -319,6 +336,30 @@ class MainWindow(QMainWindow):
         self.btn_print_bar.setEnabled(has_items)
         self.btn_print_cashier.setEnabled(has_items)
         self._refresh_history_button()
+
+    def _update_client_name_field(self):
+        if not hasattr(self, "client_name_edit"):
+            return
+        self.client_name_edit.blockSignals(True)
+        if not self.current_table:
+            self.client_name_edit.clear()
+            self.client_name_edit.setEnabled(False)
+            self.order_list.set_table("", None)
+        else:
+            name = order_manager.get_client_name(self.current_table)
+            self.client_name_edit.setText(name)
+            self.client_name_edit.setEnabled(True)
+            self.order_list.set_table(self.current_table, name)
+        self.client_name_edit.blockSignals(False)
+        self._apply_order_header()
+
+    def _commit_client_name(self):
+        if not self.current_table:
+            self._update_client_name_field()
+            return
+        name = (self.client_name_edit.text() or "").strip()
+        order_manager.set_client_name(self.current_table, name, actor=self.user.username)
+        self._update_client_name_field()
 
     def _refresh_history_button(self):
         self.btn_table_history.setEnabled(bool(self.current_table))
@@ -421,6 +462,7 @@ class MainWindow(QMainWindow):
         self.act_back.setVisible(False)
         self.table_map.clear_selection()
         self.current_table = None
+        self._update_client_name_field()
         self._refresh_edit_lock_state()
         self._apply_order_header()
         self._refresh_print_buttons()
@@ -437,7 +479,15 @@ class MainWindow(QMainWindow):
     def _switch_user(self):
         dlg = LoginDialog()
         if dlg.exec() == dlg.DialogCode.Accepted:
+            try:
+                staff_service.end_session(self._active_session_id)
+            except Exception:
+                pass
             self.user = dlg.get_user()
+            try:
+                self._active_session_id = staff_service.start_session(self.user.username)
+            except Exception:
+                self._active_session_id = None
             self._apply_window_title()
             for action in self._admin_actions:
                 action.setVisible(self.user.role == "admin")
@@ -488,8 +538,8 @@ class MainWindow(QMainWindow):
     # POS flow
     def _on_table_select(self, code):
         self.current_table = code
+        self._update_client_name_field()
         self.act_back.setVisible(True)
-        self._apply_order_header()
         self.order_list.set_items(order_manager.get_items(code))
         self._update_totals(code)
         self._update_table_ps_display(code)
@@ -716,6 +766,11 @@ class MainWindow(QMainWindow):
             self._update_totals(table_code)
             self._refresh_print_buttons()
 
+    def _on_table_client_name_changed(self, table_code, name):
+        self.table_map.set_client_name(table_code, name or "")
+        if self.current_table and self.current_table == table_code:
+            self._update_client_name_field()
+
     def _apply_window_title(self):
         client_name = settings_service.get_client_name()
         if getattr(self, "user", None):
@@ -732,7 +787,11 @@ class MainWindow(QMainWindow):
     def _apply_order_header(self):
         base = texts.get("main.order.header")
         if self.current_table:
-            self.order_header.setText(f"{base} {self.current_table}".strip())
+            client_name = order_manager.get_client_name(self.current_table)
+            label = self.current_table
+            if client_name:
+                label = f"{self.current_table} — {client_name}"
+            self.order_header.setText(f"{base} {label}".strip())
         else:
             self.order_header.setText(base)
 
@@ -851,11 +910,14 @@ class MainWindow(QMainWindow):
             cleaned = order_manager.get_table_codes()
         self.table_codes = cleaned
         self.table_map.set_table_codes(cleaned)
+        self.table_map.set_client_names(order_manager.list_client_names())
         self._refresh_reservation_overlays()
         if self.current_table and self.current_table not in cleaned:
             self._show_banner("تمت إزالة الطاولة الحالية من القائمة. تم الرجوع إلى شاشة الطاولات.", "warn",
                               duration=8000)
             self._go_back()
+        else:
+            self._update_client_name_field()
 
     def _hide_banner(self):
         self.banner_timer.stop()
@@ -891,6 +953,10 @@ class MainWindow(QMainWindow):
             self._session_timer.stop()
         if self._ps_snapshot_timer.isActive():
             self._ps_snapshot_timer.stop()
+        try:
+            staff_service.end_session(self._active_session_id)
+        except Exception:
+            pass
         super().closeEvent(event)
 
     def _on_ps_snapshot(self):

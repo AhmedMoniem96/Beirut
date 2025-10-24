@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Receipt</title>
+    <style>
+        body {
+            width: 80mm;
+            margin: 0;
+            padding: 10px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+        .header { text-align: center; margin-bottom: 15px; }
+        .cafe-name { font-size: 20px; font-weight: bold; }
+        .info-row { display: flex; justify-content: space-between; margin: 5px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th { border-bottom: 2px solid #000; padding: 8px; text-align: right; }
+        td { padding: 5px; border-bottom: 1px dotted #000; }
+        .total-row { display: flex; justify-content: space-between; margin: 8px 0; font-weight: bold; }
+        .footer { text-align: center; margin-top: 15px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="cafe-name">ﻛﺎﻓﻴﻪ ﺑﻴﺮﻭﺕ</div>
+        <div>ﻛﺎﻓﻴﻪ ﻭﻣﻌﻠﻢ</div>
+    </div>
+
+    <div class="info-row">
+        <span>ﺍﻟﺘﺎﺭﻳﺦ:</span>
+        <span>2025/10/25 02:09:57</span>
+    </div>
+    <div class="info-row">
+        <span>ﺭﻗﻢ ﺍﻟﻔﺎﺗﻮﺭﺓ:</span>
+        <span>20251025020957</span>
+    </div>
+    <div class="info-row">
+        <span>ﺍﻟﻄﺎﻭﻟﺔ:</span>
+        <span>T17</span>
+    </div>
+    <div class="info-row">
+        <span>ﺍﻟﻜﺎﺷﻴﺮ:</span>
+        <span>admin</span>
+    </div>
+
+    <hr>
+    <div style="text-align: center; font-weight: bold; margin: 10px 0;">ﺍﻟﻄﻠﺒﺎﺕ</div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ﺍﻟﺼﻨﻒ</th>
+                <th>ﺍﻟﻜﻤﻴﺔ</th>
+                <th>ﺍﻟﺴﻌﺮ</th>
+                <th>ﺍﻹﺟﻤﺎﻟﻲ</th>
+            </tr>
+        </thead>
+        <tbody>
+            
+        <tr>
+            <td style="text-align: right; padding: 5px; border-bottom: 1px dotted #000;">ﻣﺎﻧﺠﻮ</td>
+            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">4</td>
+            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">EGP 50</td>
+            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">EGP 200</td>
+        </tr>
+        <tr>
+            <td style="text-align: right; padding: 5px; border-bottom: 1px dotted #000;">ice</td>
+            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">1</td>
+            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">EGP 50</td>
+            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">EGP 50</td>
+        </tr>
+        </tbody>
+    </table>
+
+    <hr>
+    <div class="total-row">
+        <span>ﺍﻟﻤﺠﻤﻮﻉ ﺍﻟﻔﺮﻋﻲ:</span>
+        <span>EGP 250</span>
+    </div>
+    <div class="total-row">
+        <span>ﺍﻟﺨﺼﻢ:</span>
+        <span>EGP 0</span>
+    </div>
+    <div class="total-row" style="border-top: 2px solid #000; padding-top: 5px;">
+        <span>ﺍﻟﻤﺠﻤﻮﻉ ﺍﻟﻜﻠﻲ:</span>
+        <span>EGP 250</span>
+    </div>
+
+    <div class="footer">
+        <div>ﺷﻜﺮﺍ ﻟﺰﻳﺎﺭﺗﻜﻢ</div>
+    </div>
+</body>
+</html>

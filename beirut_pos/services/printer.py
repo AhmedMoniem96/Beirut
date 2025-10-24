@@ -165,394 +165,125 @@ def _generate_html_receipt(
         cashier: str,
         receipt_number: str = None,
 ) -> Path:
-    """Generate beautiful HTML receipt for display/printing"""
-    _ensure_dirs()
+    # Ensure directories exist
+    output_dir = Path("prints/receipts")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    currency = setting_get("currency", "EGP") or "EGP"
-    client_name = get_client_name() or (setting_get("company_name", "Beirut") or "Beirut")
+    currency = "EGP"
+    client_name = "كافيه بيروت"
     ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
     if not receipt_number:
         receipt_number = f"{datetime.now():%Y%m%d%H%M%S}"
 
-    # Format items for HTML
-    html_items = []
+    # Build items HTML
+    items_html = ""
     for it in items:
-        html_items.append({
-            'name': _shape_ar_textfile(str(it["name"])),
-            'qty': _format_qty(float(it.get("qty", 0) or 0)),
-            'price': _format_currency_cents(it.get("unit_price", 0), currency),
-            'total': _format_currency_cents(it.get("total_cents", 0), currency)
-        })
+        name = _shape_ar_textfile(str(it["name"]))
+        qty = _format_qty(float(it.get("qty", 0) or 0))
+        price = _format_currency_cents(it.get("unit_price", 0), currency)
+        total_price = _format_currency_cents(it.get("total_cents", 0), currency)
 
-    # Prepare data for JavaScript
-    receipt_data = {
-        'date': ts,
-        'receiptNumber': receipt_number,
-        'tableNumber': f"{table_code}",
-        'cashier': _shape_ar_textfile(cashier),
-        'items': html_items,
-        'subtotal': _format_currency_cents(subtotal, currency),
-        'discount': _format_currency_cents(discount, currency),
-        'grandTotal': _format_currency_cents(total, currency),
-        'paidAmount': _format_currency_cents(total, currency),
-        'cashAmount': _format_currency_cents(total, currency),
-        'changeAmount': _format_currency_cents(0, currency)
-    }
+        items_html += f"""
+        <tr>
+            <td style="text-align: right; padding: 5px; border-bottom: 1px dotted #000;">{name}</td>
+            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">{qty}</td>
+            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">{price}</td>
+            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">{total_price}</td>
+        </tr>"""
 
-    # PROPER HTML TEMPLATE WITH ACTUAL DESIGN
-    html_template = """<!DOCTYPE html>
-<html lang="ar" dir="rtl">
+    # SIMPLE COMPLETE HTML TEMPLATE
+    html_content = f"""<!DOCTYPE html>
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Receipt</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Courier New', monospace;
-        }
-        
-        body {
-            background: white;
-            padding: 10px;
-            direction: rtl;
-            font-size: 14px;
-            line-height: 1.3;
+        body {{
             width: 80mm;
-            max-width: 80mm;
-            margin: 0 auto;
-        }
-        
-        .receipt {
-            width: 100%;
-            background: white;
-            border: 2px solid #000;
-            padding: 15px;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 3px double #000;
-        }
-        
-        .cafe-name {
-            font-size: 22px;
-            font-weight: 900;
-            margin-bottom: 5px;
-            color: #000;
-        }
-        
-        .cafe-subtitle {
-            font-size: 16px;
-            margin-bottom: 10px;
-            font-weight: bold;
-        }
-        
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 14px;
-            padding: 2px 0;
-        }
-        
-        .info-label {
-            font-weight: 900;
-            color: #000;
-        }
-        
-        .divider {
-            border-bottom: 2px dashed #000;
-            margin: 15px 0;
-            height: 2px;
-        }
-        
-        .section-title {
-            font-weight: 900;
-            text-align: center;
-            margin: 15px 0 10px;
-            font-size: 16px;
-            background: #000;
-            color: white;
-            padding: 5px;
-            border-radius: 3px;
-        }
-        
-        .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-            font-size: 13px;
-        }
-        
-        .items-table th {
-            border-bottom: 2px solid #000;
-            padding: 8px 5px;
-            text-align: right;
-            font-weight: 900;
-            background: #f0f0f0;
-        }
-        
-        .items-table td {
-            padding: 6px 5px;
-            border-bottom: 1px solid #ccc;
-        }
-        
-        .item-name {
-            text-align: right;
-            font-weight: bold;
-        }
-        
-        .item-qty, .item-price, .item-total {
-            text-align: center;
-            width: 20%;
-            font-weight: bold;
-        }
-        
-        .totals {
-            margin: 20px 0;
-            font-size: 15px;
-            background: #f8f8f8;
+            margin: 0;
             padding: 10px;
-            border-radius: 5px;
-        }
-        
-        .total-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            padding: 3px 0;
-        }
-        
-        .grand-total {
-            font-weight: 900;
-            border-top: 3px double #000;
-            padding-top: 10px;
-            margin-top: 10px;
-            font-size: 18px;
-            color: #000;
-        }
-        
-        .payment-details {
-            background: #000;
-            color: white;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 8px;
-            font-weight: bold;
-        }
-        
-        .payment-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 15px;
-        }
-        
-        .footer {
-            text-align: center;
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 2px dashed #000;
-            font-size: 12px;
-            color: #666;
-        }
-        
-        .address, .phone {
-            margin: 5px 0;
-        }
-        
-        .cashier {
-            margin-top: 10px;
-            font-weight: 900;
-            color: #000;
-        }
-        
-        .thank-you {
-            margin-top: 15px;
-            font-style: italic;
-            color: #000;
-            font-weight: bold;
-        }
-
-        @media print {
-            body {
-                margin: 0 !important;
-                padding: 5px !important;
-                width: 80mm !important;
-                background: white !important;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-            }
-            
-            .receipt {
-                border: 2px solid #000 !important;
-                box-shadow: none !important;
-                width: 100% !important;
-                margin: 0 !important;
-                padding: 10px !important;
-            }
-            
-            .section-title {
-                background: #000 !important;
-                color: white !important;
-                -webkit-print-color-adjust: exact !important;
-            }
-            
-            .payment-details {
-                background: #000 !important;
-                color: white !important;
-                -webkit-print-color-adjust: exact !important;
-            }
-            
-            @page {
-                size: 80mm auto;
-                margin: 0;
-            }
-        }
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }}
+        .header {{ text-align: center; margin-bottom: 15px; }}
+        .cafe-name {{ font-size: 20px; font-weight: bold; }}
+        .info-row {{ display: flex; justify-content: space-between; margin: 5px 0; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 10px 0; }}
+        th {{ border-bottom: 2px solid #000; padding: 8px; text-align: right; }}
+        td {{ padding: 5px; border-bottom: 1px dotted #000; }}
+        .total-row {{ display: flex; justify-content: space-between; margin: 8px 0; font-weight: bold; }}
+        .footer {{ text-align: center; margin-top: 15px; font-size: 12px; }}
     </style>
 </head>
 <body>
-    <div class="receipt">
-        <div class="header">
-            <div class="cafe-name">كافيه بيروت</div>
-            <div class="cafe-subtitle">مطعم وكافيه</div>
-        </div>
-        
-        <div class="info-row">
-            <div class="info-label">التاريخ:</div>
-            <div id="receipt-date">{date}</div>
-        </div>
-        
-        <div class="info-row">
-            <div class="info-label">رقم الفاتورة:</div>
-            <div id="receipt-number">{receipt_number}</div>
-        </div>
-        
-        <div class="info-row">
-            <div class="info-label">الطاولة:</div>
-            <div id="table-number">{table_number}</div>
-        </div>
-        
-        <div class="info-row">
-            <div class="info-label">الكاشير:</div>
-            <div id="cashier-name">{cashier}</div>
-        </div>
-        
-        <div class="divider"></div>
-        
-        <div class="section-title">الطلبات</div>
-        
-        <table class="items-table">
-            <thead>
-                <tr>
-                    <th class="item-name">الصنف</th>
-                    <th class="item-qty">الكمية</th>
-                    <th class="item-price">السعر</th>
-                    <th class="item-total">الإجمالي</th>
-                </tr>
-            </thead>
-            <tbody id="items-body">
-                <!-- Items will be populated by JavaScript -->
-            </tbody>
-        </table>
-        
-        <div class="divider"></div>
-        
-        <div class="totals">
-            <div class="total-row">
-                <div>المجموع الفرعي:</div>
-                <div id="subtotal">{subtotal}</div>
-            </div>
-            <div class="total-row">
-                <div>الخصم:</div>
-                <div id="discount">{discount}</div>
-            </div>
-            <div class="total-row grand-total">
-                <div>المجموع الكلي:</div>
-                <div id="grand-total">{grand_total}</div>
-            </div>
-        </div>
-        
-        <div class="payment-details">
-            <div class="payment-row">
-                <div>طريقة الدفع:</div>
-                <div>{method}</div>
-            </div>
-            <div class="payment-row">
-                <div>المبلغ المدفوع:</div>
-                <div id="paid-amount">{paid_amount}</div>
-            </div>
-            <div class="payment-row">
-                <div>الباقي:</div>
-                <div id="change-amount">{change_amount}</div>
-            </div>
-        </div>
-        
-        <div class="footer">
-            <div class="address">العنوان: امام سيشن الشلال</div>
-            <div class="phone">التليفون: 01110110823</div>
-            <div class="cashier">الكاشير: {cashier}</div>
-            <div class="thank-you">شكراً لزيارتكم - نتمنى لكم وجبة طيبة</div>
-        </div>
+    <div class="header">
+        <div class="cafe-name">{_shape_ar_textfile(client_name)}</div>
+        <div>{_shape_ar_textfile("كافيه ومعلم")}</div>
     </div>
 
-    <script>
-        // Populate items table
-        const itemsBody = document.getElementById('items-body');
-        const items = {items};
-        
-        items.forEach(item => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td class="item-name">${item.name}</td>
-                <td class="item-qty">${item.qty}</td>
-                <td class="item-price">${item.price}</td>
-                <td class="item-total">${item.total}</td>
-            `;
-            itemsBody.appendChild(row);
-        });
-        
-        // Auto-print
-        window.onload = function() {
-            setTimeout(() => {
-                window.print();
-                setTimeout(() => {
-                    window.close();
-                }, 1000);
-            }, 500);
-        };
-    </script>
+    <div class="info-row">
+        <span>{_shape_ar_textfile("التاريخ:")}</span>
+        <span>{ts}</span>
+    </div>
+    <div class="info-row">
+        <span>{_shape_ar_textfile("رقم الفاتورة:")}</span>
+        <span>{receipt_number}</span>
+    </div>
+    <div class="info-row">
+        <span>{_shape_ar_textfile("الطاولة:")}</span>
+        <span>{table_code}</span>
+    </div>
+    <div class="info-row">
+        <span>{_shape_ar_textfile("الكاشير:")}</span>
+        <span>{_shape_ar_textfile(cashier)}</span>
+    </div>
+
+    <hr>
+    <div style="text-align: center; font-weight: bold; margin: 10px 0;">{_shape_ar_textfile("الطلبات")}</div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>{_shape_ar_textfile("الصنف")}</th>
+                <th>{_shape_ar_textfile("الكمية")}</th>
+                <th>{_shape_ar_textfile("السعر")}</th>
+                <th>{_shape_ar_textfile("الإجمالي")}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {items_html}
+        </tbody>
+    </table>
+
+    <hr>
+    <div class="total-row">
+        <span>{_shape_ar_textfile("المجموع الفرعي:")}</span>
+        <span>{_format_currency_cents(subtotal, currency)}</span>
+    </div>
+    <div class="total-row">
+        <span>{_shape_ar_textfile("الخصم:")}</span>
+        <span>{_format_currency_cents(discount, currency)}</span>
+    </div>
+    <div class="total-row" style="border-top: 2px solid #000; padding-top: 5px;">
+        <span>{_shape_ar_textfile("المجموع الكلي:")}</span>
+        <span>{_format_currency_cents(total, currency)}</span>
+    </div>
+
+    <div class="footer">
+        <div>{_shape_ar_textfile("شكراً لزيارتكم")}</div>
+    </div>
 </body>
 </html>"""
 
-    # Fill the template with data
-    final_html = html_template.format(
-        date=receipt_data['date'],
-        receipt_number=receipt_data['receiptNumber'],
-        table_number=receipt_data['tableNumber'],
-        cashier=receipt_data['cashier'],
-        subtotal=receipt_data['subtotal'],
-        discount=receipt_data['discount'],
-        grand_total=receipt_data['grandTotal'],
-        paid_amount=receipt_data['paidAmount'],
-        change_amount=receipt_data['changeAmount'],
-        method=method,
-        items=json.dumps(receipt_data['items'], ensure_ascii=False)
-    )
-
     # Save HTML file
     html_filename = f"receipt-{table_code}-{receipt_number}.html"
-    html_path = _RECEIPTS_DIR / html_filename
-    html_path.write_text(final_html, encoding='utf-8')
+    html_path = output_dir / html_filename
+    html_path.write_text(html_content, encoding='utf-8')
 
-    print(f"[DEBUG] HTML receipt saved: {html_path}")
+    print(f"[DEBUG] HTML saved: {html_path}")
     return html_path
+
 
 def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
     """Generate HTML bar ticket for kitchen/bar"""
@@ -560,44 +291,45 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
 
     ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
-    # Format items for HTML (only new/unprinted items)
-    html_items = []
+    # Build items HTML directly - NO JAVASCRIPT!
+    items_html = ""
     for it in items:
-        item_data = {
-            'name': _shape_ar_textfile(str(it["name"])),
-            'qty': _format_qty(float(it.get("qty", 0) or 0))
-        }
+        name = _shape_ar_textfile(str(it["name"]))
+        qty = _format_qty(float(it.get("qty", 0) or 0))
+
+        items_html += f"""
+            <tr>
+                <td class="item-name">{name}</td>
+                <td class="item-qty">{qty}</td>
+            </tr>"""
 
         # Add notes if any
         notes = _note_segments(it.get("note", ""))
-        if notes:
-            item_data['notes'] = [_shape_ar_textfile(note) for note in notes]
+        for note in notes:
+            shaped_note = _shape_ar_textfile(note)
+            items_html += f"""
+            <tr>
+                <td colspan="2" style="font-size: 11px; color: #666; padding-right: 10px; font-style: italic;">
+                    • {shaped_note}
+                </td>
+            </tr>"""
 
-        html_items.append(item_data)
-
-    # Bar ticket data
-    bar_data = {
-        'date': ts,
-        'tableNumber': f"{table_code}",
-        'items': html_items
-    }
-
-    # Bar ticket HTML template
-    bar_html_template = """<!DOCTYPE html>
+    # SIMPLE HTML TEMPLATE - NO BROKEN JAVASCRIPT!
+    bar_html_template = f"""<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bar Ticket</title>
     <style>
-        * {
+        * {{
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             font-family: 'Courier New', monospace;
-        }
-        
-        body {
+        }}
+
+        body {{
             background: white;
             padding: 10px;
             direction: rtl;
@@ -606,55 +338,55 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
             width: 80mm;
             max-width: 80mm;
             margin: 0 auto;
-        }
-        
-        .receipt {
+        }}
+
+        .receipt {{
             width: 100%;
             background: white;
             border: 2px solid #000;
             padding: 15px;
-        }
-        
-        .header {
+        }}
+
+        .header {{
             text-align: center;
             margin-bottom: 15px;
             padding-bottom: 10px;
             border-bottom: 3px double #000;
-        }
-        
-        .cafe-name {
+        }}
+
+        .cafe-name {{
             font-size: 22px;
             font-weight: 900;
             margin-bottom: 5px;
             color: #000;
-        }
-        
-        .cafe-subtitle {
+        }}
+
+        .cafe-subtitle {{
             font-size: 16px;
             margin-bottom: 10px;
             font-weight: bold;
-        }
-        
-        .info-row {
+        }}
+
+        .info-row {{
             display: flex;
             justify-content: space-between;
             margin-bottom: 8px;
             font-size: 14px;
             padding: 2px 0;
-        }
-        
-        .info-label {
+        }}
+
+        .info-label {{
             font-weight: 900;
             color: #000;
-        }
-        
-        .divider {
+        }}
+
+        .divider {{
             border-bottom: 2px dashed #000;
             margin: 15px 0;
             height: 2px;
-        }
-        
-        .section-title {
+        }}
+
+        .section-title {{
             font-weight: 900;
             text-align: center;
             margin: 15px 0 10px;
@@ -663,168 +395,135 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
             color: white;
             padding: 5px;
             border-radius: 3px;
-        }
-        
-        .items-table {
+        }}
+
+        .items-table {{
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 15px;
             font-size: 13px;
-        }
-        
-        .items-table th {
+        }}
+
+        .items-table th {{
             border-bottom: 2px solid #000;
             padding: 8px 5px;
             text-align: right;
             font-weight: 900;
             background: #f0f0f0;
-        }
-        
-        .items-table td {
+        }}
+
+        .items-table td {{
             padding: 6px 5px;
             border-bottom: 1px solid #ccc;
-        }
-        
-        .item-name {
+        }}
+
+        .item-name {{
             text-align: right;
             font-weight: bold;
             width: 70%;
-        }
-        
-        .item-qty {
+        }}
+
+        .item-qty {{
             text-align: center;
             width: 30%;
             font-weight: bold;
-        }
-        
-        .footer {
+        }}
+
+        .footer {{
             text-align: center;
             margin-top: 20px;
             padding-top: 15px;
             border-top: 2px dashed #000;
             font-size: 12px;
             color: #666;
-        }
+        }}
 
-        @media print {
-            body {
+        @media print {{
+            body {{
                 margin: 0 !important;
                 padding: 5px !important;
                 width: 80mm !important;
                 background: white !important;
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
-            }
-            
-            .receipt {
+            }}
+
+            .receipt {{
                 border: 2px solid #000 !important;
                 box-shadow: none !important;
                 width: 100% !important;
                 margin: 0 !important;
                 padding: 10px !important;
-            }
-            
-            .section-title {
+            }}
+
+            .section-title {{
                 background: #000 !important;
                 color: white !important;
                 -webkit-print-color-adjust: exact !important;
-            }
-            
-            @page {
+            }}
+
+            @page {{
                 size: 80mm auto;
                 margin: 0;
-            }
-        }
+            }}
+        }}
     </style>
 </head>
 <body>
     <div class="receipt">
         <div class="header">
-            <div class="cafe-name">بار كافيه بيروت</div>
-            <div class="cafe-subtitle">تذكرة طلبات البار</div>
+            <div class="cafe-name">{_shape_ar_textfile("بار كافيه بيروت")}</div>
+            <div class="cafe-subtitle">{_shape_ar_textfile("تذكرة طلبات البار")}</div>
         </div>
-        
+
         <div class="info-row">
-            <div class="info-label">التاريخ:</div>
-            <div>{date}</div>
+            <div class="info-label">{_shape_ar_textfile("التاريخ:")}</div>
+            <div>{ts}</div>
         </div>
-        
+
         <div class="info-row">
-            <div class="info-label">الطاولة:</div>
-            <div>{table_number}</div>
+            <div class="info-label">{_shape_ar_textfile("الطاولة:")}</div>
+            <div>{table_code}</div>
         </div>
-        
+
         <div class="divider"></div>
-        
-        <div class="section-title">الطلبات الجديدة</div>
-        
+
+        <div class="section-title">{_shape_ar_textfile("الطلبات الجديدة")}</div>
+
         <table class="items-table">
             <thead>
                 <tr>
-                    <th class="item-name">الصنف</th>
-                    <th class="item-qty">الكمية</th>
+                    <th class="item-name">{_shape_ar_textfile("الصنف")}</th>
+                    <th class="item-qty">{_shape_ar_textfile("الكمية")}</th>
                 </tr>
             </thead>
-            <tbody id="items-body">
-                <!-- Items will be populated by JavaScript -->
+            <tbody>
+                {items_html}
             </tbody>
         </table>
-        
+
         <div class="footer">
-            <div>يتم التحضير فوراً - شكراً لتفهمكم</div>
+            <div>{_shape_ar_textfile("يتم التحضير فوراً - شكراً لتفهمكم")}</div>
         </div>
     </div>
 
     <script>
-        // Populate items table
-        const itemsBody = document.getElementById('items-body');
-        const items = {items};
-        
-        items.forEach(item => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td class="item-name">${item.name}</td>
-                <td class="item-qty">${item.qty}</td>
-            `;
-            itemsBody.appendChild(row);
-            
-            // Add notes if any
-            if (item.notes && item.notes.length > 0) {
-                item.notes.forEach(note => {
-                    const noteRow = document.createElement('tr');
-                    noteRow.innerHTML = `
-                        <td colspan="2" style="font-size: 11px; color: #666; padding-right: 10px; font-style: italic;">
-                            • ${note}
-                        </td>
-                    `;
-                    itemsBody.appendChild(noteRow);
-                });
-            }
-        });
-        
-        // Auto-print
-        window.onload = function() {
-            setTimeout(() => {
+        // Auto-print only - no broken JavaScript data
+        window.onload = function() {{
+            setTimeout(() => {{
                 window.print();
-                setTimeout(() => {
+                setTimeout(() => {{
                     window.close();
-                }, 1000);
-            }, 500);
-        };
+                }}, 1000);
+            }}, 500);
+        }};
     </script>
 </body>
 </html>"""
 
-    # Fill and save bar ticket
-    final_bar_html = bar_html_template.format(
-        date=bar_data['date'],
-        table_number=bar_data['tableNumber'],
-        items=json.dumps(bar_data['items'], ensure_ascii=False)
-    )
-
     bar_filename = f"bar-{table_code}-{datetime.now():%Y%m%d%H%M%S}.html"
     bar_path = _BAR_DIR / bar_filename
-    bar_path.write_text(final_bar_html, encoding='utf-8')
+    bar_path.write_text(bar_html_template, encoding='utf-8')
 
     print(f"[DEBUG] HTML bar ticket saved: {bar_path}")
     return bar_path

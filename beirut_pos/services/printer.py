@@ -3,10 +3,14 @@ ULTIMATE FIX: Uses ESC/POS direct commands - bypasses PDF completely for thermal
 """
 
 from __future__ import annotations
-import os, sys, subprocess, shutil
+import os, sys, subprocess, shutil, re
 from pathlib import Path
 from datetime import datetime
 from typing import Iterable, List, Optional
+try:
+    from importlib import metadata
+except ImportError:  # pragma: no cover - Python < 3.8 fallback
+    import importlib_metadata as metadata  # type: ignore
 
 # ---------------- ESC/POS availability ----------------
 try:
@@ -35,12 +39,46 @@ def _ensure_dirs():
         p.mkdir(parents=True, exist_ok=True)
 
 # ---------------- Arabic shaping ----------------
+_AR_OK = False
+_AR_ERROR: Exception | None = None
+_AR_WARNED = False
+
+
+def _version_tuple(version_str: str) -> tuple[int, ...]:
+    parts = [int(p) for p in re.findall(r"\d+", version_str)]
+    return tuple(parts) if parts else (0,)
+
+
 try:
     import arabic_reshaper
     from bidi.algorithm import get_display
+
+    try:
+        _reshaper_version = metadata.version("arabic-reshaper")
+    except Exception:
+        _reshaper_version = getattr(arabic_reshaper, "__version__", "0")
+
+    if _version_tuple(_reshaper_version) < (3, 0, 0):
+        raise RuntimeError(
+            f"arabic-reshaper {_reshaper_version} detected; need >= 3.0.0 for proper RTL shaping"
+        )
+
     _AR_OK = True
-except Exception:
-    _AR_OK = False
+    _AR_ERROR = None
+except Exception as exc:  # pragma: no cover - import-time guard
+    _AR_ERROR = exc
+
+
+def _warn_arabic_missing() -> None:
+    global _AR_WARNED
+    if _AR_WARNED:
+        return
+    _AR_WARNED = True
+    reason = f" ({_AR_ERROR})" if _AR_ERROR else ""
+    print(
+        "[WARN] Arabic shaping disabled - install arabic-reshaper>=3.0.0 and python-bidi"
+        f"{reason}"
+    )
 
 def _set_ar_codepage(p) -> None:
     """Select an Arabic-capable codepage for python-escpos 3.x."""
@@ -56,21 +94,23 @@ def _set_ar_codepage(p) -> None:
     # If none worked, printing may be garbled; still continue.
 
 def _shape_ar_escpos(text: str) -> str:
-    """Arabic shaping for ESC/POS printers (DO NOT reverse again)."""
+    """Arabic shaping for ESC/POS printers ensuring RTL order is preserved."""
     if not text:
         return ""
     if not _AR_OK:
+        _warn_arabic_missing()
         return text
     reshaped = arabic_reshaper.reshape(text)
-    return reshaped  # FIXED: Remove get_display() for ESC/POS
+    return get_display(reshaped)
 def _shape_ar_textfile(text: str) -> str:
     """Arabic shaping for saving readable text files."""
     if not text:
         return ""
     if not _AR_OK:
+        _warn_arabic_missing()
         return text
     reshaped = arabic_reshaper.reshape(text)
-    return reshaped  # FIXED: No get_display() for text files either
+    return get_display(reshaped)
 _shape_arabic = _shape_ar_textfile
 
 def _format_currency_cents(cents: int | float, currency: str) -> str:
@@ -78,6 +118,23 @@ def _format_currency_cents(cents: int | float, currency: str) -> str:
         return format_pounds(int(round(float(cents))), currency)
     except Exception:
         return f"{cents} {currency}"
+
+
+def _format_qty(qty: float) -> str:
+    """Return a friendly quantity string (trim trailing zeros)."""
+    rounded = round(qty)
+    if abs(qty - rounded) < 1e-6:
+        return str(int(rounded))
+    return f"{qty:.2f}".rstrip("0").rstrip(".")
+
+
+def _note_segments(note: str) -> list[str]:
+    """Split composite notes (sugar level, customisations) into bullet-friendly parts."""
+    if not note:
+        return []
+    cleaned = note.replace("\n", " ")
+    parts = [seg.strip(" ؛-•") for seg in cleaned.split("؛")]
+    return [seg for seg in parts if seg]
 
 # ---------------- Helpers ----------------
 def _can_system_print(printer_name: str) -> bool:
@@ -184,9 +241,8 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
             p.text(f"│ {name:<18} {qty:>8} │\n")
 
             # Show notes/customizations if any
-            note = (it.get("note") or "").strip()
-            if note:
-                note_display = _shape_ar_escpos(f"• {note}")
+            for segment in _note_segments(it.get("note", "")):
+                note_display = _shape_ar_escpos(f"• {segment}")
                 if len(note_display) > 28:
                     note_display = note_display[:25] + "..."
                 p.text(f"│ {note_display:<28} │\n")
@@ -223,7 +279,7 @@ def _print_escpos_cashier_receipt(
         printer_name: str,
         discount_label: str,
 ) -> bool:
-    """BOX STYLE receipt - Section boxes for better organization!"""
+    """Render cashier receipt following the updated branded layout."""
     p = _get_escpos_printer(printer_name)
     if not p:
         return False
@@ -239,79 +295,84 @@ def _print_escpos_cashier_receipt(
     try:
         currency = setting_get("currency", "EGP") or "EGP"
         client_name = get_client_name() or (setting_get("company_name", "Beirut") or "Beirut")
+        subtitle = texts.get("receipt.cashier.subtitle")
+        contact_address = texts.get("receipt.cashier.address")
+        contact_phone = texts.get("receipt.cashier.phone")
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        subtotal_display = _format_currency_cents(subtotal, currency)
+        discount_display = _format_currency_cents(discount, currency)
+        service_display = _format_currency_cents(service, currency)
+        tax_display = _format_currency_cents(tax, currency)
+        total_display = _format_currency_cents(total, currency)
+        total_qty = sum(float(it.get("qty", 0) or 0) for it in items)
+
+        divider_heavy = "═" * 32
+        divider_light = "─" * 32
 
         # Initialize printer
         _set_ar_codepage(p)
         p.set(align='center')
 
-        # HEADER BOX
-        p.text("┌──────────────────────────────┐\n")
-        p.set(text_type='B')
-        p.text(f"│{client_name:^30}│\n")
-        p.text(f"│{'إيصال دفع':^30}│\n")
-        p.set(text_type='NORMAL')
-        p.text("├──────────────────────────────┤\n")
-        p.set(align='right')
-        p.text(f"│ الطاولة: {table_code:<19} │\n")
-        p.text(f"│ الكاشير: {cashier:<19} │\n")
-        p.text(f"│ الوقت: {ts:<21} │\n")
-        p.text(f"│ الدفع: {method:<21} │\n")
-        p.text("└──────────────────────────────┘\n")
-        p.text("\n")
+        p.text(divider_heavy + "\n")
+        p.set(text_type='B', width=2, height=2)
+        p.text(_shape_ar_escpos(client_name) + "\n")
+        p.set(text_type='NORMAL', width=1, height=1)
+        if subtitle:
+            p.text(_shape_ar_escpos(subtitle) + "\n")
+        p.text(divider_heavy + "\n")
 
-        # ITEMS BOX
-        p.text("┌─────────── Items ────────────┐\n")
         p.set(align='right')
-        p.text(f"│{'الصنف':<16} {'الكمية':<4} {'المبلغ':<6}│\n")
-        p.text("├──────────────────────────────┤\n")
+        p.text(_shape_ar_escpos(f"التاريخ والوقت: {ts}") + "\n")
+        p.text(_shape_ar_escpos(f"الطاولة: {table_code}") + "\n")
+        p.text(_shape_ar_escpos(f"النادل: {cashier}") + "\n")
+        p.text(_shape_ar_escpos(f"طريقة الدفع: {method}") + "\n")
+        p.text(divider_light + "\n")
+
+        p.set(text_type='B')
+        p.text(_shape_ar_escpos("الأصناف المطلوبة") + "\n")
+        p.set(text_type='NORMAL')
+        p.text(divider_light + "\n")
 
         for it in items:
             name = _shape_ar_escpos(str(it["name"]))
-            qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
-            item_total = _format_currency_cents(it["total_cents"], currency)
+            qty_display = _format_qty(float(it.get("qty", 0) or 0))
+            unit_display = _format_currency_cents(it.get("unit_price", 0), currency)
+            item_total_display = _format_currency_cents(it.get("total_cents", 0), currency)
 
-            # Truncate long names
-            if len(name) > 16:
-                name = name[:13] + "..."
+            p.text(name + "\n")
+            p.text(_shape_ar_escpos(f"الكمية: {qty_display}  السعر: {unit_display}") + "\n")
+            p.text(_shape_ar_escpos(f"الإجمالي: {item_total_display}") + "\n")
 
-            p.text(f"│ {name:<16} {qty:>4} {item_total:>6} │\n")
+            for segment in _note_segments(it.get("note", "")):
+                p.text(_shape_ar_escpos(f"• {segment}") + "\n")
 
-            # Show notes/customizations if any
-            note = (it.get("note") or "").strip()
-            if note:
-                note_display = _shape_ar_escpos(f"({note})")
-                if len(note_display) > 28:
-                    note_display = note_display[:25] + "..."
-                p.text(f"│ {note_display:<28} │\n")
+            p.text(divider_light + "\n")
 
-        p.text("└──────────────────────────────┘\n")
-        p.text("\n")
+        discount_label_text = discount_label or texts.get("receipt.cashier.discount")
 
-        # TOTALS BOX
-        p.text("┌────────── Totals ────────────┐\n")
-        p.set(align='right')
-        p.text(f"│ المجموع: {_format_currency_cents(subtotal, ''):>19} │\n")
-
-        if discount:
-            p.text(f"│ الخصم: {_format_currency_cents(discount, ''):>21} │\n")
-
+        p.text(_shape_ar_escpos(f"إجمالي القطع: {_format_qty(total_qty)}") + "\n")
+        p.text(_shape_ar_escpos(f"المجموع الفرعي: {subtotal_display}") + "\n")
+        p.text(_shape_ar_escpos(f"{discount_label_text}: {discount_display}") + "\n")
         if service:
-            p.text(f"│ الخدمة: {_format_currency_cents(service, ''):>20} │\n")
-
+            p.text(_shape_ar_escpos(f"الخدمة: {service_display}") + "\n")
         if tax:
-            p.text(f"│ الضريبة: {_format_currency_cents(tax, ''):>19} │\n")
+            p.text(_shape_ar_escpos(f"الضريبة: {tax_display}") + "\n")
 
-        p.text("├──────────────────────────────┤\n")
+        p.text(divider_light + "\n")
         p.set(text_type='B')
-        p.text(f"│ الإجمالي: {_format_currency_cents(total, ''):>18} │\n")
+        p.text(_shape_ar_escpos(f"الإجمالي المستحق: {total_display}") + "\n")
         p.set(text_type='NORMAL')
-        p.text("└──────────────────────────────┘\n")
-        p.text("\n")
+        p.text(divider_light + "\n")
 
-        # FOOTER
         p.set(align='center')
-        p.text(_shape_ar_escpos(texts.get("receipt.footer")) + "\n")
+        if contact_address:
+            p.text(_shape_ar_escpos(contact_address) + "\n")
+        if contact_phone:
+            p.text(_shape_ar_escpos(contact_phone) + "\n")
+        footer = texts.get("receipt.footer")
+        if footer:
+            p.text(_shape_ar_escpos(footer) + "\n")
         p.text("\n")
 
         # Cut
@@ -349,58 +410,80 @@ def _save_receipt_as_text(
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     lines: List[str] = []
+    divider_heavy = "═" * 32
+    divider_light = "─" * 32
 
     if is_bar:
+        lines.append(divider_heavy)
         lines.append(_shape_ar_textfile(texts.get("receipt.bar.header")))
+        lines.append(divider_heavy)
         lines.append(_shape_ar_textfile(texts.get("receipt.bar.table", table_code=table_code)))
         lines.append(_shape_ar_textfile(texts.get("receipt.bar.issued_at", timestamp=ts)))
+        lines.append(divider_light)
+
+        for it in items:
+            name = _shape_ar_textfile(str(it["name"]))
+            qty_display = _format_qty(float(it.get("qty", 0) or 0))
+            lines.append(name)
+            lines.append(_shape_ar_textfile(f"الكمية: {qty_display}"))
+            for segment in _note_segments(it.get("note", "")):
+                lines.append(_shape_ar_textfile(f"• {segment}"))
+            lines.append(divider_light)
     else:
-        lines.append(_shape_ar_textfile(texts.get("receipt.cashier.header", client_name=client_name)))
-        lines.append(_shape_ar_textfile(texts.get("receipt.cashier.meta", table_code=table_code, cashier=cashier)))
-        lines.append(_shape_ar_textfile(texts.get("receipt.bar.issued_at", timestamp=ts)))
-        lines.append(_shape_ar_textfile(texts.get("receipt.cashier.method", method=method)))
+        subtitle = texts.get("receipt.cashier.subtitle")
+        contact_address = texts.get("receipt.cashier.address")
+        contact_phone = texts.get("receipt.cashier.phone")
+        subtotal_display = _format_currency_cents(subtotal, currency)
+        discount_display = _format_currency_cents(discount, currency)
+        service_display = _format_currency_cents(service, currency)
+        tax_display = _format_currency_cents(tax, currency)
+        total_display = _format_currency_cents(total, currency)
+        total_qty = sum(float(it.get("qty", 0) or 0) for it in items)
+        discount_label_text = discount_label or texts.get("receipt.cashier.discount")
 
-    lines.append("-" * 32)
+        lines.append(divider_heavy)
+        lines.append(_shape_ar_textfile(client_name))
+        if subtitle:
+            lines.append(_shape_ar_textfile(subtitle))
+        lines.append(divider_heavy)
+        lines.append(_shape_ar_textfile(f"التاريخ والوقت: {ts}"))
+        lines.append(_shape_ar_textfile(f"الطاولة: {table_code}"))
+        lines.append(_shape_ar_textfile(f"النادل: {cashier}"))
+        lines.append(_shape_ar_textfile(f"طريقة الدفع: {method}"))
+        lines.append(divider_light)
+        lines.append(_shape_ar_textfile("الأصناف المطلوبة"))
+        lines.append(divider_light)
 
-    # COMPACT ITEMS
-    for it in items:
-        name = _shape_ar_textfile(str(it["name"]))
-        qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
-        item_total = _format_currency_cents(it["total_cents"], currency)
-        lines.append(f"{name} {qty} {item_total}")
+        for it in items:
+            name = _shape_ar_textfile(str(it["name"]))
+            qty_display = _format_qty(float(it.get("qty", 0) or 0))
+            unit_display = _format_currency_cents(it.get("unit_price", 0), currency)
+            item_total_display = _format_currency_cents(it.get("total_cents", 0), currency)
 
-        note = (it.get("note") or "").strip()
-        if note:
-            lines.append(_shape_ar_textfile(texts.get("receipt.note", note=note)))
+            lines.append(name)
+            lines.append(_shape_ar_textfile(f"الكمية: {qty_display}  السعر: {unit_display}"))
+            lines.append(_shape_ar_textfile(f"الإجمالي: {item_total_display}"))
+            for segment in _note_segments(it.get("note", "")):
+                lines.append(_shape_ar_textfile(f"• {segment}"))
+            lines.append(divider_light)
 
-    lines.append("-" * 32)
-
-    if not is_bar:
-        lines.append(_shape_ar_textfile(texts.get(
-            "receipt.cashier.subtotal",
-            amount=_format_currency_cents(subtotal, currency),
-        )))
-        if discount:
-            lines.append(_shape_ar_textfile(texts.get(
-                "receipt.cashier.discount",
-                amount=_format_currency_cents(discount, currency),
-            )))
+        lines.append(_shape_ar_textfile(f"إجمالي القطع: {_format_qty(total_qty)}"))
+        lines.append(_shape_ar_textfile(f"المجموع الفرعي: {subtotal_display}"))
+        lines.append(_shape_ar_textfile(f"{discount_label_text}: {discount_display}"))
         if service:
-            lines.append(_shape_ar_textfile(texts.get(
-                "receipt.cashier.service",
-                amount=_format_currency_cents(service, currency),
-            )))
+            lines.append(_shape_ar_textfile(f"الخدمة: {service_display}"))
         if tax:
-            lines.append(_shape_ar_textfile(texts.get(
-                "receipt.cashier.tax",
-                amount=_format_currency_cents(tax, currency),
-            )))
-        lines.append("=" * 32)
-        lines.append(_shape_ar_textfile(texts.get(
-            "receipt.cashier.total",
-            amount=_format_currency_cents(total, currency),
-        )))
-        lines.append(_shape_ar_textfile(texts.get("receipt.footer")))
+            lines.append(_shape_ar_textfile(f"الضريبة: {tax_display}"))
+        lines.append(divider_light)
+        lines.append(_shape_ar_textfile(f"الإجمالي المستحق: {total_display}"))
+        lines.append(divider_light)
+        if contact_address:
+            lines.append(_shape_ar_textfile(contact_address))
+        if contact_phone:
+            lines.append(_shape_ar_textfile(contact_phone))
+        footer = texts.get("receipt.footer")
+        if footer:
+            lines.append(_shape_ar_textfile(footer))
 
     lines.append("\n")
 

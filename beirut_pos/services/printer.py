@@ -77,14 +77,13 @@ def _warn_arabic_missing() -> None:
     )
 
 def _shape_ar_textfile(text: str) -> str:
-    """Arabic shaping for text files."""
+    """Arabic shaping for text (reshape + bidi)."""
     if not text:
         return ""
     if not _AR_OK:
         _warn_arabic_missing()
         return text
     try:
-        # For HTML: reshape and apply bidi algorithm
         reshaped = arabic_reshaper.reshape(text)
         return get_display(reshaped)
     except Exception as e:
@@ -116,7 +115,7 @@ def _note_segments(note: str) -> list[str]:
 
 # ---------------- Helpers ----------------
 def _can_system_print(printer_name: str) -> bool:
-    """Check if CUPS can print to a given printer on Linux."""
+    """Check if CUPS can print to a given printer on Linux/macOS."""
     if not printer_name or not shutil.which("lp"):
         return False
     try:
@@ -126,7 +125,7 @@ def _can_system_print(printer_name: str) -> bool:
         return False
 
 def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
-    """Convert HTML to PDF for better printing support"""
+    """Convert HTML to PDF with thermal-friendly settings (203 dpi, solid black)."""
     try:
         import pdfkit
 
@@ -150,7 +149,7 @@ def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
 
         pdf_path = html_path.with_suffix('.pdf')
 
-        # Configuration for 80mm receipt
+        # Configuration for 80mm receipt — DARKNESS FIX: 203 dpi and no downscale
         options = {
             'page-size': 'Custom',
             'page-width': '80mm',
@@ -161,8 +160,13 @@ def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
             'margin-left': '0mm',
             'encoding': "UTF-8",
             'no-outline': None,
-            'disable-smart-shrinking': None,
+            'disable-smart-shrinking': None,   # avoid soft scaling
             'print-media-type': None,
+            'dpi': '203',            # match 80mm thermal head
+            'image-dpi': '203',
+            'image-quality': '100',  # avoid JPEG artifacts
+            # keep vector black (not grayscale dither)
+            # (wkhtmltopdf treats 'grayscale' as converting colors to grey; we keep native black)
         }
 
         pdfkit.from_file(str(html_path), str(pdf_path), configuration=config, options=options)
@@ -221,13 +225,13 @@ def _generate_html_receipt(
         'changeAmount': _format_currency_cents(0, currency)
     }
 
-    # HTML template with improved printing
+    # HTML template with thermal print darkness fixes
     html_template = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>كافيه بيروت - فاتورة</title>
+    <title>{CLIENT_NAME} - فاتورة</title>
     <style>
         * {
             margin: 0;
@@ -263,8 +267,10 @@ def _generate_html_receipt(
         
         .cafe-name {
             font-size: 16px;
-            font-weight: bold;
+            font-weight: 900;
             margin-bottom: 2px;
+            color: #000;
+            -webkit-text-stroke: 0.15px #000;
         }
         
         .cafe-subtitle {
@@ -280,7 +286,7 @@ def _generate_html_receipt(
         }
         
         .info-label {
-            font-weight: bold;
+            font-weight: 800;
         }
         
         .divider {
@@ -289,7 +295,7 @@ def _generate_html_receipt(
         }
         
         .section-title {
-            font-weight: bold;
+            font-weight: 800;
             text-align: center;
             margin: 6px 0 4px;
             font-size: 12px;
@@ -311,7 +317,7 @@ def _generate_html_receipt(
         
         .items-table td {
             padding: 2px;
-            border-bottom: 1px dotted #ccc;
+            border-bottom: 1px dotted #000;
         }
         
         .item-name {
@@ -343,7 +349,7 @@ def _generate_html_receipt(
         }
         
         .payment-details {
-            background-color: #f0f0f0;
+            background-color: transparent; /* avoid grey fills on thermal */
             padding: 6px;
             margin: 8px 0;
             border-radius: 3px;
@@ -381,34 +387,47 @@ def _generate_html_receipt(
             width: 100%;
         }
 
+        /* === THERMAL DARKNESS FIX === */
         @media print {
-            body {
-                margin: 0 !important;
-                padding: 0 !important;
-                width: 80mm !important;
-                max-width: 80mm !important;
-            }
-            
-            .receipt {
-                border: none !important;
-                box-shadow: none !important;
-                width: 80mm !important;
-                max-width: 80mm !important;
-                margin: 0 !important;
-                padding: 5px !important;
-            }
-            
-            @page {
-                size: 80mm auto;
-                margin: 0;
-            }
+          * {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            color-adjust: exact;
+          }
+          body, .receipt, .header, .footer, .totals, .payment-details,
+          .items-table th, .items-table td, .info-label, .section-title,
+          .item-name, .item-qty, .item-price, .item-total {
+            color: #000 !important;               /* solid black */
+            -webkit-text-stroke: 0.15px #000;     /* crisp on 203 dpi */
+          }
+          .payment-details { background: transparent !important; }
+          .divider { border-bottom: 1px dashed #000 !important; }
+          .items-table td { border-bottom: 1px dotted #000 !important; }
+          @page {
+              size: 80mm auto;
+              margin: 0;
+          }
+          body {
+              margin: 0 !important;
+              padding: 0 !important;
+              width: 80mm !important;
+              max-width: 80mm !important;
+          }
+          .receipt {
+              border: none !important;
+              box-shadow: none !important;
+              width: 80mm !important;
+              max-width: 80mm !important;
+              margin: 0 !important;
+              padding: 5px !important;
+          }
         }
     </style>
 </head>
 <body>
     <div class="receipt">
         <div class="header">
-            <div class="cafe-name">كافيه بيروت</div>
+            <div class="cafe-name">{CLIENT_NAME}</div>
             <div class="cafe-subtitle">كافيه ومعلم</div>
             
             <div class="info-row">
@@ -428,7 +447,7 @@ def _generate_html_receipt(
         </div>
         
         <div class="info-row">
-            <div class="info-label">المدير:</div>
+            <div class="info-label">الكاشير:</div>
             <div id="cashier-name">rageh</div>
         </div>
         
@@ -477,7 +496,7 @@ def _generate_html_receipt(
         <div class="footer">
             <div class="address">امام سيشن الشلال بجوار مفسله بالثبت</div>
             <div class="phone">01110110823</div>
-            <div class="cashier">المدير: <span id="footer-cashier">rageh</span></div>
+            <div class="cashier">الكاشير: <span id="footer-cashier">rageh</span></div>
             <div class="thank-you">شكراً لزيارتكم</div>
         </div>
     </div>
@@ -534,7 +553,11 @@ def _generate_html_receipt(
 
     # Fill the template with data - USING SAFE REPLACEMENT
     json_data = json.dumps(receipt_data, ensure_ascii=False, indent=2)
-    final_html = html_template.replace('{DATA_PLACEHOLDER}', json_data)
+    final_html = (
+        html_template
+        .replace('{DATA_PLACEHOLDER}', json_data)
+        .replace('{CLIENT_NAME}', _shape_ar_textfile(client_name))
+    )
 
     # Save HTML file
     html_filename = f"receipt-{table_code}-{receipt_number}.html"
@@ -572,13 +595,13 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         'items': html_items
     }
 
-    # Bar ticket HTML template
+    # Bar ticket HTML template (with same darkness fix)
     bar_html_template = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>بار كافيه بيروت</title>
+    <title>بار {CLIENT_NAME}</title>
     <style>
         * {
             margin: 0;
@@ -614,8 +637,10 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         
         .cafe-name {
             font-size: 16px;
-            font-weight: bold;
+            font-weight: 900;
             margin-bottom: 2px;
+            color: #000;
+            -webkit-text-stroke: 0.15px #000;
         }
         
         .cafe-subtitle {
@@ -631,7 +656,7 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         }
         
         .info-label {
-            font-weight: bold;
+            font-weight: 800;
         }
         
         .divider {
@@ -640,7 +665,7 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         }
         
         .section-title {
-            font-weight: bold;
+            font-weight: 800;
             text-align: center;
             margin: 6px 0 4px;
             font-size: 12px;
@@ -662,7 +687,7 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         
         .items-table td {
             padding: 2px;
-            border-bottom: 1px dotted #ccc;
+            border-bottom: 1px dotted #000;
         }
         
         .item-name {
@@ -684,34 +709,31 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
             width: 100%;
         }
 
+        /* === THERMAL DARKNESS FIX === */
         @media print {
-            body {
-                margin: 0 !important;
-                padding: 0 !important;
-                width: 80mm !important;
-                max-width: 80mm !important;
-            }
-            
-            .receipt {
-                border: none !important;
-                box-shadow: none !important;
-                width: 80mm !important;
-                max-width: 80mm !important;
-                margin: 0 !important;
-                padding: 5px !important;
-            }
-            
-            @page {
-                size: 80mm auto;
-                margin: 0;
-            }
+          * {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            color-adjust: exact;
+          }
+          body, .receipt, .header, .footer, .section-title,
+          .items-table th, .items-table td, .info-label,
+          .item-name, .item-qty {
+            color: #000 !important;
+            -webkit-text-stroke: 0.15px #000;
+          }
+          .divider { border-bottom: 1px dashed #000 !important; }
+          .items-table td { border-bottom: 1px dotted #000 !important; }
+          @page { size: 80mm auto; margin: 0; }
+          body { margin:0!important; padding:0!important; width:80mm!important; max-width:80mm!important; }
+          .receipt { border:none!important; box-shadow:none!important; width:80mm!important; max-width:80mm!important; margin:0!important; padding:5px!important; }
         }
     </style>
 </head>
 <body>
     <div class="receipt">
         <div class="header">
-            <div class="cafe-name">بار كافيه بيروت</div>
+            <div class="cafe-name">بار {CLIENT_NAME}</div>
             <div class="cafe-subtitle">تذكرة طلبات البار</div>
             
             <div class="info-row">
@@ -769,7 +791,7 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
                     item.notes.forEach(note => {
                         const noteRow = document.createElement('tr');
                         noteRow.innerHTML = `
-                            <td colspan="2" style="font-size: 9px; color: #666; padding-right: 10px;">• ${note}</td>
+                            <td colspan="2" style="font-size: 9px; color: #000; padding-right: 10px;">• ${note}</td>
                         `;
                         itemsBody.appendChild(noteRow);
                     });
@@ -796,7 +818,11 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
 
     # Fill and save bar ticket - USING SAFE REPLACEMENT
     json_data = json.dumps(bar_data, ensure_ascii=False, indent=2)
-    final_bar_html = bar_html_template.replace('{DATA_PLACEHOLDER}', json_data)
+    final_bar_html = (
+        bar_html_template
+        .replace('{DATA_PLACEHOLDER}', json_data)
+        .replace('{CLIENT_NAME}', _shape_ar_textfile(get_client_name() or (setting_get("company_name", "بيروت") or "بيروت")))
+    )
 
     bar_filename = f"bar-{table_code}-{datetime.now():%Y%m%d%H%M%S}.html"
     bar_path = _BAR_DIR / bar_filename
@@ -833,13 +859,8 @@ class PrinterService:
     def print_bar_ticket(self, table_code: str, items: Iterable) -> Path:
         """Print bar ticket using HTML generation"""
         data = _collapse_items(items)
-
-        # Generate HTML bar ticket
         html_path = _generate_html_bar_ticket(table_code, data)
-
-        # Print the HTML file
         self._print_html_file(html_path, self.bar_printer)
-
         return html_path
 
     def print_cashier_receipt(
@@ -858,8 +879,6 @@ class PrinterService:
     ) -> Path:
         """Print cashier receipt using HTML generation"""
         data = _collapse_items(items)
-
-        # Generate HTML receipt
         html_path = _generate_html_receipt(
             table_code=table_code,
             items=data,
@@ -869,41 +888,65 @@ class PrinterService:
             method=method,
             cashier=cashier
         )
-
-        # Print the HTML file
         self._print_html_file(html_path, self.cashier_printer)
-
         return html_path
 
     def _print_html_file(self, html_path: Path, printer_name: str) -> None:
-        """Print HTML file using system printing with Windows support"""
+        """Print HTML/PDF with thermal-friendly settings and named printer selection on Windows."""
         try:
             if sys.platform.startswith("win"):
                 print(f"[DEBUG] Windows printing: {html_path}")
-
-                # METHOD 1: Try PDF with wkhtmltopdf FIRST
+                # Prefer PDF (203 dpi)
                 pdf_path = _convert_html_to_pdf(html_path)
-                if pdf_path and pdf_path.exists():
-                    print(f"[DEBUG] PDF created, printing: {pdf_path}")
-                    os.startfile(str(pdf_path), "print")
-                    print("[DEBUG] PDF sent to printer")
+                target_path = pdf_path if (pdf_path and pdf_path.exists()) else html_path
+
+                # Use PowerShell PrintTo to honor the selected printer
+                ps_cmd = [
+                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "Start-Process",
+                    f"'{str(target_path)}'",
+                    "-Verb", "PrintTo",
+                    "-ArgumentList", f"'{printer_name}'"
+                ]
+                try:
+                    subprocess.run(ps_cmd, check=True)
+                    print("[DEBUG] PrintTo sent successfully")
+                    return
+                except Exception as e:
+                    print(f"[WARN] PrintTo failed ({e}); falling back to default 'print'")
+
+                # Fallback: default printer (if PrintTo fails)
+                try:
+                    os.startfile(str(target_path), "print")
+                    print("[DEBUG] Sent to default printer using 'print' verb")
+                    return
+                except Exception as e:
+                    print(f"[ERROR] Default print failed: {e}")
+                    # Last resort: just open (user can Ctrl+P)
+                    os.startfile(str(target_path))
                     return
 
-                # METHOD 2: If PDF fails, use browser directly
-                print("[DEBUG] Opening in browser for printing")
-                os.startfile(str(html_path))
-
             else:
-                # Linux/Mac
+                # Linux / macOS
                 print(f"[DEBUG] Unix printing: {html_path}")
+                pdf_path = _convert_html_to_pdf(html_path)
+                target_path = pdf_path if (pdf_path and pdf_path.exists()) else html_path
                 if _can_system_print(printer_name):
-                    subprocess.Popen(["lp", "-d", printer_name, str(html_path)])
+                    subprocess.Popen(["lp", "-d", printer_name, str(target_path)])
                 else:
-                    subprocess.Popen(["lp", str(html_path)])
-
+                    subprocess.Popen(["lp", str(target_path)])
         except Exception as e:
             print(f"[ERROR] Print failed: {e}")
-            os.startfile(str(html_path))
+            # Platform-aware fallback: open only
+            try:
+                if sys.platform.startswith("win"):
+                    os.startfile(str(html_path))
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", str(html_path)])
+                else:
+                    subprocess.Popen(["xdg-open", str(html_path)])
+            except Exception as e2:
+                print(f"[ERROR] Fallback open failed: {e2}")
 
     def generate_html_receipt(
             self,
@@ -986,4 +1029,5 @@ def test_arabic_shaping():
 
     print("===========================")
 
-test_arabic_shaping()
+if __name__ == "__main__":
+    test_arabic_shaping()

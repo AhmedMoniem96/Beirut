@@ -76,6 +76,13 @@ class TableTile(QFrame):
         self.reserved_label.hide()
         v.addWidget(self.reserved_label)
 
+        # Client name label
+        self.client_label = QLabel("")
+        self.client_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.client_label.setStyleSheet("color:#cfd8dc; font-weight:600; font-size:13px;")
+        self.client_label.hide()
+        v.addWidget(self.client_label)
+
         # timer for live update when running
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
@@ -159,6 +166,15 @@ class TableTile(QFrame):
             f"border-radius:10px; padding:16px; font-weight:700;"
         )
 
+    def set_client_name(self, name: str):
+        text = (name or "").strip()
+        if text:
+            self.client_label.setText(text)
+            self.client_label.show()
+        else:
+            self.client_label.hide()
+            self.client_label.clear()
+
 
 class TableMap(QWidget):
     MIN_TILE = QSize(160, 120)
@@ -171,6 +187,7 @@ class TableMap(QWidget):
         self._table_codes = []
         self._last_cols = -1
         self._reservations = {}
+        self._client_names: dict[str, str] = {}
 
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(12, 12, 12, 12)
@@ -213,6 +230,7 @@ class TableMap(QWidget):
                 tile = TableTile(code, self._on_click)
                 tile.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
                 tile.set_reserved(self._reservations.get(code))
+                tile.set_client_name(self._client_names.get(code, ""))
                 self.tiles[code] = tile
 
         self._table_codes = cleaned
@@ -287,3 +305,28 @@ class TableMap(QWidget):
         for i, code in enumerate(self._table_codes):
             r, c = divmod(i, cols)
             self.grid.addWidget(self.tiles[code], r, c)
+
+    def set_client_name(self, code: str, name: str):
+        if not code:
+            return
+        norm = code.strip().upper()
+        value = (name or "").strip()
+        if value:
+            self._client_names[norm] = value
+        else:
+            self._client_names.pop(norm, None)
+        tile = self.tiles.get(norm)
+        if tile:
+            tile.set_client_name(value)
+
+    def set_client_names(self, mapping: dict[str, str]):
+        self._client_names = {}
+        for code, name in (mapping or {}).items():
+            if not code:
+                continue
+            norm = code.strip().upper()
+            value = (name or "").strip()
+            if norm and value:
+                self._client_names[norm] = value
+        for code, tile in self.tiles.items():
+            tile.set_client_name(self._client_names.get(code, ""))

@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from ..core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
 from ..services.orders import order_manager
+from ..services import staff as staff_service
 from ..utils.currency import format_pounds
 
 
@@ -41,6 +42,7 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_purchases_tab(), "المشتريات")  # NEW!
         self.tabs.addTab(self._build_price_log_tab(), "سجل الأسعار")
         self.tabs.addTab(self._build_inventory_tab(), "المخزون")
+        self.tabs.addTab(self._build_attendance_tab(), "ساعات العمل")
         self.tabs.addTab(self._build_stakeholder_tab(), "تقرير المساهمين")
 
         layout = QVBoxLayout(self)
@@ -55,6 +57,7 @@ class AdminReportsDialog(BigDialog):
         self._load_purchases_report()  # NEW!
         self._load_price_log()
         self._load_inventory_report()
+        self._load_attendance_report()
         self._load_stakeholder_report()
 
     # ------------------------------------------------------------------ daily
@@ -608,6 +611,81 @@ class AdminReportsDialog(BigDialog):
         entries = order_manager.catalog.get_low_stock()
         rows = [[n, self._format_qty(q or 0), self._format_qty(m or 0)] for n, q, m in entries]
         self._populate_table(self.inventory_table, rows)
+
+    # --------------------------------------------------------- attendance log
+    def _build_attendance_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        self.attendance_table = self._make_table([
+            "الموظف",
+            "الدور",
+            "عدد الجلسات",
+            "إجمالي الساعات",
+            "إجمالي الدقائق",
+        ])
+        layout.addWidget(self.attendance_table, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.addWidget(QLabel("من:"))
+        self.attendance_from = QDateEdit(QDate.currentDate().addDays(-6))
+        self.attendance_from.setCalendarPopup(True)
+        self.attendance_from.setMinimumWidth(150)
+        controls.addWidget(self.attendance_from)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.attendance_to = QDateEdit(QDate.currentDate())
+        self.attendance_to.setCalendarPopup(True)
+        self.attendance_to.setMinimumWidth(150)
+        controls.addWidget(self.attendance_to)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_attendance_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.attendance_table, "attendance_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.attendance_summary = QLabel("")
+        self.attendance_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.attendance_summary)
+
+        return widget
+
+    def _load_attendance_report(self):
+        start, end = self._date_bounds(self.attendance_from, self.attendance_to)
+        try:
+            entries = staff_service.summarize_session_hours(start, end)
+        except Exception as exc:
+            QMessageBox.warning(self, "ساعات العمل", f"تعذر تحميل التقرير:\n{exc}")
+            self._populate_table(self.attendance_table, [])
+            self.attendance_summary.setText("تعذر تحميل البيانات")
+            return
+
+        table_rows = []
+        total_hours = 0.0
+        total_sessions = 0
+        for entry in entries:
+            username = entry.get("username", "")
+            role = entry.get("role", "")
+            sessions = int(entry.get("sessions", 0) or 0)
+            hours = float(entry.get("hours", 0.0) or 0.0)
+            minutes = int(entry.get("minutes", 0) or 0)
+            table_rows.append([
+                username,
+                role,
+                str(sessions),
+                f"{hours:.2f}",
+                str(minutes),
+            ])
+            total_hours += hours
+            total_sessions += sessions
+
+        self._populate_table(self.attendance_table, table_rows)
+        self.attendance_summary.setText(
+            f"عدد الجلسات: {total_sessions} | إجمالي الساعات: {total_hours:.2f}"
+        )
 
     # ------------------------------------------------------ stakeholders log
     def _build_stakeholder_tab(self) -> QWidget:

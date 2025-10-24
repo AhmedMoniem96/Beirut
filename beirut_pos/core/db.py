@@ -251,6 +251,32 @@ def safe_migrations() -> None:
             )"""
     )
     cur.execute(
+        """CREATE TABLE IF NOT EXISTS staff_payroll(
+                username TEXT PRIMARY KEY,
+                salary_cents INTEGER NOT NULL DEFAULT 0,
+                deductions_cents INTEGER NOT NULL DEFAULT 0,
+                loan_cents INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS user_sessions(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                login_at TEXT NOT NULL,
+                logout_at TEXT,
+                duration_seconds INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(username) REFERENCES users(username)
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS table_clients(
+                table_code TEXT PRIMARY KEY,
+                client_name TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )"""
+    )
+    cur.execute(
         """CREATE TABLE IF NOT EXISTS audit_log(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,

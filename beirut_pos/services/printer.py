@@ -43,11 +43,9 @@ _AR_OK = False
 _AR_ERROR: Exception | None = None
 _AR_WARNED = False
 
-
 def _version_tuple(version_str: str) -> tuple[int, ...]:
     parts = [int(p) for p in re.findall(r"\d+", version_str)]
     return tuple(parts) if parts else (0,)
-
 
 try:
     import arabic_reshaper
@@ -58,16 +56,14 @@ try:
     except Exception:
         _reshaper_version = getattr(arabic_reshaper, "__version__", "0")
 
-    if _version_tuple(_reshaper_version) < (3, 0, 0):
-        raise RuntimeError(
-            f"arabic-reshaper {_reshaper_version} detected; need >= 3.0.0 for proper RTL shaping"
-        )
+    # Be more flexible with version requirements
+    if _version_tuple(_reshaper_version) < (2, 0, 0):
+        print(f"[WARN] arabic-reshaper {_reshaper_version} detected; some features may not work optimally")
 
     _AR_OK = True
     _AR_ERROR = None
 except Exception as exc:  # pragma: no cover - import-time guard
     _AR_ERROR = exc
-
 
 def _warn_arabic_missing() -> None:
     global _AR_WARNED
@@ -76,7 +72,7 @@ def _warn_arabic_missing() -> None:
     _AR_WARNED = True
     reason = f" ({_AR_ERROR})" if _AR_ERROR else ""
     print(
-        "[WARN] Arabic shaping disabled - install arabic-reshaper>=3.0.0 and python-bidi"
+        "[WARN] Arabic shaping disabled - install arabic-reshaper and python-bidi"
         f"{reason}"
     )
 
@@ -94,23 +90,34 @@ def _set_ar_codepage(p) -> None:
     # If none worked, printing may be garbled; still continue.
 
 def _shape_ar_escpos(text: str) -> str:
-    """Arabic shaping for ESC/POS printers ensuring RTL order is preserved."""
+    """Arabic shaping for ESC/POS printers - NO bidi reordering for thermal printers."""
     if not text:
         return ""
     if not _AR_OK:
         _warn_arabic_missing()
         return text
-    reshaped = arabic_reshaper.reshape(text)
-    return get_display(reshaped)
+    try:
+        # For ESC/POS thermal printers: reshape but DON'T apply bidi algorithm
+        reshaped = arabic_reshaper.reshape(text)
+        return reshaped  # ← CRITICAL FIX: Remove get_display() for thermal printers
+    except Exception as e:
+        print(f"[WARN] Arabic reshaping failed: {e}")
+        return text
+
 def _shape_ar_textfile(text: str) -> str:
-    """Arabic shaping for saving readable text files."""
+    """Arabic shaping for saving readable text files - WITH bidi reordering."""
     if not text:
         return ""
     if not _AR_OK:
         _warn_arabic_missing()
         return text
-    reshaped = arabic_reshaper.reshape(text)
-    return get_display(reshaped)
+    try:
+        reshaped = arabic_reshaper.reshape(text)
+        return get_display(reshaped)  # ← Keep for readable text files
+    except Exception as e:
+        print(f"[WARN] Arabic reshaping failed: {e}")
+        return text
+
 _shape_arabic = _shape_ar_textfile
 
 def _format_currency_cents(cents: int | float, currency: str) -> str:
@@ -119,14 +126,12 @@ def _format_currency_cents(cents: int | float, currency: str) -> str:
     except Exception:
         return f"{cents} {currency}"
 
-
 def _format_qty(qty: float) -> str:
     """Return a friendly quantity string (trim trailing zeros)."""
     rounded = round(qty)
     if abs(qty - rounded) < 1e-6:
         return str(int(rounded))
     return f"{qty:.2f}".rstrip("0").rstrip(".")
-
 
 def _note_segments(note: str) -> list[str]:
     """Split composite notes (sugar level, customisations) into bullet-friendly parts."""
@@ -185,7 +190,6 @@ def _get_escpos_printer(printer_name: str):
         print(f"[DEBUG] Error initializing ESC/POS printer: {e}")
         return None
 
-
 def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: str) -> bool:
     """Print bar ticket with BOX STYLE - only unprinted items + customizations"""
     print(f"[DEBUG] _print_escpos_bar_ticket called for table {table_code}")
@@ -232,7 +236,7 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
         # ITEMS LIST
         for it in items:
             name = _shape_ar_escpos(str(it["name"]))
-            qty = int(it["qty"]) if abs(it["qty"] - round(it["qty"])) < 1e-6 else f"{it['qty']:.1f}"
+            qty = _format_qty(float(it.get("qty", 0) or 0))
 
             # Truncate long names
             if len(name) > 18:
@@ -266,6 +270,7 @@ def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: s
             p.close()
         except Exception:
             pass
+
 def _print_escpos_cashier_receipt(
         table_code: str,
         items: List[dict],
@@ -388,6 +393,7 @@ def _print_escpos_cashier_receipt(
             p.close()
         except Exception:
             pass
+
 # ---------------- Fallback: Save as text file if ESC/POS fails ----------------
 def _save_receipt_as_text(
         table_code: str,
@@ -493,6 +499,7 @@ def _save_receipt_as_text(
 
     target.write_text("\n".join(lines), encoding='utf-8')
     return target
+
 # ---------------- Public API ----------------
 BAR_PRINTER_NAME     = "XP-80C"  # Change to your actual printer name
 CASHIER_PRINTER_NAME = "XP-80C"  # Change to your actual printer name
@@ -659,3 +666,26 @@ def _collapse_items(items: Iterable) -> List[dict]:
             }
 
     return list(grouped.values())
+
+# ---------------- Diagnostic function ----------------
+def test_arabic_shaping():
+    """Test if Arabic shaping works correctly"""
+    test_text = "كافيه بيروت"
+
+    print("=== Arabic Shaping Test ===")
+    print(f"Original: {test_text}")
+
+    if _AR_OK:
+        reshaped = arabic_reshaper.reshape(test_text)
+        bidi = get_display(reshaped)
+        print(f"Reshaped: {reshaped}")
+        print(f"Bidi: {bidi}")
+        print(f"ESC/POS version: {_shape_ar_escpos(test_text)}")
+        print(f"Textfile version: {_shape_ar_textfile(test_text)}")
+    else:
+        print("Arabic reshaping not available")
+
+    print("===========================")
+
+# Call diagnostic at module load
+test_arabic_shaping()

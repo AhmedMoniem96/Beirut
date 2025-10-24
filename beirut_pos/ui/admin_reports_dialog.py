@@ -87,16 +87,20 @@ class AdminReportsDialog(BigDialog):
         controls.setSpacing(12)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
-        self.daily_from = QDateEdit(QDate.currentDate().addDays(-6))
+        start_dt = QDateTime(QDate.currentDate().addDays(-6), QTime(0, 0, 0))
+        self.daily_from = QDateTimeEdit(start_dt)
         self.daily_from.setCalendarPopup(True)
-        self.daily_from.setMinimumWidth(150)
+        self.daily_from.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.daily_from.setMinimumWidth(170)
         self.daily_from.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_from)
 
         controls.addWidget(QLabel("إلى:"))
-        self.daily_to = QDateEdit(QDate.currentDate())
+        end_dt = QDateTime(QDate.currentDate(), QTime(23, 59, 59))
+        self.daily_to = QDateTimeEdit(end_dt)
         self.daily_to.setCalendarPopup(True)
-        self.daily_to.setMinimumWidth(150)
+        self.daily_to.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.daily_to.setMinimumWidth(170)
         self.daily_to.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_to)
 
@@ -114,7 +118,7 @@ class AdminReportsDialog(BigDialog):
         return widget
 
     def _load_daily_report(self):
-        start, end = self._date_bounds(self.daily_from, self.daily_to)
+        start, end = self._datetime_bounds(self.daily_from, self.daily_to)
         query = """
             WITH paid AS (
                 SELECT

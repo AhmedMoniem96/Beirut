@@ -1024,15 +1024,17 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
 
 
 class OrderManager:
-    __slots__ = ("catalog", "orders", "ps_sessions", "table_codes")
+    __slots__ = ("catalog", "orders", "ps_sessions", "table_codes", "table_clients")
 
     def __init__(self):
         self.catalog = ProductCatalog()
         self.orders: Dict[str, Order] = {}  # table_code -> current open order
         self.ps_sessions: Dict[str, PSSession] = {}  # table_code -> session
         self.table_codes: List[str] = _load_table_codes()
+        self.table_clients: Dict[str, str] = {}
         self._load_open_orders()
         self._load_ps_sessions()
+        self._load_table_clients()
         self._sync_open_tables()
 
     @staticmethod
@@ -1227,6 +1229,73 @@ class OrderManager:
             bus.emit("ps_state_changed", table_code, True)
             # Also emit table state changed to ensure UI updates
             bus.emit("table_state_changed", table_code, "occupied")
+
+    def _load_table_clients(self) -> None:
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT table_code, client_name FROM table_clients")
+        except Exception:
+            conn.close()
+            return
+        mapping: Dict[str, str] = {}
+        for row in cur.fetchall():
+            code = (row["table_code"] or "").strip().upper()
+            name = (row["client_name"] or "").strip()
+            if code and name:
+                mapping[code] = name
+        conn.close()
+        self.table_clients = mapping
+
+    def _write_client_name(self, conn, code: str, name: str) -> None:
+        cur = conn.cursor()
+        if name:
+            cur.execute(
+                """
+                INSERT INTO table_clients(table_code, client_name, updated_at)
+                VALUES(?,?,?)
+                ON CONFLICT(table_code) DO UPDATE SET
+                    client_name=excluded.client_name,
+                    updated_at=excluded.updated_at
+                """,
+                (code, name, datetime.utcnow().isoformat()),
+            )
+        else:
+            cur.execute("DELETE FROM table_clients WHERE table_code=?", (code,))
+
+    def _apply_client_name(self, code: str, name: str) -> None:
+        normalized = (code or "").strip().upper()
+        if not normalized:
+            return
+        if name:
+            self.table_clients[normalized] = name
+        else:
+            self.table_clients.pop(normalized, None)
+        try:
+            bus.emit("table_client_name_changed", normalized, name)
+        except Exception:
+            pass
+
+    def get_client_name(self, table_code: str) -> str:
+        return self.table_clients.get((table_code or "").strip().upper(), "")
+
+    def list_client_names(self) -> Dict[str, str]:
+        return dict(self.table_clients)
+
+    def set_client_name(self, table_code: str, client_name: str, *, actor: str = "system") -> str:
+        code = (table_code or "").strip().upper()
+        if not code:
+            return ""
+        name = (client_name or "").strip()
+        with db_transaction() as conn:
+            self._write_client_name(conn, code, name)
+        self._apply_client_name(code, name)
+        if name:
+            try:
+                log_action(actor, "table_client_named", "table", code, None, name)
+            except Exception:
+                pass
+        return name
 
     def _sync_open_tables(self) -> None:
         missing = [code for code in self.orders.keys() if code not in self.table_codes]
@@ -1603,11 +1672,17 @@ class OrderManager:
                 if ps_sess:
                     cur.execute("UPDATE ps_sessions SET table_code=? WHERE table_code=?", (dst, src))
                     self.ps_sessions[dst] = ps_sess
+                client_name = self.table_clients.get(src, "")
+                self._write_client_name(conn, src, "")
+                self._write_client_name(conn, dst, client_name)
 
             # Update in-memory
             src_order.table_code = dst
             self.orders[dst] = src_order
             self.orders.pop(src, None)
+            client_name = self.table_clients.get(src, "")
+            self._apply_client_name(src, "")
+            self._apply_client_name(dst, client_name)
 
             # Ensure dest in table_codes
             if dst not in self.table_codes:
@@ -1687,6 +1762,8 @@ class OrderManager:
                 raise MergeError(f"فشل إغلاق جلسة البلايستيشن: {e}")
 
             # Perform merge in database transaction
+            target_name = self.table_clients.get(target, "")
+            source_name = self.table_clients.get(source, "")
             try:
                 with db_transaction() as conn:
                     cur = conn.cursor()
@@ -1728,6 +1805,9 @@ class OrderManager:
                         "UPDATE orders SET status='void', closed_at=?, closed_by=? WHERE id=?",
                         (datetime.utcnow().isoformat(), username, secondary.id),
                     )
+                    chosen_name = target_name or source_name
+                    self._write_client_name(conn, source, "")
+                    self._write_client_name(conn, target, chosen_name)
 
             except Exception as e:
                 logger.error(f"Database error during merge {source}->{target}: {e}")
@@ -1743,6 +1823,9 @@ class OrderManager:
                 secondary.items = []
                 secondary.status = "void"
                 self.orders.pop(source, None)
+                chosen_name = target_name or source_name
+                self._apply_client_name(source, "")
+                self._apply_client_name(target, chosen_name)
             except Exception as e:
                 logger.error(f"Error updating in-memory state: {e}")
                 # Database is already updated, so continue
@@ -2155,10 +2238,12 @@ class OrderManager:
                    WHERE id=?""",
                 (paid_at, cashier, paid_at, editable_until, o.id),
             )
+            self._write_client_name(conn, table_code, "")
 
         # Clear in-memory + update UI
         o.status = "paid"
         self.orders.pop(table_code, None)
+        self._apply_client_name(table_code, "")
         bus.emit("table_state_changed", table_code, "free")
         bus.emit("table_total_changed", table_code, 0)
         bus.emit("ps_state_changed", table_code, False)
@@ -2261,10 +2346,12 @@ def get_table_history(
                 CAST(ROUND(COALESCE(SUM(oi.price_cents * oi.qty), 0)) AS INTEGER) AS subtotal_cents,
                 COALESCE(SUM(oi.qty), 0) AS items_count,
                 MAX(p.paid_at) AS paid_at,
-                MAX(p.cashier) AS cashier
+                MAX(p.cashier) AS cashier,
+                MAX(COALESCE(tc.client_name, '')) AS client_name
             FROM orders o
             LEFT JOIN order_items oi ON oi.order_id = o.id
             LEFT JOIN payments p ON p.order_id = o.id
+            LEFT JOIN table_clients tc ON tc.table_code = o.table_code
             WHERE o.table_code = ?
               AND o.status IN ('paid', 'void')
             GROUP BY o.id
@@ -2279,6 +2366,7 @@ def get_table_history(
             note,
             cashier,
             items_count,
+            client_name,
             CASE
                 WHEN subtotal_cents > discount_cents THEN subtotal_cents - discount_cents
                 ELSE 0
@@ -2304,6 +2392,7 @@ def get_table_history(
                 "total_cents": int(row["total_cents"] or 0),
                 "cashier": row["cashier"],
                 "items_count": float(row["items_count"] or 0),
+                "client_name": row["client_name"],
                 "note": row["note"],
             }
         )
@@ -2318,14 +2407,20 @@ def load_order_by_id(order_id: int) -> dict | None:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, table_code, opened_at, closed_at,
-               COALESCE(discount_cents,0) as discount_cents,
-               COALESCE(discount_reason,'') as discount_reason,
-               COALESCE(discount_type,'amount') as discount_type,
-               COALESCE(discount_value,0) as discount_value,
-               paid_at, editable_until
-        FROM orders
-        WHERE id=?
+        SELECT o.id,
+               o.table_code,
+               o.opened_at,
+               o.closed_at,
+               COALESCE(o.discount_cents,0) as discount_cents,
+               COALESCE(o.discount_reason,'') as discount_reason,
+               COALESCE(o.discount_type,'amount') as discount_type,
+               COALESCE(o.discount_value,0) as discount_value,
+               o.paid_at,
+               o.editable_until,
+               COALESCE(tc.client_name,'') AS client_name
+        FROM orders o
+        LEFT JOIN table_clients tc ON tc.table_code = o.table_code
+        WHERE o.id=?
         """,
         (order_id,),
     )
@@ -2354,6 +2449,7 @@ def load_order_by_id(order_id: int) -> dict | None:
     return {
         "id": int(o["id"]),
         "table_code": o["table_code"],
+        "client_name": o["client_name"],
         "opened_at": o["opened_at"],
         "closed_at": o["closed_at"],
         "discount_cents": int(o["discount_cents"]),

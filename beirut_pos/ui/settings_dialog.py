@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QPushButton,
     QComboBox, QFileDialog, QTabWidget, QHBoxLayout, QLabel,
     QColorDialog, QListWidget, QAbstractItemView, QMessageBox,
-    QSizePolicy
+    QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QAction, QKeySequence
@@ -15,6 +15,7 @@ from .common.big_dialog import BigDialog
 from .common import branding
 from ..services.orders import order_manager, get_category_order, set_category_order
 from ..services import texts
+from ..services import staff as staff_service
 from .voucher_dialog import VoucherDialog
 import sys
 from pathlib import Path
@@ -252,6 +253,49 @@ class SettingsDialog(BigDialog):
         self.branding_texts = BrandingTextsPage(self)
         tabs.addTab(self.branding_texts, texts.get("settings.branding.tab"))
 
+        # --- Accounting tab ---
+        acc = QWidget()
+        acc_v = QVBoxLayout(acc)
+        acc_v.setContentsMargins(24, 24, 24, 24)
+        acc_v.setSpacing(16)
+
+        headers = [
+            "المستخدم",
+            "الدور",
+            "الراتب الشهري (ج.م)",
+            "الخصومات (ج.م)",
+            "السلف (ج.م)",
+            "الصافي المستحق (ج.م)",
+        ]
+        self.payroll_table = QTableWidget(0, len(headers))
+        self.payroll_table.setHorizontalHeaderLabels(headers)
+        self.payroll_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.payroll_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.payroll_table.setAlternatingRowColors(True)
+        header = self.payroll_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        for col in range(2, len(headers)):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+        acc_v.addWidget(self.payroll_table, 1)
+
+        controls = QHBoxLayout()
+        btn_refresh_payroll = QPushButton("تحديث")
+        btn_refresh_payroll.clicked.connect(self._load_payroll_rows)
+        controls.addWidget(btn_refresh_payroll)
+        btn_save_payroll = QPushButton("حفظ الرواتب")
+        btn_save_payroll.clicked.connect(self._save_payroll_rows)
+        controls.addWidget(btn_save_payroll)
+        controls.addStretch(1)
+        acc_v.addLayout(controls)
+
+        self.payroll_summary = QLabel("")
+        self.payroll_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        acc_v.addWidget(self.payroll_summary)
+
+        tabs.addTab(acc, "المحاسبة")
+        self._payroll_inputs: list[dict[str, QDoubleSpinBox]] = []
+
         # --- Category order tab ---
         cat_tab = QWidget(); cat_v = QVBoxLayout(cat_tab)
         cat_hint = QLabel("رتّب الأقسام بالسحب والإفلات لتظهر بالترتيب نفسه في شاشة الطلبات.")
@@ -301,6 +345,8 @@ class SettingsDialog(BigDialog):
         root.addWidget(top_bar_w, 0)
         root.addWidget(tabs, 1)
 
+        self._load_payroll_rows()
+
         # ===== Shortcuts ======================================================
         act_save = QAction(self)
         act_save.setShortcut(QKeySequence("Ctrl+S"))
@@ -318,6 +364,114 @@ class SettingsDialog(BigDialog):
         self.addAction(act_escape)
 
     # ==================== Handlers ===========================================
+    def _load_payroll_rows(self):
+        try:
+            rows = staff_service.list_payroll_rows()
+        except Exception as exc:
+            QMessageBox.warning(self, "المحاسبة", f"تعذر تحميل بيانات الرواتب:\n{exc}")
+            rows = []
+
+        self.payroll_table.setRowCount(len(rows))
+        self._payroll_inputs = []
+
+        for row_idx, entry in enumerate(rows):
+            username = str(entry.get("username", "")).strip()
+            role = str(entry.get("role", "")).strip()
+            salary = int(entry.get("salary_cents", 0) or 0) / 100.0
+            deductions = int(entry.get("deductions_cents", 0) or 0) / 100.0
+            loan = int(entry.get("loan_cents", 0) or 0) / 100.0
+
+            user_item = QTableWidgetItem(username)
+            user_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            user_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.payroll_table.setItem(row_idx, 0, user_item)
+
+            role_item = QTableWidgetItem(role)
+            role_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            role_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.payroll_table.setItem(row_idx, 1, role_item)
+
+            def _make_spin(value: float) -> QDoubleSpinBox:
+                spin = QDoubleSpinBox()
+                spin.setRange(0, 1_000_000)
+                spin.setDecimals(2)
+                spin.setSingleStep(10.0)
+                spin.setValue(max(value, 0.0))
+                spin.setAlignment(Qt.AlignmentFlag.AlignRight)
+                spin.setKeyboardTracking(False)
+                return spin
+
+            salary_spin = _make_spin(salary)
+            deduction_spin = _make_spin(deductions)
+            loan_spin = _make_spin(loan)
+
+            self.payroll_table.setCellWidget(row_idx, 2, salary_spin)
+            self.payroll_table.setCellWidget(row_idx, 3, deduction_spin)
+            self.payroll_table.setCellWidget(row_idx, 4, loan_spin)
+
+            self._payroll_inputs.append(
+                {"salary": salary_spin, "deduction": deduction_spin, "loan": loan_spin}
+            )
+
+            for spin in (salary_spin, deduction_spin, loan_spin):
+                spin.valueChanged.connect(lambda _=0.0, idx=row_idx: self._recalculate_payroll_row(idx))
+
+            self._recalculate_payroll_row(row_idx)
+
+        self._update_payroll_summary()
+
+    def _recalculate_payroll_row(self, row: int) -> None:
+        if row < 0 or row >= len(self._payroll_inputs):
+            return
+        widgets = self._payroll_inputs[row]
+        salary = widgets["salary"].value()
+        deduction = widgets["deduction"].value()
+        loan = widgets["loan"].value()
+        net = salary - deduction - loan
+        net_item = QTableWidgetItem(f"{net:.2f}")
+        net_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        net_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.payroll_table.setItem(row, 5, net_item)
+        self._update_payroll_summary()
+
+    def _update_payroll_summary(self) -> None:
+        total_salary = sum(w["salary"].value() for w in self._payroll_inputs)
+        total_deduction = sum(w["deduction"].value() for w in self._payroll_inputs)
+        total_loans = sum(w["loan"].value() for w in self._payroll_inputs)
+        total_net = total_salary - total_deduction - total_loans
+        self.payroll_summary.setText(
+            f"إجمالي الرواتب: {total_salary:.2f} ج.م | الخصومات: {total_deduction:.2f} ج.م | "
+            f"السلف: {total_loans:.2f} ج.م | الصافي المستحق: {total_net:.2f} ج.م"
+        )
+
+    def _save_payroll_rows(self) -> None:
+        entries = []
+        for row_idx, widgets in enumerate(self._payroll_inputs):
+            user_item = self.payroll_table.item(row_idx, 0)
+            if not user_item:
+                continue
+            username = user_item.text().strip()
+            if not username:
+                continue
+            salary = int(round(widgets["salary"].value() * 100))
+            deduction = int(round(widgets["deduction"].value() * 100))
+            loan = int(round(widgets["loan"].value() * 100))
+            entries.append(
+                {
+                    "username": username,
+                    "salary_cents": salary,
+                    "deductions_cents": deduction,
+                    "loan_cents": loan,
+                }
+            )
+        try:
+            staff_service.save_payroll_rows(entries)
+        except Exception as exc:
+            QMessageBox.critical(self, "المحاسبة", f"تعذر حفظ بيانات الرواتب:\n{exc}")
+            return
+        QMessageBox.information(self, "المحاسبة", "تم حفظ بيانات الرواتب بنجاح.")
+        self._load_payroll_rows()
+
     def _on_backup_now(self):
         try:
             path = backup_now()

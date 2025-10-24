@@ -562,8 +562,7 @@ def _generate_html_receipt(
 </html>"""
 
     # Fill the template with data
-    final_html = html_template % json.dumps(receipt_data, ensure_ascii=False, indent=2)
-
+    final_html = html_template.replace('%s', json.dumps(receipt_data, ensure_ascii=False, indent=2))
     # Save HTML file
     html_filename = f"receipt-{table_code}-{receipt_number}.html"
     html_path = _RECEIPTS_DIR / html_filename

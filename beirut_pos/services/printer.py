@@ -105,18 +105,9 @@ def _shape_ar_escpos(text: str) -> str:
         return text
 
 def _shape_ar_textfile(text: str) -> str:
-    """Arabic shaping for saving readable text files - WITH bidi reordering."""
-    if not text:
-        return ""
-    if not _AR_OK:
-        _warn_arabic_missing()
-        return text
-    try:
-        reshaped = arabic_reshaper.reshape(text)
-        return get_display(reshaped)  # ← Keep for readable text files
-    except Exception as e:
-        print(f"[WARN] Arabic reshaping failed: {e}")
-        return text
+    """Arabic shaping for text files - use same as ESC/POS for consistency."""
+    # SIMPLIFIED: Use the same shaping as ESC/POS to avoid reversed text
+    return _shape_ar_escpos(text)
 
 _shape_arabic = _shape_ar_textfile
 

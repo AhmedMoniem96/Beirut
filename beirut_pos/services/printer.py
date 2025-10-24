@@ -77,15 +77,17 @@ def _warn_arabic_missing() -> None:
     )
 
 def _shape_ar_textfile(text: str) -> str:
-    """Arabic shaping for text (reshape + bidi)."""
+    """Arabic shaping for text files - RESHAPE ONLY, NO BIDI for thermal printers."""
     if not text:
         return ""
     if not _AR_OK:
         _warn_arabic_missing()
         return text
     try:
+        # CRITICAL FIX: Reshape Arabic but DON'T apply bidi algorithm
+        # Thermal printers handle RTL automatically when Arabic text is properly shaped
         reshaped = arabic_reshaper.reshape(text)
-        return get_display(reshaped)
+        return reshaped  # ← NO get_display() for thermal printers!
     except Exception as e:
         print(f"[WARN] Arabic reshaping failed: {e}")
         return text
@@ -149,7 +151,7 @@ def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
 
         pdf_path = html_path.with_suffix('.pdf')
 
-        # Configuration for 80mm receipt — DARKNESS FIX: 203 dpi and no downscale
+        # Configuration for 80mm receipt - HIGH CONTRAST
         options = {
             'page-size': 'Custom',
             'page-width': '80mm',
@@ -160,13 +162,14 @@ def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
             'margin-left': '0mm',
             'encoding': "UTF-8",
             'no-outline': None,
-            'disable-smart-shrinking': None,   # avoid soft scaling
+            'disable-smart-shrinking': None,
+            'enable-smart-shrinking': False,
             'print-media-type': None,
-            'dpi': '203',            # match 80mm thermal head
+            'dpi': '203',
             'image-dpi': '203',
-            'image-quality': '100',  # avoid JPEG artifacts
-            # keep vector black (not grayscale dither)
-            # (wkhtmltopdf treats 'grayscale' as converting colors to grey; we keep native black)
+            'image-quality': '100',
+            'load-error-handling': 'ignore',
+            'load-media-error-handling': 'ignore'
         }
 
         pdfkit.from_file(str(html_path), str(pdf_path), configuration=config, options=options)
@@ -225,203 +228,213 @@ def _generate_html_receipt(
         'changeAmount': _format_currency_cents(0, currency)
     }
 
-    # HTML template with thermal print darkness fixes
+    # HTML template with PROPER ARABIC (no bidi) and HIGH CONTRAST
     html_template = """<!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{CLIENT_NAME} - فاتورة</title>
+    <title>Receipt</title>
     <style>
-        * {
+        * {{
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             font-family: 'Courier New', monospace;
-        }
+            color: #000000;
+            font-weight: bold;
+        }}
         
-        body {
+        body {{
             background-color: white;
             padding: 5px;
-            direction: rtl;
             font-size: 12px;
             line-height: 1.2;
             width: 80mm;
             max-width: 80mm;
-        }
+            margin: 0 auto;
+        }}
         
-        .receipt {
+        .receipt {{
             width: 80mm;
             max-width: 80mm;
             background-color: white;
             padding: 8px;
-            margin: 0 auto;
-        }
+        }}
         
-        .header {
+        .header {{
             text-align: center;
             margin-bottom: 8px;
             padding-bottom: 6px;
-            border-bottom: 1px dashed #000;
-        }
+            border-bottom: 2px solid #000000;
+        }}
         
-        .cafe-name {
-            font-size: 16px;
+        .cafe-name {{
+            font-size: 18px;
             font-weight: 900;
             margin-bottom: 2px;
-            color: #000;
-            -webkit-text-stroke: 0.15px #000;
-        }
+        }}
         
-        .cafe-subtitle {
-            font-size: 12px;
+        .cafe-subtitle {{
+            font-size: 13px;
             margin-bottom: 6px;
-        }
+            font-weight: bold;
+        }}
         
-        .info-row {
+        .info-row {{
             display: flex;
             justify-content: space-between;
             margin-bottom: 3px;
-            font-size: 10px;
-        }
+            font-size: 11px;
+        }}
         
-        .info-label {
-            font-weight: 800;
-        }
+        .info-label {{
+            font-weight: 900;
+        }}
         
-        .divider {
-            border-bottom: 1px dashed #000;
+        .divider {{
+            border-bottom: 2px dashed #000000;
             margin: 6px 0;
-        }
+        }}
         
-        .section-title {
-            font-weight: 800;
+        .section-title {{
+            font-weight: 900;
             text-align: center;
             margin: 6px 0 4px;
-            font-size: 12px;
-        }
+            font-size: 13px;
+        }}
         
-        .items-table {
+        .items-table {{
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 8px;
-            font-size: 10px;
-        }
+            font-size: 11px;
+        }}
         
-        .items-table th {
-            border-bottom: 1px solid #000;
+        .items-table th {{
+            border-bottom: 2px solid #000000;
             padding: 3px 2px;
             text-align: right;
-            font-weight: bold;
-        }
+            font-weight: 900;
+        }}
         
-        .items-table td {
+        .items-table td {{
             padding: 2px;
-            border-bottom: 1px dotted #000;
-        }
+            border-bottom: 1px solid #000000;
+            font-weight: bold;
+        }}
         
-        .item-name {
+        .item-name {{
             text-align: right;
-        }
+        }}
         
-        .item-qty, .item-price, .item-total {
+        .item-qty, .item-price, .item-total {{
             text-align: center;
             width: 15%;
-        }
+        }}
         
-        .totals {
+        .totals {{
             margin: 8px 0;
-            font-size: 11px;
-        }
+            font-size: 12px;
+        }}
         
-        .total-row {
+        .total-row {{
             display: flex;
             justify-content: space-between;
             margin-bottom: 3px;
-        }
+        }}
         
-        .grand-total {
-            font-weight: bold;
-            border-top: 1px solid #000;
+        .grand-total {{
+            font-weight: 900;
+            border-top: 2px solid #000000;
             padding-top: 4px;
             margin-top: 4px;
-            font-size: 12px;
-        }
+            font-size: 13px;
+        }}
         
-        .payment-details {
-            background-color: transparent; /* avoid grey fills on thermal */
+        .payment-details {{
+            background-color: #000000;
+            color: #FFFFFF;
             padding: 6px;
             margin: 8px 0;
             border-radius: 3px;
-        }
+            font-weight: 900;
+        }}
         
-        .payment-row {
+        .payment-row {{
             display: flex;
             justify-content: space-between;
             margin-bottom: 2px;
-        }
+        }}
         
-        .footer {
+        .footer {{
             text-align: center;
             margin-top: 10px;
             padding-top: 6px;
-            border-top: 1px dashed #000;
-            font-size: 9px;
+            border-top: 2px dashed #000000;
+            font-size: 10px;
             width: 100%;
-        }
+        }}
         
-        .address, .phone {
+        .address, .phone {{
             margin: 2px 0;
             width: 100%;
-        }
+        }}
         
-        .cashier {
+        .cashier {{
             margin-top: 4px;
-            font-weight: bold;
+            font-weight: 900;
             width: 100%;
-        }
+        }}
         
-        .thank-you {
+        .thank-you {{
             margin-top: 6px;
             font-style: italic;
             width: 100%;
-        }
+        }}
 
-        /* === THERMAL DARKNESS FIX === */
-        @media print {
-          * {
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-            color-adjust: exact;
-          }
-          body, .receipt, .header, .footer, .totals, .payment-details,
-          .items-table th, .items-table td, .info-label, .section-title,
-          .item-name, .item-qty, .item-price, .item-total {
-            color: #000 !important;               /* solid black */
-            -webkit-text-stroke: 0.15px #000;     /* crisp on 203 dpi */
-          }
-          .payment-details { background: transparent !important; }
-          .divider { border-bottom: 1px dashed #000 !important; }
-          .items-table td { border-bottom: 1px dotted #000 !important; }
-          @page {
-              size: 80mm auto;
-              margin: 0;
-          }
-          body {
-              margin: 0 !important;
-              padding: 0 !important;
-              width: 80mm !important;
-              max-width: 80mm !important;
-          }
-          .receipt {
-              border: none !important;
-              box-shadow: none !important;
-              width: 80mm !important;
-              max-width: 80mm !important;
-              margin: 0 !important;
-              padding: 5px !important;
-          }
-        }
+        /* HIGH-CONTRAST PRINT STYLES */
+        @media print {{
+            * {{
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+                color: #000000 !important;
+                background: transparent !important;
+                font-weight: bold !important;
+            }}
+            
+            body {{
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 80mm !important;
+                max-width: 80mm !important;
+                background: white !important;
+            }}
+            
+            .receipt {{
+                border: none !important;
+                box-shadow: none !important;
+                width: 80mm !important;
+                max-width: 80mm !important;
+                margin: 0 !important;
+                padding: 5px !important;
+                background: white !important;
+            }}
+            
+            .payment-details {{
+                background-color: #000000 !important;
+                color: #FFFFFF !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }}
+            
+            @page {{
+                size: 80mm auto;
+                margin: 0;
+                padding: 0;
+            }}
+        }}
     </style>
 </head>
 <body>
@@ -503,7 +516,7 @@ def _generate_html_receipt(
 
     <script>
         // Dynamic data population
-        function populateReceipt(data) {
+        function populateReceipt(data) {{
             // Header info
             document.getElementById('receipt-date').textContent = data.date;
             document.getElementById('receipt-number').textContent = data.receiptNumber;
@@ -514,16 +527,16 @@ def _generate_html_receipt(
             // Items
             const itemsBody = document.getElementById('items-body');
             itemsBody.innerHTML = '';
-            data.items.forEach(item => {
+            data.items.forEach(item => {{
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td class="item-name">${item.name}</td>
-                    <td class="item-qty">${item.qty}</td>
-                    <td class="item-price">${item.price}</td>
-                    <td class="item-total">${item.total}</td>
+                    <td class="item-name">${{item.name}}</td>
+                    <td class="item-qty">${{item.qty}}</td>
+                    <td class="item-price">${{item.price}}</td>
+                    <td class="item-total">${{item.total}}</td>
                 `;
                 itemsBody.appendChild(row);
-            });
+            }});
             
             // Totals
             document.getElementById('discount').textContent = data.discount;
@@ -532,26 +545,26 @@ def _generate_html_receipt(
             // Payment
             document.getElementById('paid-amount').textContent = data.paidAmount;
             document.getElementById('change-amount').textContent = data.changeAmount;
-        }
+        }}
 
         // Populate with data from Python
         const receiptData = {DATA_PLACEHOLDER};
         populateReceipt(receiptData);
         
         // Auto-print and close
-        window.onload = function() {
-            setTimeout(function() {
+        window.onload = function() {{
+            setTimeout(function() {{
                 window.print();
-                setTimeout(function() {
+                setTimeout(function() {{
                     window.close();
-                }, 1000);
-            }, 500);
-        };
+                }}, 1000);
+            }}, 500);
+        }};
     </script>
 </body>
 </html>"""
 
-    # Fill the template with data - USING SAFE REPLACEMENT
+    # Fill the template with data
     json_data = json.dumps(receipt_data, ensure_ascii=False, indent=2)
     final_html = (
         html_template
@@ -595,139 +608,156 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         'items': html_items
     }
 
-    # Bar ticket HTML template (with same darkness fix)
+    # Bar ticket HTML template (with same fixes)
     bar_html_template = """<!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>بار {CLIENT_NAME}</title>
+    <title>Bar Ticket</title>
     <style>
-        * {
+        * {{
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             font-family: 'Courier New', monospace;
-        }
+            color: #000000;
+            font-weight: bold;
+        }}
         
-        body {
+        body {{
             background-color: white;
             padding: 5px;
-            direction: rtl;
             font-size: 12px;
             line-height: 1.2;
             width: 80mm;
             max-width: 80mm;
-        }
+            margin: 0 auto;
+        }}
         
-        .receipt {
+        .receipt {{
             width: 80mm;
             max-width: 80mm;
             background-color: white;
             padding: 8px;
-            margin: 0 auto;
-        }
+        }}
         
-        .header {
+        .header {{
             text-align: center;
             margin-bottom: 8px;
             padding-bottom: 6px;
-            border-bottom: 1px dashed #000;
-        }
+            border-bottom: 2px solid #000000;
+        }}
         
-        .cafe-name {
-            font-size: 16px;
+        .cafe-name {{
+            font-size: 18px;
             font-weight: 900;
             margin-bottom: 2px;
-            color: #000;
-            -webkit-text-stroke: 0.15px #000;
-        }
+        }}
         
-        .cafe-subtitle {
-            font-size: 12px;
+        .cafe-subtitle {{
+            font-size: 13px;
             margin-bottom: 6px;
-        }
+            font-weight: bold;
+        }}
         
-        .info-row {
+        .info-row {{
             display: flex;
             justify-content: space-between;
             margin-bottom: 3px;
-            font-size: 10px;
-        }
+            font-size: 11px;
+        }}
         
-        .info-label {
-            font-weight: 800;
-        }
+        .info-label {{
+            font-weight: 900;
+        }}
         
-        .divider {
-            border-bottom: 1px dashed #000;
+        .divider {{
+            border-bottom: 2px dashed #000000;
             margin: 6px 0;
-        }
+        }}
         
-        .section-title {
-            font-weight: 800;
+        .section-title {{
+            font-weight: 900;
             text-align: center;
             margin: 6px 0 4px;
-            font-size: 12px;
-        }
+            font-size: 13px;
+        }}
         
-        .items-table {
+        .items-table {{
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 8px;
-            font-size: 10px;
-        }
+            font-size: 11px;
+        }}
         
-        .items-table th {
-            border-bottom: 1px solid #000;
+        .items-table th {{
+            border-bottom: 2px solid #000000;
             padding: 3px 2px;
             text-align: right;
-            font-weight: bold;
-        }
+            font-weight: 900;
+        }}
         
-        .items-table td {
+        .items-table td {{
             padding: 2px;
-            border-bottom: 1px dotted #000;
-        }
+            border-bottom: 1px solid #000000;
+            font-weight: bold;
+        }}
         
-        .item-name {
+        .item-name {{
             text-align: right;
             width: 70%;
-        }
+        }}
         
-        .item-qty {
+        .item-qty {{
             text-align: center;
             width: 30%;
-        }
+        }}
         
-        .footer {
+        .footer {{
             text-align: center;
             margin-top: 10px;
             padding-top: 6px;
-            border-top: 1px dashed #000;
-            font-size: 9px;
+            border-top: 2px dashed #000000;
+            font-size: 10px;
             width: 100%;
-        }
+        }}
 
-        /* === THERMAL DARKNESS FIX === */
-        @media print {
-          * {
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-            color-adjust: exact;
-          }
-          body, .receipt, .header, .footer, .section-title,
-          .items-table th, .items-table td, .info-label,
-          .item-name, .item-qty {
-            color: #000 !important;
-            -webkit-text-stroke: 0.15px #000;
-          }
-          .divider { border-bottom: 1px dashed #000 !important; }
-          .items-table td { border-bottom: 1px dotted #000 !important; }
-          @page { size: 80mm auto; margin: 0; }
-          body { margin:0!important; padding:0!important; width:80mm!important; max-width:80mm!important; }
-          .receipt { border:none!important; box-shadow:none!important; width:80mm!important; max-width:80mm!important; margin:0!important; padding:5px!important; }
-        }
+        /* HIGH-CONTRAST PRINT STYLES */
+        @media print {{
+            * {{
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+                color: #000000 !important;
+                background: transparent !important;
+                font-weight: bold !important;
+            }}
+            
+            body {{
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 80mm !important;
+                max-width: 80mm !important;
+                background: white !important;
+            }}
+            
+            .receipt {{
+                border: none !important;
+                box-shadow: none !important;
+                width: 80mm !important;
+                max-width: 80mm !important;
+                margin: 0 !important;
+                padding: 5px !important;
+                background: white !important;
+            }}
+            
+            @page {{
+                size: 80mm auto;
+                margin: 0;
+                padding: 0;
+            }}
+        }}
     </style>
 </head>
 <body>
@@ -770,7 +800,7 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
 
     <script>
         // Dynamic data population for bar ticket
-        function populateBarTicket(data) {
+        function populateBarTicket(data) {{
             // Header info
             document.getElementById('bar-date').textContent = data.date;
             document.getElementById('bar-table').textContent = data.tableNumber;
@@ -778,45 +808,45 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
             // Bar Items
             const itemsBody = document.getElementById('bar-items-body');
             itemsBody.innerHTML = '';
-            data.items.forEach(item => {
+            data.items.forEach(item => {{
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td class="item-name">${item.name}</td>
-                    <td class="item-qty">${item.qty}</td>
+                    <td class="item-name">${{item.name}}</td>
+                    <td class="item-qty">${{item.qty}}</td>
                 `;
                 itemsBody.appendChild(row);
                 
                 // Add notes if any
-                if (item.notes && item.notes.length > 0) {
-                    item.notes.forEach(note => {
+                if (item.notes && item.notes.length > 0) {{
+                    item.notes.forEach(note => {{
                         const noteRow = document.createElement('tr');
                         noteRow.innerHTML = `
-                            <td colspan="2" style="font-size: 9px; color: #000; padding-right: 10px;">• ${note}</td>
+                            <td colspan="2" style="font-size: 9px; color: #000000 !important; padding-right: 10px; font-weight: bold !important;">• ${{note}}</td>
                         `;
                         itemsBody.appendChild(noteRow);
-                    });
-                }
-            });
-        }
+                    }});
+                }}
+            }});
+        }}
 
         // Populate with data from Python
         const barData = {DATA_PLACEHOLDER};
         populateBarTicket(barData);
         
         // Auto-print and close
-        window.onload = function() {
-            setTimeout(function() {
+        window.onload = function() {{
+            setTimeout(function() {{
                 window.print();
-                setTimeout(function() {
+                setTimeout(function() {{
                     window.close();
-                }, 1000);
-            }, 500);
-        };
+                }}, 1000);
+            }}, 500);
+        }};
     </script>
 </body>
 </html>"""
 
-    # Fill and save bar ticket - USING SAFE REPLACEMENT
+    # Fill and save bar ticket
     json_data = json.dumps(bar_data, ensure_ascii=False, indent=2)
     final_bar_html = (
         bar_html_template
@@ -892,7 +922,7 @@ class PrinterService:
         return html_path
 
     def _print_html_file(self, html_path: Path, printer_name: str) -> None:
-        """Print HTML/PDF with thermal-friendly settings and named printer selection on Windows."""
+        """Print HTML/PDF with thermal-friendly settings"""
         try:
             if sys.platform.startswith("win"):
                 print(f"[DEBUG] Windows printing: {html_path}")
@@ -1020,10 +1050,8 @@ def test_arabic_shaping():
 
     if _AR_OK:
         reshaped = arabic_reshaper.reshape(test_text)
-        bidi = get_display(reshaped)
         print(f"Reshaped: {reshaped}")
-        print(f"Bidi: {bidi}")
-        print(f"Textfile version: {_shape_ar_textfile(test_text)}")
+        print(f"Thermal version: {_shape_ar_textfile(test_text)}")
     else:
         print("Arabic reshaping not available")
 

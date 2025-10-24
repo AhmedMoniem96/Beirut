@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QComboBox,
     QSizePolicy,
+    QTimeEdit,
 )
 
 from ..core.db import get_conn, setting_get
@@ -87,22 +88,36 @@ class AdminReportsDialog(BigDialog):
         controls.setSpacing(12)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
-        start_dt = QDateTime(QDate.currentDate().addDays(-6), QTime(0, 0, 0))
-        self.daily_from = QDateTimeEdit(start_dt)
-        self.daily_from.setCalendarPopup(True)
-        self.daily_from.setDisplayFormat("yyyy-MM-dd HH:mm")
-        self.daily_from.setMinimumWidth(170)
-        self.daily_from.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        controls.addWidget(self.daily_from)
+        self.daily_from_date = QDateEdit(QDate.currentDate().addDays(-6))
+        self.daily_from_date.setCalendarPopup(True)
+        self.daily_from_date.setDisplayFormat("yyyy-MM-dd")
+        self.daily_from_date.setMinimumWidth(140)
+        self.daily_from_date.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        controls.addWidget(self.daily_from_date)
+
+        controls.addWidget(QLabel("الساعة:"))
+
+        self.daily_from_time = QTimeEdit(QTime(0, 0))
+        self.daily_from_time.setDisplayFormat("HH:mm")
+        self.daily_from_time.setMinimumWidth(90)
+        self.daily_from_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        controls.addWidget(self.daily_from_time)
 
         controls.addWidget(QLabel("إلى:"))
-        end_dt = QDateTime(QDate.currentDate(), QTime(23, 59, 59))
-        self.daily_to = QDateTimeEdit(end_dt)
-        self.daily_to.setCalendarPopup(True)
-        self.daily_to.setDisplayFormat("yyyy-MM-dd HH:mm")
-        self.daily_to.setMinimumWidth(170)
-        self.daily_to.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        controls.addWidget(self.daily_to)
+        self.daily_to_date = QDateEdit(QDate.currentDate())
+        self.daily_to_date.setCalendarPopup(True)
+        self.daily_to_date.setDisplayFormat("yyyy-MM-dd")
+        self.daily_to_date.setMinimumWidth(140)
+        self.daily_to_date.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        controls.addWidget(self.daily_to_date)
+
+        controls.addWidget(QLabel("الساعة:"))
+
+        self.daily_to_time = QTimeEdit(QTime(23, 59))
+        self.daily_to_time.setDisplayFormat("HH:mm")
+        self.daily_to_time.setMinimumWidth(90)
+        self.daily_to_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        controls.addWidget(self.daily_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_daily_report)
@@ -118,7 +133,12 @@ class AdminReportsDialog(BigDialog):
         return widget
 
     def _load_daily_report(self):
-        start, end = self._datetime_bounds(self.daily_from, self.daily_to)
+        start, end = self._datetime_bounds_from_date_time(
+            self.daily_from_date,
+            self.daily_from_time,
+            self.daily_to_date,
+            self.daily_to_time,
+        )
         query = """
             WITH paid AS (
                 SELECT
@@ -1062,6 +1082,23 @@ class AdminReportsDialog(BigDialog):
         if e < s:
             e = s
         return s.isoformat(), e.isoformat()
+
+    def _datetime_bounds_from_date_time(
+        self,
+        start_date_widget: QDateEdit,
+        start_time_widget: QTimeEdit,
+        end_date_widget: QDateEdit,
+        end_time_widget: QTimeEdit,
+    ) -> tuple[str, str]:
+        start_dt = datetime.combine(
+            start_date_widget.date().toPyDate(), start_time_widget.time().toPyTime()
+        )
+        end_dt = datetime.combine(
+            end_date_widget.date().toPyDate(), end_time_widget.time().toPyTime()
+        )
+        if end_dt < start_dt:
+            end_dt = start_dt
+        return start_dt.isoformat(), end_dt.isoformat()
 
     def _export_table(self, table: QTableWidget, default_name: str) -> None:
         """Export table to Excel with timestamped filename."""

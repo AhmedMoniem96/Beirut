@@ -429,7 +429,7 @@ class OrderDetailsDialog(BigDialog):
             order = cur.execute(
                 """
                 SELECT o.table_code,
-                       COALESCE(tc.client_name, '') AS client_name,
+                       COALESCE(NULLIF(o.client_name, ''), tc.client_name, '') AS client_name,
                        o.opened_at,
                        o.closed_at,
                        o.status,

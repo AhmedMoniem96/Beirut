@@ -970,6 +970,7 @@ class Order:
     items: List[OrderItem] = field(default_factory=list)
     status: str = "open"  # open/paid/void
     opened_by: str = ""
+    client_name: str = ""
     discount_type: str = "amount"
     discount_value: float = 0.0
     discount_reason: str = ""
@@ -1048,6 +1049,7 @@ class OrderManager:
         cur = conn.cursor()
         cur.execute(
             """SELECT id, table_code, status, opened_by,
+                      COALESCE(client_name, '')        AS client_name,
                       COALESCE(discount_type, 'amount') AS discount_type,
                       COALESCE(discount_value, 0)      AS discount_value,
                       COALESCE(discount_reason, '')    AS discount_reason,
@@ -1061,6 +1063,7 @@ class OrderManager:
                 table_code=o["table_code"],
                 status=o["status"],
                 opened_by=o["opened_by"],
+                client_name=o["client_name"] or "",
                 discount_type=(o["discount_type"] or "amount"),
                 discount_value=float(o["discount_value"] or 0),
                 discount_reason=o["discount_reason"] or "",
@@ -1167,6 +1170,7 @@ class OrderManager:
                 items=items,
                 status="open",
                 opened_by=order_row.get("opened_by", "") if order_row else "",
+                client_name=(order_row.get("client_name", "") if order_row else ""),
                 discount_type="amount",
                 discount_value=0.0,
                 discount_reason="",
@@ -1271,6 +1275,11 @@ class OrderManager:
             self.table_clients[normalized] = name
         else:
             self.table_clients.pop(normalized, None)
+        order = self.orders.get(normalized)
+        if not order and code != normalized:
+            order = self.orders.get(code)
+        if order:
+            order.client_name = name
         try:
             bus.emit("table_client_name_changed", normalized, name)
         except Exception:
@@ -1289,6 +1298,10 @@ class OrderManager:
         name = (client_name or "").strip()
         with db_transaction() as conn:
             self._write_client_name(conn, code, name)
+            conn.execute(
+                "UPDATE orders SET client_name=? WHERE table_code=? AND status='open'",
+                (name, code),
+            )
         self._apply_client_name(code, name)
         if name:
             try:
@@ -1360,11 +1373,22 @@ class OrderManager:
             return existing, False
         cur = conn.cursor()
         cur.execute(
-            """INSERT INTO orders(table_code, opened_at, status, opened_by)
-               VALUES(?,?,?,?)""",
-            (table_code, datetime.utcnow().isoformat(), "open", opened_by),
+            """INSERT INTO orders(table_code, opened_at, status, opened_by, client_name)
+               VALUES(?,?,?,?,?)""",
+            (
+                table_code,
+                datetime.utcnow().isoformat(),
+                "open",
+                opened_by,
+                self.table_clients.get(table_code, ""),
+            ),
         )
-        order = Order(id=cur.lastrowid, table_code=table_code, opened_by=opened_by)
+        order = Order(
+            id=cur.lastrowid,
+            table_code=table_code,
+            opened_by=opened_by,
+            client_name=self.table_clients.get(table_code, ""),
+        )
         self.orders[table_code] = order
         return order, True
 
@@ -2347,7 +2371,7 @@ def get_table_history(
                 COALESCE(SUM(oi.qty), 0) AS items_count,
                 MAX(p.paid_at) AS paid_at,
                 MAX(p.cashier) AS cashier,
-                MAX(COALESCE(tc.client_name, '')) AS client_name
+                MAX(COALESCE(NULLIF(o.client_name, ''), tc.client_name, '')) AS client_name
             FROM orders o
             LEFT JOIN order_items oi ON oi.order_id = o.id
             LEFT JOIN payments p ON p.order_id = o.id
@@ -2408,6 +2432,7 @@ def load_order_by_id(order_id: int) -> dict | None:
     cur.execute(
         """
         SELECT id, table_code, opened_at, closed_at,
+               COALESCE(client_name,'') as client_name,
                COALESCE(discount_cents,0) as discount_cents,
                COALESCE(discount_reason,'') as discount_reason,
                COALESCE(discount_type,'amount') as discount_type,
@@ -2445,6 +2470,7 @@ def load_order_by_id(order_id: int) -> dict | None:
         "table_code": o["table_code"],
         "opened_at": o["opened_at"],
         "closed_at": o["closed_at"],
+        "client_name": o["client_name"],
         "discount_cents": int(o["discount_cents"]),
         "discount_reason": o["discount_reason"],
         "discount_type": o["discount_type"],

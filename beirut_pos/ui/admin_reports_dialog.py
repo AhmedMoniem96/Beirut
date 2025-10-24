@@ -444,7 +444,7 @@ class AdminReportsDialog(BigDialog):
             SELECT
                 o.closed_at,
                 o.table_code,
-                COALESCE(tc.client_name, '') AS client_name,
+                COALESCE(NULLIF(o.client_name, ''), tc.client_name, '') AS client_name,
                 o.discount_cents,
                 o.discount_reason,
                 p.cashier
@@ -647,7 +647,7 @@ class AdminReportsDialog(BigDialog):
                 WHERE p.paid_at BETWEEN ? AND ?
                 GROUP BY day
             ),
-            purchases AS (
+            purchase_totals AS (
                 SELECT DATE(pr.purchased_at) AS day,
                        SUM(pr.amount_cents) AS purchase_total
                 FROM purchases pr
@@ -657,15 +657,15 @@ class AdminReportsDialog(BigDialog):
             days AS (
                 SELECT day FROM sales
                 UNION
-                SELECT day FROM purchases
+                SELECT day FROM purchase_totals
             )
             SELECT
                 d.day AS day,
                 COALESCE(sales.net_total, 0) AS net_sales,
-                COALESCE(purchases.purchase_total, 0) AS purchases_total
+                COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
             FROM days d
             LEFT JOIN sales ON sales.day = d.day
-            LEFT JOIN purchases ON purchases.day = d.day
+            LEFT JOIN purchase_totals ON purchase_totals.day = d.day
             ORDER BY d.day DESC
         """
 
@@ -680,7 +680,7 @@ class AdminReportsDialog(BigDialog):
                 WHERE p.paid_at BETWEEN ? AND ?
                 GROUP BY month
             ),
-            purchases AS (
+            purchase_totals AS (
                 SELECT strftime('%Y-%m', pr.purchased_at) AS month,
                        SUM(pr.amount_cents) AS purchase_total
                 FROM purchases pr
@@ -690,15 +690,15 @@ class AdminReportsDialog(BigDialog):
             months AS (
                 SELECT month FROM sales
                 UNION
-                SELECT month FROM purchases
+                SELECT month FROM purchase_totals
             )
             SELECT
                 m.month AS month,
                 COALESCE(sales.net_total, 0) AS net_sales,
-                COALESCE(purchases.purchase_total, 0) AS purchases_total
+                COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
             FROM months m
             LEFT JOIN sales ON sales.month = m.month
-            LEFT JOIN purchases ON purchases.month = m.month
+            LEFT JOIN purchase_totals ON purchase_totals.month = m.month
             WHERE m.month IS NOT NULL
             ORDER BY m.month DESC
         """

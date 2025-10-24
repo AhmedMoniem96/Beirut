@@ -305,6 +305,7 @@ def safe_migrations() -> None:
     _ensure_catalog_order_columns(cur)
     _ensure_orders_discount_columns(cur)        # add missing discount columns
     _ensure_orders_payment_window_columns(cur)  # add paid_at/editable_until columns
+    _ensure_orders_client_name(cur)             # add client_name column for history
     _ensure_currency_unit(cur)
     _ensure_ui_texts_table(cur)
     _ensure_default_settings(cur)
@@ -445,6 +446,14 @@ def _ensure_orders_payment_window_columns(cur) -> None:
     if "editable_until" not in cols:
         _ensure_schema_backup()
         cur.execute("ALTER TABLE orders ADD COLUMN editable_until TEXT")
+
+
+def _ensure_orders_client_name(cur) -> None:
+    cur.execute("PRAGMA table_info(orders)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "client_name" not in cols:
+        _ensure_schema_backup()
+        cur.execute("ALTER TABLE orders ADD COLUMN client_name TEXT NOT NULL DEFAULT ''")
 
 
 def _ensure_currency_unit(cur) -> None:

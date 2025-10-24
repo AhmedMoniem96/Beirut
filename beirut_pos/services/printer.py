@@ -125,66 +125,36 @@ def _can_system_print(printer_name: str) -> bool:
     except Exception:
         return False
 
-def _print_html_windows(html_path: Path, printer_name: str = None) -> bool:
-    """Print HTML on Windows using PowerShell"""
-    try:
-        # PowerShell script to print HTML
-        ps_script = f"""
-        $filePath = "{html_path}"
-        $printerName = "{printer_name or 'default'}"
-        
-        # Create Internet Explorer COM object
-        $ie = New-Object -ComObject InternetExplorer.Application
-        $ie.Visible = $false
-        $ie.Navigate($filePath)
-        
-        while ($ie.Busy -eq $true) {{
-            Start-Sleep -Milliseconds 100
-        }}
-        
-        # Print the document
-        $ie.ExecWB(6, 2)  # 6 = PRINT, 2 = PROMPT_USER
-        
-        # Wait a bit then quit
-        Start-Sleep -Seconds 2
-        $ie.Quit()
-        """
-
-        # Save PowerShell script to temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ps1', delete=False) as f:
-            f.write(ps_script)
-            ps_script_path = f.name
-
-        # Execute PowerShell script
-        result = subprocess.run([
-            'powershell', '-ExecutionPolicy', 'Bypass', '-File', ps_script_path
-        ], capture_output=True, text=True, timeout=30)
-
-        # Clean up temp file
-        os.unlink(ps_script_path)
-
-        if result.returncode == 0:
-            print("[DEBUG] Windows HTML print initiated successfully")
-            return True
-        else:
-            print(f"[DEBUG] Windows print failed: {result.stderr}")
-            return False
-
-    except Exception as e:
-        print(f"[DEBUG] Windows HTML print error: {e}")
-        return False
-
 def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
     """Convert HTML to PDF for better printing support"""
     try:
         import pdfkit
+
+        # Find wkhtmltopdf executable
+        wkhtmltopdf_paths = [
+            r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe",
+            r"C:\Program Files (x86)\wkhtmltopdf\bin\wkhtmltopdf.exe",
+            "wkhtmltopdf",  # If it's in PATH
+        ]
+
+        config = None
+        for path in wkhtmltopdf_paths:
+            if os.path.exists(path):
+                config = pdfkit.configuration(wkhtmltopdf=path)
+                print(f"[DEBUG] Using wkhtmltopdf at: {path}")
+                break
+
+        if not config:
+            print("[DEBUG] wkhtmltopdf not found, using default")
+            config = pdfkit.configuration()
+
         pdf_path = html_path.with_suffix('.pdf')
 
         # Configuration for 80mm receipt
         options = {
             'page-size': 'Custom',
             'page-width': '80mm',
-            'page-height': '297mm',  # A4 height for dynamic content
+            'page-height': '297mm',
             'margin-top': '0mm',
             'margin-right': '0mm',
             'margin-bottom': '0mm',
@@ -195,7 +165,8 @@ def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
             'print-media-type': None,
         }
 
-        pdfkit.from_file(str(html_path), str(pdf_path), options=options)
+        pdfkit.from_file(str(html_path), str(pdf_path), configuration=config, options=options)
+        print(f"[DEBUG] PDF conversion SUCCESS: {pdf_path}")
         return pdf_path
     except ImportError:
         print("[DEBUG] pdfkit not available, skipping PDF conversion")
@@ -250,7 +221,7 @@ def _generate_html_receipt(
         'changeAmount': _format_currency_cents(0, currency)
     }
 
-    # HTML template with improved printing - USING {} PLACEHOLDER
+    # HTML template with improved printing
     html_template = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -601,7 +572,7 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         'items': html_items
     }
 
-    # Bar ticket HTML template - USING {} PLACEHOLDER
+    # Bar ticket HTML template
     bar_html_template = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -908,45 +879,31 @@ class PrinterService:
         """Print HTML file using system printing with Windows support"""
         try:
             if sys.platform.startswith("win"):
-                print(f"[DEBUG] Attempting to print on Windows: {html_path}")
+                print(f"[DEBUG] Windows printing: {html_path}")
 
-                # Method 1: Try PDF conversion first (if wkhtmltopdf available)
+                # METHOD 1: Try PDF with wkhtmltopdf FIRST
                 pdf_path = _convert_html_to_pdf(html_path)
                 if pdf_path and pdf_path.exists():
-                    try:
-                        os.startfile(str(pdf_path), "print")
-                        print(f"[DEBUG] Printed PDF version: {pdf_path}")
-                        return
-                    except Exception as e:
-                        print(f"[DEBUG] PDF print failed: {e}")
-
-                # Method 2: Try PowerShell printing
-                if _print_html_windows(html_path, printer_name):
+                    print(f"[DEBUG] PDF created, printing: {pdf_path}")
+                    os.startfile(str(pdf_path), "print")
+                    print("[DEBUG] PDF sent to printer")
                     return
 
-                # Method 3: Fallback - open in browser for manual printing
-                print("[DEBUG] Opening in browser for manual printing")
+                # METHOD 2: If PDF fails, use browser directly
+                print("[DEBUG] Opening in browser for printing")
                 os.startfile(str(html_path))
 
             else:
-                # Linux/Mac: try to print using system commands
-                print(f"[DEBUG] Attempting to print on Unix: {html_path}")
+                # Linux/Mac
+                print(f"[DEBUG] Unix printing: {html_path}")
                 if _can_system_print(printer_name):
                     subprocess.Popen(["lp", "-d", printer_name, str(html_path)])
-                    print(f"[DEBUG] Sent to printer: {printer_name}")
                 else:
                     subprocess.Popen(["lp", str(html_path)])
-                    print("[DEBUG] Sent to default printer")
 
         except Exception as e:
-            print(f"[WARN] Could not auto-print file: {e}")
-            try:
-                if sys.platform.startswith("win"):
-                    os.startfile(str(html_path))
-                else:
-                    subprocess.Popen(["xdg-open", str(html_path)])
-            except Exception:
-                print(f"[INFO] File saved at: {html_path} - please print manually")
+            print(f"[ERROR] Print failed: {e}")
+            os.startfile(str(html_path))
 
     def generate_html_receipt(
             self,

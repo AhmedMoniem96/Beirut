@@ -40,9 +40,11 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_products_tab(), "الأصناف")
         self.tabs.addTab(self._build_discounts_tab(), "الخصومات")  # NEW!
         self.tabs.addTab(self._build_purchases_tab(), "المشتريات")  # NEW!
+        self.tabs.addTab(self._build_profit_tab(), "الأرباح")
         self.tabs.addTab(self._build_price_log_tab(), "سجل الأسعار")
         self.tabs.addTab(self._build_inventory_tab(), "المخزون")
         self.tabs.addTab(self._build_attendance_tab(), "ساعات العمل")
+        self.tabs.addTab(self._build_deductions_tab(), "خصومات الموظفين")
         self.tabs.addTab(self._build_stakeholder_tab(), "تقرير المساهمين")
 
         layout = QVBoxLayout(self)
@@ -55,9 +57,11 @@ class AdminReportsDialog(BigDialog):
         self._load_product_report()
         self._load_discounts_report()  # NEW!
         self._load_purchases_report()  # NEW!
+        self._load_profit_report()
         self._load_price_log()
         self._load_inventory_report()
         self._load_attendance_report()
+        self._load_deductions_report()
         self._load_stakeholder_report()
 
     # ------------------------------------------------------------------ daily
@@ -402,7 +406,7 @@ class AdminReportsDialog(BigDialog):
         layout = QVBoxLayout(widget)
 
         self.discounts_table = self._make_table([
-            "التاريخ", "الطاولة", "المبلغ", "السبب", "الكاشير"
+            "التاريخ", "الطاولة", "اسم العميل", "المبلغ", "السبب", "الكاشير"
         ])
         layout.addWidget(self.discounts_table, 1)
 
@@ -437,15 +441,17 @@ class AdminReportsDialog(BigDialog):
     def _load_discounts_report(self):
         start, end = self._date_bounds(self.discounts_from, self.discounts_to)
         query = """
-            SELECT 
+            SELECT
                 o.closed_at,
                 o.table_code,
+                COALESCE(tc.client_name, '') AS client_name,
                 o.discount_cents,
                 o.discount_reason,
                 p.cashier
             FROM orders o
             LEFT JOIN payments p ON p.order_id = o.id
-            WHERE o.discount_cents > 0 
+            LEFT JOIN table_clients tc ON tc.table_code = UPPER(o.table_code)
+            WHERE o.discount_cents > 0
                 AND o.closed_at BETWEEN ? AND ?
             ORDER BY o.closed_at DESC
         """
@@ -466,6 +472,7 @@ class AdminReportsDialog(BigDialog):
             rows_list.append([
                 closed_at,
                 row["table_code"] or "",
+                (row["client_name"] or "").strip(),
                 self._money(discount_amount),
                 reason,
                 cashier,
@@ -518,7 +525,7 @@ class AdminReportsDialog(BigDialog):
     def _load_purchases_report(self):
         start, end = self._date_bounds(self.purchases_from, self.purchases_to)
         query = """
-            SELECT 
+            SELECT
                 purchased_at,
                 supplier,
                 invoice_no,
@@ -553,6 +560,199 @@ class AdminReportsDialog(BigDialog):
         self._populate_table(self.purchases_table, rows_list)
         self.purchases_summary.setText(
             f"عدد المشتريات: {len(rows_list)} | إجمالي المشتريات: {self._money(total_amount)}"
+        )
+
+    # --------------------------------------------------------------- profits
+    def _build_profit_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        daily_title = QLabel("الربح اليومي")
+        daily_title.setAlignment(Qt.AlignmentFlag.AlignRight)
+        daily_title.setStyleSheet("font-weight:600;")
+        layout.addWidget(daily_title)
+
+        self.profit_daily_table = self._make_table([
+            "التاريخ",
+            "صافي المبيعات",
+            "المشتريات",
+            "صافي الربح",
+        ])
+        layout.addWidget(self.profit_daily_table, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
+        controls.addWidget(QLabel("من:"))
+        self.profit_from = QDateEdit(QDate.currentDate().addDays(-6))
+        self.profit_from.setCalendarPopup(True)
+        self.profit_from.setMinimumWidth(150)
+        self.profit_from.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        controls.addWidget(self.profit_from)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.profit_to = QDateEdit(QDate.currentDate())
+        self.profit_to.setCalendarPopup(True)
+        self.profit_to.setMinimumWidth(150)
+        self.profit_to.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        controls.addWidget(self.profit_to)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_profit_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.profit_daily_table, "profit_daily_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.profit_daily_summary = QLabel("")
+        self.profit_daily_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.profit_daily_summary)
+
+        monthly_title = QLabel("الربح الشهري")
+        monthly_title.setAlignment(Qt.AlignmentFlag.AlignRight)
+        monthly_title.setStyleSheet("font-weight:600; margin-top:16px;")
+        layout.addWidget(monthly_title)
+
+        self.profit_monthly_table = self._make_table([
+            "الشهر",
+            "صافي المبيعات",
+            "المشتريات",
+            "صافي الربح",
+        ])
+        layout.addWidget(self.profit_monthly_table, 1)
+
+        monthly_controls = QHBoxLayout()
+        monthly_controls.setSpacing(12)
+        monthly_controls.setContentsMargins(8, 0, 8, 0)
+        monthly_controls.addWidget(self._make_export_button(self.profit_monthly_table, "profit_monthly_report"))
+        monthly_controls.addStretch(1)
+        layout.addLayout(monthly_controls)
+
+        self.profit_monthly_summary = QLabel("")
+        self.profit_monthly_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.profit_monthly_summary)
+
+        return widget
+
+    def _load_profit_report(self):
+        start, end = self._date_bounds(self.profit_from, self.profit_to)
+        conn = get_conn()
+        cur = conn.cursor()
+
+        daily_query = """
+            WITH sales AS (
+                SELECT DATE(p.paid_at) AS day,
+                       SUM(p.amount_cents) AS net_total
+                FROM payments p
+                WHERE p.paid_at BETWEEN ? AND ?
+                GROUP BY day
+            ),
+            purchases AS (
+                SELECT DATE(pr.purchased_at) AS day,
+                       SUM(pr.amount_cents) AS purchase_total
+                FROM purchases pr
+                WHERE pr.purchased_at BETWEEN ? AND ?
+                GROUP BY day
+            ),
+            days AS (
+                SELECT day FROM sales
+                UNION
+                SELECT day FROM purchases
+            )
+            SELECT
+                d.day AS day,
+                COALESCE(sales.net_total, 0) AS net_sales,
+                COALESCE(purchases.purchase_total, 0) AS purchases_total
+            FROM days d
+            LEFT JOIN sales ON sales.day = d.day
+            LEFT JOIN purchases ON purchases.day = d.day
+            ORDER BY d.day DESC
+        """
+
+        cur.execute(daily_query, (start, end, start, end))
+        daily_rows = cur.fetchall()
+
+        monthly_query = """
+            WITH sales AS (
+                SELECT strftime('%Y-%m', p.paid_at) AS month,
+                       SUM(p.amount_cents) AS net_total
+                FROM payments p
+                WHERE p.paid_at BETWEEN ? AND ?
+                GROUP BY month
+            ),
+            purchases AS (
+                SELECT strftime('%Y-%m', pr.purchased_at) AS month,
+                       SUM(pr.amount_cents) AS purchase_total
+                FROM purchases pr
+                WHERE pr.purchased_at BETWEEN ? AND ?
+                GROUP BY month
+            ),
+            months AS (
+                SELECT month FROM sales
+                UNION
+                SELECT month FROM purchases
+            )
+            SELECT
+                m.month AS month,
+                COALESCE(sales.net_total, 0) AS net_sales,
+                COALESCE(purchases.purchase_total, 0) AS purchases_total
+            FROM months m
+            LEFT JOIN sales ON sales.month = m.month
+            LEFT JOIN purchases ON purchases.month = m.month
+            WHERE m.month IS NOT NULL
+            ORDER BY m.month DESC
+        """
+
+        cur.execute(monthly_query, (start, end, start, end))
+        monthly_rows = cur.fetchall()
+        conn.close()
+
+        daily_display = []
+        daily_totals = {"sales": 0, "purchases": 0, "profit": 0}
+        for row in daily_rows:
+            day = row["day"] or ""
+            sales_total = int(row["net_sales"] or 0)
+            purchase_total = int(row["purchases_total"] or 0)
+            profit = sales_total - purchase_total
+            daily_display.append([
+                day,
+                self._money(sales_total),
+                self._money(purchase_total),
+                self._money(profit),
+            ])
+            daily_totals["sales"] += sales_total
+            daily_totals["purchases"] += purchase_total
+            daily_totals["profit"] += profit
+
+        self._populate_table(self.profit_daily_table, daily_display)
+        self.profit_daily_summary.setText(
+            f"صافي المبيعات: {self._money(daily_totals['sales'])} | "
+            f"إجمالي المشتريات: {self._money(daily_totals['purchases'])} | "
+            f"صافي الربح: {self._money(daily_totals['profit'])}"
+        )
+
+        monthly_display = []
+        monthly_totals = {"sales": 0, "purchases": 0, "profit": 0}
+        for row in monthly_rows:
+            month = row["month"] or ""
+            sales_total = int(row["net_sales"] or 0)
+            purchase_total = int(row["purchases_total"] or 0)
+            profit = sales_total - purchase_total
+            monthly_display.append([
+                month,
+                self._money(sales_total),
+                self._money(purchase_total),
+                self._money(profit),
+            ])
+            monthly_totals["sales"] += sales_total
+            monthly_totals["purchases"] += purchase_total
+            monthly_totals["profit"] += profit
+
+        self._populate_table(self.profit_monthly_table, monthly_display)
+        self.profit_monthly_summary.setText(
+            f"صافي المبيعات: {self._money(monthly_totals['sales'])} | "
+            f"إجمالي المشتريات: {self._money(monthly_totals['purchases'])} | "
+            f"صافي الربح: {self._money(monthly_totals['profit'])}"
         )
 
     # ------------------------------------------------------------- price log
@@ -685,6 +885,73 @@ class AdminReportsDialog(BigDialog):
         self._populate_table(self.attendance_table, table_rows)
         self.attendance_summary.setText(
             f"عدد الجلسات: {total_sessions} | إجمالي الساعات: {total_hours:.2f}"
+        )
+
+    # ---------------------------------------------------------- staff payroll
+    def _build_deductions_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        self.deductions_table = self._make_table([
+            "الموظف",
+            "الدور",
+            "الراتب",
+            "الخصومات",
+            "السلف",
+            "الصافي",
+        ])
+        layout.addWidget(self.deductions_table, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_deductions_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.deductions_table, "deductions_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.deductions_summary = QLabel("")
+        self.deductions_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.deductions_summary)
+
+        return widget
+
+    def _load_deductions_report(self):
+        rows = staff_service.list_payroll_rows()
+        table_rows: list[list[str]] = []
+        totals = {"salary": 0, "deductions": 0, "loans": 0, "net": 0}
+
+        for row in rows:
+            username = row.get("username", "")
+            role = row.get("role", "")
+            salary = int(row.get("salary_cents") or 0)
+            deduction = int(row.get("deductions_cents") or 0)
+            loan = int(row.get("loan_cents") or 0)
+            net = salary - deduction - loan
+
+            table_rows.append([
+                username,
+                role,
+                self._money(salary),
+                self._money(deduction),
+                self._money(loan),
+                self._money(net),
+            ])
+
+            totals["salary"] += salary
+            totals["deductions"] += deduction
+            totals["loans"] += loan
+            totals["net"] += net
+
+        self._populate_table(self.deductions_table, table_rows)
+        self.deductions_summary.setText(
+            f"عدد الموظفين: {len(table_rows)} | "
+            f"إجمالي الرواتب: {self._money(totals['salary'])} | "
+            f"إجمالي الخصومات: {self._money(totals['deductions'])} | "
+            f"إجمالي السلف: {self._money(totals['loans'])} | "
+            f"صافي الرواتب: {self._money(totals['net'])}"
         )
 
     # ------------------------------------------------------ stakeholders log

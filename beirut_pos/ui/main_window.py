@@ -337,6 +337,10 @@ class MainWindow(QMainWindow):
         self.btn_print_cashier.setEnabled(has_items)
         self._refresh_history_button()
 
+    def _user_can_edit_orders(self) -> bool:
+        """Return True if the current user role is allowed to edit order items here."""
+        return self.user.role in {"admin", "cashier"}
+
     def _update_client_name_field(self):
         if not hasattr(self, "client_name_edit"):
             return
@@ -366,17 +370,31 @@ class MainWindow(QMainWindow):
 
     def _refresh_edit_lock_state(self):
         message = texts.get("orders.edit_locked")
-        editable = bool(self.current_table) and order_manager.can_edit(self.current_table)
-        locked = bool(self.current_table) and not editable
-        targets = [self.order_list.edit_btn, self.order_list.remove_btn, self.payment.discount_btn]
-        for btn in targets:
-            btn.setEnabled(editable)
+        table_editable = bool(self.current_table) and order_manager.can_edit(self.current_table)
+        locked = bool(self.current_table) and not table_editable
+
+        # Edit button: requires both order window availability and user role permission.
+        edit_btn = self.order_list.edit_btn
+        can_edit_role = self._user_can_edit_orders()
+        edit_btn.setEnabled(table_editable and can_edit_role)
+        if not can_edit_role and self.current_table:
+            edit_btn.setToolTip("التعديل متاح للمدير أو الكاشير فقط.")
+        else:
+            edit_btn.setToolTip(message if locked else "")
+
+        # Remove/discount buttons still follow the order window availability only.
+        other_targets = [self.order_list.remove_btn, self.payment.discount_btn]
+        for btn in other_targets:
+            btn.setEnabled(table_editable)
             btn.setToolTip(message if locked else "")
+
         if locked and not self._edit_locked:
             self._show_banner(message, "warn", duration=6000)
         if not locked and self._edit_locked:
-            for btn in targets:
-                btn.setToolTip("")
+            for btn in [edit_btn, *other_targets]:
+                # Clear tips that may have been set because of the lock state.
+                if btn.toolTip() == message:
+                    btn.setToolTip("")
         self._edit_locked = locked
 
     def _update_totals(self, table_code: str | None = None):
@@ -493,6 +511,7 @@ class MainWindow(QMainWindow):
                 action.setVisible(self.user.role == "admin")
             self._session_started = datetime.now()
             self._update_session_timer()
+            self._refresh_edit_lock_state()
 
     def _open_manage_products(self):
         if self.user.role != "admin":
@@ -673,6 +692,10 @@ class MainWindow(QMainWindow):
     def _on_edit_item(self, index: int) -> None:
         if not self.current_table:
             self._show_banner("اختر طاولة لتعديل العناصر.", "warn")
+            return
+
+        if not self._user_can_edit_orders():
+            self._show_banner("التعديل متاح للمدير أو الكاشير فقط.", "warn", duration=6000)
             return
 
         if not order_manager.can_edit(self.current_table):

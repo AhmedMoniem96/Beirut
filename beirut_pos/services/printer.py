@@ -1,5 +1,5 @@
 """Receipt/ticket PDF renderer for 80mm thermal printers (XP-80C) with Arabic shaping.
-ULTIMATE FIX: Uses ESC/POS direct commands - bypasses PDF completely for thermal printers.
+ULTIMATE FIX: Uses HTML generation for beautiful receipts with Arabic support.
 """
 
 from __future__ import annotations
@@ -76,38 +76,20 @@ def _warn_arabic_missing() -> None:
         f"{reason}"
     )
 
-def _set_ar_codepage(p) -> None:
-    """Select an Arabic-capable codepage for python-escpos 3.x."""
-    for cp in ("CP864", "CP720", "CP1256"):
-        try:
-            fn = getattr(p, "charcode", None)
-            if callable(fn):
-                fn(cp)  # type: ignore[misc]
-                print(f"[DEBUG] ESC/POS codepage set to {cp}")
-                return
-        except Exception as e:
-            print(f"[DEBUG] Failed to set codepage {cp}: {e}")
-    # If none worked, printing may be garbled; still continue.
-
-def _shape_ar_escpos(text: str) -> str:
-    """Arabic shaping for ESC/POS printers - NO bidi reordering for thermal printers."""
+def _shape_ar_textfile(text: str) -> str:
+    """Arabic shaping for text files."""
     if not text:
         return ""
     if not _AR_OK:
         _warn_arabic_missing()
         return text
     try:
-        # For ESC/POS thermal printers: reshape but DON'T apply bidi algorithm
+        # For HTML: reshape and apply bidi algorithm
         reshaped = arabic_reshaper.reshape(text)
-        return reshaped  # ← CRITICAL FIX: Remove get_display() for thermal printers
+        return get_display(reshaped)
     except Exception as e:
         print(f"[WARN] Arabic reshaping failed: {e}")
         return text
-
-def _shape_ar_textfile(text: str) -> str:
-    """Arabic shaping for text files - use same as ESC/POS for consistency."""
-    # SIMPLIFIED: Use the same shaping as ESC/POS to avoid reversed text
-    return _shape_ar_escpos(text)
 
 _shape_arabic = _shape_ar_textfile
 
@@ -476,6 +458,14 @@ def _generate_html_receipt(
         // Populate with data from Python
         const receiptData = %s;
         populateReceipt(receiptData);
+        
+        // Auto-print and close
+        window.onload = function() {
+            window.print();
+            setTimeout(function() {
+                window.close();
+            }, 500);
+        };
     </script>
 </body>
 </html>"""
@@ -717,6 +707,14 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         // Populate with data from Python
         const barData = %s;
         populateBarTicket(barData);
+        
+        // Auto-print and close
+        window.onload = function() {
+            window.print();
+            setTimeout(function() {
+                window.close();
+            }, 500);
+        };
     </script>
 </body>
 </html>"""
@@ -729,354 +727,6 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
 
     print(f"[DEBUG] HTML bar ticket saved: {bar_path}")
     return bar_path
-
-# ---------------- ESC/POS Thermal Printer ----------------
-def _get_escpos_printer(printer_name: str):
-    """Get ESC/POS printer instance based on platform and printer name."""
-    if not _ESCPOS_OK or _DISABLE_ESCPOS:
-        return None
-    try:
-        if sys.platform.startswith("win"):
-            # Windows: Use Win32Raw with printer name (no pyusb needed)
-            return Win32Raw(printer_name)
-
-        # Linux: Prefer direct device file (no pyusb needed)
-        if os.path.exists("/dev/usb/lp0"):
-            return File("/dev/usb/lp0")
-
-        # If no device file, optionally try raw USB VID/PID pairs
-        try:
-            # Only present if python-escpos USB backend installed
-            Usb  # type: ignore  # reference to ensure import exists
-        except Exception:
-            return None
-
-        usb_ids = [
-            (0x04b8, 0x0e15),  # Epson TM-T20
-            (0x0416, 0x5011),  # XP-80C common ID
-            (0x0519, 0x0003),  # Generic thermal
-            (0x28e9, 0x0289),  # Common POS printer
-        ]
-        for vid, pid in usb_ids:
-            try:
-                return Usb(vid, pid)
-            except Exception:
-                continue
-
-        return None
-    except Exception as e:
-        print(f"[DEBUG] Error initializing ESC/POS printer: {e}")
-        return None
-
-def _print_escpos_bar_ticket(table_code: str, items: List[dict], printer_name: str) -> bool:
-    """Print bar ticket with BOX STYLE - only unprinted items + customizations"""
-    print(f"[DEBUG] _print_escpos_bar_ticket called for table {table_code}")
-
-    p = _get_escpos_printer(printer_name)
-    if not p:
-        print("[DEBUG] ESC/POS printer not available, returning False")
-        return False
-
-    # Try to open device early to avoid internal assertions
-    try:
-        fn = getattr(p, "open", None)
-        if callable(fn):
-            fn()
-    except Exception as e:
-        print(f"[DEBUG] Cannot open ESC/POS device: {e}")
-        return False
-
-    try:
-        currency = setting_get("currency", "EGP") or "EGP"
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-        print(f"[DEBUG] Starting ESC/POS print...")
-
-        # Initialize printer + Arabic codepage
-        _set_ar_codepage(p)
-        p.set(align='center')
-
-        # HEADER BOX
-        p.text("┌──────────────────────────────┐\n")
-        p.set(text_type='B', width=2, height=2)
-        p.text(f"│{_shape_ar_escpos(texts.get('receipt.bar.header')):^30}│\n")
-        p.set(text_type='NORMAL', width=1, height=1)
-        p.text("├──────────────────────────────┤\n")
-        p.set(align='right')
-        p.text(f"│{_shape_ar_escpos(texts.get('receipt.bar.table', table_code=table_code)):<30}│\n")
-        p.text(f"│{_shape_ar_escpos(texts.get('receipt.bar.issued_at', timestamp=ts)):<30}│\n")
-        p.text("├──────────────────────────────┤\n")
-
-        # ITEMS HEADER
-        p.text(f"│{'الصنف':<18} {'الكمية':<8}│\n")
-        p.text("├──────────────────────────────┤\n")
-
-        # ITEMS LIST
-        for it in items:
-            name = _shape_ar_escpos(str(it["name"]))
-            qty = _format_qty(float(it.get("qty", 0) or 0))
-
-            # Truncate long names
-            if len(name) > 18:
-                name = name[:15] + "..."
-
-            p.text(f"│ {name:<18} {qty:>8} │\n")
-
-            # Show notes/customizations if any
-            for segment in _note_segments(it.get("note", "")):
-                note_display = _shape_ar_escpos(f"• {segment}")
-                if len(note_display) > 28:
-                    note_display = note_display[:25] + "..."
-                p.text(f"│ {note_display:<28} │\n")
-
-        p.text("└──────────────────────────────┘\n")
-        p.text("\n\n")
-
-        # Cut
-        p.cut()
-
-        print("[DEBUG] ESC/POS print completed successfully")
-        return True
-
-    except Exception as e:
-        print(f"[DEBUG] ESC/POS print error: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    finally:
-        try:
-            p.close()
-        except Exception:
-            pass
-
-def _print_escpos_cashier_receipt(
-        table_code: str,
-        items: List[dict],
-        subtotal: int,
-        discount: int,
-        service: int,
-        tax: int,
-        total: int,
-        method: str,
-        cashier: str,
-        printer_name: str,
-        discount_label: str,
-) -> bool:
-    """Render cashier receipt following the updated branded layout."""
-    p = _get_escpos_printer(printer_name)
-    if not p:
-        return False
-
-    try:
-        fn = getattr(p, "open", None)
-        if callable(fn):
-            fn()
-    except Exception as e:
-        print(f"[DEBUG] Cannot open ESC/POS device: {e}")
-        return False
-
-    try:
-        currency = setting_get("currency", "EGP") or "EGP"
-        client_name = get_client_name() or (setting_get("company_name", "Beirut") or "Beirut")
-        subtitle = texts.get("receipt.cashier.subtitle")
-        contact_address = texts.get("receipt.cashier.address")
-        contact_phone = texts.get("receipt.cashier.phone")
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-        subtotal_display = _format_currency_cents(subtotal, currency)
-        discount_display = _format_currency_cents(discount, currency)
-        service_display = _format_currency_cents(service, currency)
-        tax_display = _format_currency_cents(tax, currency)
-        total_display = _format_currency_cents(total, currency)
-        total_qty = sum(float(it.get("qty", 0) or 0) for it in items)
-
-        divider_heavy = "═" * 32
-        divider_light = "─" * 32
-
-        # Initialize printer
-        _set_ar_codepage(p)
-        p.set(align='center')
-
-        p.text(divider_heavy + "\n")
-        p.set(text_type='B', width=2, height=2)
-        p.text(_shape_ar_escpos(client_name) + "\n")
-        p.set(text_type='NORMAL', width=1, height=1)
-        if subtitle:
-            p.text(_shape_ar_escpos(subtitle) + "\n")
-        p.text(divider_heavy + "\n")
-
-        p.set(align='right')
-        p.text(_shape_ar_escpos(f"التاريخ والوقت: {ts}") + "\n")
-        p.text(_shape_ar_escpos(f"الطاولة: {table_code}") + "\n")
-        p.text(_shape_ar_escpos(f"النادل: {cashier}") + "\n")
-        p.text(_shape_ar_escpos(f"طريقة الدفع: {method}") + "\n")
-        p.text(divider_light + "\n")
-
-        p.set(text_type='B')
-        p.text(_shape_ar_escpos("الأصناف المطلوبة") + "\n")
-        p.set(text_type='NORMAL')
-        p.text(divider_light + "\n")
-
-        for it in items:
-            name = _shape_ar_escpos(str(it["name"]))
-            qty_display = _format_qty(float(it.get("qty", 0) or 0))
-            unit_display = _format_currency_cents(it.get("unit_price", 0), currency)
-            item_total_display = _format_currency_cents(it.get("total_cents", 0), currency)
-
-            p.text(name + "\n")
-            p.text(_shape_ar_escpos(f"الكمية: {qty_display}  السعر: {unit_display}") + "\n")
-            p.text(_shape_ar_escpos(f"الإجمالي: {item_total_display}") + "\n")
-
-            for segment in _note_segments(it.get("note", "")):
-                p.text(_shape_ar_escpos(f"• {segment}") + "\n")
-
-            p.text(divider_light + "\n")
-
-        discount_label_text = discount_label or texts.get("receipt.cashier.discount")
-
-        p.text(_shape_ar_escpos(f"إجمالي القطع: {_format_qty(total_qty)}") + "\n")
-        p.text(_shape_ar_escpos(f"المجموع الفرعي: {subtotal_display}") + "\n")
-        p.text(_shape_ar_escpos(f"{discount_label_text}: {discount_display}") + "\n")
-        if service:
-            p.text(_shape_ar_escpos(f"الخدمة: {service_display}") + "\n")
-        if tax:
-            p.text(_shape_ar_escpos(f"الضريبة: {tax_display}") + "\n")
-
-        p.text(divider_light + "\n")
-        p.set(text_type='B')
-        p.text(_shape_ar_escpos(f"الإجمالي المستحق: {total_display}") + "\n")
-        p.set(text_type='NORMAL')
-        p.text(divider_light + "\n")
-
-        p.set(align='center')
-        if contact_address:
-            p.text(_shape_ar_escpos(contact_address) + "\n")
-        if contact_phone:
-            p.text(_shape_ar_escpos(contact_phone) + "\n")
-        footer = texts.get("receipt.footer")
-        if footer:
-            p.text(_shape_ar_escpos(footer) + "\n")
-        p.text("\n")
-
-        # Cut
-        p.cut()
-
-        return True
-
-    except Exception as e:
-        print(f"ESC/POS receipt print error: {e}")
-        return False
-    finally:
-        try:
-            p.close()
-        except Exception:
-            pass
-
-# ---------------- Fallback: Save as text file if ESC/POS fails ----------------
-def _save_receipt_as_text(
-        table_code: str,
-        items: List[dict],
-        subtotal: int,
-        discount: int,
-        service: int,
-        tax: int,
-        total: int,
-        method: str,
-        cashier: str,
-        is_bar: bool = False,
-        discount_label: str | None = None,
-) -> Path:
-    """ULTRA-COMPACT text file receipt"""
-    _ensure_dirs()
-
-    currency = setting_get("currency", "EGP") or "EGP"
-    client_name = get_client_name() or (setting_get("company_name", "Beirut") or "Beirut")
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    lines: List[str] = []
-    divider_heavy = "═" * 32
-    divider_light = "─" * 32
-
-    if is_bar:
-        lines.append(divider_heavy)
-        lines.append(_shape_ar_textfile(texts.get("receipt.bar.header")))
-        lines.append(divider_heavy)
-        lines.append(_shape_ar_textfile(texts.get("receipt.bar.table", table_code=table_code)))
-        lines.append(_shape_ar_textfile(texts.get("receipt.bar.issued_at", timestamp=ts)))
-        lines.append(divider_light)
-
-        for it in items:
-            name = _shape_ar_textfile(str(it["name"]))
-            qty_display = _format_qty(float(it.get("qty", 0) or 0))
-            lines.append(name)
-            lines.append(_shape_ar_textfile(f"الكمية: {qty_display}"))
-            for segment in _note_segments(it.get("note", "")):
-                lines.append(_shape_ar_textfile(f"• {segment}"))
-            lines.append(divider_light)
-    else:
-        subtitle = texts.get("receipt.cashier.subtitle")
-        contact_address = texts.get("receipt.cashier.address")
-        contact_phone = texts.get("receipt.cashier.phone")
-        subtotal_display = _format_currency_cents(subtotal, currency)
-        discount_display = _format_currency_cents(discount, currency)
-        service_display = _format_currency_cents(service, currency)
-        tax_display = _format_currency_cents(tax, currency)
-        total_display = _format_currency_cents(total, currency)
-        total_qty = sum(float(it.get("qty", 0) or 0) for it in items)
-        discount_label_text = discount_label or texts.get("receipt.cashier.discount")
-
-        lines.append(divider_heavy)
-        lines.append(_shape_ar_textfile(client_name))
-        if subtitle:
-            lines.append(_shape_ar_textfile(subtitle))
-        lines.append(divider_heavy)
-        lines.append(_shape_ar_textfile(f"التاريخ والوقت: {ts}"))
-        lines.append(_shape_ar_textfile(f"الطاولة: {table_code}"))
-        lines.append(_shape_ar_textfile(f"النادل: {cashier}"))
-        lines.append(_shape_ar_textfile(f"طريقة الدفع: {method}"))
-        lines.append(divider_light)
-        lines.append(_shape_ar_textfile("الأصناف المطلوبة"))
-        lines.append(divider_light)
-
-        for it in items:
-            name = _shape_ar_textfile(str(it["name"]))
-            qty_display = _format_qty(float(it.get("qty", 0) or 0))
-            unit_display = _format_currency_cents(it.get("unit_price", 0), currency)
-            item_total_display = _format_currency_cents(it.get("total_cents", 0), currency)
-
-            lines.append(name)
-            lines.append(_shape_ar_textfile(f"الكمية: {qty_display}  السعر: {unit_display}"))
-            lines.append(_shape_ar_textfile(f"الإجمالي: {item_total_display}"))
-            for segment in _note_segments(it.get("note", "")):
-                lines.append(_shape_ar_textfile(f"• {segment}"))
-            lines.append(divider_light)
-
-        lines.append(_shape_ar_textfile(f"إجمالي القطع: {_format_qty(total_qty)}"))
-        lines.append(_shape_ar_textfile(f"المجموع الفرعي: {subtotal_display}"))
-        lines.append(_shape_ar_textfile(f"{discount_label_text}: {discount_display}"))
-        if service:
-            lines.append(_shape_ar_textfile(f"الخدمة: {service_display}"))
-        if tax:
-            lines.append(_shape_ar_textfile(f"الضريبة: {tax_display}"))
-        lines.append(divider_light)
-        lines.append(_shape_ar_textfile(f"الإجمالي المستحق: {total_display}"))
-        lines.append(divider_light)
-        if contact_address:
-            lines.append(_shape_ar_textfile(contact_address))
-        if contact_phone:
-            lines.append(_shape_ar_textfile(contact_phone))
-        footer = texts.get("receipt.footer")
-        if footer:
-            lines.append(_shape_ar_textfile(footer))
-
-    lines.append("\n")
-
-    folder = _BAR_DIR if is_bar else _RECEIPTS_DIR
-    filename = f"{datetime.now():%Y%m%d-%H%M%S}-{'bar' if is_bar else 'cashier'}-{table_code}.txt"
-    target = folder / filename
-
-    target.write_text("\n".join(lines), encoding='utf-8')
-    return target
 
 # ---------------- Public API ----------------
 BAR_PRINTER_NAME     = "XP-80C"  # Change to your actual printer name
@@ -1104,31 +754,16 @@ class PrinterService:
             self.cashier_printer = cashier.strip() or CASHIER_PRINTER_NAME
 
     def print_bar_ticket(self, table_code: str, items: Iterable) -> Path:
+        """Print bar ticket using HTML generation"""
         data = _collapse_items(items)
 
-        # Try ESC/POS first
-        if _ESCPOS_OK and not _DISABLE_ESCPOS:
-            success = _print_escpos_bar_ticket(table_code, data, self.bar_printer)
-            if success:
-                # Save text file for records, DON'T send to printer again
-                return _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
+        # Generate HTML bar ticket
+        html_path = _generate_html_bar_ticket(table_code, data)
 
-        # Fallback ONLY if ESC/POS failed: save and (optionally) CUPS-print text file
-        txt = _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
+        # Print the HTML file
+        self._print_html_file(html_path, self.bar_printer)
 
-        if sys.platform.startswith("win"):
-            try:
-                os.startfile(str(txt), "print")  # type: ignore
-            except Exception:
-                pass
-        else:
-            try:
-                if _can_system_print(self.bar_printer):
-                    subprocess.Popen(["lp", "-d", self.bar_printer, str(txt)])
-            except Exception:
-                pass
-
-        return txt
+        return html_path
 
     def print_cashier_receipt(
         self,
@@ -1144,72 +779,43 @@ class PrinterService:
         *,
         discount_label: str | None = None,
     ) -> Path:
+        """Print cashier receipt using HTML generation"""
         data = _collapse_items(items)
-        svc = service or 0
-        tx = tax or 0
-        label_text = discount_label or texts.get("orders.discount_summary_label")
 
-        # Try ESC/POS first
-        if _ESCPOS_OK and not _DISABLE_ESCPOS:
-            success = _print_escpos_cashier_receipt(
-                table_code,
-                data,
-                subtotal,
-                discount,
-                svc,
-                tx,
-                total,
-                method,
-                cashier,
-                self.cashier_printer,
-                label_text,
-            )
-            if success:
-                # Save text file for records, DON'T send to printer again
-                return _save_receipt_as_text(
-                    table_code,
-                    data,
-                    subtotal,
-                    discount,
-                    svc,
-                    tx,
-                    total,
-                    method,
-                    cashier,
-                    is_bar=False,
-                    discount_label=label_text,
-                )
-
-        # Fallback ONLY if ESC/POS failed: save and (optionally) CUPS-print text file
-        txt = _save_receipt_as_text(
-            table_code,
-            data,
-            subtotal,
-            discount,
-            svc,
-            tx,
-            total,
-            method,
-            cashier,
-            is_bar=False,
-            discount_label=label_text,
+        # Generate HTML receipt
+        html_path = _generate_html_receipt(
+            table_code=table_code,
+            items=data,
+            subtotal=subtotal,
+            discount=discount,
+            total=total,
+            method=method,
+            cashier=cashier
         )
 
-        if sys.platform.startswith("win"):
-            try:
-                os.startfile(str(txt), "print")  # type: ignore
-            except Exception:
-                pass
-        else:
-            try:
-                if _can_system_print(self.cashier_printer):
-                    subprocess.Popen(["lp", "-d", self.cashier_printer, str(txt)])
-            except Exception:
-                pass
+        # Print the HTML file
+        self._print_html_file(html_path, self.cashier_printer)
 
-        return txt
+        return html_path
 
-    # NEW HTML METHODS
+    def _print_html_file(self, html_path: Path, printer_name: str) -> None:
+        """Print HTML file using system printing"""
+        try:
+            if sys.platform.startswith("win"):
+                # Windows: print using default printer
+                os.startfile(str(html_path), "print")
+            else:
+                # Linux/Mac: try to print using system commands
+                if _can_system_print(printer_name):
+                    subprocess.Popen(["lp", "-d", printer_name, str(html_path)])
+                else:
+                    # Fallback: try default printer
+                    subprocess.Popen(["lp", str(html_path)])
+        except Exception as e:
+            print(f"[WARN] Could not auto-print HTML file: {e}")
+            # File is still saved, user can print manually
+
+    # NEW HTML METHODS (for direct generation without printing)
     def generate_html_receipt(
             self,
             table_code: str,
@@ -1288,7 +894,6 @@ def test_arabic_shaping():
         bidi = get_display(reshaped)
         print(f"Reshaped: {reshaped}")
         print(f"Bidi: {bidi}")
-        print(f"ESC/POS version: {_shape_ar_escpos(test_text)}")
         print(f"Textfile version: {_shape_ar_textfile(test_text)}")
     else:
         print("Arabic reshaping not available")

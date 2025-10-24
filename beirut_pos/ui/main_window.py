@@ -671,8 +671,52 @@ class MainWindow(QMainWindow):
             self._show_banner(f"تم نقل الطلب إلى الطاولة {target} بنجاح.", "success")
 
     def _on_edit_item(self, index: int) -> None:
-        self._show_banner("تعديل العناصر مُعطّل. تم إزالة ميزة التعديل بعد الدفع.", "warn")
-        return
+        if not self.current_table:
+            self._show_banner("اختر طاولة لتعديل العناصر.", "warn")
+            return
+
+        if not order_manager.can_edit(self.current_table):
+            locked_msg = texts.get("orders.edit_locked", "انتهت مدة التعديل") if texts else "انتهت مدة التعديل"
+            self._show_banner(locked_msg, "warn")
+            return
+
+        items = order_manager.get_items(self.current_table)
+        if not (0 <= index < len(items)):
+            return
+
+        item = items[index]
+        order = order_manager.orders.get(self.current_table)
+        editable_until = order.editable_until if order else None
+
+        editor = OrderItemEditor(
+            item.product,
+            item.qty,
+            item.note or "",
+            editable_until=editable_until,
+            is_admin=self.user.role == "admin",
+            parent=self,
+        )
+        if editor.exec() != editor.DialogCode.Accepted:
+            return
+
+        values = editor.get_values() or {}
+
+        try:
+            order_manager.update_item(
+                self.current_table,
+                index,
+                qty=values.get("qty"),
+                note=values.get("note"),
+                username=self.user.username,
+            )
+        except (OrderError, StockError) as exc:
+            self._show_banner(str(exc), "error", duration=8000)
+            return
+
+        self.order_list.set_items(order_manager.get_items(self.current_table))
+        self._update_totals()
+        self._refresh_print_buttons()
+        self._refresh_edit_lock_state()
 
     def _on_discount(self):
         if not self.current_table:

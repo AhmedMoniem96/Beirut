@@ -40,6 +40,16 @@ jobs:
           datas, binaries, hiddenimports = collect_all('sqlalchemy')
           "@ | Out-File -FilePath "hooks/hook-sqlalchemy.py" -Encoding UTF8
 
+      - name: Create PyInstaller hook for escpos
+        shell: pwsh
+        run: |
+          @"
+          from PyInstaller.utils.hooks import collect_all, collect_data_files
+          datas, binaries, hiddenimports = collect_all('escpos')
+          # Add additional data files for escpos
+          datas += collect_data_files('escpos')
+          "@ | Out-File -FilePath "hooks/hook-escpos.py" -Encoding UTF8
+
       - name: Install dependencies (pinned)
         shell: pwsh
         run: |
@@ -52,41 +62,44 @@ jobs:
           # Install core packages explicitly
           pip install --no-cache-dir SQLAlchemy==2.0.23
           pip install --no-cache-dir reportlab==4.0.7
-          pip install --no-cache-dir pillow>=10.0.0
-          pip install --no-cache-dir qrcode>=7.4
+          pip install --no-cache-dir pillow==10.0.1
+          pip install --no-cache-dir qrcode==7.4.2
           
           # ESC/POS printing stack - CRITICAL for thermal printers
-          pip install --no-cache-dir python-escpos>=3.0.0
-          pip install --no-cache-dir pyusb>=1.2.1
-          pip install --no-cache-dir pyserial>=3.5
+          pip install --no-cache-dir python-escpos==3.0
+          pip install --no-cache-dir pyusb==1.2.1
+          pip install --no-cache-dir pyserial==3.5
           
           # Arabic support
-          pip install --no-cache-dir arabic-reshaper>=3.0.0
-          pip install --no-cache-dir python-bidi>=0.4.2
+          pip install --no-cache-dir arabic-reshaper==3.0.0
+          pip install --no-cache-dir python-bidi==0.4.2
           
           # Windows-specific printing backend
-          pip install --no-cache-dir pywin32>=305
+          pip install --no-cache-dir pywin32==306
           
           # HTML printing support (optional - will use fallbacks if not available)
-          pip install --no-cache-dir pdfkit
+          pip install --no-cache-dir pdfkit==1.0.0
           
           # Builder
-          pip install --no-cache-dir pyinstaller pyinstaller-hooks-contrib
+          pip install --no-cache-dir pyinstaller==5.13.2 pyinstaller-hooks-contrib==2023.10
 
       - name: Show versions (sanity check)
         shell: pwsh
         run: |
           python -c "
-          from importlib.metadata import version as v
-          from PyQt6.QtCore import QT_VERSION_STR as q
-          import sqlalchemy
-          import escpos
-          print('PyQt6 =', v('PyQt6'), '| Qt6 =', q)
-          print('SQLAlchemy =', sqlalchemy.__version__)
-          print('python-escpos =', v('python-escpos'))
-          print('pyusb =', v('pyusb'))
-          print('pyserial =', v('pyserial'))
-          print('pdfkit =', v('pdfkit'))
+          try:
+              from importlib.metadata import version as v
+              from PyQt6.QtCore import QT_VERSION_STR as q
+              import sqlalchemy
+              import escpos
+              print('PyQt6 =', v('PyQt6'), '| Qt6 =', q)
+              print('SQLAlchemy =', sqlalchemy.__version__)
+              print('python-escpos =', v('python-escpos'))
+              print('pyusb =', v('pyusb'))
+              print('pyserial =', v('pyserial'))
+              print('pdfkit =', v('pdfkit'))
+          except Exception as e:
+              print('Version check error:', e)
           "
 
       - name: Clean previous build artifacts/spec
@@ -118,20 +131,34 @@ jobs:
             '--collect-submodules','beirut_pos',
             '--collect-all','sqlalchemy',
             '--hidden-import','sqlalchemy',
+            '--hidden-import','sqlalchemy.ext',
             '--hidden-import','sqlalchemy.ext.declarative',
             '--hidden-import','sqlalchemy.orm',
             '--hidden-import','sqlalchemy.sql',
             '--hidden-import','sqlalchemy.ext.baked',
             '--hidden-import','sqlalchemy.pool',
+            '--hidden-import','sqlalchemy.dialects',
             '--hidden-import','sqlalchemy.dialects.sqlite',
             '--collect-all','sqlite3',
             '--collect-all','escpos',
+            '--hidden-import','escpos.printer',
+            '--hidden-import','escpos.constants',
+            '--hidden-import','escpos.exceptions',
+            '--hidden-import','escpos.escpos',
+            '--hidden-import','escpos.impl.epson',
+            '--hidden-import','escpos.impl.generic',
+            '--hidden-import','escpos.impl.legacy',
+            '--hidden-import','escpos.impl.usb',
+            '--hidden-import','escpos.impl.network',
+            '--hidden-import','escpos.impl.file',
+            '--hidden-import','escpos.impl.win32raw',
             '--collect-submodules','arabic_reshaper',
             '--collect-submodules','bidi',
             '--hidden-import','PIL',
             '--hidden-import','PIL._imaging',
             '--hidden-import','PIL.Image',
             '--hidden-import','PIL.ImageFile',
+            '--hidden-import','PIL.ImageOps',
             '--hidden-import','win32print',
             '--hidden-import','win32api',
             '--hidden-import','win32con',
@@ -144,14 +171,8 @@ jobs:
             '--hidden-import','serial',
             '--hidden-import','serial.tools',
             '--hidden-import','serial.tools.list_ports',
-            '--hidden-import','escpos.printer',
-            '--hidden-import','escpos.constants',
-            '--hidden-import','escpos.exceptions',
-            '--hidden-import','escpos.escpos',
-            '--hidden-import','escpos.impl.epson',
-            '--hidden-import','escpos.impl.generic',
-            '--hidden-import','escpos.impl.legacy',
-            '--hidden-import','pdfkit'
+            '--hidden-import','pdfkit',
+            '--hidden-import','wkhtmltopdf'
           )
           if (Test-Path 'assets/app.ico') { $args += @('--icon','assets/app.ico') }
           if (Test-Path 'assets') { $args += @('--add-data','assets;assets') }
@@ -167,7 +188,8 @@ jobs:
           if (Test-Path $exePath) {
             echo "✅ EXE built successfully: $((Get-Item $exePath).Length / 1MB) MB"
             # Quick version check without GUI
-            & $exePath --version 2>$null
+            echo "Testing executable..."
+            Start-Process -FilePath $exePath -ArgumentList "--version" -Wait -NoNewWindow
             if ($LASTEXITCODE -ne 0) {
               echo "⚠️  Version check failed (normal if app doesn't support --version flag)"
             }
@@ -179,7 +201,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BeirutPOS-win
+          name: BeirutPOS-windows
           path: dist/BeirutPOS.exe
 
       - name: Create GitHub Release

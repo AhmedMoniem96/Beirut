@@ -1,7 +1,4 @@
-"""Receipt/ticket PDF renderer for 80mm thermal printers (XP-80C) with Arabic shaping.
-ULTIMATE FIX: Uses HTML generation for beautiful receipts with Arabic support.
-"""
-
+"""Receipt/ticket renderer for XP-80C thermal printers with proper formatting."""
 from __future__ import annotations
 import os, sys, subprocess, shutil, re, json, tempfile
 from pathlib import Path
@@ -31,8 +28,11 @@ from .settings import get_client_name
 _OUTPUT_ROOT  = DATA_DIR / "prints"
 _RECEIPTS_DIR = _OUTPUT_ROOT / "receipts"
 _BAR_DIR      = _OUTPUT_ROOT / "bar_tickets"
-# Set this to "1" in env (or PyCharm Run Config) to force text fallback on dev machines
 _DISABLE_ESCPOS = os.environ.get("BEIRUT_POS_DISABLE_ESCPOS", "0") == "1"
+
+# ---------------- XP-80C USB Configuration ----------------
+XP80C_VENDOR_ID = 0x0416   # Xprinter vendor ID
+XP80C_PRODUCT_ID = 0x5011  # XP-80C product ID
 
 def _ensure_dirs():
     for p in (_OUTPUT_ROOT, _RECEIPTS_DIR, _BAR_DIR):
@@ -56,7 +56,6 @@ try:
     except Exception:
         _reshaper_version = getattr(arabic_reshaper, "__version__", "0")
 
-    # Be more flexible with version requirements
     if _version_tuple(_reshaper_version) < (2, 0, 0):
         print(f"[WARN] arabic-reshaper {_reshaper_version} detected; some features may not work optimally")
 
@@ -154,7 +153,201 @@ def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
         print(f"[DEBUG] PDF conversion failed: {e}")
         return None
 
-# ---------------- HTML Receipt Generation ----------------
+# ---------------- ESC/POS Thermal Printer Functions ----------------
+def _find_xp80c_printer():
+    """Find and initialize XP-80C thermal printer"""
+    if not _ESCPOS_OK or _DISABLE_ESCPOS:
+        return None
+
+    try:
+        # Method 1: Try specific XP-80C USB IDs
+        printer = Usb(XP80C_VENDOR_ID, XP80C_PRODUCT_ID)
+        print("[DEBUG] XP-80C found by specific USB IDs")
+        return printer
+    except USBNotFoundError:
+        print("[DEBUG] XP-80C not found by specific IDs, trying auto-detect...")
+
+        # Method 2: Try to find any thermal printer
+        try:
+            # Common thermal printer vendors: Xprinter, Epson, Star, Bixolon
+            common_printers = [
+                (0x0416, 0x5011),  # Xprinter XP-80C
+                (0x04B8, 0x0202),  # Epson TM-series
+                (0x0519, 0x0003),  # Star TSP100
+                (0x0FE6, 0x811E),  # Bixolon series
+            ]
+
+            for vendor, product in common_printers:
+                try:
+                    printer = Usb(vendor, product)
+                    print(f"[DEBUG] Found thermal printer: {vendor:04X}:{product:04X}")
+                    return printer
+                except USBNotFoundError:
+                    continue
+
+        except Exception as e:
+            print(f"[DEBUG] Printer detection error: {e}")
+
+    print("[WARN] No thermal printer found")
+    return None
+
+def _print_escpos_receipt(printer, table_code: str, items: List[dict], subtotal: int,
+                         discount: int, total: int, method: str, cashier: str,
+                         receipt_number: str = None):
+    """Print receipt using ESC/POS commands with PROPER FORMATTING"""
+    if not printer:
+        raise ValueError("No printer available")
+
+    currency = "EGP"
+    client_name = "كافيه بيروت"
+    ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+
+    if not receipt_number:
+        receipt_number = f"{datetime.now():%Y%m%d%H%M%S}"
+
+    try:
+        # Reset printer and set basic settings
+        printer.set(align='center')
+
+        # Header - CENTERED and BOLD
+        printer.set(bold=True, double_height=True)
+        printer.text(_shape_ar_textfile(client_name) + "\n")
+        printer.set(bold=True, double_height=False)
+        printer.text(_shape_ar_textfile("كافيه ومعلم") + "\n")
+        printer.text("\n")
+
+        # Receipt info - LEFT ALIGNED
+        printer.set(align='left', bold=False)
+        printer.text(f"{_shape_ar_textfile('التاريخ:')} {ts}\n")
+        printer.text(f"{_shape_ar_textfile('رقم الفاتورة:')} {receipt_number}\n")
+        printer.text(f"{_shape_ar_textfile('الطاولة:')} {table_code}\n")
+        printer.text(f"{_shape_ar_textfile('الكاشير:')} {_shape_ar_textfile(cashier)}\n")
+
+        printer.text("-" * 32 + "\n")  # Separator line
+
+        # Items header - CENTERED
+        printer.set(align='center', bold=True)
+        printer.text(_shape_ar_textfile("الطلبات") + "\n")
+        printer.set(align='left', bold=False)
+        printer.text("-" * 32 + "\n")
+
+        # Column headers - FIXED WIDTH FORMATTING
+        headers = f"{_shape_ar_textfile('الصنف'):<16} {_shape_ar_textfile('كم'):<3} {_shape_ar_textfile('السعر'):<6} {_shape_ar_textfile('المجموع'):<8}"
+        printer.text(headers + "\n")
+        printer.text("-" * 32 + "\n")
+
+        # Items with PROPER COLUMN ALIGNMENT
+        for it in items:
+            name = _shape_ar_textfile(str(it["name"]))
+            qty = _format_qty(float(it.get("qty", 0) or 0))
+            price = _format_currency_cents(it.get("unit_price", 0), currency)
+            total_price = _format_currency_cents(it.get("total_cents", 0), currency)
+
+            # TRUNCATE long names to fit thermal printer width
+            if len(name) > 15:
+                name = name[:12] + "..."
+
+            # FIXED WIDTH columns to ensure numbers are visible
+            item_line = f"{name:<15} {qty:>2} {price:>6} {total_price:>8}"
+            printer.text(item_line + "\n")
+
+            # Print notes if any (indented)
+            notes = _note_segments(it.get("note", ""))
+            for note in notes:
+                shaped_note = _shape_ar_textfile(note)
+                if len(shaped_note) > 28:
+                    shaped_note = shaped_note[:25] + "..."
+                printer.text(f"  • {shaped_note}\n")
+
+        printer.text("=" * 32 + "\n")  # Total separator
+
+        # Totals - RIGHT ALIGNED for clarity
+        printer.set(align='right', bold=True)
+        printer.text(f"{_shape_ar_textfile('المجموع الفرعي:')} {_format_currency_cents(subtotal, currency):>10}\n")
+        printer.text(f"{_shape_ar_textfile('الخصم:')} {_format_currency_cents(discount, currency):>10}\n")
+        printer.text(f"{_shape_ar_textfile('المجموع الكلي:')} {_format_currency_cents(total, currency):>10}\n")
+
+        printer.text("\n")
+        printer.set(align='center', bold=True)
+        printer.text(_shape_ar_textfile("شكراً لزيارتكم") + "\n")
+        printer.text("\n")
+
+        # Cut paper (partial cut)
+        printer.cut()
+
+    except Exception as e:
+        print(f"[ERROR] ESC/POS printing failed: {e}")
+        raise
+
+def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]):
+    """Print bar ticket using ESC/POS commands with PROPER FORMATTING"""
+    if not printer:
+        raise ValueError("No printer available")
+
+    ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+
+    try:
+        # Header - CENTERED and BOLD
+        printer.set(align='center', bold=True, double_height=True)
+        printer.text(_shape_ar_textfile("بار كافيه بيروت") + "\n")
+        printer.set(align='center', bold=True, double_height=False)
+        printer.text(_shape_ar_textfile("تذكرة طلبات البار") + "\n")
+        printer.text("\n")
+
+        # Ticket info - LEFT ALIGNED
+        printer.set(align='left', bold=False)
+        printer.text(f"{_shape_ar_textfile('التاريخ:')} {ts}\n")
+        printer.text(f"{_shape_ar_textfile('الطاولة:')} {table_code}\n")
+
+        printer.text("-" * 32 + "\n")  # Separator line
+
+        # Orders header - CENTERED
+        printer.set(align='center', bold=True)
+        printer.text(_shape_ar_textfile("الطلبات الجديدة") + "\n")
+        printer.set(align='left', bold=False)
+        printer.text("-" * 32 + "\n")
+
+        # Column headers - FIXED WIDTH
+        headers = f"{_shape_ar_textfile('الصنف'):<22} {_shape_ar_textfile('الكمية'):<6}"
+        printer.text(headers + "\n")
+        printer.text("-" * 32 + "\n")
+
+        # Items with PROPER COLUMN ALIGNMENT
+        for it in items:
+            name = _shape_ar_textfile(str(it["name"]))
+            qty = _format_qty(float(it.get("qty", 0) or 0))
+
+            # TRUNCATE long names to fit thermal printer width
+            if len(name) > 20:
+                name = name[:17] + "..."
+
+            # FIXED WIDTH columns
+            item_line = f"{name:<20} {qty:>6}"
+            printer.text(item_line + "\n")
+
+            # Print notes if any (indented)
+            notes = _note_segments(it.get("note", ""))
+            for note in notes:
+                shaped_note = _shape_ar_textfile(note)
+                if len(shaped_note) > 28:
+                    shaped_note = shaped_note[:25] + "..."
+                printer.text(f"  • {shaped_note}\n")
+
+        printer.text("=" * 32 + "\n")  # Footer separator
+        printer.text("\n")
+
+        printer.set(align='center', bold=True)
+        printer.text(_shape_ar_textfile("يتم التحضير فوراً - شكراً لتفهمكم") + "\n")
+        printer.text("\n")
+
+        # Cut paper (partial cut)
+        printer.cut()
+
+    except Exception as e:
+        print(f"[ERROR] ESC/POS bar ticket printing failed: {e}")
+        raise
+
+# ---------------- HTML Receipt Generation (Fallback) ----------------
 def _generate_html_receipt(
         table_code: str,
         items: List[dict],
@@ -165,9 +358,7 @@ def _generate_html_receipt(
         cashier: str,
         receipt_number: str = None,
 ) -> Path:
-    # Ensure directories exist
-    output_dir = Path("prints/receipts")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_dirs()
 
     currency = "EGP"
     client_name = "كافيه بيروت"
@@ -192,7 +383,6 @@ def _generate_html_receipt(
             <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">{total_price}</td>
         </tr>"""
 
-    # SIMPLE COMPLETE HTML TEMPLATE
     html_content = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -276,14 +466,12 @@ def _generate_html_receipt(
 </body>
 </html>"""
 
-    # Save HTML file
     html_filename = f"receipt-{table_code}-{receipt_number}.html"
-    html_path = output_dir / html_filename
+    html_path = _RECEIPTS_DIR / html_filename
     html_path.write_text(html_content, encoding='utf-8')
 
     print(f"[DEBUG] HTML saved: {html_path}")
     return html_path
-
 
 def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
     """Generate HTML bar ticket for kitchen/bar"""
@@ -291,7 +479,6 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
 
     ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
-    # Build items HTML directly - NO JAVASCRIPT!
     items_html = ""
     for it in items:
         name = _shape_ar_textfile(str(it["name"]))
@@ -303,7 +490,6 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
                 <td class="item-qty">{qty}</td>
             </tr>"""
 
-        # Add notes if any
         notes = _note_segments(it.get("note", ""))
         for note in notes:
             shaped_note = _shape_ar_textfile(note)
@@ -314,7 +500,6 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
                 </td>
             </tr>"""
 
-    # SIMPLE HTML TEMPLATE - NO BROKEN JAVASCRIPT!
     bar_html_template = f"""<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -322,202 +507,56 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bar Ticket</title>
     <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Courier New', monospace;
-        }}
-
         body {{
-            background: white;
-            padding: 10px;
-            direction: rtl;
-            font-size: 14px;
-            line-height: 1.3;
             width: 80mm;
-            max-width: 80mm;
-            margin: 0 auto;
-        }}
-
-        .receipt {{
-            width: 100%;
-            background: white;
-            border: 2px solid #000;
-            padding: 15px;
-        }}
-
-        .header {{
-            text-align: center;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 3px double #000;
-        }}
-
-        .cafe-name {{
-            font-size: 22px;
-            font-weight: 900;
-            margin-bottom: 5px;
-            color: #000;
-        }}
-
-        .cafe-subtitle {{
-            font-size: 16px;
-            margin-bottom: 10px;
-            font-weight: bold;
-        }}
-
-        .info-row {{
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
+            margin: 0;
+            padding: 10px;
+            font-family: Arial, sans-serif;
             font-size: 14px;
-            padding: 2px 0;
+            direction: rtl;
         }}
-
-        .info-label {{
-            font-weight: 900;
-            color: #000;
-        }}
-
-        .divider {{
-            border-bottom: 2px dashed #000;
-            margin: 15px 0;
-            height: 2px;
-        }}
-
-        .section-title {{
-            font-weight: 900;
-            text-align: center;
-            margin: 15px 0 10px;
-            font-size: 16px;
-            background: #000;
-            color: white;
-            padding: 5px;
-            border-radius: 3px;
-        }}
-
-        .items-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-            font-size: 13px;
-        }}
-
-        .items-table th {{
-            border-bottom: 2px solid #000;
-            padding: 8px 5px;
-            text-align: right;
-            font-weight: 900;
-            background: #f0f0f0;
-        }}
-
-        .items-table td {{
-            padding: 6px 5px;
-            border-bottom: 1px solid #ccc;
-        }}
-
-        .item-name {{
-            text-align: right;
-            font-weight: bold;
-            width: 70%;
-        }}
-
-        .item-qty {{
-            text-align: center;
-            width: 30%;
-            font-weight: bold;
-        }}
-
-        .footer {{
-            text-align: center;
-            margin-top: 20px;
-            padding-top: 15px;
-            border-top: 2px dashed #000;
-            font-size: 12px;
-            color: #666;
-        }}
-
-        @media print {{
-            body {{
-                margin: 0 !important;
-                padding: 5px !important;
-                width: 80mm !important;
-                background: white !important;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-            }}
-
-            .receipt {{
-                border: 2px solid #000 !important;
-                box-shadow: none !important;
-                width: 100% !important;
-                margin: 0 !important;
-                padding: 10px !important;
-            }}
-
-            .section-title {{
-                background: #000 !important;
-                color: white !important;
-                -webkit-print-color-adjust: exact !important;
-            }}
-
-            @page {{
-                size: 80mm auto;
-                margin: 0;
-            }}
-        }}
+        .header {{ text-align: center; margin-bottom: 15px; }}
+        .cafe-name {{ font-size: 22px; font-weight: bold; }}
+        .info-row {{ display: flex; justify-content: space-between; margin: 5px 0; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 10px 0; }}
+        th {{ border-bottom: 2px solid #000; padding: 8px; text-align: right; }}
+        td {{ padding: 5px; border-bottom: 1px dotted #000; }}
+        .footer {{ text-align: center; margin-top: 15px; font-size: 12px; }}
     </style>
 </head>
 <body>
-    <div class="receipt">
-        <div class="header">
-            <div class="cafe-name">{_shape_ar_textfile("بار كافيه بيروت")}</div>
-            <div class="cafe-subtitle">{_shape_ar_textfile("تذكرة طلبات البار")}</div>
-        </div>
-
-        <div class="info-row">
-            <div class="info-label">{_shape_ar_textfile("التاريخ:")}</div>
-            <div>{ts}</div>
-        </div>
-
-        <div class="info-row">
-            <div class="info-label">{_shape_ar_textfile("الطاولة:")}</div>
-            <div>{table_code}</div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="section-title">{_shape_ar_textfile("الطلبات الجديدة")}</div>
-
-        <table class="items-table">
-            <thead>
-                <tr>
-                    <th class="item-name">{_shape_ar_textfile("الصنف")}</th>
-                    <th class="item-qty">{_shape_ar_textfile("الكمية")}</th>
-                </tr>
-            </thead>
-            <tbody>
-                {items_html}
-            </tbody>
-        </table>
-
-        <div class="footer">
-            <div>{_shape_ar_textfile("يتم التحضير فوراً - شكراً لتفهمكم")}</div>
-        </div>
+    <div class="header">
+        <div class="cafe-name">{_shape_ar_textfile("بار كافيه بيروت")}</div>
+        <div>{_shape_ar_textfile("تذكرة طلبات البار")}</div>
     </div>
 
-    <script>
-        // Auto-print only - no broken JavaScript data
-        window.onload = function() {{
-            setTimeout(() => {{
-                window.print();
-                setTimeout(() => {{
-                    window.close();
-                }}, 1000);
-            }}, 500);
-        }};
-    </script>
+    <div class="info-row">
+        <span>{_shape_ar_textfile("التاريخ:")}</span>
+        <span>{ts}</span>
+    </div>
+    <div class="info-row">
+        <span>{_shape_ar_textfile("الطاولة:")}</span>
+        <span>{table_code}</span>
+    </div>
+
+    <hr>
+    <div style="text-align: center; font-weight: bold; margin: 10px 0;">{_shape_ar_textfile("الطلبات الجديدة")}</div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>{_shape_ar_textfile("الصنف")}</th>
+                <th>{_shape_ar_textfile("الكمية")}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {items_html}
+        </tbody>
+    </table>
+
+    <div class="footer">
+        <div>{_shape_ar_textfile("يتم التحضير فوراً - شكراً لتفهمكم")}</div>
+    </div>
 </body>
 </html>"""
 
@@ -529,16 +568,14 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
     return bar_path
 
 # ---------------- Public API ----------------
-BAR_PRINTER_NAME     = "XP-80C"  # Change to your actual printer name
-CASHIER_PRINTER_NAME = "XP-80C"  # Change to your actual printer name
-
 class PrinterService:
-    __slots__ = ("bar_printer", "cashier_printer")
+    __slots__ = ("bar_printer", "cashier_printer", "_escpos_printer")
 
     def __init__(self):
         _ensure_dirs()
-        self.bar_printer = BAR_PRINTER_NAME
-        self.cashier_printer = CASHIER_PRINTER_NAME
+        self.bar_printer = "XP-80C"
+        self.cashier_printer = "XP-80C"
+        self._escpos_printer = _find_xp80c_printer()
         self.reload_from_settings()
 
     def reload_from_settings(self):
@@ -549,21 +586,25 @@ class PrinterService:
 
     def update_printers(self, bar: Optional[str], cashier: Optional[str]):
         if bar is not None:
-            self.bar_printer = bar.strip() or BAR_PRINTER_NAME
+            self.bar_printer = bar.strip() or "XP-80C"
         if cashier is not None:
-            self.cashier_printer = cashier.strip() or CASHIER_PRINTER_NAME
+            self.cashier_printer = cashier.strip() or "XP-80C"
 
-    def print_bar_ticket(self, table_code: str, items: Iterable) -> Path:
-        """Print bar ticket using HTML generation"""
+    def print_bar_ticket(self, table_code: str, items: Iterable) -> bool:
+        """Print bar ticket using ESC/POS thermal printer"""
         data = _collapse_items(items)
 
-        # Generate HTML bar ticket
-        html_path = _generate_html_bar_ticket(table_code, data)
-
-        # Print the HTML file
-        self._print_html_file(html_path, self.bar_printer)
-
-        return html_path
+        if self._escpos_printer and not _DISABLE_ESCPOS:
+            try:
+                print(f"[DEBUG] Printing bar ticket to XP-80C for table {table_code}")
+                _print_escpos_bar_ticket(self._escpos_printer, table_code, data)
+                return True
+            except Exception as e:
+                print(f"[ERROR] ESC/POS bar ticket failed: {e}")
+                return self._print_html_fallback(table_code, data, "bar")
+        else:
+            print("[WARN] ESC/POS not available, using HTML fallback for bar ticket")
+            return self._print_html_fallback(table_code, data, "bar")
 
     def print_cashier_receipt(
         self,
@@ -578,55 +619,51 @@ class PrinterService:
         tax: int | None = None,
         *,
         discount_label: str | None = None,
-    ) -> Path:
-        """Print cashier receipt using HTML generation"""
+    ) -> bool:
+        """Print cashier receipt using ESC/POS thermal printer"""
         data = _collapse_items(items)
 
-        # Generate HTML receipt
-        html_path = _generate_html_receipt(
-            table_code=table_code,
-            items=data,
-            subtotal=subtotal,
-            discount=discount,
-            total=total,
-            method=method,
-            cashier=cashier
-        )
+        if self._escpos_printer and not _DISABLE_ESCPOS:
+            try:
+                print(f"[DEBUG] Printing receipt to XP-80C for table {table_code}")
+                _print_escpos_receipt(
+                    self._escpos_printer, table_code, data, subtotal,
+                    discount, total, method, cashier
+                )
+                return True
+            except Exception as e:
+                print(f"[ERROR] ESC/POS receipt failed: {e}")
+                return self._print_html_fallback(table_code, data, "receipt",
+                                               subtotal, discount, total, method, cashier)
+        else:
+            print("[WARN] ESC/POS not available, using HTML fallback for receipt")
+            return self._print_html_fallback(table_code, data, "receipt",
+                                           subtotal, discount, total, method, cashier)
 
-        # Print the HTML file
-        self._print_html_file(html_path, self.cashier_printer)
-
-        return html_path
-
-    def _print_html_file(self, html_path: Path, printer_name: str) -> None:
-        """Print HTML file using system printing with Windows support"""
+    def _print_html_fallback(self, table_code: str, items: List[dict],
+                           ticket_type: str, subtotal: int = 0, discount: int = 0,
+                           total: int = 0, method: str = "", cashier: str = "") -> bool:
+        """HTML fallback when ESC/POS is not available"""
         try:
-            if sys.platform.startswith("win"):
-                print(f"[DEBUG] Windows printing: {html_path}")
-
-                # METHOD 1: Try PDF with wkhtmltopdf FIRST
-                pdf_path = _convert_html_to_pdf(html_path)
-                if pdf_path and pdf_path.exists():
-                    print(f"[DEBUG] PDF created, printing: {pdf_path}")
-                    os.startfile(str(pdf_path), "print")
-                    print("[DEBUG] PDF sent to printer")
-                    return
-
-                # METHOD 2: If PDF fails, use browser directly
-                print("[DEBUG] Opening in browser for printing")
-                os.startfile(str(html_path))
-
+            if ticket_type == "bar":
+                html_path = _generate_html_bar_ticket(table_code, items)
             else:
-                # Linux/Mac
-                print(f"[DEBUG] Unix printing: {html_path}")
-                if _can_system_print(printer_name):
-                    subprocess.Popen(["lp", "-d", printer_name, str(html_path)])
-                else:
-                    subprocess.Popen(["lp", str(html_path)])
+                html_path = _generate_html_receipt(
+                    table_code, items, subtotal, discount, total, method, cashier
+                )
+
+            # Open HTML in browser for manual printing
+            if sys.platform.startswith("win"):
+                os.startfile(str(html_path))
+            else:
+                subprocess.Popen(["xdg-open", str(html_path)])
+
+            print(f"[INFO] Opened {ticket_type} in browser for manual printing: {html_path}")
+            return True
 
         except Exception as e:
-            print(f"[ERROR] Print failed: {e}")
-            os.startfile(str(html_path))
+            print(f"[ERROR] HTML fallback failed: {e}")
+            return False
 
     def generate_html_receipt(
             self,
@@ -700,13 +737,28 @@ def test_arabic_shaping():
 
     if _AR_OK:
         reshaped = arabic_reshaper.reshape(test_text)
-        bidi = get_display(reshaped)
         print(f"Reshaped: {reshaped}")
-        print(f"Bidi: {bidi}")
         print(f"Textfile version: {_shape_ar_textfile(test_text)}")
     else:
         print("Arabic reshaping not available")
 
     print("===========================")
 
+def test_printer():
+    """Test printer connection and basic printing"""
+    printer = _find_xp80c_printer()
+    if printer:
+        print("✅ Thermal printer connected!")
+        try:
+            printer.text("Printer Test - XP-80C\n")
+            printer.text("Numbers: 1234567890\n")
+            printer.text("Arabic: " + _shape_ar_textfile("كافيه بيروت") + "\n")
+            printer.cut()
+            print("✅ Test print completed!")
+        except Exception as e:
+            print(f"❌ Test print failed: {e}")
+    else:
+        print("❌ No thermal printer found")
+
 test_arabic_shaping()
+test_printer()

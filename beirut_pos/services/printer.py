@@ -3,7 +3,7 @@ ULTIMATE FIX: Uses ESC/POS direct commands - bypasses PDF completely for thermal
 """
 
 from __future__ import annotations
-import os, sys, subprocess, shutil, re
+import os, sys, subprocess, shutil, re, json
 from pathlib import Path
 from datetime import datetime
 from typing import Iterable, List, Optional
@@ -99,7 +99,6 @@ def _shape_ar_escpos(text: str) -> str:
     try:
         # For ESC/POS thermal printers: reshape but DON'T apply bidi algorithm
         reshaped = arabic_reshaper.reshape(text)
-        print(f"[DEBUG _shape_ar_escpos] '{text}' -> '{reshaped}'")
         return reshaped  # ← CRITICAL FIX: Remove get_display() for thermal printers
     except Exception as e:
         print(f"[WARN] Arabic reshaping failed: {e}")
@@ -108,10 +107,7 @@ def _shape_ar_escpos(text: str) -> str:
 def _shape_ar_textfile(text: str) -> str:
     """Arabic shaping for text files - use same as ESC/POS for consistency."""
     # SIMPLIFIED: Use the same shaping as ESC/POS to avoid reversed text
-    print(f"[DEBUG _shape_ar_textfile] Input: '{text}'")
-    result = _shape_ar_escpos(text)
-    print(f"[DEBUG _shape_ar_textfile] Output: '{result}'")
-    return result
+    return _shape_ar_escpos(text)
 
 _shape_arabic = _shape_ar_textfile
 
@@ -147,7 +143,594 @@ def _can_system_print(printer_name: str) -> bool:
     except Exception:
         return False
 
-# ---------------- ESC/POS Thermal Printer (THE REAL FIX) ----------------
+# ---------------- HTML Receipt Generation ----------------
+def _generate_html_receipt(
+        table_code: str,
+        items: List[dict],
+        subtotal: int,
+        discount: int,
+        total: int,
+        method: str,
+        cashier: str,
+        receipt_number: str = None,
+) -> Path:
+    """Generate beautiful HTML receipt for display/printing"""
+    _ensure_dirs()
+
+    currency = setting_get("currency", "EGP") or "EGP"
+    client_name = get_client_name() or (setting_get("company_name", "Beirut") or "Beirut")
+    ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+
+    if not receipt_number:
+        receipt_number = f"{datetime.now():%Y%m%d%H%M%S}"
+
+    # Format items for HTML
+    html_items = []
+    for it in items:
+        html_items.append({
+            'name': _shape_ar_textfile(str(it["name"])),
+            'qty': _format_qty(float(it.get("qty", 0) or 0)),
+            'price': _format_currency_cents(it.get("unit_price", 0), currency),
+            'total': _format_currency_cents(it.get("total_cents", 0), currency)
+        })
+
+    # Prepare data for JavaScript
+    receipt_data = {
+        'date': ts,
+        'receiptNumber': receipt_number,
+        'tableNumber': f"{table_code}",
+        'cashier': _shape_ar_textfile(cashier),
+        'items': html_items,
+        'subtotal': _format_currency_cents(subtotal, currency),
+        'discount': _format_currency_cents(discount, currency),
+        'grandTotal': _format_currency_cents(total, currency),
+        'paidAmount': _format_currency_cents(total, currency),
+        'cashAmount': _format_currency_cents(total, currency),
+        'changeAmount': _format_currency_cents(0, currency)
+    }
+
+    # HTML template - NO PRINT BUTTON
+    html_template = """<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>كافيه بيروت - فاتورة</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Courier New', monospace;
+        }
+        
+        body {
+            background-color: white;
+            padding: 5px;
+            direction: rtl;
+            font-size: 12px;
+            line-height: 1.2;
+        }
+        
+        .receipt {
+            width: 80mm;
+            max-width: 80mm;
+            background-color: white;
+            padding: 8px;
+            margin: 0 auto;
+            border: 1px solid #000;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px dashed #000;
+        }
+        
+        .cafe-name {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
+        
+        .cafe-subtitle {
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+            font-size: 10px;
+        }
+        
+        .info-label {
+            font-weight: bold;
+        }
+        
+        .divider {
+            border-bottom: 1px dashed #000;
+            margin: 6px 0;
+        }
+        
+        .section-title {
+            font-weight: bold;
+            text-align: center;
+            margin: 6px 0 4px;
+            font-size: 12px;
+        }
+        
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
+            font-size: 10px;
+        }
+        
+        .items-table th {
+            border-bottom: 1px solid #000;
+            padding: 3px 2px;
+            text-align: right;
+            font-weight: bold;
+        }
+        
+        .items-table td {
+            padding: 2px;
+            border-bottom: 1px dotted #ccc;
+        }
+        
+        .item-name {
+            text-align: right;
+        }
+        
+        .item-qty, .item-price, .item-total {
+            text-align: center;
+            width: 15%;
+        }
+        
+        .totals {
+            margin: 8px 0;
+            font-size: 11px;
+        }
+        
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+        }
+        
+        .grand-total {
+            font-weight: bold;
+            border-top: 1px solid #000;
+            padding-top: 4px;
+            margin-top: 4px;
+            font-size: 12px;
+        }
+        
+        .payment-details {
+            background-color: #f0f0f0;
+            padding: 6px;
+            margin: 8px 0;
+            border-radius: 3px;
+        }
+        
+        .payment-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2px;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 10px;
+            padding-top: 6px;
+            border-top: 1px dashed #000;
+            font-size: 9px;
+            width: 100%;
+        }
+        
+        .address, .phone {
+            margin: 2px 0;
+            width: 100%;
+        }
+        
+        .cashier {
+            margin-top: 4px;
+            font-weight: bold;
+            width: 100%;
+        }
+        
+        .thank-you {
+            margin-top: 6px;
+            font-style: italic;
+            width: 100%;
+        }
+
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            
+            .receipt {
+                border: none;
+                box-shadow: none;
+                width: 80mm;
+                max-width: 80mm;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="receipt">
+        <div class="header">
+            <div class="cafe-name">كافيه بيروت</div>
+            <div class="cafe-subtitle">كافيه ومعلم</div>
+            
+            <div class="info-row">
+                <div class="info-label">التاريخ والوقت:</div>
+                <div id="receipt-date">2025/10/17 11:51:34</div>
+            </div>
+            
+            <div class="info-row">
+                <div class="info-label">رقم الفاتورة:</div>
+                <div id="receipt-number">51</div>
+            </div>
+        </div>
+        
+        <div class="info-row">
+            <div class="info-label">الطاولة:</div>
+            <div id="table-number">24 (نادي)</div>
+        </div>
+        
+        <div class="info-row">
+            <div class="info-label">المدير:</div>
+            <div id="cashier-name">rageh</div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <div class="section-title">الطلبات</div>
+        
+        <table class="items-table" id="items-table">
+            <thead>
+                <tr>
+                    <th class="item-name">الصنف</th>
+                    <th class="item-qty">الكمية</th>
+                    <th class="item-price">السعر</th>
+                    <th class="item-total">الإجمالي</th>
+                </tr>
+            </thead>
+            <tbody id="items-body">
+                <!-- DYNAMIC ITEMS WILL BE INSERTED HERE -->
+            </tbody>
+        </table>
+        
+        <div class="divider"></div>
+        
+        <div class="totals">
+            <div class="total-row">
+                <div>الخصم:</div>
+                <div id="discount">0.00</div>
+            </div>
+            <div class="total-row grand-total">
+                <div>المجموع الكلي:</div>
+                <div id="grand-total">240.00</div>
+            </div>
+        </div>
+        
+        <div class="payment-details">
+            <div class="payment-row">
+                <div>المبلغ المدفوع:</div>
+                <div id="paid-amount">0.00</div>
+            </div>
+            <div class="payment-row grand-total">
+                <div>الباقي:</div>
+                <div id="change-amount">0.00</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <div class="address">امام سيشن الشلال بجوار مفسله بالثبت</div>
+            <div class="phone">01110110823</div>
+            <div class="cashier">المدير: <span id="footer-cashier">rageh</span></div>
+            <div class="thank-you">شكراً لزيارتكم</div>
+        </div>
+    </div>
+
+    <script>
+        // Dynamic data population
+        function populateReceipt(data) {
+            // Header info
+            document.getElementById('receipt-date').textContent = data.date;
+            document.getElementById('receipt-number').textContent = data.receiptNumber;
+            document.getElementById('table-number').textContent = data.tableNumber;
+            document.getElementById('cashier-name').textContent = data.cashier;
+            document.getElementById('footer-cashier').textContent = data.cashier;
+            
+            // Items
+            const itemsBody = document.getElementById('items-body');
+            itemsBody.innerHTML = '';
+            data.items.forEach(item => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="item-name">${item.name}</td>
+                    <td class="item-qty">${item.qty}</td>
+                    <td class="item-price">${item.price}</td>
+                    <td class="item-total">${item.total}</td>
+                `;
+                itemsBody.appendChild(row);
+            });
+            
+            // Totals
+            document.getElementById('discount').textContent = data.discount;
+            document.getElementById('grand-total').textContent = data.grandTotal;
+            
+            // Payment
+            document.getElementById('paid-amount').textContent = data.paidAmount;
+            document.getElementById('change-amount').textContent = data.changeAmount;
+        }
+
+        // Populate with data from Python
+        const receiptData = %s;
+        populateReceipt(receiptData);
+    </script>
+</body>
+</html>"""
+
+    # Fill the template with data
+    final_html = html_template % json.dumps(receipt_data, ensure_ascii=False, indent=2)
+
+    # Save HTML file
+    html_filename = f"receipt-{table_code}-{receipt_number}.html"
+    html_path = _RECEIPTS_DIR / html_filename
+    html_path.write_text(final_html, encoding='utf-8')
+
+    print(f"[DEBUG] HTML receipt saved: {html_path}")
+    return html_path
+
+def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
+    """Generate HTML bar ticket for kitchen/bar"""
+    _ensure_dirs()
+
+    ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+
+    # Format items for HTML (only new/unprinted items)
+    html_items = []
+    for it in items:
+        item_data = {
+            'name': _shape_ar_textfile(str(it["name"])),
+            'qty': _format_qty(float(it.get("qty", 0) or 0))
+        }
+
+        # Add notes if any
+        notes = _note_segments(it.get("note", ""))
+        if notes:
+            item_data['notes'] = [_shape_ar_textfile(note) for note in notes]
+
+        html_items.append(item_data)
+
+    # Bar ticket data
+    bar_data = {
+        'date': ts,
+        'tableNumber': f"{table_code}",
+        'items': html_items
+    }
+
+    # Bar ticket HTML template - NO PRINT BUTTON
+    bar_html_template = """<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بار كافيه بيروت</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Courier New', monospace;
+        }
+        
+        body {
+            background-color: white;
+            padding: 5px;
+            direction: rtl;
+            font-size: 12px;
+            line-height: 1.2;
+        }
+        
+        .receipt {
+            width: 80mm;
+            max-width: 80mm;
+            background-color: white;
+            padding: 8px;
+            margin: 0 auto;
+            border: 1px solid #000;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px dashed #000;
+        }
+        
+        .cafe-name {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
+        
+        .cafe-subtitle {
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+            font-size: 10px;
+        }
+        
+        .info-label {
+            font-weight: bold;
+        }
+        
+        .divider {
+            border-bottom: 1px dashed #000;
+            margin: 6px 0;
+        }
+        
+        .section-title {
+            font-weight: bold;
+            text-align: center;
+            margin: 6px 0 4px;
+            font-size: 12px;
+        }
+        
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
+            font-size: 10px;
+        }
+        
+        .items-table th {
+            border-bottom: 1px solid #000;
+            padding: 3px 2px;
+            text-align: right;
+            font-weight: bold;
+        }
+        
+        .items-table td {
+            padding: 2px;
+            border-bottom: 1px dotted #ccc;
+        }
+        
+        .item-name {
+            text-align: right;
+            width: 70%;
+        }
+        
+        .item-qty {
+            text-align: center;
+            width: 30%;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 10px;
+            padding-top: 6px;
+            border-top: 1px dashed #000;
+            font-size: 9px;
+            width: 100%;
+        }
+
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            
+            .receipt {
+                border: none;
+                box-shadow: none;
+                width: 80mm;
+                max-width: 80mm;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="receipt">
+        <div class="header">
+            <div class="cafe-name">بار كافيه بيروت</div>
+            <div class="cafe-subtitle">تذكرة طلبات البار</div>
+            
+            <div class="info-row">
+                <div class="info-label">التاريخ والوقت:</div>
+                <div id="bar-date">2025/10/17 11:51:34</div>
+            </div>
+        </div>
+        
+        <div class="info-row">
+            <div class="info-label">الطاولة:</div>
+            <div id="bar-table">24 (نادي)</div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <div class="section-title">الطلبات الجديدة</div>
+        
+        <table class="items-table" id="bar-items-table">
+            <thead>
+                <tr>
+                    <th class="item-name">الصنف</th>
+                    <th class="item-qty">الكمية</th>
+                </tr>
+            </thead>
+            <tbody id="bar-items-body">
+                <!-- DYNAMIC BAR ITEMS WILL BE INSERTED HERE -->
+            </tbody>
+        </table>
+        
+        <div class="footer">
+            <div>يتم التحضير فوراً - شكراً لتفهمكم</div>
+        </div>
+    </div>
+
+    <script>
+        // Dynamic data population for bar ticket
+        function populateBarTicket(data) {
+            // Header info
+            document.getElementById('bar-date').textContent = data.date;
+            document.getElementById('bar-table').textContent = data.tableNumber;
+            
+            // Bar Items
+            const itemsBody = document.getElementById('bar-items-body');
+            itemsBody.innerHTML = '';
+            data.items.forEach(item => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="item-name">${item.name}</td>
+                    <td class="item-qty">${item.qty}</td>
+                `;
+                itemsBody.appendChild(row);
+                
+                // Add notes if any
+                if (item.notes && item.notes.length > 0) {
+                    item.notes.forEach(note => {
+                        const noteRow = document.createElement('tr');
+                        noteRow.innerHTML = `
+                            <td colspan="2" style="font-size: 9px; color: #666; padding-right: 10px;">• ${note}</td>
+                        `;
+                        itemsBody.appendChild(noteRow);
+                    });
+                }
+            });
+        }
+
+        // Populate with data from Python
+        const barData = %s;
+        populateBarTicket(barData);
+    </script>
+</body>
+</html>"""
+
+    # Fill and save bar ticket
+    final_bar_html = bar_html_template % json.dumps(bar_data, ensure_ascii=False, indent=2)
+    bar_filename = f"bar-{table_code}-{datetime.now():%Y%m%d%H%M%S}.html"
+    bar_path = _BAR_DIR / bar_filename
+    bar_path.write_text(final_bar_html, encoding='utf-8')
+
+    print(f"[DEBUG] HTML bar ticket saved: {bar_path}")
+    return bar_path
+
+# ---------------- ESC/POS Thermal Printer ----------------
 def _get_escpos_printer(printer_name: str):
     """Get ESC/POS printer instance based on platform and printer name."""
     if not _ESCPOS_OK or _DISABLE_ESCPOS:
@@ -414,43 +997,21 @@ def _save_receipt_as_text(
     divider_heavy = "═" * 32
     divider_light = "─" * 32
 
-    print(f"[DEBUG _save_receipt_as_text] Starting to build receipt for table {table_code}")
-    print(f"[DEBUG _save_receipt_as_text] is_bar: {is_bar}")
-
     if is_bar:
         lines.append(divider_heavy)
-        bar_header = texts.get("receipt.bar.header")
-        print(f"[DEBUG _save_receipt_as_text] Bar header raw: '{bar_header}'")
-        shaped_bar_header = _shape_ar_textfile(bar_header)
-        print(f"[DEBUG _save_receipt_as_text] Bar header shaped: '{shaped_bar_header}'")
-        lines.append(shaped_bar_header)
+        lines.append(_shape_ar_textfile(texts.get("receipt.bar.header")))
         lines.append(divider_heavy)
-
-        bar_table = texts.get("receipt.bar.table", table_code=table_code)
-        print(f"[DEBUG _save_receipt_as_text] Bar table raw: '{bar_table}'")
-        lines.append(_shape_ar_textfile(bar_table))
-
-        bar_issued = texts.get("receipt.bar.issued_at", timestamp=ts)
-        print(f"[DEBUG _save_receipt_as_text] Bar issued raw: '{bar_issued}'")
-        lines.append(_shape_ar_textfile(bar_issued))
+        lines.append(_shape_ar_textfile(texts.get("receipt.bar.table", table_code=table_code)))
+        lines.append(_shape_ar_textfile(texts.get("receipt.bar.issued_at", timestamp=ts)))
         lines.append(divider_light)
 
         for it in items:
-            name_raw = str(it["name"])
-            print(f"[DEBUG _save_receipt_as_text] Item name raw: '{name_raw}'")
-            name_shaped = _shape_ar_textfile(name_raw)
-            print(f"[DEBUG _save_receipt_as_text] Item name shaped: '{name_shaped}'")
-            lines.append(name_shaped)
-
+            name = _shape_ar_textfile(str(it["name"]))
             qty_display = _format_qty(float(it.get("qty", 0) or 0))
-            qty_text = f"الكمية: {qty_display}"
-            print(f"[DEBUG _save_receipt_as_text] Qty text raw: '{qty_text}'")
-            lines.append(_shape_ar_textfile(qty_text))
-
+            lines.append(name)
+            lines.append(_shape_ar_textfile(f"الكمية: {qty_display}"))
             for segment in _note_segments(it.get("note", "")):
-                note_text = f"• {segment}"
-                print(f"[DEBUG _save_receipt_as_text] Note text raw: '{note_text}'")
-                lines.append(_shape_ar_textfile(note_text))
+                lines.append(_shape_ar_textfile(f"• {segment}"))
             lines.append(divider_light)
     else:
         subtitle = texts.get("receipt.cashier.subtitle")
@@ -464,96 +1025,48 @@ def _save_receipt_as_text(
         total_qty = sum(float(it.get("qty", 0) or 0) for it in items)
         discount_label_text = discount_label or texts.get("receipt.cashier.discount")
 
-        print(f"[DEBUG _save_receipt_as_text] Client name raw: '{client_name}'")
         lines.append(divider_heavy)
         lines.append(_shape_ar_textfile(client_name))
         if subtitle:
-            print(f"[DEBUG _save_receipt_as_text] Subtitle raw: '{subtitle}'")
             lines.append(_shape_ar_textfile(subtitle))
         lines.append(divider_heavy)
-
-        date_text = f"التاريخ والوقت: {ts}"
-        print(f"[DEBUG _save_receipt_as_text] Date text raw: '{date_text}'")
-        lines.append(_shape_ar_textfile(date_text))
-
-        table_text = f"الطاولة: {table_code}"
-        print(f"[DEBUG _save_receipt_as_text] Table text raw: '{table_text}'")
-        lines.append(_shape_ar_textfile(table_text))
-
-        cashier_text = f"النادل: {cashier}"
-        print(f"[DEBUG _save_receipt_as_text] Cashier text raw: '{cashier_text}'")
-        lines.append(_shape_ar_textfile(cashier_text))
-
-        method_text = f"طريقة الدفع: {method}"
-        print(f"[DEBUG _save_receipt_as_text] Method text raw: '{method_text}'")
-        lines.append(_shape_ar_textfile(method_text))
+        lines.append(_shape_ar_textfile(f"التاريخ والوقت: {ts}"))
+        lines.append(_shape_ar_textfile(f"الطاولة: {table_code}"))
+        lines.append(_shape_ar_textfile(f"النادل: {cashier}"))
+        lines.append(_shape_ar_textfile(f"طريقة الدفع: {method}"))
         lines.append(divider_light)
-
-        items_header = "الأصناف المطلوبة"
-        print(f"[DEBUG _save_receipt_as_text] Items header raw: '{items_header}'")
-        lines.append(_shape_ar_textfile(items_header))
+        lines.append(_shape_ar_textfile("الأصناف المطلوبة"))
         lines.append(divider_light)
 
         for it in items:
-            name_raw = str(it["name"])
-            print(f"[DEBUG _save_receipt_as_text] Item name raw: '{name_raw}'")
-            name_shaped = _shape_ar_textfile(name_raw)
-            print(f"[DEBUG _save_receipt_as_text] Item name shaped: '{name_shaped}'")
-            lines.append(name_shaped)
-
+            name = _shape_ar_textfile(str(it["name"]))
             qty_display = _format_qty(float(it.get("qty", 0) or 0))
             unit_display = _format_currency_cents(it.get("unit_price", 0), currency)
-            qty_price_text = f"الكمية: {qty_display}  السعر: {unit_display}"
-            print(f"[DEBUG _save_receipt_as_text] Qty/Price text raw: '{qty_price_text}'")
-            lines.append(_shape_ar_textfile(qty_price_text))
-
             item_total_display = _format_currency_cents(it.get("total_cents", 0), currency)
-            total_text = f"الإجمالي: {item_total_display}"
-            print(f"[DEBUG _save_receipt_as_text] Total text raw: '{total_text}'")
-            lines.append(_shape_ar_textfile(total_text))
 
+            lines.append(name)
+            lines.append(_shape_ar_textfile(f"الكمية: {qty_display}  السعر: {unit_display}"))
+            lines.append(_shape_ar_textfile(f"الإجمالي: {item_total_display}"))
             for segment in _note_segments(it.get("note", "")):
-                note_text = f"• {segment}"
-                print(f"[DEBUG _save_receipt_as_text] Note text raw: '{note_text}'")
-                lines.append(_shape_ar_textfile(note_text))
+                lines.append(_shape_ar_textfile(f"• {segment}"))
             lines.append(divider_light)
 
-        total_qty_text = f"إجمالي القطع: {_format_qty(total_qty)}"
-        print(f"[DEBUG _save_receipt_as_text] Total qty text raw: '{total_qty_text}'")
-        lines.append(_shape_ar_textfile(total_qty_text))
-
-        subtotal_text = f"المجموع الفرعي: {subtotal_display}"
-        print(f"[DEBUG _save_receipt_as_text] Subtotal text raw: '{subtotal_text}'")
-        lines.append(_shape_ar_textfile(subtotal_text))
-
-        discount_text = f"{discount_label_text}: {discount_display}"
-        print(f"[DEBUG _save_receipt_as_text] Discount text raw: '{discount_text}'")
-        lines.append(_shape_ar_textfile(discount_text))
-
+        lines.append(_shape_ar_textfile(f"إجمالي القطع: {_format_qty(total_qty)}"))
+        lines.append(_shape_ar_textfile(f"المجموع الفرعي: {subtotal_display}"))
+        lines.append(_shape_ar_textfile(f"{discount_label_text}: {discount_display}"))
         if service:
-            service_text = f"الخدمة: {service_display}"
-            print(f"[DEBUG _save_receipt_as_text] Service text raw: '{service_text}'")
-            lines.append(_shape_ar_textfile(service_text))
+            lines.append(_shape_ar_textfile(f"الخدمة: {service_display}"))
         if tax:
-            tax_text = f"الضريبة: {tax_display}"
-            print(f"[DEBUG _save_receipt_as_text] Tax text raw: '{tax_text}'")
-            lines.append(_shape_ar_textfile(tax_text))
+            lines.append(_shape_ar_textfile(f"الضريبة: {tax_display}"))
         lines.append(divider_light)
-
-        total_due_text = f"الإجمالي المستحق: {total_display}"
-        print(f"[DEBUG _save_receipt_as_text] Total due text raw: '{total_due_text}'")
-        lines.append(_shape_ar_textfile(total_due_text))
+        lines.append(_shape_ar_textfile(f"الإجمالي المستحق: {total_display}"))
         lines.append(divider_light)
-
         if contact_address:
-            print(f"[DEBUG _save_receipt_as_text] Address raw: '{contact_address}'")
             lines.append(_shape_ar_textfile(contact_address))
         if contact_phone:
-            print(f"[DEBUG _save_receipt_as_text] Phone raw: '{contact_phone}'")
             lines.append(_shape_ar_textfile(contact_phone))
         footer = texts.get("receipt.footer")
         if footer:
-            print(f"[DEBUG _save_receipt_as_text] Footer raw: '{footer}'")
             lines.append(_shape_ar_textfile(footer))
 
     lines.append("\n")
@@ -562,18 +1075,7 @@ def _save_receipt_as_text(
     filename = f"{datetime.now():%Y%m%d-%H%M%S}-{'bar' if is_bar else 'cashier'}-{table_code}.txt"
     target = folder / filename
 
-    print(f"[DEBUG _save_receipt_as_text] Writing to file: {target}")
-    print(f"[DEBUG _save_receipt_as_text] First few lines preview:")
-    for i, line in enumerate(lines[:10]):
-        print(f"[DEBUG _save_receipt_as_text] Line {i}: '{line}'")
-
     target.write_text("\n".join(lines), encoding='utf-8')
-
-    # Verify what was actually written
-    written_content = target.read_text(encoding='utf-8')
-    print(f"[DEBUG _save_receipt_as_text] ACTUAL FILE CONTENT (first 500 chars):")
-    print(written_content[:500])
-
     return target
 
 # ---------------- Public API ----------------
@@ -611,7 +1113,7 @@ class PrinterService:
                 # Save text file for records, DON'T send to printer again
                 return _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
 
-        # Fallback ONLY if ESC/POS failed: save and (optionably) CUPS-print text file
+        # Fallback ONLY if ESC/POS failed: save and (optionally) CUPS-print text file
         txt = _save_receipt_as_text(table_code, data, 0, 0, 0, 0, 0, "", "", is_bar=True)
 
         if sys.platform.startswith("win"):
@@ -706,6 +1208,36 @@ class PrinterService:
                 pass
 
         return txt
+
+    # NEW HTML METHODS
+    def generate_html_receipt(
+            self,
+            table_code: str,
+            items: Iterable,
+            subtotal: int,
+            discount: int,
+            total: int,
+            method: str,
+            cashier: str,
+            receipt_number: str = None,
+    ) -> Path:
+        """Generate HTML receipt for display/printing"""
+        data = _collapse_items(items)
+        return _generate_html_receipt(
+            table_code=table_code,
+            items=data,
+            subtotal=subtotal,
+            discount=discount,
+            total=total,
+            method=method,
+            cashier=cashier,
+            receipt_number=receipt_number
+        )
+
+    def generate_html_bar_ticket(self, table_code: str, items: Iterable) -> Path:
+        """Generate HTML bar ticket"""
+        data = _collapse_items(items)
+        return _generate_html_bar_ticket(table_code=table_code, items=data)
 
 printer = PrinterService()
 

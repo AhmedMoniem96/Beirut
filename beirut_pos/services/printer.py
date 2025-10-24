@@ -77,17 +77,16 @@ def _warn_arabic_missing() -> None:
     )
 
 def _shape_ar_textfile(text: str) -> str:
-    """Arabic shaping for text files - RESHAPE ONLY, NO BIDI for thermal printers."""
+    """Arabic shaping for text files."""
     if not text:
         return ""
     if not _AR_OK:
         _warn_arabic_missing()
         return text
     try:
-        # CRITICAL FIX: Reshape Arabic but DON'T apply bidi algorithm
-        # Thermal printers handle RTL automatically when Arabic text is properly shaped
+        # For HTML: reshape and apply bidi algorithm
         reshaped = arabic_reshaper.reshape(text)
-        return reshaped  # ← NO get_display() for thermal printers!
+        return get_display(reshaped)
     except Exception as e:
         print(f"[WARN] Arabic reshaping failed: {e}")
         return text
@@ -117,7 +116,7 @@ def _note_segments(note: str) -> list[str]:
 
 # ---------------- Helpers ----------------
 def _can_system_print(printer_name: str) -> bool:
-    """Check if CUPS can print to a given printer on Linux/macOS."""
+    """Check if CUPS can print to a given printer on Linux."""
     if not printer_name or not shutil.which("lp"):
         return False
     try:
@@ -127,35 +126,16 @@ def _can_system_print(printer_name: str) -> bool:
         return False
 
 def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
-    """Convert HTML to PDF with thermal-friendly settings (203 dpi, solid black)."""
+    """Convert HTML to PDF for better printing support"""
     try:
         import pdfkit
-
-        # Find wkhtmltopdf executable
-        wkhtmltopdf_paths = [
-            r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe",
-            r"C:\Program Files (x86)\wkhtmltopdf\bin\wkhtmltopdf.exe",
-            "wkhtmltopdf",  # If it's in PATH
-        ]
-
-        config = None
-        for path in wkhtmltopdf_paths:
-            if os.path.exists(path):
-                config = pdfkit.configuration(wkhtmltopdf=path)
-                print(f"[DEBUG] Using wkhtmltopdf at: {path}")
-                break
-
-        if not config:
-            print("[DEBUG] wkhtmltopdf not found, using default")
-            config = pdfkit.configuration()
-
         pdf_path = html_path.with_suffix('.pdf')
 
-        # Configuration for 80mm receipt - HIGH CONTRAST
+        # Configuration for 80mm receipt
         options = {
             'page-size': 'Custom',
             'page-width': '80mm',
-            'page-height': '297mm',
+            'page-height': '297mm',  # A4 height for dynamic content
             'margin-top': '0mm',
             'margin-right': '0mm',
             'margin-bottom': '0mm',
@@ -163,17 +143,10 @@ def _convert_html_to_pdf(html_path: Path) -> Optional[Path]:
             'encoding': "UTF-8",
             'no-outline': None,
             'disable-smart-shrinking': None,
-            'enable-smart-shrinking': False,
             'print-media-type': None,
-            'dpi': '203',
-            'image-dpi': '203',
-            'image-quality': '100',
-            'load-error-handling': 'ignore',
-            'load-media-error-handling': 'ignore'
         }
 
-        pdfkit.from_file(str(html_path), str(pdf_path), configuration=config, options=options)
-        print(f"[DEBUG] PDF conversion SUCCESS: {pdf_path}")
+        pdfkit.from_file(str(html_path), str(pdf_path), options=options)
         return pdf_path
     except ImportError:
         print("[DEBUG] pdfkit not available, skipping PDF conversion")
@@ -228,247 +201,255 @@ def _generate_html_receipt(
         'changeAmount': _format_currency_cents(0, currency)
     }
 
-    # HTML template with PROPER ARABIC (no bidi) and HIGH CONTRAST
+    # PROPER HTML TEMPLATE WITH ACTUAL DESIGN
     html_template = """<!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Receipt</title>
     <style>
-        * {{
+        * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             font-family: 'Courier New', monospace;
-            color: #000000;
-            font-weight: bold;
-        }}
+        }
         
-        body {{
-            background-color: white;
-            padding: 5px;
-            font-size: 12px;
-            line-height: 1.2;
+        body {
+            background: white;
+            padding: 10px;
+            direction: rtl;
+            font-size: 14px;
+            line-height: 1.3;
             width: 80mm;
             max-width: 80mm;
             margin: 0 auto;
-        }}
+        }
         
-        .receipt {{
-            width: 80mm;
-            max-width: 80mm;
-            background-color: white;
-            padding: 8px;
-        }}
+        .receipt {
+            width: 100%;
+            background: white;
+            border: 2px solid #000;
+            padding: 15px;
+        }
         
-        .header {{
+        .header {
             text-align: center;
-            margin-bottom: 8px;
-            padding-bottom: 6px;
-            border-bottom: 2px solid #000000;
-        }}
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 3px double #000;
+        }
         
-        .cafe-name {{
-            font-size: 18px;
+        .cafe-name {
+            font-size: 22px;
             font-weight: 900;
-            margin-bottom: 2px;
-        }}
+            margin-bottom: 5px;
+            color: #000;
+        }
         
-        .cafe-subtitle {{
-            font-size: 13px;
-            margin-bottom: 6px;
+        .cafe-subtitle {
+            font-size: 16px;
+            margin-bottom: 10px;
             font-weight: bold;
-        }}
+        }
         
-        .info-row {{
+        .info-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 3px;
-            font-size: 11px;
-        }}
+            margin-bottom: 8px;
+            font-size: 14px;
+            padding: 2px 0;
+        }
         
-        .info-label {{
+        .info-label {
             font-weight: 900;
-        }}
+            color: #000;
+        }
         
-        .divider {{
-            border-bottom: 2px dashed #000000;
-            margin: 6px 0;
-        }}
+        .divider {
+            border-bottom: 2px dashed #000;
+            margin: 15px 0;
+            height: 2px;
+        }
         
-        .section-title {{
+        .section-title {
             font-weight: 900;
             text-align: center;
-            margin: 6px 0 4px;
-            font-size: 13px;
-        }}
+            margin: 15px 0 10px;
+            font-size: 16px;
+            background: #000;
+            color: white;
+            padding: 5px;
+            border-radius: 3px;
+        }
         
-        .items-table {{
+        .items-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 8px;
-            font-size: 11px;
-        }}
-        
-        .items-table th {{
-            border-bottom: 2px solid #000000;
-            padding: 3px 2px;
-            text-align: right;
-            font-weight: 900;
-        }}
-        
-        .items-table td {{
-            padding: 2px;
-            border-bottom: 1px solid #000000;
-            font-weight: bold;
-        }}
-        
-        .item-name {{
-            text-align: right;
-        }}
-        
-        .item-qty, .item-price, .item-total {{
-            text-align: center;
-            width: 15%;
-        }}
-        
-        .totals {{
-            margin: 8px 0;
-            font-size: 12px;
-        }}
-        
-        .total-row {{
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 3px;
-        }}
-        
-        .grand-total {{
-            font-weight: 900;
-            border-top: 2px solid #000000;
-            padding-top: 4px;
-            margin-top: 4px;
+            margin-bottom: 15px;
             font-size: 13px;
-        }}
+        }
         
-        .payment-details {{
-            background-color: #000000;
-            color: #FFFFFF;
-            padding: 6px;
-            margin: 8px 0;
-            border-radius: 3px;
+        .items-table th {
+            border-bottom: 2px solid #000;
+            padding: 8px 5px;
+            text-align: right;
             font-weight: 900;
-        }}
+            background: #f0f0f0;
+        }
         
-        .payment-row {{
+        .items-table td {
+            padding: 6px 5px;
+            border-bottom: 1px solid #ccc;
+        }
+        
+        .item-name {
+            text-align: right;
+            font-weight: bold;
+        }
+        
+        .item-qty, .item-price, .item-total {
+            text-align: center;
+            width: 20%;
+            font-weight: bold;
+        }
+        
+        .totals {
+            margin: 20px 0;
+            font-size: 15px;
+            background: #f8f8f8;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        .total-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 2px;
-        }}
+            margin-bottom: 8px;
+            padding: 3px 0;
+        }
         
-        .footer {{
-            text-align: center;
-            margin-top: 10px;
-            padding-top: 6px;
-            border-top: 2px dashed #000000;
-            font-size: 10px;
-            width: 100%;
-        }}
-        
-        .address, .phone {{
-            margin: 2px 0;
-            width: 100%;
-        }}
-        
-        .cashier {{
-            margin-top: 4px;
+        .grand-total {
             font-weight: 900;
-            width: 100%;
-        }}
+            border-top: 3px double #000;
+            padding-top: 10px;
+            margin-top: 10px;
+            font-size: 18px;
+            color: #000;
+        }
         
-        .thank-you {{
-            margin-top: 6px;
+        .payment-details {
+            background: #000;
+            color: white;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        
+        .payment-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 2px dashed #000;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .address, .phone {
+            margin: 5px 0;
+        }
+        
+        .cashier {
+            margin-top: 10px;
+            font-weight: 900;
+            color: #000;
+        }
+        
+        .thank-you {
+            margin-top: 15px;
             font-style: italic;
-            width: 100%;
-        }}
+            color: #000;
+            font-weight: bold;
+        }
 
-        /* HIGH-CONTRAST PRINT STYLES */
-        @media print {{
-            * {{
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-                color-adjust: exact !important;
-                color: #000000 !important;
-                background: transparent !important;
-                font-weight: bold !important;
-            }}
-            
-            body {{
-                margin: 0 !important;
-                padding: 0 !important;
-                width: 80mm !important;
-                max-width: 80mm !important;
-                background: white !important;
-            }}
-            
-            .receipt {{
-                border: none !important;
-                box-shadow: none !important;
-                width: 80mm !important;
-                max-width: 80mm !important;
+        @media print {
+            body {
                 margin: 0 !important;
                 padding: 5px !important;
+                width: 80mm !important;
                 background: white !important;
-            }}
-            
-            .payment-details {{
-                background-color: #000000 !important;
-                color: #FFFFFF !important;
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
-            }}
+            }
             
-            @page {{
+            .receipt {
+                border: 2px solid #000 !important;
+                box-shadow: none !important;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 10px !important;
+            }
+            
+            .section-title {
+                background: #000 !important;
+                color: white !important;
+                -webkit-print-color-adjust: exact !important;
+            }
+            
+            .payment-details {
+                background: #000 !important;
+                color: white !important;
+                -webkit-print-color-adjust: exact !important;
+            }
+            
+            @page {
                 size: 80mm auto;
                 margin: 0;
-                padding: 0;
-            }}
-        }}
+            }
+        }
     </style>
 </head>
 <body>
     <div class="receipt">
         <div class="header">
-            <div class="cafe-name">{CLIENT_NAME}</div>
-            <div class="cafe-subtitle">كافيه ومعلم</div>
-            
-            <div class="info-row">
-                <div class="info-label">التاريخ والوقت:</div>
-                <div id="receipt-date">2025/10/17 11:51:34</div>
-            </div>
-            
-            <div class="info-row">
-                <div class="info-label">رقم الفاتورة:</div>
-                <div id="receipt-number">51</div>
-            </div>
+            <div class="cafe-name">كافيه بيروت</div>
+            <div class="cafe-subtitle">مطعم وكافيه</div>
+        </div>
+        
+        <div class="info-row">
+            <div class="info-label">التاريخ:</div>
+            <div id="receipt-date">{date}</div>
+        </div>
+        
+        <div class="info-row">
+            <div class="info-label">رقم الفاتورة:</div>
+            <div id="receipt-number">{receipt_number}</div>
         </div>
         
         <div class="info-row">
             <div class="info-label">الطاولة:</div>
-            <div id="table-number">24 (نادي)</div>
+            <div id="table-number">{table_number}</div>
         </div>
         
         <div class="info-row">
             <div class="info-label">الكاشير:</div>
-            <div id="cashier-name">rageh</div>
+            <div id="cashier-name">{cashier}</div>
         </div>
         
         <div class="divider"></div>
         
         <div class="section-title">الطلبات</div>
         
-        <table class="items-table" id="items-table">
+        <table class="items-table">
             <thead>
                 <tr>
                     <th class="item-name">الصنف</th>
@@ -478,7 +459,7 @@ def _generate_html_receipt(
                 </tr>
             </thead>
             <tbody id="items-body">
-                <!-- DYNAMIC ITEMS WILL BE INSERTED HERE -->
+                <!-- Items will be populated by JavaScript -->
             </tbody>
         </table>
         
@@ -486,90 +467,84 @@ def _generate_html_receipt(
         
         <div class="totals">
             <div class="total-row">
+                <div>المجموع الفرعي:</div>
+                <div id="subtotal">{subtotal}</div>
+            </div>
+            <div class="total-row">
                 <div>الخصم:</div>
-                <div id="discount">0.00</div>
+                <div id="discount">{discount}</div>
             </div>
             <div class="total-row grand-total">
                 <div>المجموع الكلي:</div>
-                <div id="grand-total">240.00</div>
+                <div id="grand-total">{grand_total}</div>
             </div>
         </div>
         
         <div class="payment-details">
             <div class="payment-row">
-                <div>المبلغ المدفوع:</div>
-                <div id="paid-amount">0.00</div>
+                <div>طريقة الدفع:</div>
+                <div>{method}</div>
             </div>
-            <div class="payment-row grand-total">
+            <div class="payment-row">
+                <div>المبلغ المدفوع:</div>
+                <div id="paid-amount">{paid_amount}</div>
+            </div>
+            <div class="payment-row">
                 <div>الباقي:</div>
-                <div id="change-amount">0.00</div>
+                <div id="change-amount">{change_amount}</div>
             </div>
         </div>
         
         <div class="footer">
-            <div class="address">امام سيشن الشلال بجوار مفسله بالثبت</div>
-            <div class="phone">01110110823</div>
-            <div class="cashier">الكاشير: <span id="footer-cashier">rageh</span></div>
-            <div class="thank-you">شكراً لزيارتكم</div>
+            <div class="address">العنوان: امام سيشن الشلال</div>
+            <div class="phone">التليفون: 01110110823</div>
+            <div class="cashier">الكاشير: {cashier}</div>
+            <div class="thank-you">شكراً لزيارتكم - نتمنى لكم وجبة طيبة</div>
         </div>
     </div>
 
     <script>
-        // Dynamic data population
-        function populateReceipt(data) {{
-            // Header info
-            document.getElementById('receipt-date').textContent = data.date;
-            document.getElementById('receipt-number').textContent = data.receiptNumber;
-            document.getElementById('table-number').textContent = data.tableNumber;
-            document.getElementById('cashier-name').textContent = data.cashier;
-            document.getElementById('footer-cashier').textContent = data.cashier;
-            
-            // Items
-            const itemsBody = document.getElementById('items-body');
-            itemsBody.innerHTML = '';
-            data.items.forEach(item => {{
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td class="item-name">${{item.name}}</td>
-                    <td class="item-qty">${{item.qty}}</td>
-                    <td class="item-price">${{item.price}}</td>
-                    <td class="item-total">${{item.total}}</td>
-                `;
-                itemsBody.appendChild(row);
-            }});
-            
-            // Totals
-            document.getElementById('discount').textContent = data.discount;
-            document.getElementById('grand-total').textContent = data.grandTotal;
-            
-            // Payment
-            document.getElementById('paid-amount').textContent = data.paidAmount;
-            document.getElementById('change-amount').textContent = data.changeAmount;
-        }}
-
-        // Populate with data from Python
-        const receiptData = {DATA_PLACEHOLDER};
-        populateReceipt(receiptData);
+        // Populate items table
+        const itemsBody = document.getElementById('items-body');
+        const items = {items};
         
-        // Auto-print and close
-        window.onload = function() {{
-            setTimeout(function() {{
+        items.forEach(item => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="item-name">${item.name}</td>
+                <td class="item-qty">${item.qty}</td>
+                <td class="item-price">${item.price}</td>
+                <td class="item-total">${item.total}</td>
+            `;
+            itemsBody.appendChild(row);
+        });
+        
+        // Auto-print
+        window.onload = function() {
+            setTimeout(() => {
                 window.print();
-                setTimeout(function() {{
+                setTimeout(() => {
                     window.close();
-                }}, 1000);
-            }}, 500);
-        }};
+                }, 1000);
+            }, 500);
+        };
     </script>
 </body>
 </html>"""
 
     # Fill the template with data
-    json_data = json.dumps(receipt_data, ensure_ascii=False, indent=2)
-    final_html = (
-        html_template
-        .replace('{DATA_PLACEHOLDER}', json_data)
-        .replace('{CLIENT_NAME}', _shape_ar_textfile(client_name))
+    final_html = html_template.format(
+        date=receipt_data['date'],
+        receipt_number=receipt_data['receiptNumber'],
+        table_number=receipt_data['tableNumber'],
+        cashier=receipt_data['cashier'],
+        subtotal=receipt_data['subtotal'],
+        discount=receipt_data['discount'],
+        grand_total=receipt_data['grandTotal'],
+        paid_amount=receipt_data['paidAmount'],
+        change_amount=receipt_data['changeAmount'],
+        method=method,
+        items=json.dumps(receipt_data['items'], ensure_ascii=False)
     )
 
     # Save HTML file
@@ -608,188 +583,191 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         'items': html_items
     }
 
-    # Bar ticket HTML template (with same fixes)
+    # Bar ticket HTML template
     bar_html_template = """<!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bar Ticket</title>
     <style>
-        * {{
+        * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
             font-family: 'Courier New', monospace;
-            color: #000000;
-            font-weight: bold;
-        }}
+        }
         
-        body {{
-            background-color: white;
-            padding: 5px;
-            font-size: 12px;
-            line-height: 1.2;
+        body {
+            background: white;
+            padding: 10px;
+            direction: rtl;
+            font-size: 14px;
+            line-height: 1.3;
             width: 80mm;
             max-width: 80mm;
             margin: 0 auto;
-        }}
+        }
         
-        .receipt {{
-            width: 80mm;
-            max-width: 80mm;
-            background-color: white;
-            padding: 8px;
-        }}
+        .receipt {
+            width: 100%;
+            background: white;
+            border: 2px solid #000;
+            padding: 15px;
+        }
         
-        .header {{
+        .header {
             text-align: center;
-            margin-bottom: 8px;
-            padding-bottom: 6px;
-            border-bottom: 2px solid #000000;
-        }}
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 3px double #000;
+        }
         
-        .cafe-name {{
-            font-size: 18px;
+        .cafe-name {
+            font-size: 22px;
             font-weight: 900;
-            margin-bottom: 2px;
-        }}
+            margin-bottom: 5px;
+            color: #000;
+        }
         
-        .cafe-subtitle {{
-            font-size: 13px;
-            margin-bottom: 6px;
+        .cafe-subtitle {
+            font-size: 16px;
+            margin-bottom: 10px;
             font-weight: bold;
-        }}
+        }
         
-        .info-row {{
+        .info-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 3px;
-            font-size: 11px;
-        }}
+            margin-bottom: 8px;
+            font-size: 14px;
+            padding: 2px 0;
+        }
         
-        .info-label {{
+        .info-label {
             font-weight: 900;
-        }}
+            color: #000;
+        }
         
-        .divider {{
-            border-bottom: 2px dashed #000000;
-            margin: 6px 0;
-        }}
+        .divider {
+            border-bottom: 2px dashed #000;
+            margin: 15px 0;
+            height: 2px;
+        }
         
-        .section-title {{
+        .section-title {
             font-weight: 900;
             text-align: center;
-            margin: 6px 0 4px;
-            font-size: 13px;
-        }}
+            margin: 15px 0 10px;
+            font-size: 16px;
+            background: #000;
+            color: white;
+            padding: 5px;
+            border-radius: 3px;
+        }
         
-        .items-table {{
+        .items-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 8px;
-            font-size: 11px;
-        }}
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
         
-        .items-table th {{
-            border-bottom: 2px solid #000000;
-            padding: 3px 2px;
+        .items-table th {
+            border-bottom: 2px solid #000;
+            padding: 8px 5px;
             text-align: right;
             font-weight: 900;
-        }}
+            background: #f0f0f0;
+        }
         
-        .items-table td {{
-            padding: 2px;
-            border-bottom: 1px solid #000000;
-            font-weight: bold;
-        }}
+        .items-table td {
+            padding: 6px 5px;
+            border-bottom: 1px solid #ccc;
+        }
         
-        .item-name {{
+        .item-name {
             text-align: right;
+            font-weight: bold;
             width: 70%;
-        }}
+        }
         
-        .item-qty {{
+        .item-qty {
             text-align: center;
             width: 30%;
-        }}
+            font-weight: bold;
+        }
         
-        .footer {{
+        .footer {
             text-align: center;
-            margin-top: 10px;
-            padding-top: 6px;
-            border-top: 2px dashed #000000;
-            font-size: 10px;
-            width: 100%;
-        }}
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 2px dashed #000;
+            font-size: 12px;
+            color: #666;
+        }
 
-        /* HIGH-CONTRAST PRINT STYLES */
-        @media print {{
-            * {{
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-                color-adjust: exact !important;
-                color: #000000 !important;
-                background: transparent !important;
-                font-weight: bold !important;
-            }}
-            
-            body {{
-                margin: 0 !important;
-                padding: 0 !important;
-                width: 80mm !important;
-                max-width: 80mm !important;
-                background: white !important;
-            }}
-            
-            .receipt {{
-                border: none !important;
-                box-shadow: none !important;
-                width: 80mm !important;
-                max-width: 80mm !important;
+        @media print {
+            body {
                 margin: 0 !important;
                 padding: 5px !important;
+                width: 80mm !important;
                 background: white !important;
-            }}
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
             
-            @page {{
+            .receipt {
+                border: 2px solid #000 !important;
+                box-shadow: none !important;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 10px !important;
+            }
+            
+            .section-title {
+                background: #000 !important;
+                color: white !important;
+                -webkit-print-color-adjust: exact !important;
+            }
+            
+            @page {
                 size: 80mm auto;
                 margin: 0;
-                padding: 0;
-            }}
-        }}
+            }
+        }
     </style>
 </head>
 <body>
     <div class="receipt">
         <div class="header">
-            <div class="cafe-name">بار {CLIENT_NAME}</div>
+            <div class="cafe-name">بار كافيه بيروت</div>
             <div class="cafe-subtitle">تذكرة طلبات البار</div>
-            
-            <div class="info-row">
-                <div class="info-label">التاريخ والوقت:</div>
-                <div id="bar-date">2025/10/17 11:51:34</div>
-            </div>
+        </div>
+        
+        <div class="info-row">
+            <div class="info-label">التاريخ:</div>
+            <div>{date}</div>
         </div>
         
         <div class="info-row">
             <div class="info-label">الطاولة:</div>
-            <div id="bar-table">24 (نادي)</div>
+            <div>{table_number}</div>
         </div>
         
         <div class="divider"></div>
         
         <div class="section-title">الطلبات الجديدة</div>
         
-        <table class="items-table" id="bar-items-table">
+        <table class="items-table">
             <thead>
                 <tr>
                     <th class="item-name">الصنف</th>
                     <th class="item-qty">الكمية</th>
                 </tr>
             </thead>
-            <tbody id="bar-items-body">
-                <!-- DYNAMIC BAR ITEMS WILL BE INSERTED HERE -->
+            <tbody id="items-body">
+                <!-- Items will be populated by JavaScript -->
             </tbody>
         </table>
         
@@ -799,59 +777,50 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
     </div>
 
     <script>
-        // Dynamic data population for bar ticket
-        function populateBarTicket(data) {{
-            // Header info
-            document.getElementById('bar-date').textContent = data.date;
-            document.getElementById('bar-table').textContent = data.tableNumber;
-            
-            // Bar Items
-            const itemsBody = document.getElementById('bar-items-body');
-            itemsBody.innerHTML = '';
-            data.items.forEach(item => {{
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td class="item-name">${{item.name}}</td>
-                    <td class="item-qty">${{item.qty}}</td>
-                `;
-                itemsBody.appendChild(row);
-                
-                // Add notes if any
-                if (item.notes && item.notes.length > 0) {{
-                    item.notes.forEach(note => {{
-                        const noteRow = document.createElement('tr');
-                        noteRow.innerHTML = `
-                            <td colspan="2" style="font-size: 9px; color: #000000 !important; padding-right: 10px; font-weight: bold !important;">• ${{note}}</td>
-                        `;
-                        itemsBody.appendChild(noteRow);
-                    }});
-                }}
-            }});
-        }}
-
-        // Populate with data from Python
-        const barData = {DATA_PLACEHOLDER};
-        populateBarTicket(barData);
+        // Populate items table
+        const itemsBody = document.getElementById('items-body');
+        const items = {items};
         
-        // Auto-print and close
-        window.onload = function() {{
-            setTimeout(function() {{
+        items.forEach(item => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="item-name">${item.name}</td>
+                <td class="item-qty">${item.qty}</td>
+            `;
+            itemsBody.appendChild(row);
+            
+            // Add notes if any
+            if (item.notes && item.notes.length > 0) {
+                item.notes.forEach(note => {
+                    const noteRow = document.createElement('tr');
+                    noteRow.innerHTML = `
+                        <td colspan="2" style="font-size: 11px; color: #666; padding-right: 10px; font-style: italic;">
+                            • ${note}
+                        </td>
+                    `;
+                    itemsBody.appendChild(noteRow);
+                });
+            }
+        });
+        
+        // Auto-print
+        window.onload = function() {
+            setTimeout(() => {
                 window.print();
-                setTimeout(function() {{
+                setTimeout(() => {
                     window.close();
-                }}, 1000);
-            }}, 500);
-        }};
+                }, 1000);
+            }, 500);
+        };
     </script>
 </body>
 </html>"""
 
     # Fill and save bar ticket
-    json_data = json.dumps(bar_data, ensure_ascii=False, indent=2)
-    final_bar_html = (
-        bar_html_template
-        .replace('{DATA_PLACEHOLDER}', json_data)
-        .replace('{CLIENT_NAME}', _shape_ar_textfile(get_client_name() or (setting_get("company_name", "بيروت") or "بيروت")))
+    final_bar_html = bar_html_template.format(
+        date=bar_data['date'],
+        table_number=bar_data['tableNumber'],
+        items=json.dumps(bar_data['items'], ensure_ascii=False)
     )
 
     bar_filename = f"bar-{table_code}-{datetime.now():%Y%m%d%H%M%S}.html"
@@ -889,8 +858,13 @@ class PrinterService:
     def print_bar_ticket(self, table_code: str, items: Iterable) -> Path:
         """Print bar ticket using HTML generation"""
         data = _collapse_items(items)
+
+        # Generate HTML bar ticket
         html_path = _generate_html_bar_ticket(table_code, data)
+
+        # Print the HTML file
         self._print_html_file(html_path, self.bar_printer)
+
         return html_path
 
     def print_cashier_receipt(
@@ -909,6 +883,8 @@ class PrinterService:
     ) -> Path:
         """Print cashier receipt using HTML generation"""
         data = _collapse_items(items)
+
+        # Generate HTML receipt
         html_path = _generate_html_receipt(
             table_code=table_code,
             items=data,
@@ -918,65 +894,41 @@ class PrinterService:
             method=method,
             cashier=cashier
         )
+
+        # Print the HTML file
         self._print_html_file(html_path, self.cashier_printer)
+
         return html_path
 
     def _print_html_file(self, html_path: Path, printer_name: str) -> None:
-        """Print HTML/PDF with thermal-friendly settings"""
+        """Print HTML file using system printing with Windows support"""
         try:
             if sys.platform.startswith("win"):
                 print(f"[DEBUG] Windows printing: {html_path}")
-                # Prefer PDF (203 dpi)
+
+                # METHOD 1: Try PDF with wkhtmltopdf FIRST
                 pdf_path = _convert_html_to_pdf(html_path)
-                target_path = pdf_path if (pdf_path and pdf_path.exists()) else html_path
+                if pdf_path and pdf_path.exists():
+                    print(f"[DEBUG] PDF created, printing: {pdf_path}")
+                    os.startfile(str(pdf_path), "print")
+                    print("[DEBUG] PDF sent to printer")
+                    return
 
-                # Use PowerShell PrintTo to honor the selected printer
-                ps_cmd = [
-                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                    "Start-Process",
-                    f"'{str(target_path)}'",
-                    "-Verb", "PrintTo",
-                    "-ArgumentList", f"'{printer_name}'"
-                ]
-                try:
-                    subprocess.run(ps_cmd, check=True)
-                    print("[DEBUG] PrintTo sent successfully")
-                    return
-                except Exception as e:
-                    print(f"[WARN] PrintTo failed ({e}); falling back to default 'print'")
-
-                # Fallback: default printer (if PrintTo fails)
-                try:
-                    os.startfile(str(target_path), "print")
-                    print("[DEBUG] Sent to default printer using 'print' verb")
-                    return
-                except Exception as e:
-                    print(f"[ERROR] Default print failed: {e}")
-                    # Last resort: just open (user can Ctrl+P)
-                    os.startfile(str(target_path))
-                    return
+                # METHOD 2: If PDF fails, use browser directly
+                print("[DEBUG] Opening in browser for printing")
+                os.startfile(str(html_path))
 
             else:
-                # Linux / macOS
+                # Linux/Mac
                 print(f"[DEBUG] Unix printing: {html_path}")
-                pdf_path = _convert_html_to_pdf(html_path)
-                target_path = pdf_path if (pdf_path and pdf_path.exists()) else html_path
                 if _can_system_print(printer_name):
-                    subprocess.Popen(["lp", "-d", printer_name, str(target_path)])
+                    subprocess.Popen(["lp", "-d", printer_name, str(html_path)])
                 else:
-                    subprocess.Popen(["lp", str(target_path)])
+                    subprocess.Popen(["lp", str(html_path)])
+
         except Exception as e:
             print(f"[ERROR] Print failed: {e}")
-            # Platform-aware fallback: open only
-            try:
-                if sys.platform.startswith("win"):
-                    os.startfile(str(html_path))
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", str(html_path)])
-                else:
-                    subprocess.Popen(["xdg-open", str(html_path)])
-            except Exception as e2:
-                print(f"[ERROR] Fallback open failed: {e2}")
+            os.startfile(str(html_path))
 
     def generate_html_receipt(
             self,
@@ -1050,12 +1002,13 @@ def test_arabic_shaping():
 
     if _AR_OK:
         reshaped = arabic_reshaper.reshape(test_text)
+        bidi = get_display(reshaped)
         print(f"Reshaped: {reshaped}")
-        print(f"Thermal version: {_shape_ar_textfile(test_text)}")
+        print(f"Bidi: {bidi}")
+        print(f"Textfile version: {_shape_ar_textfile(test_text)}")
     else:
         print("Arabic reshaping not available")
 
     print("===========================")
 
-if __name__ == "__main__":
-    test_arabic_shaping()
+test_arabic_shaping()

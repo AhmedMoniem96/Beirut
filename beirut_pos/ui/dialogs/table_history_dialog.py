@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from PyQt6.QtCore import Qt, QDate
+from PyQt6.QtGui import QBrush, QColor, QPalette
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDateEdit,
@@ -29,6 +30,12 @@ from ...core.db import get_conn
 from ...services import texts
 from ...services.orders import get_table_history
 from ...utils.currency import format_pounds
+
+
+DIALOG_BG_COLOR = "#1e1410"
+DIALOG_TEXT_COLOR = "#eeeeee"
+DIALOG_HIGHLIGHT_BG = "#5a402f"
+DIALOG_HIGHLIGHT_TEXT = "#ffffff"
 
 
 def _date_to_start(dt: QDate) -> str:
@@ -339,11 +346,18 @@ class OrderDetailsDialog(BigDialog):
         self.meta_grid.setColumnStretch(1, 1)
         root.addLayout(self.meta_grid)
 
+        self._meta_static_labels: list[QLabel] = []
+        self._meta_value_labels: list[QLabel] = []
+
         def _add_row(row: int, label_key: str, default: str) -> QLabel:
             lab = QLabel(texts.get(label_key, default=default))
+            lab.setStyleSheet(f"color: {DIALOG_TEXT_COLOR};")
+            self._meta_static_labels.append(lab)
             value = QLabel("-")
             value.setWordWrap(True)
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            value.setStyleSheet(f"color: {DIALOG_TEXT_COLOR};")
+            self._meta_value_labels.append(value)
             self.meta_grid.addWidget(lab, row, 0)
             self.meta_grid.addWidget(value, row, 1)
             return value
@@ -406,6 +420,7 @@ class OrderDetailsDialog(BigDialog):
         self.payments_label = QLabel("")
         self.payments_label.setWordWrap(True)
         self.payments_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.payments_label.setStyleSheet(f"color: {DIALOG_TEXT_COLOR};")
         root.addWidget(self.payments_label)
 
         # buttons area: only Close (view-only)
@@ -418,6 +433,8 @@ class OrderDetailsDialog(BigDialog):
         btns_layout.addWidget(close_buttons)
 
         root.addLayout(btns_layout)
+
+        self._apply_dark_theme()
 
         self._load()
 
@@ -515,15 +532,35 @@ class OrderDetailsDialog(BigDialog):
         self.items_table.clearContents()
         self.items_table.setRowCount(len(items))
         for idx, it in enumerate(items):
-            self.items_table.setItem(idx, 0, QTableWidgetItem(it["product_name"]))
+            self.items_table.setItem(idx, 0, self._make_table_item(it["product_name"]))
             qty = float(it["qty"] or 0)
             qty_str = str(int(qty)) if qty.is_integer() else f"{qty:g}"
-            self.items_table.setItem(idx, 1, QTableWidgetItem(qty_str))
+            self.items_table.setItem(
+                idx,
+                1,
+                self._make_table_item(qty_str, Qt.AlignmentFlag.AlignCenter),
+            )
             price = int(it["price_cents"] or 0)
-            self.items_table.setItem(idx, 2, QTableWidgetItem(format_pounds(price)))
+            self.items_table.setItem(
+                idx,
+                2,
+                self._make_table_item(
+                    format_pounds(price),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                ),
+            )
             line_total = int(round(price * qty))
-            self.items_table.setItem(idx, 3, QTableWidgetItem(format_pounds(line_total)))
-            self.items_table.setItem(idx, 4, QTableWidgetItem(it["note"] or ""))
+            self.items_table.setItem(
+                idx,
+                3,
+                self._make_table_item(
+                    format_pounds(line_total),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                ),
+            )
+            self.items_table.setItem(idx, 4, self._make_table_item(it["note"] or ""))
+
+        self.items_table.viewport().update()
 
         # payments: format times robustly
         prefix = texts.get("tables.history.details.payments", default="المدفوعات")
@@ -551,3 +588,55 @@ class OrderDetailsDialog(BigDialog):
             payments_text = texts.get("tables.history.details.no_payments", default="لا يوجد مدفوعات مسجلة.")
 
         self.payments_label.setText(f"{prefix}:\n{payments_text}")
+
+    def _apply_dark_theme(self) -> None:
+        bg = QColor(DIALOG_BG_COLOR)
+        text = QColor(DIALOG_TEXT_COLOR)
+        highlight = QColor(DIALOG_HIGHLIGHT_BG)
+        highlight_text = QColor(DIALOG_HIGHLIGHT_TEXT)
+
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, bg)
+        palette.setColor(QPalette.ColorRole.WindowText, text)
+        palette.setColor(QPalette.ColorRole.Base, bg)
+        palette.setColor(QPalette.ColorRole.Text, text)
+        palette.setColor(QPalette.ColorRole.ButtonText, text)
+        palette.setColor(QPalette.ColorRole.Highlight, highlight)
+        palette.setColor(QPalette.ColorRole.HighlightedText, highlight_text)
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+
+        table_palette = self.items_table.palette()
+        table_palette.setColor(QPalette.ColorRole.Window, bg)
+        table_palette.setColor(QPalette.ColorRole.Base, bg)
+        table_palette.setColor(QPalette.ColorRole.AlternateBase, bg)
+        table_palette.setColor(QPalette.ColorRole.Text, text)
+        table_palette.setColor(QPalette.ColorRole.Highlight, highlight)
+        table_palette.setColor(QPalette.ColorRole.HighlightedText, highlight_text)
+        self.items_table.setPalette(table_palette)
+
+        table_stylesheet = (
+            "QTableWidget {"
+            f"background-color: {DIALOG_BG_COLOR};"
+            f"color: {DIALOG_TEXT_COLOR};"
+            f"gridline-color: {DIALOG_HIGHLIGHT_BG};"
+            "}"
+            f"QTableWidget::item:selected {{ background-color: {DIALOG_HIGHLIGHT_BG}; color: {DIALOG_HIGHLIGHT_TEXT}; }}"
+            f"QHeaderView::section {{ background-color: {DIALOG_BG_COLOR}; color: {DIALOG_TEXT_COLOR}; }}"
+            f"QTableCornerButton::section {{ background-color: {DIALOG_BG_COLOR}; }}"
+        )
+        self.items_table.setStyleSheet(table_stylesheet)
+
+        for label in [*self._meta_static_labels, *self._meta_value_labels, self.payments_label]:
+            label.setStyleSheet(f"color: {DIALOG_TEXT_COLOR};")
+
+    def _make_table_item(
+        self,
+        text: str,
+        alignment: Qt.Alignment | None = None,
+    ) -> QTableWidgetItem:
+        item = QTableWidgetItem(text)
+        item.setForeground(QBrush(QColor(DIALOG_TEXT_COLOR)))
+        if alignment is not None:
+            item.setTextAlignment(int(alignment))
+        return item

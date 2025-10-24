@@ -21,7 +21,6 @@ jobs:
         shell: pwsh
         run: |
           @"
-          # Force SQLAlchemy import so PyInstaller detects it
           import sqlalchemy
           import sqlalchemy.orm
           import sqlalchemy.ext.declarative
@@ -31,79 +30,47 @@ jobs:
               main()
           "@ | Out-File -FilePath "launcher.py" -Encoding UTF8
 
-      - name: Create PyInstaller hook for SQLAlchemy
+      - name: Create PyInstaller hooks
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "hooks" | Out-Null
+          
+          # CRITICAL: Hook for escpos to include capabilities.json
+          @"
+          from PyInstaller.utils.hooks import collect_all, collect_data_files
+          datas, binaries, hiddenimports = collect_all('escpos')
+          datas += collect_data_files('escpos')
+          "@ | Out-File -FilePath "hooks/hook-escpos.py" -Encoding UTF8
+          
           @"
           from PyInstaller.utils.hooks import collect_all
           datas, binaries, hiddenimports = collect_all('sqlalchemy')
           "@ | Out-File -FilePath "hooks/hook-sqlalchemy.py" -Encoding UTF8
 
-      - name: Install dependencies (pinned)
+      - name: Install dependencies
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip uninstall -y PyQt6 PyQt6-Qt6 PyQt6-sip 2>$null | Out-Null
-          pip install --no-cache-dir --only-binary=:all: PyQt6==6.5.2
-          pip install --no-cache-dir --only-binary=:all: PyQt6-Qt6==6.5.2
-          pip install --no-cache-dir --only-binary=:all: "PyQt6-sip>=13.5,<14"
+          pip install PyQt6==6.5.2
+          pip install SQLAlchemy==2.0.23
+          pip install reportlab==4.0.7
+          pip install pillow==10.0.1
+          pip install qrcode==7.4.2
+          pip install python-escpos==3.0
+          pip install pyusb==1.2.1
+          pip install pyserial==3.5
+          pip install arabic-reshaper==3.0.0
+          pip install python-bidi==0.4.2
+          pip install pywin32==306
+          pip install pdfkit==1.0.0
+          pip install pyinstaller==5.13.2
 
-          # Install core packages explicitly
-          pip install --no-cache-dir SQLAlchemy==2.0.23
-          pip install --no-cache-dir reportlab==4.0.7
-          pip install --no-cache-dir pillow>=10.0.0
-          pip install --no-cache-dir qrcode>=7.4
-          
-          # ESC/POS printing stack - CRITICAL for thermal printers
-          pip install --no-cache-dir python-escpos>=3.0.0
-          pip install --no-cache-dir pyusb>=1.2.1
-          pip install --no-cache-dir pyserial>=3.5
-          
-          # Arabic support
-          pip install --no-cache-dir arabic-reshaper>=3.0.0
-          pip install --no-cache-dir python-bidi>=0.4.2
-          
-          # Windows-specific printing backend
-          pip install --no-cache-dir pywin32>=305
-          
-          # HTML printing support (optional - will use fallbacks if not available)
-          pip install --no-cache-dir pdfkit
-          
-          # Builder
-          pip install --no-cache-dir pyinstaller pyinstaller-hooks-contrib
-
-      - name: Show versions (sanity check)
+      - name: Clean previous builds
         shell: pwsh
         run: |
-          python -c "
-          from importlib.metadata import version as v
-          from PyQt6.QtCore import QT_VERSION_STR as q
-          import sqlalchemy
-          import escpos
-          print('PyQt6 =', v('PyQt6'), '| Qt6 =', q)
-          print('SQLAlchemy =', sqlalchemy.__version__)
-          print('python-escpos =', v('python-escpos'))
-          print('pyusb =', v('pyusb'))
-          print('pyserial =', v('pyserial'))
-          print('pdfkit =', v('pdfkit'))
-          "
-
-      - name: Clean previous build artifacts/spec
-        shell: pwsh
-        run: |
-          if (Test-Path 'BeirutPOS.spec') { Remove-Item 'BeirutPOS.spec' -Force }
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
 
-      - name: Ensure assets folders exist
-        shell: pwsh
-        run: |
-          if (-not (Test-Path 'assets')) { New-Item -ItemType Directory 'assets' | Out-Null }
-          if (-not (Test-Path 'beirut_pos/assets/fonts')) {
-            New-Item -ItemType Directory 'beirut_pos/assets/fonts' -Force | Out-Null
-          }
-
-      - name: Build EXE with PyInstaller (bundle Qt + ESC/POS)
+      - name: Build EXE with PyInstaller
         shell: pwsh
         run: |
           $args = @(
@@ -112,65 +79,34 @@ jobs:
             '--onefile',
             '--noconsole',
             '--clean',
+            '--noconfirm',
             '--additional-hooks-dir','hooks',
             '--collect-all','PyQt6',
             '--collect-all','PyQt6.Qt6',
             '--collect-submodules','beirut_pos',
             '--collect-all','sqlalchemy',
-            '--hidden-import','sqlalchemy',
-            '--hidden-import','sqlalchemy.ext.declarative',
-            '--hidden-import','sqlalchemy.orm',
-            '--hidden-import','sqlalchemy.sql',
-            '--hidden-import','sqlalchemy.ext.baked',
-            '--hidden-import','sqlalchemy.pool',
-            '--hidden-import','sqlalchemy.dialects.sqlite',
-            '--collect-all','sqlite3',
             '--collect-all','escpos',
+            '--collect-data','escpos',
             '--collect-submodules','arabic_reshaper',
             '--collect-submodules','bidi',
-            '--hidden-import','PIL',
-            '--hidden-import','PIL._imaging',
-            '--hidden-import','PIL.Image',
-            '--hidden-import','PIL.ImageFile',
+            '--hidden-import','sqlalchemy.dialects.sqlite',
             '--hidden-import','win32print',
             '--hidden-import','win32api',
-            '--hidden-import','win32con',
-            '--hidden-import','win32gui',
-            '--hidden-import','win32ui',
             '--hidden-import','usb.core',
-            '--hidden-import','usb.util',
-            '--hidden-import','usb.backend',
             '--hidden-import','usb.backend.libusb1',
             '--hidden-import','serial',
-            '--hidden-import','serial.tools',
-            '--hidden-import','serial.tools.list_ports',
-            '--hidden-import','escpos.printer',
-            '--hidden-import','escpos.constants',
-            '--hidden-import','escpos.exceptions',
-            '--hidden-import','escpos.escpos',
-            '--hidden-import','escpos.impl.epson',
-            '--hidden-import','escpos.impl.generic',
-            '--hidden-import','escpos.impl.legacy',
+            '--hidden-import','PIL._imaging',
             '--hidden-import','pdfkit'
           )
           if (Test-Path 'assets/app.ico') { $args += @('--icon','assets/app.ico') }
           if (Test-Path 'assets') { $args += @('--add-data','assets;assets') }
-          if (Test-Path 'beirut_pos/assets/fonts') {
-            $args += @('--add-data','beirut_pos/assets/fonts;beirut_pos/assets/fonts')
-          }
           python -m PyInstaller @args
 
-      - name: Test built executable (quick smoke test)
+      - name: Test executable
         shell: pwsh
         run: |
-          $exePath = "dist/BeirutPOS.exe"
-          if (Test-Path $exePath) {
-            echo "✅ EXE built successfully: $((Get-Item $exePath).Length / 1MB) MB"
-            # Quick version check without GUI
-            & $exePath --version 2>$null
-            if ($LASTEXITCODE -ne 0) {
-              echo "⚠️  Version check failed (normal if app doesn't support --version flag)"
-            }
+          if (Test-Path "dist/BeirutPOS.exe") {
+            echo "✅ EXE built: $((Get-Item 'dist/BeirutPOS.exe').Length / 1MB) MB"
           } else {
             echo "❌ EXE not found!"
             exit 1
@@ -179,7 +115,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BeirutPOS-win
+          name: BeirutPOS-windows
           path: dist/BeirutPOS.exe
 
       - name: Create GitHub Release

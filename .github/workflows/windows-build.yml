@@ -67,8 +67,28 @@ jobs:
           # Windows-specific printing backend
           pip install --no-cache-dir pywin32>=305
           
+          # HTML printing support (optional - for better Windows printing)
+          pip install --no-cache-dir pdfkit
+          
           # Builder
           pip install --no-cache-dir pyinstaller pyinstaller-hooks-contrib
+
+      - name: Install wkhtmltopdf for Windows
+        shell: pwsh
+        run: |
+          # Download and install wkhtmltopdf for better HTML-to-PDF conversion
+          $wkhtmltopdfUrl = "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox-0.12.6-1.mxe-cross-win64.msi"
+          $installerPath = "wkhtmltopdf.msi"
+          
+          # Download
+          Invoke-WebRequest -Uri $wkhtmltopdfUrl -OutFile $installerPath
+          
+          # Install silently
+          Start-Process msiexec -ArgumentList "/i", "$installerPath", "/quiet", "/norestart" -Wait
+          
+          # Add to PATH for current session
+          $env:Path += ";C:\Program Files\wkhtmltopdf\bin"
+          echo "wkhtmltopdf installed and added to PATH"
 
       - name: Show versions (sanity check)
         shell: pwsh
@@ -83,6 +103,7 @@ jobs:
           print('python-escpos =', v('python-escpos'))
           print('pyusb =', v('pyusb'))
           print('pyserial =', v('pyserial'))
+          print('pdfkit =', v('pdfkit'))
           "
 
       - name: Clean previous build artifacts/spec
@@ -146,7 +167,8 @@ jobs:
             '--hidden-import','escpos.escpos',
             '--hidden-import','escpos.impl.epson',
             '--hidden-import','escpos.impl.generic',
-            '--hidden-import','escpos.impl.legacy'
+            '--hidden-import','escpos.impl.legacy',
+            '--hidden-import','pdfkit'
           )
           if (Test-Path 'assets/app.ico') { $args += @('--icon','assets/app.ico') }
           if (Test-Path 'assets') { $args += @('--add-data','assets;assets') }

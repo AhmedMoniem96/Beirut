@@ -3,10 +3,14 @@ ULTIMATE FIX: Uses ESC/POS direct commands - bypasses PDF completely for thermal
 """
 
 from __future__ import annotations
-import os, sys, subprocess, shutil
+import os, sys, subprocess, shutil, re
 from pathlib import Path
 from datetime import datetime
 from typing import Iterable, List, Optional
+try:
+    from importlib import metadata
+except ImportError:  # pragma: no cover - Python < 3.8 fallback
+    import importlib_metadata as metadata  # type: ignore
 
 # ---------------- ESC/POS availability ----------------
 try:
@@ -35,12 +39,46 @@ def _ensure_dirs():
         p.mkdir(parents=True, exist_ok=True)
 
 # ---------------- Arabic shaping ----------------
+_AR_OK = False
+_AR_ERROR: Exception | None = None
+_AR_WARNED = False
+
+
+def _version_tuple(version_str: str) -> tuple[int, ...]:
+    parts = [int(p) for p in re.findall(r"\d+", version_str)]
+    return tuple(parts) if parts else (0,)
+
+
 try:
     import arabic_reshaper
     from bidi.algorithm import get_display
+
+    try:
+        _reshaper_version = metadata.version("arabic-reshaper")
+    except Exception:
+        _reshaper_version = getattr(arabic_reshaper, "__version__", "0")
+
+    if _version_tuple(_reshaper_version) < (3, 0, 0):
+        raise RuntimeError(
+            f"arabic-reshaper {_reshaper_version} detected; need >= 3.0.0 for proper RTL shaping"
+        )
+
     _AR_OK = True
-except Exception:
-    _AR_OK = False
+    _AR_ERROR = None
+except Exception as exc:  # pragma: no cover - import-time guard
+    _AR_ERROR = exc
+
+
+def _warn_arabic_missing() -> None:
+    global _AR_WARNED
+    if _AR_WARNED:
+        return
+    _AR_WARNED = True
+    reason = f" ({_AR_ERROR})" if _AR_ERROR else ""
+    print(
+        "[WARN] Arabic shaping disabled - install arabic-reshaper>=3.0.0 and python-bidi"
+        f"{reason}"
+    )
 
 def _set_ar_codepage(p) -> None:
     """Select an Arabic-capable codepage for python-escpos 3.x."""
@@ -60,6 +98,7 @@ def _shape_ar_escpos(text: str) -> str:
     if not text:
         return ""
     if not _AR_OK:
+        _warn_arabic_missing()
         return text
     reshaped = arabic_reshaper.reshape(text)
     return get_display(reshaped)
@@ -68,6 +107,7 @@ def _shape_ar_textfile(text: str) -> str:
     if not text:
         return ""
     if not _AR_OK:
+        _warn_arabic_missing()
         return text
     reshaped = arabic_reshaper.reshape(text)
     return get_display(reshaped)

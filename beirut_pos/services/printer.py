@@ -250,7 +250,7 @@ def _generate_html_receipt(
         'changeAmount': _format_currency_cents(0, currency)
     }
 
-    # HTML template with improved printing
+    # HTML template with improved printing - USING {} PLACEHOLDER
     html_template = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -545,7 +545,7 @@ def _generate_html_receipt(
         }
 
         // Populate with data from Python
-        const receiptData = %s;
+        const receiptData = {DATA_PLACEHOLDER};
         populateReceipt(receiptData);
         
         // Auto-print and close
@@ -561,8 +561,10 @@ def _generate_html_receipt(
 </body>
 </html>"""
 
-    # Fill the template with data
-    final_html = html_template.replace('%s', json.dumps(receipt_data, ensure_ascii=False, indent=2))
+    # Fill the template with data - USING SAFE REPLACEMENT
+    json_data = json.dumps(receipt_data, ensure_ascii=False, indent=2)
+    final_html = html_template.replace('{DATA_PLACEHOLDER}', json_data)
+
     # Save HTML file
     html_filename = f"receipt-{table_code}-{receipt_number}.html"
     html_path = _RECEIPTS_DIR / html_filename
@@ -599,7 +601,7 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         'items': html_items
     }
 
-    # Bar ticket HTML template
+    # Bar ticket HTML template - USING {} PLACEHOLDER
     bar_html_template = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -805,7 +807,7 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
         }
 
         // Populate with data from Python
-        const barData = %s;
+        const barData = {DATA_PLACEHOLDER};
         populateBarTicket(barData);
         
         // Auto-print and close
@@ -821,8 +823,10 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
 </body>
 </html>"""
 
-    # Fill and save bar ticket
-    final_bar_html = bar_html_template % json.dumps(bar_data, ensure_ascii=False, indent=2)
+    # Fill and save bar ticket - USING SAFE REPLACEMENT
+    json_data = json.dumps(bar_data, ensure_ascii=False, indent=2)
+    final_bar_html = bar_html_template.replace('{DATA_PLACEHOLDER}', json_data)
+
     bar_filename = f"bar-{table_code}-{datetime.now():%Y%m%d%H%M%S}.html"
     bar_path = _BAR_DIR / bar_filename
     bar_path.write_text(final_bar_html, encoding='utf-8')
@@ -904,14 +908,9 @@ class PrinterService:
         """Print HTML file using system printing with Windows support"""
         try:
             if sys.platform.startswith("win"):
-                # Windows: Try multiple methods
                 print(f"[DEBUG] Attempting to print on Windows: {html_path}")
 
-                # Method 1: Try PowerShell printing
-                if _print_html_windows(html_path, printer_name):
-                    return
-
-                # Method 2: Try converting to PDF first
+                # Method 1: Try PDF conversion first (if wkhtmltopdf available)
                 pdf_path = _convert_html_to_pdf(html_path)
                 if pdf_path and pdf_path.exists():
                     try:
@@ -920,6 +919,10 @@ class PrinterService:
                         return
                     except Exception as e:
                         print(f"[DEBUG] PDF print failed: {e}")
+
+                # Method 2: Try PowerShell printing
+                if _print_html_windows(html_path, printer_name):
+                    return
 
                 # Method 3: Fallback - open in browser for manual printing
                 print("[DEBUG] Opening in browser for manual printing")
@@ -932,13 +935,11 @@ class PrinterService:
                     subprocess.Popen(["lp", "-d", printer_name, str(html_path)])
                     print(f"[DEBUG] Sent to printer: {printer_name}")
                 else:
-                    # Fallback: try default printer
                     subprocess.Popen(["lp", str(html_path)])
                     print("[DEBUG] Sent to default printer")
 
         except Exception as e:
             print(f"[WARN] Could not auto-print file: {e}")
-            # Fallback: open file for manual printing
             try:
                 if sys.platform.startswith("win"):
                     os.startfile(str(html_path))
@@ -947,7 +948,6 @@ class PrinterService:
             except Exception:
                 print(f"[INFO] File saved at: {html_path} - please print manually")
 
-    # NEW HTML METHODS (for direct generation without printing)
     def generate_html_receipt(
             self,
             table_code: str,
@@ -994,15 +994,12 @@ def _collapse_items(items: Iterable) -> List[dict]:
         unit_price = int(getattr(it, "unit_price_cents", 0) or 0)
         note = (getattr(it, "note", "") or "").strip()
 
-        # Create unique key: name + unit_price + note
         key = (name, unit_price, note)
 
         if key in grouped:
-            # Add quantity to existing item
             grouped[key]["qty"] += float(getattr(it, "qty", 1.0) or 1.0)
             grouped[key]["total_cents"] += int(getattr(it, "total_cents", 0) or 0)
         else:
-            # New item
             grouped[key] = {
                 "name": name,
                 "qty": float(getattr(it, "qty", 1.0) or 1.0),
@@ -1032,5 +1029,4 @@ def test_arabic_shaping():
 
     print("===========================")
 
-# Call diagnostic at module load
 test_arabic_shaping()

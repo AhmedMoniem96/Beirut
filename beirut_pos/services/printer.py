@@ -77,20 +77,19 @@ def _warn_arabic_missing() -> None:
     )
 
 def _shape_ar_textfile(text: str) -> str:
-    """Arabic shaping for text files."""
+    """Arabic shaping for thermal printers - reshape ONLY."""
     if not text:
         return ""
     if not _AR_OK:
         _warn_arabic_missing()
         return text
     try:
-        # For HTML: reshape and apply bidi algorithm
+        # CRITICAL FIX: Reshape Arabic but DON'T apply bidi reversal
         reshaped = arabic_reshaper.reshape(text)
-        return get_display(reshaped)
+        return reshaped  # ← NO get_display()!
     except Exception as e:
         print(f"[WARN] Arabic reshaping failed: {e}")
         return text
-
 _shape_arabic = _shape_ar_textfile
 
 def _format_currency_cents(cents: int | float, currency: str) -> str:

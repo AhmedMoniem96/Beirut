@@ -81,13 +81,15 @@ jobs:
       - name: Show versions (sanity check)
         shell: pwsh
         run: |
+          # Set UTF-8 encoding for console output
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           python -c "
           from importlib.metadata import version as v
           from PyQt6.QtCore import QT_VERSION_STR as q
           import sqlalchemy
           import escpos
           print('='*50)
-          print('📦 Dependency Versions:')
+          print('Dependency Versions:')
           print('='*50)
           print('PyQt6 =', v('PyQt6'), '| Qt6 =', q)
           print('SQLAlchemy =', sqlalchemy.__version__)
@@ -188,20 +190,20 @@ jobs:
           # Add icon if exists
           if (Test-Path 'assets/app.ico') { 
             $args += @('--icon','assets/app.ico')
-            echo "✅ Using icon: assets/app.ico"
+            Write-Host "Using icon: assets/app.ico"
           }
           
           # Add assets folders
           if (Test-Path 'assets') { 
             $args += @('--add-data','assets;assets')
-            echo "✅ Including assets folder"
+            Write-Host "Including assets folder"
           }
           if (Test-Path 'beirut_pos/assets/fonts') {
             $args += @('--add-data','beirut_pos/assets/fonts;beirut_pos/assets/fonts')
-            echo "✅ Including fonts folder"
+            Write-Host "Including fonts folder"
           }
           
-          echo "🔨 Building EXE..."
+          Write-Host "Building EXE..."
           python -m PyInstaller @args
 
       - name: Test built executable (smoke test)
@@ -210,18 +212,18 @@ jobs:
           $exePath = "dist/BeirutPOS.exe"
           if (Test-Path $exePath) {
             $sizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 2)
-            echo "✅ EXE built successfully: $sizeMB MB"
-            echo "📍 Location: $exePath"
+            Write-Host "EXE built successfully: $sizeMB MB"
+            Write-Host "Location: $exePath"
             
             # Quick version check (won't fail if unsupported)
             & $exePath --version 2>$null
             if ($LASTEXITCODE -eq 0) {
-              echo "✅ Version check passed"
+              Write-Host "Version check passed"
             } else {
-              echo "ℹ️  No --version flag support (normal for GUI apps)"
+              Write-Host "No --version flag support (normal for GUI apps)"
             }
           } else {
-            echo "❌ EXE not found at $exePath!"
+            Write-Host "ERROR: EXE not found at $exePath!"
             exit 1
           }
 
@@ -229,7 +231,7 @@ jobs:
         shell: pwsh
         run: |
           $hash = (Get-FileHash dist/BeirutPOS.exe -Algorithm SHA256).Hash
-          echo "🔐 SHA256: $hash"
+          Write-Host "SHA256: $hash"
           echo "SHA256=$hash" >> $env:GITHUB_ENV
 
       - name: Upload artifact
@@ -245,15 +247,15 @@ jobs:
         with:
           files: dist/BeirutPOS.exe
           body: |
-            ## 🎉 BeirutPOS Windows Build
+            ## BeirutPOS Windows Build
             
             **Features:**
-            - ✅ 80mm Thermal Printer Support (XP-80C compatible)
-            - ✅ Arabic Text Support with Reshaping
-            - ✅ USB/Serial Printer Communication
-            - ✅ Enhanced Receipt Design
-            - ✅ SQLite Database
-            - ✅ PyQt6 GUI
+            - 80mm Thermal Printer Support (XP-80C compatible)
+            - Arabic Text Support with Reshaping
+            - USB/Serial Printer Communication
+            - Enhanced Receipt Design
+            - SQLite Database
+            - PyQt6 GUI
             
             **Installation:**
             1. Download `BeirutPOS.exe`

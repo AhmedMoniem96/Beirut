@@ -73,8 +73,17 @@ def _note_segments(note: str, include_sugar: bool = False) -> list[str]:
     parts = [seg.strip(" ؛-•") for seg in cleaned.split("؛")]
 
     if include_sugar:
-        # Include all notes (for bar tickets)
-        return [seg for seg in parts if seg]
+        # Include all notes (for bar tickets) - clean sugar notes
+        result = []
+        for seg in parts:
+            # Remove "سكر:" prefix if present
+            if "سكر:" in seg:
+                seg = seg.replace("سكر:", "").strip()
+            # Remove "sugar:" prefix if present
+            seg_cleaned = seg.replace("sugar:", "").strip()
+            if seg_cleaned:
+                result.append(seg_cleaned)
+        return result
     else:
         # Filter out sugar-related notes (for receipts)
         filtered = []
@@ -222,14 +231,29 @@ def _print_terminal_bar_ticket(table_code: str, items: List[dict]):
         name = _shape_ar_text(str(it["name"]))
         qty = _format_qty(float(it.get("qty", 0) or 0))
 
-        # Item on one line
-        print(f"{idx}. {name} × {qty}")
-
+        # Get notes (include sugar for bar tickets)
         notes = _note_segments(it.get("note", ""), include_sugar=True)
-        if notes:
-            for note in notes:
-                shaped_note = _shape_ar_text(note)
-                print(f"  • {shaped_note}")
+
+        # Combine first two notes if available (customized + sugar)
+        if len(notes) >= 2:
+            first_note = _shape_ar_text(notes[0])
+            second_note = _shape_ar_text(notes[1])
+            item_line = f"{idx}. {name} ({first_note} {second_note}) × {qty}"
+            remaining_notes = notes[2:]
+        elif len(notes) == 1:
+            first_note = _shape_ar_text(notes[0])
+            item_line = f"{idx}. {name} ({first_note}) × {qty}"
+            remaining_notes = []
+        else:
+            item_line = f"{idx}. {name} × {qty}"
+            remaining_notes = []
+
+        print(item_line)
+
+        # Print remaining notes if any
+        for note in remaining_notes:
+            shaped_note = _shape_ar_text(note)
+            print(f"  • {shaped_note}")
 
         if idx < len(items):
             print("────────────────")
@@ -396,15 +420,31 @@ def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]):
             name = _shape_ar_text(str(it["name"]))
             qty = _format_qty(float(it.get("qty", 0) or 0))
 
+            # Get notes (include sugar for bar tickets)
+            notes = _note_segments(it.get("note", ""), include_sugar=True)
+
+            # Combine first two notes if available (customized + sugar)
+            if len(notes) >= 2:
+                first_note = _shape_ar_text(notes[0])
+                second_note = _shape_ar_text(notes[1])
+                item_text = f"{idx}. {name} ({first_note} {second_note}) × {qty}"
+                remaining_notes = notes[2:]
+            elif len(notes) == 1:
+                first_note = _shape_ar_text(notes[0])
+                item_text = f"{idx}. {name} ({first_note}) × {qty}"
+                remaining_notes = []
+            else:
+                item_text = f"{idx}. {name} × {qty}"
+                remaining_notes = []
+
             # Item on one line
             printer.set(bold=True)
-            printer.text(f"{idx}. {name} × {qty}\n")
+            printer.text(item_text + "\n")
 
-            # Notes (include sugar for bar tickets)
-            notes = _note_segments(it.get("note", ""), include_sugar=True)
-            if notes:
+            # Print remaining notes if any
+            if remaining_notes:
                 printer.set(bold=False)
-                for note in notes:
+                for note in remaining_notes:
                     shaped_note = _shape_ar_text(note)
                     printer.text(f"   * {shaped_note}\n")
 

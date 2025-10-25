@@ -1,13 +1,11 @@
-"""Receipt/ticket renderer for XP-80C thermal printers with MINIMAL design."""
+"""Enhanced receipt/ticket renderer for XP-80C thermal printers with improved design."""
 from __future__ import annotations
-import os, sys, subprocess, shutil, re, json, tempfile
+import os
+import sys
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import Iterable, List, Optional
-try:
-    from importlib import metadata
-except ImportError:  # pragma: no cover - Python < 3.8 fallback
-    import importlib_metadata as metadata  # type: ignore
 
 # ---------------- ESC/POS availability ----------------
 try:
@@ -23,14 +21,17 @@ from ..utils.currency import format_pounds
 from ..core.bus import bus
 
 # ---------------- Paths & constants ----------------
-_OUTPUT_ROOT  = DATA_DIR / "prints"
+_OUTPUT_ROOT = DATA_DIR / "prints"
 _RECEIPTS_DIR = _OUTPUT_ROOT / "receipts"
-_BAR_DIR      = _OUTPUT_ROOT / "bar_tickets"
+_BAR_DIR = _OUTPUT_ROOT / "bar_tickets"
 _DISABLE_ESCPOS = os.environ.get("BEIRUT_POS_DISABLE_ESCPOS", "0") == "1"
 
 # ---------------- XP-80C USB Configuration ----------------
-XP80C_VENDOR_ID = 0x0416   # Xprinter vendor ID
-XP80C_PRODUCT_ID = 0x5011  # XP-80C product ID
+XP80C_VENDOR_ID = 0x0416
+XP80C_PRODUCT_ID = 0x5011
+
+# Paper width for 80mm thermal printer (~48 chars)
+PAPER_WIDTH = 48
 
 def _ensure_dirs():
     for p in (_OUTPUT_ROOT, _RECEIPTS_DIR, _BAR_DIR):
@@ -45,7 +46,6 @@ except ImportError:
     pass
 
 def _shape_ar_text(text: str) -> str:
-    """Arabic shaping for thermal printers - reshape ONLY."""
     if not text or not _AR_OK:
         return text
     try:
@@ -54,357 +54,381 @@ def _shape_ar_text(text: str) -> str:
         return text
 
 def _format_currency_simple(cents: int | float) -> str:
-    """SIMPLE currency format for thermal printers - NO EGP text"""
     try:
-        amount = int(round(float(cents))) / 100  # Convert cents to currency units
-        return f"{amount:.2f}"  # Just the number, no currency symbol
+        amount = int(round(float(cents))) / 100
+        return f"{amount:.2f}"
     except Exception:
         return str(cents)
 
 def _format_qty(qty: float) -> str:
-    """Return a friendly quantity string."""
     rounded = round(qty)
     if abs(qty - rounded) < 1e-6:
         return str(int(rounded))
     return f"{qty:.2f}".rstrip("0").rstrip(".")
 
-def _note_segments(note: str) -> list[str]:
-    """Split composite notes into parts."""
+def _note_segments(note: str, include_sugar: bool = False) -> list[str]:
     if not note:
         return []
     cleaned = note.replace("\n", " ")
     parts = [seg.strip(" ؛-•") for seg in cleaned.split("؛")]
-    return [seg for seg in parts if seg]
 
-# ---------------- HTML Fallback Generation ----------------
-def _generate_html_receipt(
-        table_code: str,
-        items: List[dict],
-        subtotal: int,
-        discount: int,
-        total: int,
-        method: str,
-        cashier: str,
-        receipt_number: str = None,
-) -> Path:
-    """Generate HTML receipt for fallback printing"""
-    _ensure_dirs()
+    if include_sugar:
+        # Include all notes (for bar tickets)
+        return [seg for seg in parts if seg]
+    else:
+        # Filter out sugar-related notes (for receipts)
+        filtered = []
+        for seg in parts:
+            seg_lower = seg.lower()
+            # Skip if it's a sugar note (contains "سكر" or "sugar")
+            if "سكر" not in seg and "sugar" not in seg_lower:
+                filtered.append(seg)
+        return [seg for seg in filtered if seg]
 
-    currency = "EGP"
-    client_name = "كافيه بيروت"
+def _center_text(text: str, width: int = PAPER_WIDTH) -> str:
+    """Center text within given width."""
+    text_len = len(text)
+    if text_len >= width:
+        return text
+    padding = (width - text_len) // 2
+    return " " * padding + text
+
+def _draw_line(char: str = "─", width: int = PAPER_WIDTH) -> str:
+    """Draw a decorative line."""
+    return char * width
+
+def _format_item_line(name: str, price: str, width: int = PAPER_WIDTH) -> str:
+    """Format item with right-aligned price - handles both LTR and RTL text."""
+    # Strip any existing spaces
+    name = name.strip()
+    price = price.strip()
+
+    # Calculate visual length (approximate for mixed text)
+    name_len = len(name)
+    price_len = len(price)
+
+    # Ensure minimum spacing
+    total_len = name_len + price_len
+    if total_len >= width:
+        # Truncate name if too long
+        available = width - price_len - 3
+        if available > 0:
+            name = name[:available] + ".."
+            name_len = len(name)
+        else:
+            name = ""
+            name_len = 0
+
+    # Calculate spacing
+    spacing = width - name_len - price_len
+    if spacing < 1:
+        spacing = 1
+
+    return name + " " * spacing + price
+
+# ---------------- TERMINAL PREVIEW ----------------
+def _print_terminal_receipt(table_code: str, items: List[dict], subtotal: int,
+                           discount: int, total: int, cashier: str):
+    """Enhanced receipt preview to terminal"""
     ts = datetime.now().strftime("%Y/%m/%d %H:%M")
 
-    if not receipt_number:
-        receipt_number = f"{datetime.now():%Y%m%d%H%M%S}"
+    print("\n" + "="*50)
+    print("🧾 ENHANCED RECEIPT PREVIEW")
+    print("="*50)
 
-    # Build items HTML with minimal design
-    items_html = ""
-    for it in items:
+    # Header with decorative borders
+    print(_center_text("╔" + "═" * 30 + "╗"))
+    print(_center_text("║  " + _shape_ar_text('كافيه بيروت') + "  ║"))
+    print(_center_text("║    Cafe Beirut    ║"))
+    print(_center_text("╚" + "═" * 30 + "╝"))
+    print()
+
+    # Info section
+    print(f"📅 {_shape_ar_text('التاريخ:')} {ts}")
+    print(f"🪑 {_shape_ar_text('الطاولة:')} {table_code}")
+    print(f"👤 {_shape_ar_text('الكاشير:')} {_shape_ar_text(cashier)}")
+    print(_draw_line("═"))
+    print()
+
+    # Items header
+    print(_center_text(_shape_ar_text("قائمة الطلبات")))
+    print(_draw_line("─"))
+
+    # Items
+    for idx, it in enumerate(items, 1):
         name = _shape_ar_text(str(it["name"]))
         qty = _format_qty(float(it.get("qty", 0) or 0))
-        price = _format_currency_simple(it.get("unit_price", 0))
         total_price = _format_currency_simple(it.get("total_cents", 0))
 
-        items_html += f"""
-        <div style="border-bottom: 1px solid #ccc; padding: 8px 0;">
-            <div style="font-weight: bold;">{name} × {qty}</div>"""
-
-        # Add notes/customizations
+        # Get notes
         notes = _note_segments(it.get("note", ""))
-        for note in notes:
+
+        # Add first note (customized) to product name if exists
+        if notes:
+            first_note = _shape_ar_text(notes[0])
+            item_line = f"{idx}. {name} ({first_note}) × {qty}"
+            remaining_notes = notes[1:]
+        else:
+            item_line = f"{idx}. {name} × {qty}"
+            remaining_notes = []
+
+        print(_format_item_line(item_line, total_price))
+
+        # Print remaining notes if any
+        for note in remaining_notes:
             shaped_note = _shape_ar_text(note)
-            items_html += f"""<div style="font-size: 12px; color: #666; margin-left: 10px;">• {shaped_note}</div>"""
+            print(f"   ↳ {shaped_note}")
 
-        items_html += f"""<div style="text-align: right; font-weight: bold;">{total_price} {currency}</div>
-        </div>"""
+        if idx < len(items):
+            print(_draw_line("·"))
 
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Receipt</title>
-    <style>
-        body {{
-            width: 80mm;
-            margin: 0;
-            padding: 10px;
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-        }}
-        .header {{ text-align: center; margin-bottom: 10px; font-weight: bold; }}
-        .separator {{ border-bottom: 2px solid #000; margin: 8px 0; }}
-        .info-row {{ margin: 4px 0; }}
-        .total-row {{ display: flex; justify-content: space-between; margin: 6px 0; font-weight: bold; }}
-        .footer {{ text-align: center; margin-top: 10px; font-size: 12px; }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <div>{_shape_ar_text(client_name)}</div>
-    </div>
-    <div class="separator"></div>
+    print(_draw_line("═"))
 
-    <div class="info-row">{_shape_ar_text("التاريخ:")} {ts}</div>
-    <div class="info-row">{_shape_ar_text("الطاولة:")} {table_code}</div>
-    <div class="info-row">{_shape_ar_text("الكاشير:")} {_shape_ar_text(cashier)}</div>
+    # Totals section with proper alignment
+    subtotal_str = _format_currency_simple(subtotal)
+    print(_format_item_line(_shape_ar_text("المجموع الفرعي:"), subtotal_str))
 
-    <div class="separator"></div>
+    if discount > 0:
+        discount_str = _format_currency_simple(discount)
+        print(_format_item_line(_shape_ar_text("الخصم:"), f"-{discount_str}"))
+        print(_draw_line("─"))
 
-    {items_html}
+    total_str = _format_currency_simple(total)
+    print(_format_item_line(_shape_ar_text("💰 الإجمالي:"), total_str))
+    print(_draw_line("═"))
+    print()
 
-    <div class="separator"></div>
+    # Footer
+    print(_center_text(_shape_ar_text("شكراً لزيارتكم")))
+    print(_center_text("Thank you for visiting!"))
+    print(_center_text("★ ★ ★"))
+    print()
 
-    <div class="total-row">
-        <span>{_shape_ar_text("المجموع:")}</span>
-        <span>{_format_currency_simple(subtotal)} {currency}</span>
-    </div>
-    <div class="total-row">
-        <span>{_shape_ar_text("الخصم:")}</span>
-        <span>{_format_currency_simple(discount)} {currency}</span>
-    </div>
-    <div class="total-row">
-        <span>{_shape_ar_text("الإجمالي:")}</span>
-        <span>{_format_currency_simple(total)} {currency}</span>
-    </div>
+    print("\n" + "="*50)
+    print("✅ PREVIEW COMPLETED (No thermal printer)")
+    print("="*50 + "\n")
 
-    <div class="separator"></div>
-    <div class="footer">{_shape_ar_text("شكراً لزيارتكم")}</div>
-</body>
-</html>"""
+def _print_terminal_bar_ticket(table_code: str, items: List[dict]):
+    """Enhanced bar ticket preview to terminal"""
+    print("\n" + "="*50)
+    print("🍸 ENHANCED BAR TICKET PREVIEW")
+    print("="*50)
 
-    html_filename = f"receipt-{table_code}-{receipt_number}.html"
-    html_path = _RECEIPTS_DIR / html_filename
-    html_path.write_text(html_content, encoding='utf-8')
-    return html_path
+    ts = datetime.now().strftime("%H:%M")
+    print(f"🕐 {ts}  |  🪑 {_shape_ar_text('الطاولة:')} {table_code}")
+    print(_draw_line("═"))
 
-def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
-    """Generate HTML bar ticket for fallback"""
-    _ensure_dirs()
-
-    items_html = ""
-    for it in items:
+    for idx, it in enumerate(items, 1):
         name = _shape_ar_text(str(it["name"]))
         qty = _format_qty(float(it.get("qty", 0) or 0))
 
-        items_html += f"""
-        <div style="border-bottom: 1px solid #ccc; padding: 8px 0;">
-            <div style="font-weight: bold;">{name} × {qty}</div>"""
+        # Item on one line
+        print(f"{idx}. {name} × {qty}")
 
-        # Add notes/customizations
-        notes = _note_segments(it.get("note", ""))
-        for note in notes:
-            shaped_note = _shape_ar_text(note)
-            items_html += f"""<div style="font-size: 12px; color: #666; margin-left: 10px;">• {shaped_note}</div>"""
+        notes = _note_segments(it.get("note", ""), include_sugar=True)
+        if notes:
+            for note in notes:
+                shaped_note = _shape_ar_text(note)
+                print(f"  • {shaped_note}")
 
-        items_html += "</div>"
+        if idx < len(items):
+            print("────────────────")
 
-    bar_html_template = f"""<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bar Ticket</title>
-    <style>
-        body {{
-            width: 80mm;
-            margin: 0;
-            padding: 10px;
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-            direction: rtl;
-        }}
-        .separator {{ border-bottom: 2px solid #000; margin: 8px 0; }}
-    </style>
-</head>
-<body>
-    <div style="font-weight: bold; margin-bottom: 10px;">{_shape_ar_text("الطاولة:")} {table_code}</div>
-    <div class="separator"></div>
+    print("\n" + _draw_line("═"))
 
-    {items_html}
+    print("\n" + "="*50)
+    print("✅ BAR TICKET PREVIEW COMPLETED")
+    print("="*50 + "\n")
 
-    <div class="separator"></div>
-</body>
-</html>"""
-
-    bar_filename = f"bar-{table_code}-{datetime.now():%Y%m%d%H%M%S}.html"
-    bar_path = _BAR_DIR / bar_filename
-    bar_path.write_text(bar_html_template, encoding='utf-8')
-    return bar_path
-
-def _open_html_in_browser(html_path: Path):
-    """Open HTML file in default browser"""
-    try:
-        if sys.platform.startswith("win"):
-            os.startfile(str(html_path))
-        elif sys.platform == "darwin":  # macOS
-            subprocess.Popen(["open", str(html_path)])
-        else:  # Linux
-            subprocess.Popen(["xdg-open", str(html_path)])
-        print(f"[INFO] Opened in browser: {html_path}")
-        return True
-    except Exception as e:
-        print(f"[ERROR] Failed to open browser: {e}")
-        return False
-
-# ---------------- ESC/POS Thermal Printer Functions ----------------
+# ---------------- Thermal Printer Functions ----------------
 def _find_xp80c_printer():
-    """Find and initialize XP-80C thermal printer"""
     if not _ESCPOS_OK or _DISABLE_ESCPOS:
         return None
-
     try:
-        # Try XP-80C first
         printer = Usb(XP80C_VENDOR_ID, XP80C_PRODUCT_ID)
+        print("✅ XP-80C Thermal printer connected!")
         return printer
     except USBNotFoundError:
-        # Try common thermal printers
-        common_printers = [
-            (0x0416, 0x5011),  # Xprinter XP-80C
-            (0x04B8, 0x0202),  # Epson TM-series
-        ]
-
-        for vendor, product in common_printers:
-            try:
-                printer = Usb(vendor, product)
-                return printer
-            except USBNotFoundError:
-                continue
-    return None
+        print("ℹ️  No thermal printer found - using terminal preview")
+        return None
 
 def _setup_printer_arabic(printer):
-    """Setup Arabic encoding for thermal printer"""
+    """Configure printer for Arabic text support."""
     try:
-        # Reset printer
-        printer._raw(b'\x1B@')
-        # Set Arabic code page
-        printer._raw(b'\x1Bt\x16')  # Code page 862 (Hebrew/Arabic)
-        printer._raw(b'\x1BR\x08')  # Select character table Arabic
-        # Set medium print density
-        printer._raw(b'\x1D\x7C\x00')
+        printer._raw(b'\x1B@')  # Initialize
+        printer._raw(b'\x1Bt\x16')  # Arabic character set
+        printer._raw(b'\x1BR\x08')  # Arabic region
         return True
     except Exception as e:
-        print(f"[WARN] Arabic setup failed: {e}")
+        print(f"❌ Arabic setup failed: {e}")
         return False
 
 def _print_escpos_receipt(printer, table_code: str, items: List[dict], subtotal: int,
                          discount: int, total: int, method: str, cashier: str):
-    """Print MINIMAL receipt using ESC/POS"""
+    """Enhanced thermal receipt printing."""
     if not printer:
         raise ValueError("No printer available")
 
     ts = datetime.now().strftime("%Y/%m/%d %H:%M")
 
     try:
-        # Setup Arabic encoding
         _setup_printer_arabic(printer)
 
-        # Header - MINIMAL
-        printer.set(align='center', bold=True)
+        # Decorative header
+        printer.set(align='center', bold=True, double_width=True)
+        printer.text("═" * 24 + "\n")
         printer.text(_shape_ar_text("كافيه بيروت") + "\n")
-        printer.text("────────────────\n")
+        printer.set(double_width=False)
+        printer.text("Cafe Beirut\n")
+        printer.set(bold=True, double_width=True)
+        printer.text("═" * 24 + "\n\n")
 
-        # Receipt info - MINIMAL
-        printer.set(align='left', bold=False)
+        # Info section
+        printer.set(align='left', bold=False, double_width=False)
         printer.text(f"{_shape_ar_text('التاريخ:')} {ts}\n")
         printer.text(f"{_shape_ar_text('الطاولة:')} {table_code}\n")
         printer.text(f"{_shape_ar_text('الكاشير:')} {_shape_ar_text(cashier)}\n")
-        printer.text("────────────────\n")
+        printer.text("─" * PAPER_WIDTH + "\n\n")
 
-        # ITEMS WITH SEPARATORS
-        for it in items:
+        # Items header
+        printer.set(align='center', bold=True)
+        printer.text(_shape_ar_text("قائمة الطلبات") + "\n")
+        printer.set(align='left')
+        printer.text("─" * PAPER_WIDTH + "\n")
+
+        # Items
+        for idx, it in enumerate(items, 1):
             name = _shape_ar_text(str(it["name"]))
             qty = _format_qty(float(it.get("qty", 0) or 0))
             total_price = _format_currency_simple(it.get("total_cents", 0))
 
-            # Product name and quantity
-            printer.set(bold=True)
-            printer.text(f"{name} × {qty}\n")
-
-            # Customizations/notes
+            # Get notes
             notes = _note_segments(it.get("note", ""))
-            for note in notes:
-                shaped_note = _shape_ar_text(note)
-                printer.set(bold=False)
-                if len(shaped_note) > 30:
-                    shaped_note = shaped_note[:27] + "..."
-                printer.text(f"• {shaped_note}\n")
 
-            # Price (right aligned)
-            printer.set(align='right', bold=True)
-            printer.text(f"{total_price:>16}\n")
-            printer.set(align='left')
-            printer.text("────────────────\n")
+            # Add first note (customized) to product name if exists
+            if notes:
+                first_note = _shape_ar_text(notes[0])
+                item_text = f"{idx}. {name} ({first_note}) × {qty}"
+                remaining_notes = notes[1:]
+            else:
+                item_text = f"{idx}. {name} × {qty}"
+                remaining_notes = []
 
-        # Totals - MINIMAL
-        printer.set(align='right', bold=True)
-        printer.text(f"{_shape_ar_text('المجموع:')} {_format_currency_simple(subtotal):>10}\n")
+            # Item on one line - use left alignment for consistent display
+            printer.set(bold=True, align='left')
+
+            # Calculate spacing for right-aligned price
+            spacing = PAPER_WIDTH - len(item_text) - len(total_price)
+            if spacing < 1:
+                # Truncate if too long
+                max_len = PAPER_WIDTH - len(total_price) - 3
+                if len(item_text) > max_len:
+                    item_text = item_text[:max_len] + ".."
+                    spacing = PAPER_WIDTH - len(item_text) - len(total_price)
+                else:
+                    spacing = 1
+
+            printer.text(item_text + " " * spacing + total_price + "\n")
+
+            # Print remaining notes if any
+            if remaining_notes:
+                printer.set(bold=False, align='left')
+                for note in remaining_notes:
+                    shaped_note = _shape_ar_text(note)
+                    printer.text(f"   > {shaped_note}\n")
+
+            if idx < len(items):
+                printer.set(bold=False, align='left')
+                printer.text("·" * PAPER_WIDTH + "\n")
+
+        printer.text("═" * PAPER_WIDTH + "\n")
+
+        # Totals section
+        printer.set(align='right', bold=False)
+        subtotal_str = _format_currency_simple(subtotal)
+        printer.text(f"{_shape_ar_text('المجموع الفرعي:')} {subtotal_str}\n")
+
         if discount > 0:
-            printer.text(f"{_shape_ar_text('الخصم:')} {_format_currency_simple(discount):>10}\n")
-        printer.text(f"{_shape_ar_text('الإجمالي:')} {_format_currency_simple(total):>10}\n")
+            discount_str = _format_currency_simple(discount)
+            printer.text(f"{_shape_ar_text('الخصم:')} -{discount_str}\n")
+            printer.text("─" * PAPER_WIDTH + "\n")
 
-        printer.text("────────────────\n")
+        # Grand total (large and bold)
+        printer.set(bold=True, double_height=True)
+        total_str = _format_currency_simple(total)
+        printer.text(f"{_shape_ar_text('الإجمالي:')} {total_str}\n")
+        printer.set(double_height=False)
+
+        printer.text("═" * PAPER_WIDTH + "\n\n")
+
+        # Footer
         printer.set(align='center', bold=True)
         printer.text(_shape_ar_text("شكراً لزيارتكم") + "\n")
-        printer.text("\n" * 2)
+        printer.set(bold=False)
+        printer.text("Thank you!\n")
+        printer.text("★ ★ ★\n")
+        printer.text("\n" * 3)
 
-        # Cut paper
         printer.cut()
+        print("✅ Enhanced receipt printed to XP-80C!")
 
     except Exception as e:
-        print(f"[ERROR] ESC/POS printing failed: {e}")
+        print(f"❌ ESC/POS printing failed: {e}")
         raise
 
 def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]):
-    """Print MINIMAL bar ticket using ESC/POS"""
+    """Enhanced bar ticket printing."""
     if not printer:
         raise ValueError("No printer available")
 
     try:
-        # Setup Arabic encoding
         _setup_printer_arabic(printer)
 
-        # MINIMAL header - just table number
-        printer.set(align='left', bold=True)
-        printer.text(f"{_shape_ar_text('الطاولة:')} {table_code}\n")
-        printer.text("────────────────\n")
+        ts = datetime.now().strftime("%H:%M")
 
-        # ITEMS WITH SEPARATORS
-        for it in items:
+        # Table and time info
+        printer.set(align='left', bold=False, double_width=False)
+        printer.text(f"{ts}  |  {_shape_ar_text('الطاولة:')} {table_code}\n")
+        printer.text("─" * PAPER_WIDTH + "\n\n")
+
+        # Items
+        for idx, it in enumerate(items, 1):
             name = _shape_ar_text(str(it["name"]))
             qty = _format_qty(float(it.get("qty", 0) or 0))
 
-            # Product name and quantity
+            # Item on one line
             printer.set(bold=True)
-            printer.text(f"{name} × {qty}\n")
+            printer.text(f"{idx}. {name} × {qty}\n")
 
-            # Customizations/notes
-            notes = _note_segments(it.get("note", ""))
-            for note in notes:
-                shaped_note = _shape_ar_text(note)
+            # Notes (include sugar for bar tickets)
+            notes = _note_segments(it.get("note", ""), include_sugar=True)
+            if notes:
                 printer.set(bold=False)
-                if len(shaped_note) > 30:
-                    shaped_note = shaped_note[:27] + "..."
-                printer.text(f"• {shaped_note}\n")
+                for note in notes:
+                    shaped_note = _shape_ar_text(note)
+                    printer.text(f"   * {shaped_note}\n")
 
-            printer.text("────────────────\n")
+            if idx < len(items):
+                printer.set(bold=False)
+                printer.text("─" * PAPER_WIDTH + "\n")
 
-        # Cut paper
+        printer.text("\n" + "═" * PAPER_WIDTH + "\n")
+        printer.text("\n" * 2)
+
         printer.cut()
+        print("✅ Enhanced bar ticket printed to XP-80C!")
 
     except Exception as e:
-        print(f"[ERROR] ESC/POS bar ticket failed: {e}")
+        print(f"❌ ESC/POS bar ticket failed: {e}")
         raise
 
-# ---------------- Data shaping with quantity grouping ----------------
 def _collapse_items(items: Iterable) -> List[dict]:
-    """Collapse items and GROUP identical products together"""
-    grouped: dict[tuple, dict] = {}
-
+    """Collapse duplicate items into single entries with combined quantities."""
+    grouped = {}
     for it in items:
         name = getattr(it, "product", str(it))
         unit_price = int(getattr(it, "unit_price_cents", 0) or 0)
         note = (getattr(it, "note", "") or "").strip()
-
         key = (name, unit_price, note)
 
         if key in grouped:
@@ -418,7 +442,6 @@ def _collapse_items(items: Iterable) -> List[dict]:
                 "total_cents": int(getattr(it, "total_cents", 0) or 0),
                 "note": note,
             }
-
     return list(grouped.values())
 
 # ---------------- Public API ----------------
@@ -427,33 +450,22 @@ class PrinterService:
         _ensure_dirs()
         self._escpos_printer = _find_xp80c_printer()
 
-    def reload_from_settings(self):
-        pass
-
-    def update_printers(self, bar: Optional[str], cashier: Optional[str]):
-        pass
-
     def print_bar_ticket(self, table_code: str, items: Iterable) -> bool:
-        """Print bar ticket - tries thermal printer first, then web fallback"""
+        """Print enhanced bar ticket."""
         data = _collapse_items(items)
 
-        # Try thermal printer first
+        # Always show terminal preview
+        _print_terminal_bar_ticket(table_code, data)
+
+        # Try thermal printer if available
         if self._escpos_printer:
             try:
-                print("[DEBUG] Trying thermal printer...")
                 _print_escpos_bar_ticket(self._escpos_printer, table_code, data)
                 return True
             except Exception as e:
-                print(f"[ERROR] Thermal printing failed: {e}")
+                print(f"❌ Thermal printing failed: {e}")
 
-        # Fallback to web browser
-        print("[DEBUG] Falling back to web browser...")
-        try:
-            html_path = _generate_html_bar_ticket(table_code, data)
-            return _open_html_in_browser(html_path)
-        except Exception as e:
-            print(f"[ERROR] Web fallback failed: {e}")
-            return False
+        return True
 
     def print_cashier_receipt(
         self,
@@ -469,31 +481,24 @@ class PrinterService:
         *,
         discount_label: str | None = None,
     ) -> bool:
-        """Print cashier receipt - tries thermal printer first, then web fallback"""
+        """Print enhanced cashier receipt."""
         data = _collapse_items(items)
 
-        # Try thermal printer first
+        # Always show terminal preview
+        _print_terminal_receipt(table_code, data, subtotal, discount, total, cashier)
+
+        # Try thermal printer if available
         if self._escpos_printer:
             try:
-                print("[DEBUG] Trying thermal printer...")
                 _print_escpos_receipt(
                     self._escpos_printer, table_code, data, subtotal,
                     discount, total, method, cashier
                 )
                 return True
             except Exception as e:
-                print(f"[ERROR] Thermal printing failed: {e}")
+                print(f"❌ Thermal printing failed: {e}")
 
-        # Fallback to web browser
-        print("[DEBUG] Falling back to web browser...")
-        try:
-            html_path = _generate_html_receipt(
-                table_code, data, subtotal, discount, total, method, cashier
-            )
-            return _open_html_in_browser(html_path)
-        except Exception as e:
-            print(f"[ERROR] Web fallback failed: {e}")
-            return False
+        return True
 
 printer = PrinterService()
 
@@ -501,30 +506,3 @@ def _apply_printer_settings(bar: Optional[str], cash: Optional[str]) -> None:
     printer.update_printers(bar, cash)
 
 bus.subscribe("printers_changed", _apply_printer_settings)
-
-# ---------------- Diagnostic function ----------------
-def test_printer():
-    """Test printer connection"""
-    printer = _find_xp80c_printer()
-    if printer:
-        print("✅ Thermal printer connected!")
-        try:
-            _setup_printer_arabic(printer)
-            printer.text("TEST - MINIMAL DESIGN\n")
-            printer.text("────────────────\n")
-            printer.text("عصير برتقال × 2\n")
-            printer.text("• سكر عالي\n")
-            printer.text("• مثلج\n")
-            printer.set(align='right')
-            printer.text("          20.00\n")
-            printer.set(align='left')
-            printer.text("────────────────\n")
-            printer.cut()
-            print("✅ Test print completed!")
-        except Exception as e:
-            print(f"❌ Test print failed: {e}")
-    else:
-        print("❌ No thermal printer found - will use web fallback")
-
-if __name__ == "__main__":
-    test_printer()

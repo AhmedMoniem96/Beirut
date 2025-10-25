@@ -1,4 +1,4 @@
-"""Receipt/ticket renderer for XP-80C thermal printers with PROPER formatting."""
+"""Receipt/ticket renderer for XP-80C thermal printers with MINIMAL design."""
 from __future__ import annotations
 import os, sys, subprocess, shutil, re, json, tempfile
 from pathlib import Path
@@ -92,12 +92,12 @@ def _generate_html_receipt(
 
     currency = "EGP"
     client_name = "كافيه بيروت"
-    ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    ts = datetime.now().strftime("%Y/%m/%d %H:%M")
 
     if not receipt_number:
         receipt_number = f"{datetime.now():%Y%m%d%H%M%S}"
 
-    # Build items HTML
+    # Build items HTML with minimal design
     items_html = ""
     for it in items:
         name = _shape_ar_text(str(it["name"]))
@@ -106,12 +106,17 @@ def _generate_html_receipt(
         total_price = _format_currency_simple(it.get("total_cents", 0))
 
         items_html += f"""
-        <tr>
-            <td style="text-align: right; padding: 5px; border-bottom: 1px dotted #000;">{name}</td>
-            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">{qty}</td>
-            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">{price}</td>
-            <td style="text-align: center; padding: 5px; border-bottom: 1px dotted #000;">{total_price}</td>
-        </tr>"""
+        <div style="border-bottom: 1px solid #ccc; padding: 8px 0;">
+            <div style="font-weight: bold;">{name} × {qty}</div>"""
+
+        # Add notes/customizations
+        notes = _note_segments(it.get("note", ""))
+        for note in notes:
+            shaped_note = _shape_ar_text(note)
+            items_html += f"""<div style="font-size: 12px; color: #666; margin-left: 10px;">• {shaped_note}</div>"""
+
+        items_html += f"""<div style="text-align: right; font-weight: bold;">{total_price} {currency}</div>
+        </div>"""
 
     html_content = f"""<!DOCTYPE html>
 <html>
@@ -126,73 +131,44 @@ def _generate_html_receipt(
             font-family: Arial, sans-serif;
             font-size: 14px;
         }}
-        .header {{ text-align: center; margin-bottom: 15px; }}
-        .cafe-name {{ font-size: 20px; font-weight: bold; }}
-        .info-row {{ display: flex; justify-content: space-between; margin: 5px 0; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 10px 0; }}
-        th {{ border-bottom: 2px solid #000; padding: 8px; text-align: right; }}
-        td {{ padding: 5px; border-bottom: 1px dotted #000; }}
-        .total-row {{ display: flex; justify-content: space-between; margin: 8px 0; font-weight: bold; }}
-        .footer {{ text-align: center; margin-top: 15px; font-size: 12px; }}
+        .header {{ text-align: center; margin-bottom: 10px; font-weight: bold; }}
+        .separator {{ border-bottom: 2px solid #000; margin: 8px 0; }}
+        .info-row {{ margin: 4px 0; }}
+        .total-row {{ display: flex; justify-content: space-between; margin: 6px 0; font-weight: bold; }}
+        .footer {{ text-align: center; margin-top: 10px; font-size: 12px; }}
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="cafe-name">{_shape_ar_text(client_name)}</div>
-        <div>{_shape_ar_text("كافيه ومعلم")}</div>
+        <div>{_shape_ar_text(client_name)}</div>
     </div>
+    <div class="separator"></div>
 
-    <div class="info-row">
-        <span>{_shape_ar_text("التاريخ:")}</span>
-        <span>{ts}</span>
-    </div>
-    <div class="info-row">
-        <span>{_shape_ar_text("رقم الفاتورة:")}</span>
-        <span>{receipt_number}</span>
-    </div>
-    <div class="info-row">
-        <span>{_shape_ar_text("الطاولة:")}</span>
-        <span>{table_code}</span>
-    </div>
-    <div class="info-row">
-        <span>{_shape_ar_text("الكاشير:")}</span>
-        <span>{_shape_ar_text(cashier)}</span>
-    </div>
+    <div class="info-row">{_shape_ar_text("التاريخ:")} {ts}</div>
+    <div class="info-row">{_shape_ar_text("الطاولة:")} {table_code}</div>
+    <div class="info-row">{_shape_ar_text("الكاشير:")} {_shape_ar_text(cashier)}</div>
 
-    <hr>
-    <div style="text-align: center; font-weight: bold; margin: 10px 0;">{_shape_ar_text("الطلبات")}</div>
+    <div class="separator"></div>
 
-    <table>
-        <thead>
-            <tr>
-                <th>{_shape_ar_text("الصنف")}</th>
-                <th>{_shape_ar_text("الكمية")}</th>
-                <th>{_shape_ar_text("السعر")}</th>
-                <th>{_shape_ar_text("الإجمالي")}</th>
-            </tr>
-        </thead>
-        <tbody>
-            {items_html}
-        </tbody>
-    </table>
+    {items_html}
 
-    <hr>
+    <div class="separator"></div>
+
     <div class="total-row">
-        <span>{_shape_ar_text("المجموع الفرعي:")}</span>
+        <span>{_shape_ar_text("المجموع:")}</span>
         <span>{_format_currency_simple(subtotal)} {currency}</span>
     </div>
     <div class="total-row">
         <span>{_shape_ar_text("الخصم:")}</span>
         <span>{_format_currency_simple(discount)} {currency}</span>
     </div>
-    <div class="total-row" style="border-top: 2px solid #000; padding-top: 5px;">
-        <span>{_shape_ar_text("المجموع الكلي:")}</span>
+    <div class="total-row">
+        <span>{_shape_ar_text("الإجمالي:")}</span>
         <span>{_format_currency_simple(total)} {currency}</span>
     </div>
 
-    <div class="footer">
-        <div>{_shape_ar_text("شكراً لزيارتكم")}</div>
-    </div>
+    <div class="separator"></div>
+    <div class="footer">{_shape_ar_text("شكراً لزيارتكم")}</div>
 </body>
 </html>"""
 
@@ -205,28 +181,22 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
     """Generate HTML bar ticket for fallback"""
     _ensure_dirs()
 
-    ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-
     items_html = ""
     for it in items:
         name = _shape_ar_text(str(it["name"]))
         qty = _format_qty(float(it.get("qty", 0) or 0))
 
         items_html += f"""
-            <tr>
-                <td class="item-name">{name}</td>
-                <td class="item-qty">{qty}</td>
-            </tr>"""
+        <div style="border-bottom: 1px solid #ccc; padding: 8px 0;">
+            <div style="font-weight: bold;">{name} × {qty}</div>"""
 
+        # Add notes/customizations
         notes = _note_segments(it.get("note", ""))
         for note in notes:
             shaped_note = _shape_ar_text(note)
-            items_html += f"""
-            <tr>
-                <td colspan="2" style="font-size: 11px; color: #666; padding-right: 10px; font-style: italic;">
-                    • {shaped_note}
-                </td>
-            </tr>"""
+            items_html += f"""<div style="font-size: 12px; color: #666; margin-left: 10px;">• {shaped_note}</div>"""
+
+        items_html += "</div>"
 
     bar_html_template = f"""<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -243,48 +213,16 @@ def _generate_html_bar_ticket(table_code: str, items: List[dict]) -> Path:
             font-size: 14px;
             direction: rtl;
         }}
-        .header {{ text-align: center; margin-bottom: 15px; }}
-        .cafe-name {{ font-size: 22px; font-weight: bold; }}
-        .info-row {{ display: flex; justify-content: space-between; margin: 5px 0; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 10px 0; }}
-        th {{ border-bottom: 2px solid #000; padding: 8px; text-align: right; }}
-        td {{ padding: 5px; border-bottom: 1px dotted #000; }}
-        .footer {{ text-align: center; margin-top: 15px; font-size: 12px; }}
+        .separator {{ border-bottom: 2px solid #000; margin: 8px 0; }}
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="cafe-name">{_shape_ar_text("بار كافيه بيروت")}</div>
-        <div>{_shape_ar_text("تذكرة طلبات البار")}</div>
-    </div>
+    <div style="font-weight: bold; margin-bottom: 10px;">{_shape_ar_text("الطاولة:")} {table_code}</div>
+    <div class="separator"></div>
 
-    <div class="info-row">
-        <span>{_shape_ar_text("التاريخ:")}</span>
-        <span>{ts}</span>
-    </div>
-    <div class="info-row">
-        <span>{_shape_ar_text("الطاولة:")}</span>
-        <span>{table_code}</span>
-    </div>
+    {items_html}
 
-    <hr>
-    <div style="text-align: center; font-weight: bold; margin: 10px 0;">{_shape_ar_text("الطلبات الجديدة")}</div>
-
-    <table>
-        <thead>
-            <tr>
-                <th>{_shape_ar_text("الصنف")}</th>
-                <th>{_shape_ar_text("الكمية")}</th>
-            </tr>
-        </thead>
-        <tbody>
-            {items_html}
-        </tbody>
-    </table>
-
-    <div class="footer">
-        <div>{_shape_ar_text("يتم التحضير فوراً - شكراً لتفهمكم")}</div>
-    </div>
+    <div class="separator"></div>
 </body>
 </html>"""
 
@@ -333,70 +271,78 @@ def _find_xp80c_printer():
                 continue
     return None
 
+def _setup_printer_arabic(printer):
+    """Setup Arabic encoding for thermal printer"""
+    try:
+        # Reset printer
+        printer._raw(b'\x1B@')
+        # Set Arabic code page
+        printer._raw(b'\x1Bt\x16')  # Code page 862 (Hebrew/Arabic)
+        printer._raw(b'\x1BR\x08')  # Select character table Arabic
+        # Set medium print density
+        printer._raw(b'\x1D\x7C\x00')
+        return True
+    except Exception as e:
+        print(f"[WARN] Arabic setup failed: {e}")
+        return False
+
 def _print_escpos_receipt(printer, table_code: str, items: List[dict], subtotal: int,
                          discount: int, total: int, method: str, cashier: str):
-    """Print receipt using ESC/POS commands with PROPER 80mm thermal formatting"""
+    """Print MINIMAL receipt using ESC/POS"""
     if not printer:
         raise ValueError("No printer available")
 
-    ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-    receipt_number = f"{datetime.now():%Y%m%d%H%M%S}"
+    ts = datetime.now().strftime("%Y/%m/%d %H:%M")
 
     try:
-        # Header - CENTERED
-        printer.set(align='center', bold=True, double_height=True)
-        printer.text(_shape_ar_text("كافيه بيروت") + "\n")
-        printer.set(align='center', bold=True, double_height=False)
-        printer.text(_shape_ar_text("كافيه ومعلم") + "\n")
-        printer.text("\n")
+        # Setup Arabic encoding
+        _setup_printer_arabic(printer)
 
-        # Receipt info - SIMPLE FORMAT
+        # Header - MINIMAL
+        printer.set(align='center', bold=True)
+        printer.text(_shape_ar_text("كافيه بيروت") + "\n")
+        printer.text("────────────────\n")
+
+        # Receipt info - MINIMAL
         printer.set(align='left', bold=False)
         printer.text(f"{_shape_ar_text('التاريخ:')} {ts}\n")
         printer.text(f"{_shape_ar_text('الطاولة:')} {table_code}\n")
         printer.text(f"{_shape_ar_text('الكاشير:')} {_shape_ar_text(cashier)}\n")
+        printer.text("────────────────\n")
 
-        printer.text("-" * 32 + "\n")
-
-        # Items header
-        printer.set(align='center', bold=True)
-        printer.text(_shape_ar_text("الطلبات") + "\n")
-        printer.set(align='left', bold=False)
-        printer.text("-" * 32 + "\n")
-
-        # ITEMS WITH PROPER THERMAL PRINTER COLUMNS
+        # ITEMS WITH SEPARATORS
         for it in items:
             name = _shape_ar_text(str(it["name"]))
             qty = _format_qty(float(it.get("qty", 0) or 0))
-            price = _format_currency_simple(it.get("unit_price", 0))
             total_price = _format_currency_simple(it.get("total_cents", 0))
 
-            # CRITICAL: Truncate name to fit thermal printer width
-            if len(name) > 16:
-                name = name[:13] + "..."
+            # Product name and quantity
+            printer.set(bold=True)
+            printer.text(f"{name} × {qty}\n")
 
-            # FIXED COLUMN WIDTHS FOR THERMAL PRINTER (32 chars total)
-            item_line = f"{name:<16} {qty:>2} {price:>6} {total_price:>6}"
-            printer.text(item_line + "\n")
-
-            # Print notes if any (indented)
+            # Customizations/notes
             notes = _note_segments(it.get("note", ""))
             for note in notes:
                 shaped_note = _shape_ar_text(note)
-                if len(shaped_note) > 28:
-                    shaped_note = shaped_note[:25] + "..."
-                printer.text(f"  • {shaped_note}\n")
+                printer.set(bold=False)
+                if len(shaped_note) > 30:
+                    shaped_note = shaped_note[:27] + "..."
+                printer.text(f"• {shaped_note}\n")
 
-        printer.text("=" * 32 + "\n")
+            # Price (right aligned)
+            printer.set(align='right', bold=True)
+            printer.text(f"{total_price:>16}\n")
+            printer.set(align='left')
+            printer.text("────────────────\n")
 
-        # Totals - RIGHT ALIGNED WITH SIMPLE NUMBERS
+        # Totals - MINIMAL
         printer.set(align='right', bold=True)
         printer.text(f"{_shape_ar_text('المجموع:')} {_format_currency_simple(subtotal):>10}\n")
         if discount > 0:
             printer.text(f"{_shape_ar_text('الخصم:')} {_format_currency_simple(discount):>10}\n")
         printer.text(f"{_shape_ar_text('الإجمالي:')} {_format_currency_simple(total):>10}\n")
 
-        printer.text("\n")
+        printer.text("────────────────\n")
         printer.set(align='center', bold=True)
         printer.text(_shape_ar_text("شكراً لزيارتكم") + "\n")
         printer.text("\n" * 2)
@@ -409,60 +355,38 @@ def _print_escpos_receipt(printer, table_code: str, items: List[dict], subtotal:
         raise
 
 def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]):
-    """Print bar ticket using ESC/POS with proper thermal formatting"""
+    """Print MINIMAL bar ticket using ESC/POS"""
     if not printer:
         raise ValueError("No printer available")
 
-    ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-
     try:
-        # Header
-        printer.set(align='center', bold=True, double_height=True)
-        printer.text(_shape_ar_text("بار كافيه بيروت") + "\n")
-        printer.set(align='center', bold=True, double_height=False)
-        printer.text(_shape_ar_text("تذكرة البار") + "\n")
-        printer.text("\n")
+        # Setup Arabic encoding
+        _setup_printer_arabic(printer)
 
-        # Ticket info
-        printer.set(align='left', bold=False)
-        printer.text(f"{_shape_ar_text('التاريخ:')} {ts}\n")
+        # MINIMAL header - just table number
+        printer.set(align='left', bold=True)
         printer.text(f"{_shape_ar_text('الطاولة:')} {table_code}\n")
+        printer.text("────────────────\n")
 
-        printer.text("-" * 32 + "\n")
-
-        # Orders header
-        printer.set(align='center', bold=True)
-        printer.text(_shape_ar_text("الطلبات") + "\n")
-        printer.set(align='left', bold=False)
-        printer.text("-" * 32 + "\n")
-
-        # Items - SIMPLE FORMAT FOR BAR TICKET
+        # ITEMS WITH SEPARATORS
         for it in items:
             name = _shape_ar_text(str(it["name"]))
             qty = _format_qty(float(it.get("qty", 0) or 0))
 
-            # Truncate long names
-            if len(name) > 22:
-                name = name[:19] + "..."
+            # Product name and quantity
+            printer.set(bold=True)
+            printer.text(f"{name} × {qty}\n")
 
-            # Simple format: "Product.................Qty"
-            item_line = f"{name:<22} {qty:>3}"
-            printer.text(item_line + "\n")
-
-            # Print notes if any
+            # Customizations/notes
             notes = _note_segments(it.get("note", ""))
             for note in notes:
                 shaped_note = _shape_ar_text(note)
-                if len(shaped_note) > 28:
-                    shaped_note = shaped_note[:25] + "..."
-                printer.text(f"  • {shaped_note}\n")
+                printer.set(bold=False)
+                if len(shaped_note) > 30:
+                    shaped_note = shaped_note[:27] + "..."
+                printer.text(f"• {shaped_note}\n")
 
-        printer.text("=" * 32 + "\n")
-        printer.text("\n")
-
-        printer.set(align='center', bold=True)
-        printer.text(_shape_ar_text("شكراً لتفهمكم") + "\n")
-        printer.text("\n" * 2)
+            printer.text("────────────────\n")
 
         # Cut paper
         printer.cut()
@@ -585,12 +509,16 @@ def test_printer():
     if printer:
         print("✅ Thermal printer connected!")
         try:
-            printer.text("TEST RECEIPT\n")
-            printer.text("Item1.............2 10.00 20.00\n")
-            printer.text("=" * 32 + "\n")
-            printer.text("المجموع:          150.00\n")
-            printer.text("الخصم:            10.00\n")
-            printer.text("الإجمالي:        140.00\n")
+            _setup_printer_arabic(printer)
+            printer.text("TEST - MINIMAL DESIGN\n")
+            printer.text("────────────────\n")
+            printer.text("عصير برتقال × 2\n")
+            printer.text("• سكر عالي\n")
+            printer.text("• مثلج\n")
+            printer.set(align='right')
+            printer.text("          20.00\n")
+            printer.set(align='left')
+            printer.text("────────────────\n")
             printer.cut()
             print("✅ Test print completed!")
         except Exception as e:

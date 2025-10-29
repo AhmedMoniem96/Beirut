@@ -14,6 +14,7 @@ try:
     _ESCPOS_OK = True
 except ImportError:
     _ESCPOS_OK = False
+    print("❌ python-escpos not installed")
 
 from ..core.db import setting_get
 from ..core.paths import DATA_DIR
@@ -43,7 +44,7 @@ try:
     import arabic_reshaper
     _AR_OK = True
 except ImportError:
-    pass
+    print("❌ arabic-reshaper not installed")
 
 def _shape_ar_text(text: str) -> str:
     if not text or not _AR_OK:
@@ -266,22 +267,58 @@ def _print_terminal_bar_ticket(table_code: str, items: List[dict]):
 
 # ---------------- Thermal Printer Functions ----------------
 def _find_xp80c_printer():
-    if not _ESCPOS_OK or _DISABLE_ESCPOS:
+    """Find and initialize XP-80C thermal printer with detailed debugging"""
+    print("🖨️  Searching for thermal printer...")
+
+    if not _ESCPOS_OK:
+        print("❌ ESC/POS library not available")
         return None
+
+    if _DISABLE_ESCPOS:
+        print("ℹ️  ESC/POS disabled by environment variable")
+        return None
+
     try:
+        print(f"🔍 Trying XP-80C at USB {XP80C_VENDOR_ID:04x}:{XP80C_PRODUCT_ID:04x}")
         printer = Usb(XP80C_VENDOR_ID, XP80C_PRODUCT_ID)
         print("✅ XP-80C Thermal printer connected!")
         return printer
+
     except USBNotFoundError:
-        print("ℹ️  No thermal printer found - using terminal preview")
+        print("❌ XP-80C not found at specified USB IDs")
+
+        # Try common thermal printer vendors
+        common_printers = [
+            (0x0416, 0x5011),  # Xprinter XP-80C
+            (0x04b8, 0x0202),  # Epson TM-T88IV
+            (0x04b8, 0x0e15),  # Epson TM-T88V
+            (0x067b, 0x2305),  # Prolific PL2305
+        ]
+
+        for vendor, product in common_printers:
+            try:
+                print(f"🔍 Trying USB {vendor:04x}:{product:04x}")
+                printer = Usb(vendor, product)
+                print(f"✅ Found compatible printer at {vendor:04x}:{product:04x}")
+                return printer
+            except USBNotFoundError:
+                continue
+
+        print("❌ No compatible thermal printers found")
+        return None
+
+    except Exception as e:
+        print(f"❌ Printer connection error: {e}")
         return None
 
 def _setup_printer_arabic(printer):
     """Configure printer for Arabic text support."""
     try:
-        printer._raw(b'\x1B@')  # Initialize
-        printer._raw(b'\x1Bt\x16')  # Arabic character set
-        printer._raw(b'\x1BR\x08')  # Arabic region
+        print("🔄 Setting up Arabic encoding...")
+        printer._raw(b'\x1B@')  # Initialize printer
+        printer._raw(b'\x1Bt\x16')  # Code page 862 (Hebrew/Arabic)
+        printer._raw(b'\x1BR\x08')  # Arabic character set
+        print("✅ Arabic encoding setup successful")
         return True
     except Exception as e:
         print(f"❌ Arabic setup failed: {e}")
@@ -290,13 +327,18 @@ def _setup_printer_arabic(printer):
 def _print_escpos_receipt(printer, table_code: str, items: List[dict], subtotal: int,
                          discount: int, total: int, method: str, cashier: str):
     """Enhanced thermal receipt printing."""
+    print(f"🖨️  Starting thermal receipt print for table {table_code}")
+
     if not printer:
+        print("❌ No printer available - cannot print")
         raise ValueError("No printer available")
 
     ts = datetime.now().strftime("%Y/%m/%d %H:%M")
+    print(f"📋 Processing {len(items)} items...")
 
     try:
-        _setup_printer_arabic(printer)
+        if not _setup_printer_arabic(printer):
+            print("❌ Failed to setup Arabic - printing may have issues")
 
         # Decorative header
         printer.set(align='center', bold=True, double_width=True)
@@ -394,7 +436,7 @@ def _print_escpos_receipt(printer, table_code: str, items: List[dict], subtotal:
         printer.text("\n" * 3)
 
         printer.cut()
-        print("✅ Enhanced receipt printed to XP-80C!")
+        print("✅ Enhanced receipt printed to thermal printer!")
 
     except Exception as e:
         print(f"❌ ESC/POS printing failed: {e}")
@@ -402,11 +444,15 @@ def _print_escpos_receipt(printer, table_code: str, items: List[dict], subtotal:
 
 def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]):
     """Enhanced bar ticket printing."""
+    print(f"🖨️  Starting thermal bar ticket print for table {table_code}")
+
     if not printer:
+        print("❌ No printer available - cannot print")
         raise ValueError("No printer available")
 
     try:
-        _setup_printer_arabic(printer)
+        if not _setup_printer_arabic(printer):
+            print("❌ Failed to setup Arabic - printing may have issues")
 
         ts = datetime.now().strftime("%H:%M")
 
@@ -456,7 +502,7 @@ def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]):
         printer.text("\n" * 2)
 
         printer.cut()
-        print("✅ Enhanced bar ticket printed to XP-80C!")
+        print("✅ Enhanced bar ticket printed to thermal printer!")
 
     except Exception as e:
         print(f"❌ ESC/POS bar ticket failed: {e}")
@@ -488,11 +534,18 @@ def _collapse_items(items: Iterable) -> List[dict]:
 class PrinterService:
     def __init__(self):
         _ensure_dirs()
+        print("🔄 Initializing PrinterService...")
         self._escpos_printer = _find_xp80c_printer()
+        if self._escpos_printer:
+            print("✅ PrinterService ready with thermal printer")
+        else:
+            print("ℹ️  PrinterService ready (terminal preview only)")
 
     def print_bar_ticket(self, table_code: str, items: Iterable) -> bool:
         """Print enhanced bar ticket."""
+        print(f"📋 Bar ticket requested for table {table_code}")
         data = _collapse_items(items)
+        print(f"📦 Processing {len(data)} unique items")
 
         # Always show terminal preview
         _print_terminal_bar_ticket(table_code, data)
@@ -504,6 +557,9 @@ class PrinterService:
                 return True
             except Exception as e:
                 print(f"❌ Thermal printing failed: {e}")
+                print("📺 Falling back to terminal preview only")
+        else:
+            print("ℹ️  No thermal printer - using terminal preview only")
 
         return True
 
@@ -522,7 +578,9 @@ class PrinterService:
         discount_label: str | None = None,
     ) -> bool:
         """Print enhanced cashier receipt."""
+        print(f"📋 Receipt requested for table {table_code}")
         data = _collapse_items(items)
+        print(f"📦 Processing {len(data)} unique items")
 
         # Always show terminal preview
         _print_terminal_receipt(table_code, data, subtotal, discount, total, cashier)
@@ -537,12 +595,38 @@ class PrinterService:
                 return True
             except Exception as e:
                 print(f"❌ Thermal printing failed: {e}")
+                print("📺 Falling back to terminal preview only")
+        else:
+            print("ℹ️  No thermal printer - using terminal preview only")
 
         return True
 
+# Create the 'printer' instance that main_window.py is looking for
 printer = PrinterService()
 
 def _apply_printer_settings(bar: Optional[str], cash: Optional[str]) -> None:
     printer.update_printers(bar, cash)
 
 bus.subscribe("printers_changed", _apply_printer_settings)
+
+# ---------------- Diagnostic function ----------------
+def diagnose_printing():
+    """Run diagnostics to see why printing might not work"""
+    print("\n" + "="*60)
+    print("🔧 PRINTING DIAGNOSTICS")
+    print("="*60)
+
+    # Test data
+    test_items = [
+        {"name": "عصير برتقال", "qty": 2, "total_cents": 2000, "note": "سكر عالي؛ مثلج"},
+        {"name": "شاي", "qty": 1, "total_cents": 500, "note": "سكر خفيف"},
+    ]
+
+    print("Testing receipt printing...")
+    result = printer.print_cashier_receipt("TEST", test_items, 2500, 500, 2000, "نقدي", "محمد")
+    print(f"Final result: {result}")
+
+    print("="*60)
+
+if __name__ == "__main__":
+    diagnose_printing()

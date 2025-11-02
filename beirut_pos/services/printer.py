@@ -51,6 +51,7 @@ class UsbDirectPrinter:
         )
         self.device = self  # For compatibility
         self._buffer = b""
+        self.encoding = "cp1256"
         
     def open(self):
         pass
@@ -66,11 +67,11 @@ class UsbDirectPrinter:
         pass  # Ignore formatting for now
         
     def text(self, txt):
-        # ASCII only for now - Arabic needs proper shaping
+        # Encode using Windows-1256 to support Arabic and Latin text
         try:
-            self._buffer += txt.encode('ascii', errors='replace')
-        except:
-            self._buffer += txt.encode('utf-8', errors='replace')
+            self._buffer += txt.encode(self.encoding, errors="replace")
+        except LookupError:
+            self._buffer += txt.encode("utf-8", errors="replace")
             
     def cut(self):
         self._buffer += b"\n\n\n"

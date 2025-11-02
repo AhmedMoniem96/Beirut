@@ -22,7 +22,14 @@ except ImportError:  # pragma: no cover - optional dependency
     File = None  # type: ignore[assignment]
     print("❌ python-escpos not installed")
 
-from ..core.paths import DATA_DIR\n
+from ..core.paths import DATA_DIR
+try:  # pragma: no cover - optional dependency
+    from .raw_usb_escpos import RawUsbEscpos
+
+    _RAW_USB_OK = True
+except ImportError:  # pragma: no cover - optional dependency
+    RawUsbEscpos = None  # type: ignore[assignment]
+    _RAW_USB_OK = False
 # ---------------- Direct USB Printer ----------------
 class UsbDirectPrinter:
     """Direct USB printing using pyusb."""
@@ -471,16 +478,35 @@ def _emit_lines_to_printer(printer, lines: Sequence[str]) -> None:
 
 
 # ---------------- Thermal Printer Functions ----------------
-def _find_xp80c_printer():
+def _find_thermal_printer():
     _log("🖨️  Searching for thermal printer...")
-
-    if not _ESCPOS_OK or Usb is None:
-        _log("❌ ESC/POS library not available")
-        return None
 
     if _DISABLE_ESCPOS:
         _log("ℹ️  ESC/POS disabled by environment variable")
         return None
+
+    if _RAW_USB_OK and RawUsbEscpos is not None:
+        try:
+            _log("🔍 Trying RawUsbEscpos (0483:5743)")
+            printer = RawUsbEscpos(vid=0x0483, pid=0x5743, interface=0)
+            _log(f"✅ Connected via RawUsbEscpos: {printer.name}")
+            return printer
+        except Exception as exc:
+            _log_printer_error("… RawUsbEscpos failed", exc)
+    else:
+        _log("ℹ️  Raw USB ESC/POS backend unavailable (pyusb missing)")
+
+    if not _ESCPOS_OK or Usb is None:
+        _log("❌ python-escpos not available; skipping Usb fallback")
+        return None
+
+    try:
+        _log("🔍 Trying XP-80C via python-escpos Usb 0416:5011")
+        printer = Usb(0x0416, 0x5011, interface=0, in_ep=0x82, out_ep=0x01)
+        _log("✅ Connected via python-escpos Usb 0416:5011")
+        return printer
+    except Exception as exc:
+        _log_printer_error("… Usb(0416:5011) failed", exc)
 
     printer = _try_usb_printer()
     if printer:
@@ -533,18 +559,14 @@ def _setup_printer_arabic(printer) -> bool:
 
 
 def _print_escpos_lines(printer, lines: Sequence[str]) -> None:
-    _setup_printer_arabic(printer)
+    ok = _setup_printer_arabic(printer)
+    if not ok:
+        raise RuntimeError(
+            "Printer init failed (reset/codepage). Check USB permissions/connection."
+        )
     _emit_lines_to_printer(printer, lines)
-    try:
-        printer.text("\n" * 3)
-    except Exception as exc:
-        _log_printer_error("Failed to add trailing space", exc)
-        raise
-    try:
-        printer.cut()
-    except Exception as exc:
-        _log_printer_error("Failed to cut paper", exc)
-        raise
+    printer.text("\n" * 3)
+    printer.cut()
 
 
 def _print_escpos_receipt(
@@ -602,7 +624,7 @@ class PrinterService:
     def __init__(self) -> None:
         _ensure_dirs()
         _log("🔄 Initializing PrinterService...")
-        self._escpos_printer = _find_xp80c_printer()
+        self._escpos_printer = _find_thermal_printer()
         if self._escpos_printer:
             _log("✅ PrinterService ready with thermal printer")
         else:
@@ -630,7 +652,7 @@ class PrinterService:
 
         # Fallback to auto-detection if no printer specified or connection failed
         if new_printer is None:
-            new_printer = _find_xp80c_printer()
+            new_printer = _find_thermal_printer()
 
         if new_printer:
             self._escpos_printer = new_printer

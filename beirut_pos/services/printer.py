@@ -394,10 +394,6 @@ def _try_file_printer():
             except Exception as exc:
                 _log_printer_error(f"Failed to open {path}", exc)
                 continue
-            device_handle = getattr(printer, "_device", None)
-            if not device_handle:
-                _log(f"❌ /dev backend {path} did not provide a device handle")
-                continue
             _log(f"✅ /dev backend ready at {path}")
             return printer
         except Exception as exc:

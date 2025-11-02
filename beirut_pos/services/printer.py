@@ -1,6 +1,7 @@
 """Enhanced receipt/ticket renderer for XP-80C thermal printers with improved design."""
 from __future__ import annotations
 
+import glob
 import os
 import sys
 from datetime import datetime
@@ -8,7 +9,7 @@ from typing import Iterable, List, Optional, Sequence
 
 # ---------------- ESC/POS availability ----------------
 try:  # pragma: no cover - optional dependency
-    from escpos.printer import Usb
+    from escpos.printer import File, Usb
     from escpos.exceptions import USBNotFoundError
     _ESCPOS_OK = True
 except ImportError:  # pragma: no cover - optional dependency
@@ -18,6 +19,7 @@ except ImportError:  # pragma: no cover - optional dependency
         """Fallback USB error when python-escpos is unavailable."""
 
     Usb = None  # type: ignore[assignment]
+    File = None  # type: ignore[assignment]
     print("❌ python-escpos not installed")
 
 from ..core.paths import DATA_DIR
@@ -27,11 +29,20 @@ from ..core.bus import bus
 _OUTPUT_ROOT = DATA_DIR / "prints"
 _RECEIPTS_DIR = _OUTPUT_ROOT / "receipts"
 _BAR_DIR = _OUTPUT_ROOT / "bar_tickets"
+_LOG_PATH = _OUTPUT_ROOT / "printer.log"
 _DISABLE_ESCPOS = os.environ.get("BEIRUT_POS_DISABLE_ESCPOS", "0") == "1"
 
-# ---------------- XP-80C USB Configuration ----------------
+# ---------------- Thermal USB Configuration ----------------
 XP80C_VENDOR_ID = 0x0416
 XP80C_PRODUCT_ID = 0x5011
+
+USB_PRINTER_IDS = [
+    (0x0483, 0x5743),  # STMicroelectronics USB Printer Port
+    (XP80C_VENDOR_ID, XP80C_PRODUCT_ID),
+    (0x04B8, 0x0202),  # Epson TM-T88IV
+    (0x04B8, 0x0E15),  # Epson TM-T88V
+    (0x067B, 0x2305),  # Prolific PL2305 bridge
+]
 
 # Paper width for 80mm thermal printer (~48 chars)
 PAPER_WIDTH = 48
@@ -40,6 +51,21 @@ PAPER_WIDTH = 48
 def _ensure_dirs() -> None:
     for path in (_OUTPUT_ROOT, _RECEIPTS_DIR, _BAR_DIR):
         path.mkdir(parents=True, exist_ok=True)
+    try:
+        _LOG_PATH.touch(exist_ok=True)
+    except Exception:
+        pass
+
+
+def _log(message: str) -> None:
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    formatted = f"[{timestamp}] {message}"
+    print(message)
+    try:
+        with _LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(formatted + "\n")
+    except Exception as exc:
+        print(f"⚠️  Failed to write printer log: {exc}")
 
 
 # ---------------- Arabic shaping ----------------
@@ -254,29 +280,29 @@ def _print_terminal_receipt(
     total: int,
     cashier: str,
 ) -> None:
-    print("\n" + "=" * 50)
-    print("🧾 ENHANCED RECEIPT PREVIEW")
-    print("=" * 50)
+    _log("\n" + "=" * 50)
+    _log("🧾 ENHANCED RECEIPT PREVIEW")
+    _log("=" * 50)
 
     for line in _build_receipt_lines(table_code, items, subtotal, discount, total, cashier):
-        print(line)
+        _log(line)
 
-    print("\n" + "=" * 50)
-    print("✅ PREVIEW COMPLETED (No thermal printer)")
-    print("=" * 50 + "\n")
+    _log("\n" + "=" * 50)
+    _log("✅ PREVIEW COMPLETED (No thermal printer)")
+    _log("=" * 50 + "\n")
 
 
 def _print_terminal_bar_ticket(table_code: str, items: List[dict]) -> None:
-    print("\n" + "=" * 50)
-    print("🍸 ENHANCED BAR TICKET PREVIEW")
-    print("=" * 50)
+    _log("\n" + "=" * 50)
+    _log("🍸 ENHANCED BAR TICKET PREVIEW")
+    _log("=" * 50)
 
     for line in _build_bar_ticket_lines(table_code, items):
-        print(line)
+        _log(line)
 
-    print("\n" + "=" * 50)
-    print("✅ BAR TICKET PREVIEW COMPLETED")
-    print("=" * 50 + "\n")
+    _log("\n" + "=" * 50)
+    _log("✅ BAR TICKET PREVIEW COMPLETED")
+    _log("=" * 50 + "\n")
 
 
 # ---------------- Printer helpers ----------------
@@ -311,7 +337,63 @@ class MockPrinter:
 
 
 def _log_printer_error(prefix: str, error: Exception) -> None:
-    print(f"❌ {prefix}: {error}")
+    _log(f"❌ {prefix}: {error}")
+
+
+def _usblp_device_paths() -> list[str]:
+    return sorted(glob.glob("/dev/usb/lp*"))
+
+
+def _try_usb_printer(*, allow_when_blocked: bool = False):
+    if not _ESCPOS_OK or Usb is None:
+        return None
+
+    lp_devices = _usblp_device_paths()
+    if lp_devices and not allow_when_blocked:
+        devices = ", ".join(lp_devices)
+        _log(f"ℹ️  Kernel usblp driver detected ({devices}); skipping ESC/POS USB backend")
+        return None
+
+    for vendor, product in USB_PRINTER_IDS:
+        try:
+            _log(f"🔍 Trying ESC/POS USB printer {vendor:04x}:{product:04x}")
+            printer = Usb(vendor, product, interface=0, in_ep=0x82, out_ep=0x01)
+            _log(f"✅ ESC/POS USB printer ready at {vendor:04x}:{product:04x}")
+            return printer
+        except TypeError:
+            try:
+                printer = Usb(vendor, product)
+                _log(f"✅ ESC/POS USB printer ready with default endpoints {vendor:04x}:{product:04x}")
+                return printer
+            except USBNotFoundError:
+                _log(f"❌ ESC/POS USB printer not found at {vendor:04x}:{product:04x}")
+            except Exception as exc:
+                _log_printer_error("Printer connection error", exc)
+        except USBNotFoundError:
+            _log(f"❌ ESC/POS USB printer not found at {vendor:04x}:{product:04x}")
+        except Exception as exc:
+            _log_printer_error("Printer connection error", exc)
+    return None
+
+
+def _try_file_printer():
+    if File is None:
+        _log("❌ ESC/POS File backend unavailable")
+        return None
+
+    lp_devices = _usblp_device_paths()
+    if not lp_devices:
+        _log("ℹ️  No /dev/usb/lp* devices detected")
+
+    for path in lp_devices:
+        try:
+            _log(f"🔍 Trying /dev backend at {path}")
+            printer = File(path)
+            _log(f"✅ /dev backend ready at {path}")
+            return printer
+        except Exception as exc:
+            _log_printer_error(f"Failed to open {path}", exc)
+    return None
 
 
 def _printer_set_safe(printer, **kwargs) -> None:
@@ -333,52 +415,31 @@ def _emit_lines_to_printer(printer, lines: Sequence[str]) -> None:
 
 # ---------------- Thermal Printer Functions ----------------
 def _find_xp80c_printer():
-    print("🖨️  Searching for thermal printer...")
+    _log("🖨️  Searching for thermal printer...")
 
-    if not _ESCPOS_OK:
-        print("❌ ESC/POS library not available")
+    if not _ESCPOS_OK or Usb is None:
+        _log("❌ ESC/POS library not available")
         return None
 
     if _DISABLE_ESCPOS:
-        print("ℹ️  ESC/POS disabled by environment variable")
+        _log("ℹ️  ESC/POS disabled by environment variable")
         return None
 
-    try:
-        print(f"🔍 Trying XP-80C at USB {XP80C_VENDOR_ID:04x}:{XP80C_PRODUCT_ID:04x}")
-        printer = Usb(XP80C_VENDOR_ID, XP80C_PRODUCT_ID)
-        print("✅ XP-80C Thermal printer connected!")
+    printer = _try_usb_printer()
+    if printer:
         return printer
-    except USBNotFoundError:
-        print("❌ XP-80C not found at specified USB IDs")
-    except Exception as exc:
-        _log_printer_error("Printer connection error", exc)
-        return None
 
-    common_printers = [
-        (0x0416, 0x5011),  # Xprinter XP-80C
-        (0x04B8, 0x0202),  # Epson TM-T88IV
-        (0x04B8, 0x0E15),  # Epson TM-T88V
-        (0x067B, 0x2305),  # Prolific PL2305 bridge
-    ]
+    printer = _try_file_printer()
+    if printer:
+        _log("✅ Printing via /dev backend")
+        return printer
 
-    for vendor, product in common_printers:
-        try:
-            print(f"🔍 Trying USB {vendor:04x}:{product:04x}")
-            printer = Usb(vendor, product)
-            print(f"✅ Found compatible printer at {vendor:04x}:{product:04x}")
-            return printer
-        except USBNotFoundError:
-            continue
-        except Exception as exc:
-            _log_printer_error("Printer connection error", exc)
-            return None
-
-    print("❌ No compatible thermal printers found")
+    _log("❌ No compatible thermal printers found")
     return None
 
 
 def _setup_printer_arabic(printer) -> bool:
-    print("🔄 Setting up Arabic encoding...")
+    _log("🔄 Setting up Arabic encoding...")
     try:
         printer._raw(b"\x1B@")  # Reset device state
     except Exception as exc:
@@ -396,15 +457,15 @@ def _setup_printer_arabic(printer) -> bool:
         try:
             printer._raw(command)
             selected_label = label
-            print(f"✅ Selected code page {label}")
+            _log(f"✅ Selected code page {label}")
             break
         except Exception as exc:
             _log_printer_error(f"Failed to set code page {label}", exc)
 
     if not selected_label:
-        print("⚠️  Unable to confirm Arabic code page; continuing with defaults")
+        _log("⚠️  Unable to confirm Arabic code page; continuing with defaults")
     else:
-        print(f"✅ Arabic encoding setup successful ({selected_label})")
+        _log(f"✅ Arabic encoding setup successful ({selected_label})")
 
     try:
         printer._raw(b"\x1B\x61\x00")  # Ensure left alignment for manual spacing
@@ -440,18 +501,18 @@ def _print_escpos_receipt(
     cashier: str,
 ) -> None:
     target = getattr(printer, "name", printer.__class__.__name__)
-    print(f"🖨️  Starting thermal receipt print for table {table_code} -> {target}")
+    _log(f"🖨️  Starting thermal receipt print for table {table_code} -> {target}")
     lines = _build_receipt_lines(table_code, items, subtotal, discount, total, cashier)
     _print_escpos_lines(printer, lines)
-    print(f"✅ Enhanced receipt printed to {target}!")
+    _log(f"✅ Enhanced receipt printed to {target}!")
 
 
 def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]) -> None:
     target = getattr(printer, "name", printer.__class__.__name__)
-    print(f"🖨️  Starting thermal bar ticket print for table {table_code} -> {target}")
+    _log(f"🖨️  Starting thermal bar ticket print for table {table_code} -> {target}")
     lines = _build_bar_ticket_lines(table_code, items)
     _print_escpos_lines(printer, lines)
-    print(f"✅ Enhanced bar ticket printed to {target}!")
+    _log(f"✅ Enhanced bar ticket printed to {target}!")
 
 
 def _collapse_items(items: Iterable) -> List[dict]:
@@ -483,20 +544,20 @@ def _collapse_items(items: Iterable) -> List[dict]:
 class PrinterService:
     def __init__(self) -> None:
         _ensure_dirs()
-        print("🔄 Initializing PrinterService...")
+        _log("🔄 Initializing PrinterService...")
         self._escpos_printer = _find_xp80c_printer()
         if self._escpos_printer:
-            print("✅ PrinterService ready with thermal printer")
+            _log("✅ PrinterService ready with thermal printer")
         else:
             if _DISABLE_ESCPOS:
-                print("ℹ️  PrinterService in preview-only mode (ESC/POS disabled)")
+                _log("ℹ️  PrinterService in preview-only mode (ESC/POS disabled)")
             else:
-                print("ℹ️  PrinterService ready (terminal preview only)")
+                _log("ℹ️  PrinterService ready (terminal preview only)")
 
     def update_printers(self, bar: Optional[str], cash: Optional[str]) -> None:
-        print("🔁 Refreshing printer configuration...")
+        _log("🔁 Refreshing printer configuration...")
         if bar or cash:
-            print(f"ℹ️  Requested bar printer: {bar!r}, cashier printer: {cash!r}")
+            _log(f"ℹ️  Requested bar printer: {bar!r}, cashier printer: {cash!r}")
         new_printer = _find_xp80c_printer()
         if new_printer:
             try:
@@ -505,18 +566,18 @@ class PrinterService:
             except Exception as exc:
                 _log_printer_error("Failed to close previous printer", exc)
             self._escpos_printer = new_printer
-            print("✅ Thermal printer handle refreshed")
+            _log("✅ Thermal printer handle refreshed")
         else:
             self._escpos_printer = None
-            print("ℹ️  No thermal printer available after refresh")
+            _log("ℹ️  No thermal printer available after refresh")
 
     def _current_printer(self):
         return self._escpos_printer
 
     def print_bar_ticket(self, table_code: str, items: Iterable) -> bool:
-        print(f"📋 Bar ticket requested for table {table_code}")
+        _log(f"📋 Bar ticket requested for table {table_code}")
         data = _collapse_items(items)
-        print(f"📦 Processing {len(data)} unique items")
+        _log(f"📦 Processing {len(data)} unique items")
 
         _print_terminal_bar_ticket(table_code, data)
 
@@ -526,9 +587,10 @@ class PrinterService:
                 _print_escpos_bar_ticket(printer, table_code, data)
             except Exception as exc:
                 _log_printer_error("Thermal bar ticket failed", exc)
-                print("📺 Falling back to terminal preview only")
+                _log("📺 Falling back to terminal preview only")
+                raise
         else:
-            print("ℹ️  No thermal printer - using terminal preview only")
+            _log("ℹ️  No thermal printer - using terminal preview only")
 
         return True
 
@@ -546,9 +608,9 @@ class PrinterService:
         *,
         discount_label: str | None = None,
     ) -> bool:
-        print(f"📋 Receipt requested for table {table_code}")
+        _log(f"📋 Receipt requested for table {table_code}")
         data = _collapse_items(items)
-        print(f"📦 Processing {len(data)} unique items")
+        _log(f"📦 Processing {len(data)} unique items")
 
         _print_terminal_receipt(table_code, data, subtotal, discount, total, cashier)
 
@@ -567,9 +629,10 @@ class PrinterService:
                 )
             except Exception as exc:
                 _log_printer_error("Thermal receipt failed", exc)
-                print("📺 Falling back to terminal preview only")
+                _log("📺 Falling back to terminal preview only")
+                raise
         else:
-            print("ℹ️  No thermal printer - using terminal preview only")
+            _log("ℹ️  No thermal printer - using terminal preview only")
 
         return True
 
@@ -587,37 +650,64 @@ bus.subscribe("printers_changed", _apply_printer_settings)
 
 # ---------------- Diagnostic function ----------------
 def diagnose_printing() -> None:
-    print("\n" + "=" * 60)
-    print("🔧 PRINTING DIAGNOSTICS")
-    print("=" * 60)
-    print(f"Python: {sys.version.split()[0]}")
-    print(f"ESC/POS available: {_ESCPOS_OK}")
-    print(f"ESC/POS disabled: {_DISABLE_ESCPOS}")
-    print(f"Data directory: {DATA_DIR}")
+    _log("\n" + "=" * 60)
+    _log("🔧 PRINTING DIAGNOSTICS")
+    _log("=" * 60)
+    _log(f"Python: {sys.version.split()[0]}")
+    _log(f"ESC/POS available: {_ESCPOS_OK}")
+    _log(f"ESC/POS disabled: {_DISABLE_ESCPOS}")
+    _log(f"Data directory: {DATA_DIR}")
+
+    diagnostic_usb = _try_usb_printer(allow_when_blocked=True)
+    if diagnostic_usb:
+        _log("✅ Diagnostic: ESC/POS USB backend succeeded")
+        try:
+            if hasattr(diagnostic_usb, "close"):
+                diagnostic_usb.close()  # type: ignore[operator]
+        except Exception as exc:
+            _log_printer_error("Failed to close diagnostic USB printer", exc)
+    else:
+        _log("⚠️  Diagnostic: ESC/POS USB backend unavailable")
+
+    diagnostic_file = _try_file_printer()
+    if diagnostic_file:
+        _log("✅ Diagnostic: /dev backend succeeded")
+        try:
+            if hasattr(diagnostic_file, "close"):
+                diagnostic_file.close()  # type: ignore[operator]
+        except Exception as exc:
+            _log_printer_error("Failed to close diagnostic file printer", exc)
+    else:
+        _log("⚠️  Diagnostic: /dev backend unavailable")
 
     printer_handle = printer._current_printer()
     if printer_handle:
-        print(f"🖨️  Active printer handle: {printer_handle}")
+        _log(f"🖨️  Active printer handle: {printer_handle}")
     else:
-        print("ℹ️  No active printer handle detected")
+        _log("ℹ️  No active printer handle detected")
 
-    printer.update_printers(None, None)
-    printer_handle = printer._current_printer()
+    try:
+        printer.update_printers(None, None)
+    except Exception as exc:
+        _log_printer_error("Printer refresh failed during diagnostics", exc)
+    finally:
+        printer_handle = printer._current_printer()
+
     if printer_handle:
-        print("✅ Printer detected after refresh")
+        _log("✅ Printer detected after refresh")
     else:
-        print("⚠️  Still no printer after refresh")
+        _log("⚠️  Still no printer after refresh")
 
     sample_items = [
         {"name": "عصير برتقال", "qty": 2, "total_cents": 2000, "note": "سكر عالي؛ مثلج"},
         {"name": "شاي", "qty": 1, "total_cents": 500, "note": "سكر خفيف"},
     ]
 
-    print("\n📺 Rendering terminal preview sample...")
+    _log("\n📺 Rendering terminal preview sample...")
     _print_terminal_receipt("TEST", sample_items, 2500, 500, 2000, "محمد")
 
     if printer_handle:
-        print("\n🖨️  Attempting thermal sample print...")
+        _log("\n🖨️  Attempting thermal sample print...")
         try:
             _print_escpos_receipt(
                 printer_handle,
@@ -632,9 +722,9 @@ def diagnose_printing() -> None:
         except Exception as exc:
             _log_printer_error("Diagnostic thermal print failed", exc)
     else:
-        print("ℹ️  Skipping physical sample print - no printer handle")
+        _log("ℹ️  Skipping physical sample print - no printer handle")
         mock = MockPrinter("DiagnosticMock")
-        print("🧪 Capturing ESC/POS output with mock printer")
+        _log("🧪 Capturing ESC/POS output with mock printer")
         try:
             _print_escpos_receipt(
                 mock,
@@ -646,11 +736,11 @@ def diagnose_printing() -> None:
                 "نقدي",
                 "محمد",
             )
-            print(f"🧪 Mock buffer contains {len(mock.buffer)} entries")
+            _log(f"🧪 Mock buffer contains {len(mock.buffer)} entries")
         except Exception as exc:
             _log_printer_error("Diagnostic mock print failed", exc)
 
-    print("=" * 60 + "\n")
+    _log("=" * 60 + "\n")
 
 
 if __name__ == "__main__":

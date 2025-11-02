@@ -3,9 +3,14 @@ from __future__ import annotations
 import usb.core
 import usb.util
 
+from .arabic_codec import sanitize_line, shape_bidi_arabic, encode_for_printer
+
 
 class RawUsbEscpos:
-    """Minimal ESC/POS adapter using pyusb for STMicroelectronics USB printers."""
+    """
+    Raw ESC/POS adapter using pyusb.
+    Ensures Arabic: sets code page, shapes+bidi, CP1256 encoding.
+    """
 
     def __init__(self, vid: int = 0x0483, pid: int = 0x5743, interface: int = 0) -> None:
         self.vid = vid
@@ -25,7 +30,7 @@ class RawUsbEscpos:
         try:
             if dev.is_kernel_driver_active(self.interface):
                 dev.detach_kernel_driver(self.interface)
-        except (NotImplementedError, AttributeError):
+        except (NotImplementedError, AttributeError, usb.core.USBError):
             pass
 
         dev.set_configuration()
@@ -41,7 +46,21 @@ class RawUsbEscpos:
 
         self.dev = dev
         self.ep_out = ep_out
+
         self._raw(b"\x1B@")
+
+        for code, enc in [(0x13, "cp1256"), (0x12, "cp864"), (0x0F, "cp720"), (0x16, "cp862")]:
+            try:
+                self._raw(b"\x1Bt" + bytes([code]))
+                self.encoding = enc
+                break
+            except Exception:
+                continue
+
+        try:
+            self._raw(b"\x1B\x61\x00")
+        except Exception:
+            pass
 
     def _write(self, data: bytes) -> None:
         if self.ep_out is None:
@@ -52,7 +71,9 @@ class RawUsbEscpos:
         self._write(data)
 
     def text(self, txt: str) -> None:
-        payload = txt.encode(self.encoding, errors="replace")
+        sanitized = sanitize_line(txt)
+        shaped = shape_bidi_arabic(sanitized)
+        payload = encode_for_printer(shaped, self.encoding)
         self._write(payload)
 
     def set(self, **kwargs) -> None:  # noqa: D401 - compatibility no-op

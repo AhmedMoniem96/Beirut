@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - optional dependency
     print("❌ python-escpos not installed")
 
 from ..core.paths import DATA_DIR
+from .arabic_codec import sanitize_line, shape_bidi_arabic, encode_for_printer
 try:  # pragma: no cover - optional dependency
     from .raw_usb_escpos import RawUsbEscpos
 
@@ -238,9 +239,12 @@ def _build_receipt_lines(
     lines.append(_center_text("╚" + "═" * 30 + "╝"))
     lines.append("")
 
-    lines.append(f"📅 {_shape_ar_text('التاريخ:')} {timestamp}")
-    lines.append(f"🪑 {_shape_ar_text('الطاولة:')} {table_code}")
-    lines.append(f"👤 {_shape_ar_text('الكاشير:')} {_shape_ar_text(cashier)}")
+    date_label = _shape_ar_text("التاريخ:")
+    table_label = _shape_ar_text("الطاولة:")
+    cashier_label = _shape_ar_text("الكاشير:")
+    lines.append(f"[DATE] {date_label} {timestamp}")
+    lines.append(f"[TABLE] {table_label} {table_code}")
+    lines.append(f"[CASHIER] {cashier_label} {_shape_ar_text(cashier)}")
     lines.append(_draw_line("═"))
     lines.append("")
 
@@ -264,7 +268,7 @@ def _build_receipt_lines(
         lines.append(_format_item_line(line_text, total_price))
 
         for note in remaining_notes:
-            lines.append(f"   ↳ {_shape_ar_text(note)}")
+            lines.append(f"   -> {_shape_ar_text(note)}")
 
         if index < len(items):
             lines.append(_draw_line("·"))
@@ -280,13 +284,14 @@ def _build_receipt_lines(
         lines.append(_draw_line("─"))
 
     total_str = _format_currency_simple(total)
-    lines.append(_format_item_line(_shape_ar_text("💰 الإجمالي:"), total_str))
+    total_label = _shape_ar_text("الإجمالي:")
+    lines.append(_format_item_line(f"[TOTAL] {total_label}", total_str))
     lines.append(_draw_line("═"))
     lines.append("")
 
     lines.append(_center_text(_shape_ar_text("شكراً لزيارتكم")))
     lines.append(_center_text("Thank you for visiting!"))
-    lines.append(_center_text("★ ★ ★"))
+    lines.append(_center_text("***"))
     lines.append("")
 
     return lines
@@ -296,7 +301,8 @@ def _build_bar_ticket_lines(table_code: str, items: Sequence[dict]) -> List[str]
     timestamp = datetime.now().strftime("%H:%M")
     lines: List[str] = []
 
-    lines.append(f"🕐 {timestamp}  |  🪑 {_shape_ar_text('الطاولة:')} {table_code}")
+    table_label = _shape_ar_text("الطاولة:")
+    lines.append(f"[TIME] {timestamp}  |  [TABLE] {table_label} {table_code}")
     lines.append(_draw_line("═"))
 
     for index, item in enumerate(items, 1):
@@ -320,7 +326,7 @@ def _build_bar_ticket_lines(table_code: str, items: Sequence[dict]) -> List[str]
         lines.append(line_text)
 
         for note in remaining_notes:
-            lines.append(f"  • {_shape_ar_text(note)}")
+            lines.append(f"  - {_shape_ar_text(note)}")
 
         if index < len(items):
             lines.append("────────────────")
@@ -486,11 +492,12 @@ def _find_thermal_printer():
         _log("ℹ️  ESC/POS disabled by environment variable")
         return None
 
-    if _RAW_USB_OK and RawUsbEscpos is not None:
+    if RawUsbEscpos is not None and _RAW_USB_OK:
         try:
             _log("🔍 Trying RawUsbEscpos (0483:5743)")
             printer = RawUsbEscpos(vid=0x0483, pid=0x5743, interface=0)
-            _log(f"✅ Connected via RawUsbEscpos: {printer.name}")
+            encoding = getattr(printer, "encoding", "unknown")
+            _log(f"✅ Connected via RawUsbEscpos: {printer.name} (encoding={encoding})")
             return printer
         except Exception as exc:
             _log_printer_error("… RawUsbEscpos failed", exc)
@@ -525,38 +532,21 @@ def _find_thermal_printer():
 def _setup_printer_arabic(printer) -> bool:
     _log("🔄 Setting up Arabic encoding...")
     try:
-        printer._raw(b"\x1B@")  # Reset device state
+        printer._raw(b"\x1B@")
     except Exception as exc:
         _log_printer_error("Failed to reset printer", exc)
         return False
-
-    code_pages = [
-        (b"\x1Bt\x13", "CP1256"),
-        (b"\x1Bt\x12", "CP864"),
-        (b"\x1Bt\x0f", "CP720"),
-        (b"\x1Bt\x16", "CP862"),
-    ]
-    selected_label: str | None = None
-    for command, label in code_pages:
-        try:
-            printer._raw(command)
-            selected_label = label
-            _log(f"✅ Selected code page {label}")
-            break
-        except Exception as exc:
-            _log_printer_error(f"Failed to set code page {label}", exc)
-
-    if not selected_label:
-        _log("⚠️  Unable to confirm Arabic code page; continuing with defaults")
-    else:
-        _log(f"✅ Arabic encoding setup successful ({selected_label})")
-
     try:
-        printer._raw(b"\x1B\x61\x00")  # Ensure left alignment for manual spacing
+        printer._raw(b"\x1B\x61\x00")
     except Exception:
         pass
+    try:
+        if getattr(printer, "encoding", None):
+            printer.encoding = printer.encoding
+    except Exception:
+        pass
+    return True
 
-    return selected_label is not None
 
 
 def _print_escpos_lines(printer, lines: Sequence[str]) -> None:
@@ -787,6 +777,19 @@ def diagnose_printing() -> None:
         _log("✅ Printer detected after refresh")
     else:
         _log("⚠️  Still no printer after refresh")
+
+    if printer_handle:
+        sample_ar = "قهوة سادة × 2 — شكراً لزيارتكم"
+        try:
+            shaped = shape_bidi_arabic(sanitize_line(sample_ar))
+            payload = encode_for_printer(shaped, getattr(printer_handle, "encoding", "cp1256"))
+            printer_handle._raw(b"\x1B@")
+            printer_handle._raw(b"\x1B\x61\x00")
+            printer_handle._raw(payload + b"\n\n")
+            printer_handle.cut()
+            _log("✅ Arabic sample printed")
+        except Exception as exc:
+            _log_printer_error("Arabic sample failed", exc)
 
     sample_items = [
         {"name": "عصير برتقال", "qty": 2, "total_cents": 2000, "note": "سكر عالي؛ مثلج"},

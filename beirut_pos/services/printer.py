@@ -389,6 +389,11 @@ def _try_file_printer():
         try:
             _log(f"🔍 Trying /dev backend at {path}")
             printer = File(path)
+            try:
+                printer.open(raise_not_found=False)
+            except Exception as exc:
+                _log_printer_error(f"Failed to open {path}", exc)
+                continue
             _log(f"✅ /dev backend ready at {path}")
             return printer
         except Exception as exc:

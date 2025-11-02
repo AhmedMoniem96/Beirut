@@ -22,59 +22,7 @@ except ImportError:  # pragma: no cover - optional dependency
     File = None  # type: ignore[assignment]
     print("❌ python-escpos not installed")
 
-from ..core.paths import DATA_DIR\n
-# ---------------- Direct USB Printer ----------------
-class UsbDirectPrinter:
-    """Direct USB printing using pyusb."""
-    def __init__(self, vendor=0x0483, product=0x5743):
-        import usb.core
-        import usb.util
-        self.dev = usb.core.find(idVendor=vendor, idProduct=product)
-        if not self.dev:
-            raise Exception("Printer not found")
-        try:
-            self.dev.set_configuration()
-        except:
-            pass
-        cfg = self.dev.get_active_configuration()
-        intf = cfg[(0,0)]
-        self.ep_out = usb.util.find_descriptor(
-            intf,
-            custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
-        )
-        self.device = self  # For compatibility
-        self._buffer = b""
-        
-    def open(self):
-        pass
-        
-    def close(self):
-        pass
-        
-    def hw(self, cmd):
-        if cmd == "INIT":
-            self._buffer += b"\x1B\x40"
-            
-    def set(self, **kwargs):
-        pass  # Ignore formatting for now
-        
-    def text(self, txt):
-        # ASCII only for now - Arabic needs proper shaping
-        try:
-            self._buffer += txt.encode('ascii', errors='replace')
-        except:
-            self._buffer += txt.encode('utf-8', errors='replace')
-            
-    def cut(self):
-        self._buffer += b"\n\n\n"
-        self._buffer += b"\x1D\x56\x00"
-        self.ep_out.write(self._buffer)
-        self._buffer = b""
-        
-    def _raw(self, data):
-        self._buffer += data
-
-
+from ..core.paths import DATA_DIR
 from ..core.bus import bus
 
 # ---------------- Paths & constants ----------------

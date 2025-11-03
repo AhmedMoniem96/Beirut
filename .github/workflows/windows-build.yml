@@ -4,7 +4,6 @@ on:
   workflow_dispatch: {}
   push:
     tags: ["v*"]
-  # Optional: Build on PRs to test before release
   pull_request:
     branches: [main, master]
 
@@ -20,7 +19,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: 'pip'  # Cache pip dependencies for faster builds
+          cache: pip
 
       - name: Create launcher entry script
         shell: pwsh
@@ -54,40 +53,35 @@ jobs:
           pip install --no-cache-dir --only-binary=:all: PyQt6-Qt6==6.5.2
           pip install --no-cache-dir --only-binary=:all: "PyQt6-sip>=13.5,<14"
 
-          # Install core packages explicitly
+          # Core packages
           pip install --no-cache-dir SQLAlchemy==2.0.23
           pip install --no-cache-dir reportlab==4.0.7
           pip install --no-cache-dir pillow>=10.0.0
           pip install --no-cache-dir qrcode>=7.4
-          
-          # ESC/POS printing stack - CRITICAL for thermal printers
-          pip install --no-cache-dir python-escpos>=3.0.0
+
+          # ESC/POS printing stack
+          pip install --no-cache-dir python-escpos==3.1.0
           pip install --no-cache-dir pyusb>=1.2.1
           pip install --no-cache-dir pyserial>=3.5
-          
+
           # Arabic support
           pip install --no-cache-dir arabic-reshaper>=3.0.0
           pip install --no-cache-dir python-bidi>=0.4.2
-          
+
           # Windows-specific printing backend
           pip install --no-cache-dir pywin32>=305
-          
-          # HTML printing support (optional - will use fallbacks if not available)
-          pip install --no-cache-dir pdfkit 2>$null || echo "⚠️  pdfkit optional dependency skipped"
-          
+
           # Builder
           pip install --no-cache-dir pyinstaller pyinstaller-hooks-contrib
 
       - name: Show versions (sanity check)
         shell: pwsh
         run: |
-          # Set UTF-8 encoding for console output
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          python -c "
+          python - << 'PY'
           from importlib.metadata import version as v
           from PyQt6.QtCore import QT_VERSION_STR as q
           import sqlalchemy
-          import escpos
           print('='*50)
           print('Dependency Versions:')
           print('='*50)
@@ -99,12 +93,35 @@ jobs:
           print('arabic-reshaper =', v('arabic-reshaper'))
           print('python-bidi =', v('python-bidi'))
           print('pywin32 =', v('pywin32'))
-          try:
-              print('pdfkit =', v('pdfkit'))
-          except:
-              print('pdfkit = NOT INSTALLED (optional)')
           print('='*50)
-          "
+          PY
+
+      - name: Fetch libusb-1.0.dll (x64)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.7z"
+          Invoke-WebRequest $url -OutFile libusb.7z
+          # 7z is preinstalled on windows-latest runners
+          7z x libusb.7z -olibusb | Out-Null
+          $dll = Get-ChildItem -Recurse libusb -Filter "libusb-1.0.dll" | Where-Object { $_.FullName -match "MS64" } | Select-Object -First 1
+          if (-not $dll) { $dll = Get-ChildItem -Recurse libusb -Filter "libusb-1.0.dll" | Select-Object -First 1 }
+          Copy-Item $dll.FullName libusb-1.0.dll
+
+      - name: Set build env defaults
+        shell: pwsh
+        run: |
+          echo "BEIRUT_POS_AR_FORCE_BITMAP=1" >> $env:GITHUB_ENV
+          echo "BEIRUT_POS_TABLE_FONT=30" >> $env:GITHUB_ENV
+
+      - name: Verify USB backend import
+        shell: pwsh
+        run: |
+          python - << 'PY'
+          import os
+          import usb.backend.libusb1
+          print("libusb backend present:", usb.backend.libusb1.get_backend() is not None)
+          print("DLL present:", os.path.exists("libusb-1.0.dll"))
+          PY
 
       - name: Clean previous build artifacts/spec
         shell: pwsh
@@ -130,23 +147,20 @@ jobs:
             '--noconsole',
             '--clean',
             '--additional-hooks-dir','hooks',
-            
+
             # PyQt6 and UI
             '--collect-all','PyQt6',
             '--collect-all','PyQt6.Qt6',
+            '--collect-plugins','PyQt6.Qt6.plugins',
             '--collect-submodules','beirut_pos',
-            
+
             # Database (SQLAlchemy + SQLite)
             '--collect-all','sqlalchemy',
             '--hidden-import','sqlalchemy',
             '--hidden-import','sqlalchemy.ext.declarative',
             '--hidden-import','sqlalchemy.orm',
-            '--hidden-import','sqlalchemy.sql',
-            '--hidden-import','sqlalchemy.ext.baked',
-            '--hidden-import','sqlalchemy.pool',
-            '--hidden-import','sqlalchemy.dialects.sqlite',
             '--collect-all','sqlite3',
-            
+
             # Thermal Printing (ESC/POS)
             '--collect-all','escpos',
             '--hidden-import','escpos.printer',
@@ -156,45 +170,40 @@ jobs:
             '--hidden-import','escpos.impl.epson',
             '--hidden-import','escpos.impl.generic',
             '--hidden-import','escpos.impl.legacy',
-            
+            '--hidden-import','usb.backend.libusb1',
+
             # USB/Serial communication
             '--hidden-import','usb.core',
             '--hidden-import','usb.util',
-            '--hidden-import','usb.backend',
-            '--hidden-import','usb.backend.libusb1',
             '--hidden-import','serial',
             '--hidden-import','serial.tools',
             '--hidden-import','serial.tools.list_ports',
-            
+
             # Arabic text support
             '--collect-submodules','arabic_reshaper',
             '--collect-submodules','bidi',
-            
+
             # Image handling
             '--hidden-import','PIL',
-            '--hidden-import','PIL._imaging',
             '--hidden-import','PIL.Image',
             '--hidden-import','PIL.ImageFile',
-            
+
             # Windows printing
             '--hidden-import','win32print',
             '--hidden-import','win32api',
             '--hidden-import','win32con',
             '--hidden-import','win32gui',
             '--hidden-import','win32ui',
-            
-            # PDF support (optional)
-            '--hidden-import','pdfkit'
+
+            # Bundle libusb DLL next to the EXE
+            '--add-binary','libusb-1.0.dll;.'
           )
-          
-          # Add icon if exists
-          if (Test-Path 'assets/app.ico') { 
+
+          if (Test-Path 'assets/app.ico') {
             $args += @('--icon','assets/app.ico')
             Write-Host "Using icon: assets/app.ico"
           }
-          
-          # Add assets folders
-          if (Test-Path 'assets') { 
+          if (Test-Path 'assets') {
             $args += @('--add-data','assets;assets')
             Write-Host "Including assets folder"
           }
@@ -202,7 +211,7 @@ jobs:
             $args += @('--add-data','beirut_pos/assets/fonts;beirut_pos/assets/fonts')
             Write-Host "Including fonts folder"
           }
-          
+
           Write-Host "Building EXE..."
           python -m PyInstaller @args
 
@@ -214,14 +223,9 @@ jobs:
             $sizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 2)
             Write-Host "EXE built successfully: $sizeMB MB"
             Write-Host "Location: $exePath"
-            
-            # Quick version check (won't fail if unsupported)
             & $exePath --version 2>$null
-            if ($LASTEXITCODE -eq 0) {
-              Write-Host "Version check passed"
-            } else {
-              Write-Host "No --version flag support (normal for GUI apps)"
-            }
+            if ($LASTEXITCODE -eq 0) { Write-Host "Version check passed" }
+            else { Write-Host "No --version flag support (GUI app) — OK" }
           } else {
             Write-Host "ERROR: EXE not found at $exePath!"
             exit 1
@@ -248,25 +252,24 @@ jobs:
           files: dist/BeirutPOS.exe
           body: |
             ## BeirutPOS Windows Build
-            
-            **Features:**
+
+            **Features**
             - 80mm Thermal Printer Support (XP-80C compatible)
             - Arabic Text Support with Reshaping
             - USB/Serial Printer Communication
-            - Enhanced Receipt Design
+            - Enhanced Receipt & Bar Ticket Tables
             - SQLite Database
             - PyQt6 GUI
-            
-            **Installation:**
+
+            **Installation**
             1. Download `BeirutPOS.exe`
-            2. Run as Administrator (for USB printer access)
-            3. For USB thermal printers: Install WinUSB driver using [Zadig](https://zadig.akeo.ie/)
-            
+            2. Install **WinUSB** driver for your thermal printer with **Zadig** (Interface 0)
+            3. Run `BeirutPOS.exe` (Admin recommended for first USB access)
+
+            **Notes**
+            - `libusb-1.0.dll` is bundled with the app; no separate libusb install required.
+
             **SHA256:** `${{ env.SHA256 }}`
-            
-            **Requirements:**
-            - Windows 10/11
-            - Administrator privileges for USB printer access
           draft: false
           prerelease: false
           generate_release_notes: true

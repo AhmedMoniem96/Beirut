@@ -1,109 +1,171 @@
 # beirut_pos/services/printer_windows.py
 from __future__ import annotations
 import os
+import io
 import platform
+from typing import List, Iterable, Tuple
 
-# Hard dependency only on Windows
-_IS_WINDOWS = platform.system().lower().startswith("win")
-
-if _IS_WINDOWS:
-    import win32print
-    import win32ui
-    import win32con
+# Hard deps
+import win32print, win32ui, win32con
 from PIL import Image, ImageDraw, ImageFont, ImageWin
 
-# Optional Arabic shaping (for when text-to-image pass is used without your arabic_bitmap)
+# Optional Arabic shaping (works even if not installed: we degrade gracefully)
 try:
-    import arabic_reshaper
-    from bidi.algorithm import get_display
-    _ARABIC_OK = True
+    import arabic_reshaper  # pip install arabic-reshaper
+    from bidi.algorithm import get_display  # pip install python-bidi
+    _AR_OK = True
 except Exception:
-    _ARABIC_OK = False
+    _AR_OK = False
 
 
-def list_printers() -> list[str]:
-    """Return local + connected printers (Windows only)."""
-    if not _IS_WINDOWS:
-        return []
+# ---------- Public API ----------
+
+def list_printers() -> List[str]:
+    """Return installed printer display names (Windows)."""
     flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
-    return [p[2] for p in win32print.EnumPrinters(flags)]
+    printers = win32print.EnumPrinters(flags)
+    # Each tuple -> (flags, desc, name, comment)
+    return [p[2] for p in printers if len(p) > 2]
 
 
-def _ensure_rgb(img: Image.Image) -> Image.Image:
-    if img.mode != "RGB":
-        return img.convert("RGB")
-    return img
-
-
-def print_image(printer_name: str, pil_image: Image.Image) -> None:
+def print_text(printer_name: str, text: str, encoding: str = "cp1256",
+               font_path: str | None = None, font_size: int = 28,
+               paper_px: int = 576, line_pad: int = 8) -> None:
     """
-    Send a PIL image to a Windows printer via GDI. Uses full printable width.
-    This avoids RTL/ligature issues by rasterizing the receipt.
+    Render text (Arabic + English) to a raster image and print via GDI.
+    Alignment tags supported at line start:
+      '>>R ' right, '>>C ' center, '>>L ' left (default).
     """
-    if not _IS_WINDOWS:
-        raise RuntimeError("Windows printing is only available on Windows")
-    pil_image = _ensure_rgb(pil_image)
+    img = _text_to_image(text.splitlines(), font_path=font_path, font_size=font_size,
+                         paper_px=paper_px, line_pad=line_pad)
+    _print_image(printer_name, img)
 
-    hprinter = win32print.OpenPrinter(printer_name)
+
+def print_image(printer_name: str, pil_image: Image.Image, paper_px: int = 576) -> None:
+    """
+    Print a PIL image via GDI. Image is scaled to printable width.
+    """
+    if pil_image.mode != "RGB":
+        pil_image = pil_image.convert("RGB")
+    _print_image(printer_name, pil_image, force_width=True)
+
+
+# ---------- Helpers ----------
+
+def _choose_font(font_path: str | None, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """
+    Try a font that supports Arabic. Fallback to common paths, then default.
+    """
+    candidates = []
+    if font_path:
+        candidates.append(font_path)
+
+    # Ship a font with your app (recommended). Example search paths:
+    candidates += [
+        os.path.join(os.getcwd(), "beirut_pos", "assets", "fonts", "NotoNaskhArabic-Regular.ttf"),
+        os.path.join(os.getcwd(), "assets", "fonts", "NotoNaskhArabic-Regular.ttf"),
+        os.path.join(os.getcwd(), "beirut_pos", "assets", "fonts", "Amiri-Regular.ttf"),
+        os.path.join(os.getcwd(), "assets", "fonts", "Amiri-Regular.ttf"),
+        # Very common Windows fonts (may or may not support Arabic well):
+        r"C:\Windows\Fonts\arial.ttf",
+        r"C:\Windows\Fonts\Tahoma.ttf",
+        r"C:\Windows\Fonts\segoeui.ttf",
+    ]
+
+    for p in candidates:
+        try:
+            if p and os.path.exists(p):
+                return ImageFont.truetype(p, size=size)
+        except Exception:
+            pass
+
+    # Last resort: bitmap default font (no ligatures)
+    return ImageFont.load_default()
+
+
+def _shape_arabic(line: str) -> str:
+    if not _AR_OK:
+        return line
     try:
-        hdc = win32ui.CreateDC()
-        hdc.CreatePrinterDC(printer_name)
+        # Shape & reorder only the Arabic substrings; English stays as-is.
+        shaped = arabic_reshaper.reshape(line)
+        return get_display(shaped)
+    except Exception:
+        return line
 
-        # Start document
-        hdc.StartDoc("BeirutPOS")
+
+def _text_to_image(lines: Iterable[str], *, font_path: str | None,
+                   font_size: int, paper_px: int, line_pad: int) -> Image.Image:
+    """
+    Build a single tall image with all lines.
+    """
+    font = _choose_font(font_path, font_size)
+    # Measure heights
+    meas_img = Image.new("L", (1, 1), 255)
+    dr = ImageDraw.Draw(meas_img)
+    line_boxes: list[Tuple[str, str, Tuple[int, int, int, int]]] = []
+    total_h = 0
+
+    for raw in lines:
+        align = "left"
+        text = raw
+        if raw.startswith(">>R "):
+            align, text = "right", raw[4:]
+        elif raw.startswith(">>C "):
+            align, text = "center", raw[4:]
+        elif raw.startswith(">>L "):
+            align, text = "left", raw[4:]
+
+        shaped = _shape_arabic(text)
+        bbox = dr.textbbox((0, 0), shaped, font=font, direction=None)
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
+        line_boxes.append((align, shaped, (w, h, bbox[0], bbox[1])))
+        total_h += h + line_pad
+
+    total_h = max(total_h + 8, font_size + 16)
+    canvas = Image.new("RGB", (paper_px, total_h), "white")
+    dr = ImageDraw.Draw(canvas)
+
+    y = 4
+    for align, shaped, (w, h, _, _) in line_boxes:
+        if align == "center":
+            x = (paper_px - w) // 2
+        elif align == "right":
+            x = paper_px - w - 8
+        else:
+            x = 8
+        dr.text((x, y), shaped, fill=(0, 0, 0), font=font)
+        y += h + line_pad
+
+    return canvas
+
+
+def _print_image(printer_name: str, img: Image.Image, force_width: bool = True) -> None:
+    # Setup DC
+    hdc = win32ui.CreateDC()
+    hdc.CreatePrinterDC(printer_name)
+
+    try:
+        hdc.StartDoc("Beirut POS")
         hdc.StartPage()
 
-        # Printable resolution
+        # Printable area
         HORZRES = hdc.GetDeviceCaps(win32con.HORZRES)
-        # Keep width = printable width, scale height proportionally
-        w = HORZRES
-        h = int(pil_image.height * (w / pil_image.width))
+        VERTRES = hdc.GetDeviceCaps(win32con.VERTRES)
 
-        dib = ImageWin.Dib(pil_image)
+        # Scale to full page width, keep aspect
+        if force_width:
+            w = HORZRES
+            h = int(img.height * (float(w) / float(img.width)))
+        else:
+            w, h = img.size
+
+        # Convert to DIB and blit
+        dib = ImageWin.Dib(img)
         dib.draw(hdc.GetHandleOutput(), (0, 0, w, h))
 
         hdc.EndPage()
         hdc.EndDoc()
-        hdc.DeleteDC()
     finally:
-        win32print.ClosePrinter(hprinter)
-
-
-def print_text(printer_name: str, text: str, *, width_px: int = 576, font_size: int = 28) -> None:
-    """
-    Text -> raster -> print_image. Safer for Arabic than RAW text.
-    If you really want RAW bytes, add another function. This one is robust.
-    """
-    # Build a simple raster (fallback if you don't use your own arabic_bitmap pipeline here).
-    # Shape Arabic if libs present:
-    if _ARABIC_OK:
-        text = get_display(arabic_reshaper.reshape(text))
-
-    # Render simple multiline: left-aligned
-    font = None
-    try:
-        font = ImageFont.truetype("arial.ttf", size=font_size)
-    except Exception:
-        font = ImageFont.load_default()
-
-    # Size pass
-    tmp = Image.new("L", (1, 1), 255)
-    dr = ImageDraw.Draw(tmp)
-    lines = text.split("\n")
-    heights = []
-    max_w = 0
-    for ln in lines:
-        x0, y0, x1, y1 = dr.textbbox((0, 0), ln, font=font)
-        heights.append((y1 - y0) + 6)
-        max_w = max(max_w, x1 - x0)
-    total_h = max(1, sum(heights))
-
-    img = Image.new("L", (width_px, total_h), 255)
-    dr = ImageDraw.Draw(img)
-    y = 0
-    for i, ln in enumerate(lines):
-        x0, y0, x1, y1 = dr.textbbox((0, 0), ln, font=font)
-        dr.text((8, y), ln, 0, font=font)
-        y += heights[i]
-
-    print_image(printer_name, img.convert("RGB"))
+        hdc.DeleteDC()

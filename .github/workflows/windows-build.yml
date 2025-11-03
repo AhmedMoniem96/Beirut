@@ -90,7 +90,6 @@ jobs:
           print("PyQt6 =", v("PyQt6"), "| Qt6 =", q)
           print("SQLAlchemy =", sqlalchemy.__version__)
 
-          # Map distribution names -> import names
           checks = [
               ("python-escpos", "escpos"),
               ("pyusb", "usb"),
@@ -201,6 +200,7 @@ jobs:
             '--hidden-import','PIL',
             '--hidden-import','PIL.Image',
             '--hidden-import','PIL.ImageFile',
+            '--hidden-import','PIL.ImageWin',   # <-- added
 
             # Windows printing
             '--hidden-import','win32print',
@@ -277,11 +277,12 @@ jobs:
 
             **Installation**
             1. Download `BeirutPOS.exe`
-            2. Install **WinUSB** driver for your thermal printer with **Zadig** (Interface 0)
+            2. Install the official Windows driver for your thermal printer (e.g., XPrinter XP-80C) via the vendor installer or Windows Update.
             3. Run `BeirutPOS.exe` (Admin recommended for first USB access)
 
             **Notes**
-            - `libusb-1.0.dll` is bundled with the app; no separate libusb install required.
+            - WinUSB (Zadig) is ONLY needed if you choose the raw USB fallback. For normal Windows-driver printing, do NOT install WinUSB.
+            - `libusb-1.0.dll` is bundled for the optional raw USB mode.
 
             **SHA256:** `${{ env.SHA256 }}`
           draft: false

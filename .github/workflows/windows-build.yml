@@ -78,30 +78,37 @@ jobs:
         shell: pwsh
         run: |
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          python - << 'PY'
+          $code = @'
           from importlib.metadata import version as v
           from PyQt6.QtCore import QT_VERSION_STR as q
           import sqlalchemy
-          print('='*50)
-          print('Dependency Versions:')
-          print('='*50)
-          print('PyQt6 =', v('PyQt6'), '| Qt6 =', q)
-          print('SQLAlchemy =', sqlalchemy.__version__)
-          print('python-escpos =', v('python-escpos'))
-          print('pyusb =', v('pyusb'))
-          print('pyserial =', v('pyserial'))
-          print('arabic-reshaper =', v('arabic-reshaper'))
-          print('python-bidi =', v('python-bidi'))
-          print('pywin32 =', v('pywin32'))
-          print('='*50)
-          PY
+          print("="*50)
+          print("Dependency Versions:")
+          print("="*50)
+          print("PyQt6 =", v("PyQt6"), "| Qt6 =", q)
+          print("SQLAlchemy =", sqlalchemy.__version__)
+          try:
+              import escpos
+              print("python-escpos =", v("python-escpos"))
+          except Exception as e:
+              print("python-escpos not importable:", e)
+          import importlib
+          for pkg in ["pyusb","pyserial","arabic-reshaper","python-bidi","pywin32"]:
+              try:
+                  __import__(pkg.replace("-","_"))
+                  print(f"{pkg} =", v(pkg))
+              except Exception as e:
+                  print(f"{pkg} not importable:", e)
+          print("="*50)
+          '@
+          Set-Content -Path show_versions.py -Value $code -Encoding UTF8
+          python show_versions.py
 
       - name: Fetch libusb-1.0.dll (x64)
         shell: pwsh
         run: |
           $url = "https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.7z"
           Invoke-WebRequest $url -OutFile libusb.7z
-          # 7z is preinstalled on windows-latest runners
           7z x libusb.7z -olibusb | Out-Null
           $dll = Get-ChildItem -Recurse libusb -Filter "libusb-1.0.dll" | Where-Object { $_.FullName -match "MS64" } | Select-Object -First 1
           if (-not $dll) { $dll = Get-ChildItem -Recurse libusb -Filter "libusb-1.0.dll" | Select-Object -First 1 }
@@ -116,12 +123,14 @@ jobs:
       - name: Verify USB backend import
         shell: pwsh
         run: |
-          python - << 'PY'
+          $code = @'
           import os
           import usb.backend.libusb1
           print("libusb backend present:", usb.backend.libusb1.get_backend() is not None)
           print("DLL present:", os.path.exists("libusb-1.0.dll"))
-          PY
+          '@
+          Set-Content -Path verify_usb.py -Value $code -Encoding UTF8
+          python verify_usb.py
 
       - name: Clean previous build artifacts/spec
         shell: pwsh

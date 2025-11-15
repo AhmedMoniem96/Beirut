@@ -24,7 +24,7 @@ _IS_WINDOWS = platform.system().lower().startswith("win")
 from PIL import Image, ImageDraw, ImageFont
 
 from ..core.paths import DATA_DIR
-from .arabic_codec import sanitize_line, shape_bidi_arabic, encode_for_printer
+from .arabic_codec import sanitize_line, shape_bidi_arabic, encode_for_printer  # keep import for other modules
 
 # Optional: your raw USB optimized class
 try:
@@ -46,11 +46,55 @@ try:
 except Exception:
     _BITMAP_OK = False
 
-# Windows driver path (added file)
-from .printer_windows import (
-    list_printers as win_list_printers,
-    print_image as win_print_image,
-)
+# ---------- Windows driver backend (only on Windows) ----------
+_WIN_PRINT_OK = False
+if _IS_WINDOWS:
+    try:
+        from .printer_windows import (
+            list_printers as win_list_printers,
+            print_image as win_print_image,
+        )
+        _WIN_PRINT_OK = True
+    except Exception:
+        _WIN_PRINT_OK = False
+
+        def win_list_printers() -> list[str]:
+            return []
+
+        def win_print_image(*args, **kwargs):
+            raise RuntimeError("Windows printing backend not available")
+else:
+    def win_list_printers() -> list[str]:
+        return []
+
+    def win_print_image(*args, **kwargs):
+        raise RuntimeError("Windows printing not supported on this OS")
+
+# ---------- Arabic shaping for bitmap (Windows image path) ----------
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display as _bidi_get_display
+    _ARABIC_VISUAL_OK = True
+except Exception:
+    _ARABIC_VISUAL_OK = False
+
+
+def _shape_for_bitmap(text: str) -> str:
+    """
+    Visual shaping for bitmap (PIL) rendering:
+      - use arabic_reshaper + bidi.get_display if available
+      - do NOT use arabic_codec.shape_bidi_arabic here to avoid ESC/POS-specific quirks.
+    """
+    if not text:
+        return text
+    if not _ARABIC_VISUAL_OK:
+        return text
+    try:
+        reshaped = arabic_reshaper.reshape(text)
+        return _bidi_get_display(reshaped)
+    except Exception:
+        return text
+
 
 from ..core.bus import bus
 
@@ -343,8 +387,8 @@ def _font_default(size: int = 28):
 
 def _render_lines_bitmap_fallback(lines: Sequence[str], width: int = PAPER_PX) -> Image.Image:
     """
-    Fallback when arabic_bitmap is missing: simple draw with alignment tags.
-    Arabic is shaped via shape_bidi_arabic so it is not reversed.
+    Fallback when arabic_bitmap is missing: draw using PIL, shaping Arabic
+    via _shape_for_bitmap so it appears correctly (not reversed) on Windows.
     """
     font = _font_default(28)
     tmp = Image.new("L", (1, 1), 255)
@@ -361,8 +405,7 @@ def _render_lines_bitmap_fallback(lines: Sequence[str], width: int = PAPER_PX) -
         elif raw.startswith(">>L "):
             align, txt = "left", raw[4:]
 
-        # --- SHAPE ARABIC HERE ---
-        shaped = shape_bidi_arabic(txt)
+        shaped = _shape_for_bitmap(txt)
         eff_lines.append((align, shaped))
         _, _, x1, y1 = dr.textbbox((0, 0), shaped, font=font)
         h = y1 + 6
@@ -389,7 +432,7 @@ def _render_lines_bitmap_fallback(lines: Sequence[str], width: int = PAPER_PX) -
 def _render_lines_to_bitmap(lines: Sequence[str]) -> Image.Image:
     """
     Convert tagged lines (>>C, >>R, >>L) into a single bitmap.
-    Arabic is shaped visually via shape_bidi_arabic.
+    Uses _shape_for_bitmap so Arabic is visually correct on Windows.
     """
     if _BITMAP_OK:
         rows = []
@@ -402,7 +445,7 @@ def _render_lines_to_bitmap(lines: Sequence[str]) -> Image.Image:
             elif raw.startswith(">>L "):
                 align, txt = "left", raw[4:]
 
-            shaped = shape_bidi_arabic(txt)
+            shaped = _shape_for_bitmap(txt)
             font = load_font(size=28)
             rows.append(
                 render_line_bitmap(
@@ -435,13 +478,13 @@ def _render_table_to_bitmap(
 ) -> Image.Image:
     """
     Render a full table as bitmap. All cells (headers/body/footer) are passed
-    through shape_bidi_arabic so Arabic text is not reversed under Windows.
+    through _shape_for_bitmap so Arabic text is not reversed under Windows.
     """
 
     def _shape_row(row):
-        return [shape_bidi_arabic(str(c)) for c in row]
+        return [_shape_for_bitmap(str(c)) for c in row]
 
-    shaped_headers = [_shape_row(headers)][0]  # headers is a flat list
+    shaped_headers = _shape_row(headers)
     shaped_rows = [_shape_row(r) for r in rows]
     shaped_footer = [_shape_row(r) for r in (footer_rows or [])] if footer_rows else None
 
@@ -460,7 +503,6 @@ def _render_table_to_bitmap(
             col_align=col_align,
         )
 
-    # ultra-simple fallback: text rows (also shaped)
     font = _font_default(font_size)
     text_lines: list[str] = []
     text_lines.append(" | ".join(shaped_headers))
@@ -626,7 +668,7 @@ class PrinterService:
         self._bar_win = os.getenv("BEIRUT_WIN_PRINTER_BAR", "").strip()
         self._cash_win = os.getenv("BEIRUT_WIN_PRINTER_CASHIER", "").strip()
         self._escpos_printer = None
-        if not (_IS_WINDOWS and (self._bar_win or self._cash_win)):
+        if not (_IS_WINDOWS and _WIN_PRINT_OK and (self._bar_win or self._cash_win)):
             self._escpos_printer = _find_thermal_printer()
 
     def update_printers(self, bar: Optional[str], cash: Optional[str]) -> None:
@@ -638,17 +680,17 @@ class PrinterService:
         except Exception:
             ...
         self._escpos_printer = None
-        if not (_IS_WINDOWS and (self._bar_win or self._cash_win)):
+        if not (_IS_WINDOWS and _WIN_PRINT_OK and (self._bar_win or self._cash_win)):
             self._escpos_printer = _find_thermal_printer()
         _log(
             f"Windows printers -> BAR: {self._bar_win or '-'} | CASHIER: {self._cash_win or '-'}"
         )
 
     def _use_windows_bar(self) -> bool:
-        return _IS_WINDOWS and bool(self._bar_win)
+        return _IS_WINDOWS and _WIN_PRINT_OK and bool(self._bar_win)
 
     def _use_windows_cash(self) -> bool:
-        return _IS_WINDOWS and bool(self._cash_win)
+        return _IS_WINDOWS and _WIN_PRINT_OK and bool(self._cash_win)
 
     # ---------------------------- BAR
     def print_bar_ticket(self, table_code: str, items: Iterable) -> bool:

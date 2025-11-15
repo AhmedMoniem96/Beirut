@@ -1646,6 +1646,42 @@ class OrderManager:
         o = self.orders.get(table_code)
         return [] if not o else o.items
 
+    def reload_table_items(self, table_code: str) -> None:
+        """Reload order items for *table_code* from the database."""
+
+        code = (table_code or "").strip().upper()
+        if not code:
+            return
+        order = self.orders.get(code)
+        if not order:
+            return
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT id, product_name, price_cents, qty, COALESCE(note,'') AS note,
+                       COALESCE(printed_qty,0) AS printed_qty
+                FROM order_items
+                WHERE order_id=?
+                ORDER BY id
+                """,
+                (order.id,),
+            )
+            order.items = [
+                OrderItem(
+                    product=row["product_name"],
+                    unit_price_cents=int(row["price_cents"]),
+                    qty=float(row["qty"]),
+                    note=row["note"],
+                    row_id=row["id"],
+                    printed_qty=float(row["printed_qty"] or 0.0),
+                )
+                for row in cur.fetchall()
+            ]
+        finally:
+            conn.close()
+
     def list_open_tables(self, exclude: str | None = None) -> list[str]:
         exclude_norm = (exclude or "").strip().upper()
         return [

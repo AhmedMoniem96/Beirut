@@ -511,6 +511,18 @@ class MainWindow(QMainWindow):
                 action.setVisible(self.user.role == "admin")
             self._session_started = datetime.now()
             self._update_session_timer()
+            if self.current_table:
+                try:
+                    order_manager.reload_table_items(self.current_table)
+                except Exception:
+                    pass
+                self.order_list.set_items(order_manager.get_items(self.current_table))
+                self._update_totals(self.current_table)
+            self._update_client_name_field()
+            self._refresh_print_buttons()
+            self._apply_order_header()
+            if self.current_table:
+                self._update_ps_buttons_state()
             self._refresh_edit_lock_state()
 
     def _open_manage_products(self):

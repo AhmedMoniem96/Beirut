@@ -6,14 +6,16 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
 )
 from PyQt6.QtCore import Qt
-from ..core.db import get_conn
-from ..core.auth import set_secret_key
+
+from ..core.auth import delete_user, list_users, update_user
 from .create_user_dialog import CreateUserDialog
 from .common.branding import get_accent_color, get_text_color
+
 
 class AdminUsersDialog(QDialog):
     def __init__(self, admin_user: str):
@@ -75,8 +77,18 @@ class AdminUsersDialog(QDialog):
         self.users.setMinimumWidth(320)
         form.addRow("الموظف", self.users)
 
+        self.role = QComboBox()
+        self.role.addItem("مدير", "admin")
+        self.role.addItem("كاشير", "cashier")
+        form.addRow("الصلاحيات", self.role)
+
+        self.password = QLineEdit()
+        self.password.setPlaceholderText("كلمة مرور جديدة (اختياري)")
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        form.addRow("كلمة المرور", self.password)
+
         self.key = QLineEdit()
-        self.key.setPlaceholderText("المفتاح السري الجديد")
+        self.key.setPlaceholderText("المفتاح السري")
         form.addRow("المفتاح السري", self.key)
 
         card_layout.addLayout(form)
@@ -92,49 +104,80 @@ class AdminUsersDialog(QDialog):
 
         actions = QHBoxLayout()
         actions.setSpacing(12)
-        self.btn_save = QPushButton("حفظ المفتاح")
+        self.btn_save = QPushButton("حفظ التغييرات")
+        self.btn_delete = QPushButton("حذف المستخدم")
+        self.btn_delete.setProperty("class", "flat")
         self.btn_close = QPushButton("إغلاق")
         self.btn_close.setProperty("class", "flat")
         actions.addWidget(self.btn_save, 2)
+        actions.addWidget(self.btn_delete, 1)
         actions.addWidget(self.btn_close, 1)
         root.addLayout(actions)
 
         self.btn_save.clicked.connect(self._save)
         self.btn_close.clicked.connect(self.accept)
         self.btn_create.clicked.connect(self._create_user)
+        self.btn_delete.clicked.connect(self._delete)
+        self.users.currentIndexChanged.connect(self._populate_user_details)
 
+        self._user_rows: list[dict] = []
         self._refresh_users()
 
-    def _cashiers(self):
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT username FROM users WHERE role='cashier' ORDER BY username")
-        names = [r["username"] for r in cur.fetchall()]
-        conn.close()
-        return names
-
     def _save(self):
-        user = self.users.currentText().strip()
-        key = self.key.text().strip()
-        if not user or not key:
-            self._show_feedback("اختر المستخدم وأدخل المفتاح السري لتحديثه.", kind="error")
+        info = self._current_user()
+        if not info:
+            self._show_feedback("اختر مستخدمًا لتحديث بياناته.", kind="error")
             return
-        set_secret_key(self.admin_user, user, key)
-        self._show_feedback("تم تحديث المفتاح السري بنجاح.", kind="success")
-        self.key.clear()
+
+        username = info["username"]
+        new_role = self.role.currentData()
+        new_password = self.password.text().strip()
+        new_key = self.key.text().strip()
+
+        updates: dict[str, str | None] = {}
+        if new_role != info.get("role"):
+            updates["role"] = new_role
+        if new_password:
+            updates["password"] = new_password
+        if new_key != info.get("secret_key", ""):
+            updates["secret_key"] = new_key
+
+        if not updates:
+            self._show_feedback("لا توجد تغييرات لحفظها.", kind="info")
+            return
+
+        try:
+            update_user(username, **updates)
+        except ValueError as exc:
+            self._show_feedback(str(exc), kind="error")
+            return
+
+        self._show_feedback("تم تحديث بيانات المستخدم بنجاح.", kind="success")
+        self.password.clear()
+        self._refresh_users(select=username)
 
     def _refresh_users(self, select: str | None = None):
-        names = self._cashiers()
-        current = select or (self.users.currentText() if self.users.count() else "")
+        current = select or (self.users.currentData() if self.users.count() else "")
+        self._user_rows = list_users()
         self.users.blockSignals(True)
         self.users.clear()
-        for name in names:
-            self.users.addItem(name)
-        if current:
-            idx = self.users.findText(current)
-            if idx >= 0:
-                self.users.setCurrentIndex(idx)
+        role_labels = {"admin": "مدير", "cashier": "كاشير"}
+        for row in self._user_rows:
+            role_label = role_labels.get(row.get("role", ""), row.get("role", ""))
+            display = f"{row['username']} ({role_label})"
+            self.users.addItem(display, row["username"])
+
+        if self.users.count():
+            if current:
+                idx = self.users.findData(current)
+                if idx >= 0:
+                    self.users.setCurrentIndex(idx)
+                else:
+                    self.users.setCurrentIndex(0)
+            else:
+                self.users.setCurrentIndex(0)
         self.users.blockSignals(False)
+        self._populate_user_details()
 
     def _show_feedback(self, text: str, kind: str = "info"):
         self.feedback.setText(text)
@@ -149,4 +192,57 @@ class AdminUsersDialog(QDialog):
             created = dlg.get_created_username()
             if created:
                 self._refresh_users(select=created)
-                self._show_feedback("تم إنشاء المستخدم الجديد ويمكنك تعيين مفتاحه الآن.", kind="success")
+                self._show_feedback("تم إنشاء المستخدم الجديد ويمكنك تعيين بياناته الآن.", kind="success")
+
+    def _current_user(self) -> dict | None:
+        username = self.users.currentData()
+        if not username:
+            return None
+        for row in self._user_rows:
+            if row.get("username") == username:
+                return row
+        return None
+
+    def _populate_user_details(self):
+        info = self._current_user()
+        if not info:
+            self.role.setCurrentIndex(0)
+            self.key.clear()
+            self.password.clear()
+            self.btn_delete.setEnabled(False)
+            return
+
+        role_value = info.get("role", "cashier")
+        idx = self.role.findData(role_value)
+        if idx >= 0:
+            self.role.setCurrentIndex(idx)
+        self.key.setText(info.get("secret_key", ""))
+        self.password.clear()
+        self.btn_delete.setEnabled(True)
+
+    def _delete(self):
+        info = self._current_user()
+        if not info:
+            self._show_feedback("اختر مستخدمًا لحذفه.", kind="error")
+            return
+
+        username = info["username"]
+        confirm = QMessageBox.question(
+            self,
+            "تأكيد الحذف",
+            f"هل تريد حذف المستخدم {username}؟",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            delete_user(username)
+        except ValueError as exc:
+            self._show_feedback(str(exc), kind="error")
+            return
+
+        self._show_feedback("تم حذف المستخدم بنجاح.", kind="success")
+        self.password.clear()
+        self._refresh_users()

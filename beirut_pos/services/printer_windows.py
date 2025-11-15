@@ -6,9 +6,11 @@ from typing import List, Iterable, Tuple
 import win32print, win32ui, win32con
 from PIL import Image, ImageDraw, ImageFont, ImageWin
 
+# Optional Arabic shaping
 try:
     import arabic_reshaper
     from bidi.algorithm import get_display
+
     _AR_OK = True
 except Exception:
     _AR_OK = False
@@ -82,7 +84,7 @@ def _choose_font(font_path: str | None, size: int) -> ImageFont.FreeTypeFont | I
             if p and os.path.exists(p):
                 return ImageFont.truetype(p, size=size)
         except Exception:
-            pass
+            continue
 
     return ImageFont.load_default()
 
@@ -109,9 +111,9 @@ def _text_to_image(
     Build a single tall image with all lines.
     """
     font = _choose_font(font_path, font_size)
-
     meas_img = Image.new("L", (1, 1), 255)
     dr = ImageDraw.Draw(meas_img)
+
     line_boxes: list[Tuple[str, str, Tuple[int, int]]] = []
     total_h = 0
 

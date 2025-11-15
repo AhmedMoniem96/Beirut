@@ -11,8 +11,12 @@ try:
     _ESCPOS_OK = True
 except ImportError:
     _ESCPOS_OK = False
-    class USBNotFoundError(Exception): ...
-    Usb = None; File = None
+
+    class USBNotFoundError(Exception):
+        ...
+
+    Usb = None
+    File = None
 
 # -------- OS / PIL -------------------------------------------------------
 _IS_WINDOWS = platform.system().lower().startswith("win")
@@ -43,11 +47,10 @@ except Exception:
     _BITMAP_OK = False
 
 # Windows driver path (added file)
-try:
-    from .printer_windows import list_printers as win_list_printers, print_image as win_print_image
-except Exception:
-    def win_list_printers() -> list[str]: return []
-    win_print_image = None  # type: ignore
+from .printer_windows import (
+    list_printers as win_list_printers,
+    print_image as win_print_image,
+)
 
 from ..core.bus import bus
 
@@ -67,9 +70,9 @@ USB_PRINTER_IDS = [
 ]
 
 # Keep in sync with bitmap renderer
-PAPER_PX = 576              # 80mm at 203 dpi usable width
-COLS_RECEIPT = [348, 60, 84, 84]   # Item, Qty, Price, Total (sum=576)
-COLS_BAR     = [456, 120]          # Item, Qty
+PAPER_PX = 576  # 80mm at 203 dpi usable width
+COLS_RECEIPT = [348, 60, 84, 84]  # Item, Qty, Price, Total (sum=576)
+COLS_BAR = [456, 120]  # Item, Qty
 CELL_PAD_X, CELL_PAD_Y = 8, 4
 
 # =================================================================== UTILS
@@ -81,6 +84,7 @@ def _ensure_dirs() -> None:
     except Exception:
         pass
 
+
 def _log(msg: str) -> None:
     ts = datetime.now().isoformat(timespec="seconds")
     print(msg)
@@ -90,11 +94,13 @@ def _log(msg: str) -> None:
     except Exception:
         pass
 
+
 def _format_qty(qty: float) -> str:
     r = round(qty)
     if abs(qty - r) < 1e-6:
         return str(int(r))
     return f"{qty:.2f}".rstrip("0").rstrip(".")
+
 
 def _format_currency_simple(amount: int | float | str) -> str:
     try:
@@ -105,12 +111,8 @@ def _format_currency_simple(amount: int | float | str) -> str:
     except Exception:
         return str(amount)
 
-def _note_segments(
-    note: str,
-    *,
-    include_sugar: bool = False,
-    tag_sugar: bool = False,
-) -> list[str]:
+
+def _note_segments(note: str, *, include_sugar: bool = False, tag_sugar: bool = False) -> list[str]:
     if not note:
         return []
     cleaned = note.replace("\n", " ")
@@ -126,8 +128,10 @@ def _note_segments(
             out.append(seg)
     return out
 
+
 def _draw_line(char: str = "─", width_chars: int = 48) -> str:
     return char * width_chars
+
 
 # ---------- text fit (avoid spilling into Qty col / next cell) ----------
 def _max_chars_for_px(col_px: int) -> int:
@@ -139,6 +143,7 @@ def _max_chars_for_px(col_px: int) -> int:
         v = 16.0
     return max(6, int(col_px / v))
 
+
 def _halve_long_words(text: str, threshold: int = 12) -> str:
     out_tokens: list[str] = []
     for tok in text.split():
@@ -149,6 +154,7 @@ def _halve_long_words(text: str, threshold: int = 12) -> str:
             out_tokens.append(tok)
     return " ".join(out_tokens)
 
+
 def _fit_line_for_col(text: str, col_px: int) -> str:
     safety = 12
     effective_px = max(24, col_px - (2 * CELL_PAD_X) - safety)
@@ -157,6 +163,7 @@ def _fit_line_for_col(text: str, col_px: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max(1, max_chars - 1)] + "…"
+
 
 # ===================================================== header/meta (receipt)
 def _build_receipt_header_meta(table_code: str, cashier: str) -> List[str]:
@@ -172,10 +179,9 @@ def _build_receipt_header_meta(table_code: str, cashier: str) -> List[str]:
     lines.append(_draw_line("═"))
     return lines
 
+
 # ======================================= items tables (receipt / bar)
-def _build_items_table(
-    items: Sequence[dict],
-) -> tuple[list[str], list[list[str]], float, float]:
+def _build_items_table(items: Sequence[dict]) -> tuple[list[str], list[list[str]], float, float]:
     headers = ["الصنف", "الكمية", "السعر", "الإجمالي"]
     rows: list[list[str]] = []
     subtotal_calc = 0.0
@@ -202,6 +208,7 @@ def _build_items_table(
         total_qty += qty
     return headers, rows, subtotal_calc, total_qty
 
+
 def _build_bar_table(items: Sequence[dict]) -> tuple[list[str], list[list[str]]]:
     headers = ["الصنف", "الكمية"]
     rows: list[list[str]] = []
@@ -214,6 +221,7 @@ def _build_bar_table(items: Sequence[dict]) -> tuple[list[str], list[list[str]]]
         name_disp = _fit_line_for_col(name_disp, item_px)
         rows.append([name_disp, qty])
     return headers, rows
+
 
 # ================================================== ESC/POS PLUMBING
 class MockPrinter:
@@ -245,20 +253,21 @@ class MockPrinter:
         for r in rows:
             self.text(" | ".join(map(str, r)) + "\n")
 
+
 def _log_printer_error(prefix: str, err: Exception) -> None:
     _log(f"❌ {prefix}: {err}")
 
+
 def _usblp_device_paths() -> list[str]:
     return sorted(glob.glob("/dev/usb/lp*"))
+
 
 def _try_usb_printer(*, allow_when_blocked: bool = False):
     if not _ESCPOS_OK or Usb is None:
         return None
     lp = _usblp_device_paths()
     if lp and not allow_when_blocked:
-        _log(
-            f"ℹ️  Kernel usblp driver detected ({', '.join(lp)}); skipping ESC/POS USB backend"
-        )
+        _log(f"ℹ️  Kernel usblp driver detected ({', '.join(lp)}); skipping ESC/POS USB backend")
         return None
     for vendor, product in USB_PRINTER_IDS:
         try:
@@ -267,6 +276,7 @@ def _try_usb_printer(*, allow_when_blocked: bool = False):
         except Exception as e:
             _log_printer_error("Printer connection error", e)
     return None
+
 
 def _try_file_printer():
     if File is None:
@@ -280,6 +290,7 @@ def _try_file_printer():
             continue
     return None
 
+
 def _setup_printer_arabic(printer) -> bool:
     try:
         printer._raw(b"\x1B@")
@@ -288,6 +299,7 @@ def _setup_printer_arabic(printer) -> bool:
     except Exception as e:
         _log_printer_error("Failed to reset printer", e)
         return False
+
 
 def _post_feed_and_cut(printer) -> None:
     try:
@@ -303,12 +315,14 @@ def _post_feed_and_cut(printer) -> None:
     except Exception as e:
         _log_printer_error("Post-feed/cut failed", e)
 
+
 def _emit_lines_to_printer(printer, lines: Sequence[str]) -> None:
     if hasattr(printer, "print_lines"):
         printer.print_lines(list(lines))
         return
     for ln in lines:
         printer.text(ln + "\n")
+
 
 def _print_escpos_lines(printer, lines: Sequence[str]) -> None:
     try:
@@ -318,6 +332,7 @@ def _print_escpos_lines(printer, lines: Sequence[str]) -> None:
     _emit_lines_to_printer(printer, lines)
     _post_feed_and_cut(printer)
 
+
 # =================================== RENDER HELPERS (Windows raster path)
 def _font_default(size: int = 28):
     try:
@@ -325,15 +340,18 @@ def _font_default(size: int = 28):
     except Exception:
         return ImageFont.load_default()
 
-def _render_lines_bitmap_fallback(
-    lines: Sequence[str], width: int = PAPER_PX
-) -> Image.Image:
-    """Fallback when arabic_bitmap is missing: simple LTR draw (tags honored)."""
+
+def _render_lines_bitmap_fallback(lines: Sequence[str], width: int = PAPER_PX) -> Image.Image:
+    """
+    Fallback when arabic_bitmap is missing: simple draw with alignment tags.
+    Arabic is shaped via shape_bidi_arabic so it is not reversed.
+    """
     font = _font_default(28)
     tmp = Image.new("L", (1, 1), 255)
     dr = ImageDraw.Draw(tmp)
-    heights = []
+    heights: list[int] = []
     eff_lines: list[tuple[str, str]] = []
+
     for raw in lines:
         align, txt = "left", raw
         if raw.startswith(">>C "):
@@ -342,26 +360,37 @@ def _render_lines_bitmap_fallback(
             align, txt = "right", raw[4:]
         elif raw.startswith(">>L "):
             align, txt = "left", raw[4:]
-        eff_lines.append((align, txt))
-        _, _, w, h = dr.textbbox((0, 0), txt, font=font)
-        heights.append(h + 6)
+
+        # --- SHAPE ARABIC HERE ---
+        shaped = shape_bidi_arabic(txt)
+        eff_lines.append((align, shaped))
+        _, _, x1, y1 = dr.textbbox((0, 0), shaped, font=font)
+        h = y1 + 6
+        heights.append(h)
+
     total_h = max(1, sum(heights))
     img = Image.new("L", (width, total_h), 255)
     dr = ImageDraw.Draw(img)
     y = 0
-    for i, (align, txt) in enumerate(eff_lines):
-        x0, y0, x1, y1 = dr.textbbox((0, 0), txt, font=font)
+    for i, (align, shaped) in enumerate(eff_lines):
+        x0, y0, x1, y1 = dr.textbbox((0, 0), shaped, font=font)
+        text_w = x1 - x0
         if align == "center":
-            x = (width - (x1 - x0)) // 2
+            x = (width - text_w) // 2
         elif align == "right":
-            x = width - (x1 - x0) - 8
+            x = width - text_w - 8
         else:
             x = 8
-        dr.text((x, y), txt, 0, font=font)
+        dr.text((x, y), shaped, 0, font=font)
         y += heights[i]
     return img.convert("1")
 
+
 def _render_lines_to_bitmap(lines: Sequence[str]) -> Image.Image:
+    """
+    Convert tagged lines (>>C, >>R, >>L) into a single bitmap.
+    Arabic is shaped visually via shape_bidi_arabic.
+    """
     if _BITMAP_OK:
         rows = []
         for raw in lines:
@@ -372,9 +401,16 @@ def _render_lines_to_bitmap(lines: Sequence[str]) -> Image.Image:
                 align, txt = "right", raw[4:]
             elif raw.startswith(">>L "):
                 align, txt = "left", raw[4:]
+
+            shaped = shape_bidi_arabic(txt)
             font = load_font(size=28)
             rows.append(
-                render_line_bitmap(txt, paper_px=PAPER_PX, font=font, align=align)
+                render_line_bitmap(
+                    shaped,
+                    paper_px=PAPER_PX,
+                    font=font,
+                    align=align,
+                )
             )
         h = sum(im.height for im in rows)
         canvas = Image.new("1", (PAPER_PX, h), 1)
@@ -384,6 +420,7 @@ def _render_lines_to_bitmap(lines: Sequence[str]) -> Image.Image:
             y += im.height
         return canvas
     return _render_lines_bitmap_fallback(lines, width=PAPER_PX)
+
 
 def _render_table_to_bitmap(
     headers,
@@ -396,11 +433,23 @@ def _render_table_to_bitmap(
     cell_pad=(CELL_PAD_X, CELL_PAD_Y),
     draw_borders=True,
 ) -> Image.Image:
+    """
+    Render a full table as bitmap. All cells (headers/body/footer) are passed
+    through shape_bidi_arabic so Arabic text is not reversed under Windows.
+    """
+
+    def _shape_row(row):
+        return [shape_bidi_arabic(str(c)) for c in row]
+
+    shaped_headers = [_shape_row(headers)][0]  # headers is a flat list
+    shaped_rows = [_shape_row(r) for r in rows]
+    shaped_footer = [_shape_row(r) for r in (footer_rows or [])] if footer_rows else None
+
     if _BITMAP_OK:
         return render_table_bitmap(
-            headers,
-            rows,
-            footer_rows=footer_rows,
+            shaped_headers,
+            shaped_rows,
+            footer_rows=shaped_footer,
             paper_px=PAPER_PX,
             col_widths_px=col_widths_px,
             font_body=load_font(size=font_size),
@@ -410,16 +459,20 @@ def _render_table_to_bitmap(
             draw_borders=draw_borders,
             col_align=col_align,
         )
-    # ultra-simple fallback: text rows
+
+    # ultra-simple fallback: text rows (also shaped)
     font = _font_default(font_size)
-    text_lines = [" | ".join(headers)] + [" | ".join(map(str, r)) for r in rows]
-    if footer_rows:
-        text_lines += [" | ".join(map(str, r)) for r in footer_rows]
+    text_lines: list[str] = []
+    text_lines.append(" | ".join(shaped_headers))
+    text_lines += [" | ".join(map(str, r)) for r in shaped_rows]
+    if shaped_footer:
+        text_lines += [" | ".join(map(str, r)) for r in shaped_footer]
+
     tmp = Image.new("L", (1, 1), 255)
     dr = ImageDraw.Draw(tmp)
     heights = []
     for t in text_lines:
-        _, _, w, h = dr.textbbox((0, 0), t, font=font)
+        _, _, _, h = dr.textbbox((0, 0), t, font=font)
         heights.append(h + 6)
     canvas = Image.new("L", (PAPER_PX, sum(heights)), 255)
     dr = ImageDraw.Draw(canvas)
@@ -428,6 +481,7 @@ def _render_table_to_bitmap(
         dr.text((8, y), t, 0, font=font)
         y += heights[i]
     return canvas.convert("1")
+
 
 def _stack_bitmaps(bitmaps: list[Image.Image]) -> Image.Image:
     if not bitmaps:
@@ -442,6 +496,7 @@ def _stack_bitmaps(bitmaps: list[Image.Image]) -> Image.Image:
         canvas.paste(im, (0, y))
         y += im.height
     return canvas
+
 
 # =========================================== SINGLE BACKEND (ESC/POS)
 def _find_thermal_printer():
@@ -459,6 +514,7 @@ def _find_thermal_printer():
     except Exception:
         pass
     return _try_usb_printer() or _try_file_printer()
+
 
 # =============================================== FLOWS (ESC/POS objects)
 def _print_escpos_receipt(
@@ -502,6 +558,7 @@ def _print_escpos_receipt(
 
     _print_escpos_lines(printer, [">>C شكراً لزيارتكم", ">>C Thank you for visiting!"])
 
+
 def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]) -> None:
     now = datetime.now().strftime("%H:%M")
     _emit_lines_to_printer(
@@ -526,10 +583,10 @@ def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]) -> Non
     else:
         _emit_lines_to_printer(
             printer,
-            [" | ".join(headers)]
-            + [" | ".join(map(str, r)) for r in rows],
+            [" | ".join(headers)] + [" | ".join(map(str, r)) for r in rows],
         )
     _print_escpos_lines(printer, [_draw_line("═")])
+
 
 # ============================================= COLLAPSE & SERVICE
 def _collapse_items(items: Iterable) -> List[dict]:
@@ -554,14 +611,16 @@ def _collapse_items(items: Iterable) -> List[dict]:
             }
     return list(grouped.values())
 
+
 class PrinterService:
     """
-    Windows driver path (non-reversed Arabic):
+    Windows driver path:
       - Set env:
           BEIRUT_WIN_PRINTER_BAR="Exact Printer Name"
           BEIRUT_WIN_PRINTER_CASHIER="Exact Printer Name"
     Else: ESC/POS fallback (raw USB or /dev/usb/lp*).
     """
+
     def __init__(self) -> None:
         _ensure_dirs()
         self._bar_win = os.getenv("BEIRUT_WIN_PRINTER_BAR", "").strip()
@@ -586,22 +645,20 @@ class PrinterService:
         )
 
     def _use_windows_bar(self) -> bool:
-        return _IS_WINDOWS and bool(self._bar_win) and win_print_image is not None
+        return _IS_WINDOWS and bool(self._bar_win)
 
     def _use_windows_cash(self) -> bool:
-        return _IS_WINDOWS and bool(self._cash_win) and win_print_image is not None
+        return _IS_WINDOWS and bool(self._cash_win)
 
     # ---------------------------- BAR
     def print_bar_ticket(self, table_code: str, items: Iterable) -> bool:
         data = _collapse_items(items)
 
-        # Build logical content
         now = datetime.now().strftime("%H:%M")
         head_lines = [">>C " + f"{now}  |  {table_code}", _draw_line("═")]
         headers, rows = _build_bar_table(data)
 
         if self._use_windows_bar():
-            # Render -> single image -> Windows driver
             bmp_head = _render_lines_to_bitmap(head_lines)
             bmp_tbl = _render_table_to_bitmap(
                 headers,
@@ -618,7 +675,6 @@ class PrinterService:
             win_print_image(self._bar_win, img)
             return True
 
-        # Fallback ESC/POS
         prn = self._escpos_printer
         if prn:
             _print_escpos_bar_ticket(prn, table_code, data)
@@ -666,18 +722,18 @@ class PrinterService:
             win_print_image(self._cash_win, img)
             return True
 
-        # Fallback ESC/POS
         prn = self._escpos_printer
         if prn:
-            _print_escpos_receipt(
-                prn, table_code, data, subtotal, discount, total, method, cashier
-            )
+            _print_escpos_receipt(prn, table_code, data, subtotal, discount, total, method, cashier)
         return True
+
 
 # singleton
 printer = PrinterService()
 
+
 def _apply_printer_settings(bar: Optional[str], cash: Optional[str]) -> None:
     printer.update_printers(bar, cash)
+
 
 bus.subscribe("printers_changed", _apply_printer_settings)

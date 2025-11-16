@@ -23,13 +23,15 @@ from PyQt6.QtWidgets import (
     QTimeEdit,
 )
 
-from ..core.auth import authenticate
 from ..core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
 from ..services.orders import order_manager
 from ..services import staff as staff_service
 from ..services import maintenance as maintenance_service
 from ..utils.currency import format_pounds
+
+
+CLEANUP_STATIC_PASSWORD = "mn3mbasha"
 
 
 class AdminReportsDialog(BigDialog):
@@ -1360,8 +1362,7 @@ class AdminReportsDialog(BigDialog):
             QMessageBox.warning(self, "حذف البيانات", "أدخل كلمة المرور لتأكيد العملية.")
             return
 
-        user = authenticate(self.actor_username, password)
-        if not user:
+        if password != CLEANUP_STATIC_PASSWORD:
             QMessageBox.warning(self, "حذف البيانات", "كلمة المرور غير صحيحة.")
             return
 

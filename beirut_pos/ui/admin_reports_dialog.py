@@ -5,8 +5,10 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDateEdit,
     QDateTimeEdit,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QFileDialog,
@@ -21,19 +23,22 @@ from PyQt6.QtWidgets import (
     QTimeEdit,
 )
 
+from ..core.auth import authenticate
 from ..core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
 from ..services.orders import order_manager
 from ..services import staff as staff_service
+from ..services import maintenance as maintenance_service
 from ..utils.currency import format_pounds
 
 
 class AdminReportsDialog(BigDialog):
     """Dashboard of operational reports for managers."""
 
-    def __init__(self):
+    def __init__(self, actor_username: str | None = None):
         super().__init__("التقارير الإدارية", remember_key="reports", parent=None)
         self.currency = setting_get("currency", "EGP") or "EGP"
+        self.actor_username = (actor_username or "").strip()
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_daily_tab(), "ملخص يومي")
@@ -45,6 +50,7 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_price_log_tab(), "سجل الأسعار")
         self.tabs.addTab(self._build_inventory_tab(), "المخزون")
         self.tabs.addTab(self._build_attendance_tab(), "ساعات العمل")
+        self.tabs.addTab(self._build_shift_summary_tab(), "ملخص الورديات")
         self.tabs.addTab(self._build_deductions_tab(), "خصومات الموظفين")
         self.tabs.addTab(self._build_stakeholder_tab(), "تقرير المساهمين")
 
@@ -52,6 +58,9 @@ class AdminReportsDialog(BigDialog):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(12)
         layout.addWidget(self.tabs)
+
+        self.cleanup_panel = self._build_cleanup_panel()
+        layout.addWidget(self.cleanup_panel)
 
         self._load_daily_report()
         self._load_cashier_report()
@@ -62,6 +71,7 @@ class AdminReportsDialog(BigDialog):
         self._load_price_log()
         self._load_inventory_report()
         self._load_attendance_report()
+        self._load_shift_report()
         self._load_deductions_report()
         self._load_stakeholder_report()
 
@@ -240,12 +250,26 @@ class AdminReportsDialog(BigDialog):
         self.cashier_from.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_from)
 
+        controls.addWidget(QLabel("الساعة:"))
+        self.cashier_from_time = QTimeEdit(QTime(0, 0))
+        self.cashier_from_time.setDisplayFormat("HH:mm")
+        self.cashier_from_time.setMinimumWidth(90)
+        self.cashier_from_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        controls.addWidget(self.cashier_from_time)
+
         controls.addWidget(QLabel("إلى:"))
         self.cashier_to = QDateEdit(QDate.currentDate())
         self.cashier_to.setCalendarPopup(True)
         self.cashier_to.setMinimumWidth(150)
         self.cashier_to.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_to)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.cashier_to_time = QTimeEdit(QTime(23, 59))
+        self.cashier_to_time.setDisplayFormat("HH:mm")
+        self.cashier_to_time.setMinimumWidth(90)
+        self.cashier_to_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        controls.addWidget(self.cashier_to_time)
 
         controls.addWidget(QLabel("الكاشير:"))
         self.cashier_filter = QComboBox()
@@ -280,7 +304,12 @@ class AdminReportsDialog(BigDialog):
                 self.cashier_filter.addItem(cashier, cashier)
 
     def _load_cashier_report(self):
-        start, end = self._date_bounds(self.cashier_from, self.cashier_to)
+        start, end = self._datetime_bounds_from_date_time(
+            self.cashier_from,
+            self.cashier_from_time,
+            self.cashier_to,
+            self.cashier_to_time,
+        )
         cashier = self.cashier_filter.currentData()
         query = """
             WITH pay AS (
@@ -367,10 +396,22 @@ class AdminReportsDialog(BigDialog):
         self.products_from.setCalendarPopup(True)
         controls.addWidget(self.products_from)
 
+        controls.addWidget(QLabel("الساعة:"))
+        self.products_from_time = QTimeEdit(QTime(0, 0))
+        self.products_from_time.setDisplayFormat("HH:mm")
+        self.products_from_time.setMinimumWidth(90)
+        controls.addWidget(self.products_from_time)
+
         controls.addWidget(QLabel("إلى:"))
         self.products_to = QDateEdit(QDate.currentDate())
         self.products_to.setCalendarPopup(True)
         controls.addWidget(self.products_to)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.products_to_time = QTimeEdit(QTime(23, 59))
+        self.products_to_time.setDisplayFormat("HH:mm")
+        self.products_to_time.setMinimumWidth(90)
+        controls.addWidget(self.products_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_product_report)
@@ -386,7 +427,12 @@ class AdminReportsDialog(BigDialog):
         return widget
 
     def _load_product_report(self):
-        start, end = self._date_bounds(self.products_from, self.products_to)
+        start, end = self._datetime_bounds_from_date_time(
+            self.products_from,
+            self.products_from_time,
+            self.products_to,
+            self.products_to_time,
+        )
         query = """
             WITH paid_orders AS (
                 SELECT DISTINCT order_id FROM payments WHERE paid_at BETWEEN ? AND ?
@@ -443,11 +489,23 @@ class AdminReportsDialog(BigDialog):
         self.discounts_from.setMinimumWidth(150)
         controls.addWidget(self.discounts_from)
 
+        controls.addWidget(QLabel("الساعة:"))
+        self.discounts_from_time = QTimeEdit(QTime(0, 0))
+        self.discounts_from_time.setDisplayFormat("HH:mm")
+        self.discounts_from_time.setMinimumWidth(90)
+        controls.addWidget(self.discounts_from_time)
+
         controls.addWidget(QLabel("إلى:"))
         self.discounts_to = QDateEdit(QDate.currentDate())
         self.discounts_to.setCalendarPopup(True)
         self.discounts_to.setMinimumWidth(150)
         controls.addWidget(self.discounts_to)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.discounts_to_time = QTimeEdit(QTime(23, 59))
+        self.discounts_to_time.setDisplayFormat("HH:mm")
+        self.discounts_to_time.setMinimumWidth(90)
+        controls.addWidget(self.discounts_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_discounts_report)
@@ -463,7 +521,12 @@ class AdminReportsDialog(BigDialog):
         return widget
 
     def _load_discounts_report(self):
-        start, end = self._date_bounds(self.discounts_from, self.discounts_to)
+        start, end = self._datetime_bounds_from_date_time(
+            self.discounts_from,
+            self.discounts_from_time,
+            self.discounts_to,
+            self.discounts_to_time,
+        )
         query = """
             SELECT
                 o.closed_at,
@@ -527,11 +590,23 @@ class AdminReportsDialog(BigDialog):
         self.purchases_from.setMinimumWidth(150)
         controls.addWidget(self.purchases_from)
 
+        controls.addWidget(QLabel("الساعة:"))
+        self.purchases_from_time = QTimeEdit(QTime(0, 0))
+        self.purchases_from_time.setDisplayFormat("HH:mm")
+        self.purchases_from_time.setMinimumWidth(90)
+        controls.addWidget(self.purchases_from_time)
+
         controls.addWidget(QLabel("إلى:"))
         self.purchases_to = QDateEdit(QDate.currentDate())
         self.purchases_to.setCalendarPopup(True)
         self.purchases_to.setMinimumWidth(150)
         controls.addWidget(self.purchases_to)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.purchases_to_time = QTimeEdit(QTime(23, 59))
+        self.purchases_to_time.setDisplayFormat("HH:mm")
+        self.purchases_to_time.setMinimumWidth(90)
+        controls.addWidget(self.purchases_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_purchases_report)
@@ -547,7 +622,12 @@ class AdminReportsDialog(BigDialog):
         return widget
 
     def _load_purchases_report(self):
-        start, end = self._date_bounds(self.purchases_from, self.purchases_to)
+        start, end = self._datetime_bounds_from_date_time(
+            self.purchases_from,
+            self.purchases_from_time,
+            self.purchases_to,
+            self.purchases_to_time,
+        )
         query = """
             SELECT
                 purchased_at,
@@ -614,12 +694,24 @@ class AdminReportsDialog(BigDialog):
         self.profit_from.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.profit_from)
 
+        controls.addWidget(QLabel("الساعة:"))
+        self.profit_from_time = QTimeEdit(QTime(0, 0))
+        self.profit_from_time.setDisplayFormat("HH:mm")
+        self.profit_from_time.setMinimumWidth(90)
+        controls.addWidget(self.profit_from_time)
+
         controls.addWidget(QLabel("إلى:"))
         self.profit_to = QDateEdit(QDate.currentDate())
         self.profit_to.setCalendarPopup(True)
         self.profit_to.setMinimumWidth(150)
         self.profit_to.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.profit_to)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.profit_to_time = QTimeEdit(QTime(23, 59))
+        self.profit_to_time.setDisplayFormat("HH:mm")
+        self.profit_to_time.setMinimumWidth(90)
+        controls.addWidget(self.profit_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_profit_report)
@@ -659,7 +751,12 @@ class AdminReportsDialog(BigDialog):
         return widget
 
     def _load_profit_report(self):
-        start, end = self._date_bounds(self.profit_from, self.profit_to)
+        start, end = self._datetime_bounds_from_date_time(
+            self.profit_from,
+            self.profit_from_time,
+            self.profit_to,
+            self.profit_to_time,
+        )
         conn = get_conn()
         cur = conn.cursor()
 
@@ -858,11 +955,23 @@ class AdminReportsDialog(BigDialog):
         self.attendance_from.setMinimumWidth(150)
         controls.addWidget(self.attendance_from)
 
+        controls.addWidget(QLabel("الساعة:"))
+        self.attendance_from_time = QTimeEdit(QTime(0, 0))
+        self.attendance_from_time.setDisplayFormat("HH:mm")
+        self.attendance_from_time.setMinimumWidth(90)
+        controls.addWidget(self.attendance_from_time)
+
         controls.addWidget(QLabel("إلى:"))
         self.attendance_to = QDateEdit(QDate.currentDate())
         self.attendance_to.setCalendarPopup(True)
         self.attendance_to.setMinimumWidth(150)
         controls.addWidget(self.attendance_to)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.attendance_to_time = QTimeEdit(QTime(23, 59))
+        self.attendance_to_time.setDisplayFormat("HH:mm")
+        self.attendance_to_time.setMinimumWidth(90)
+        controls.addWidget(self.attendance_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_attendance_report)
@@ -878,7 +987,12 @@ class AdminReportsDialog(BigDialog):
         return widget
 
     def _load_attendance_report(self):
-        start, end = self._date_bounds(self.attendance_from, self.attendance_to)
+        start, end = self._datetime_bounds_from_date_time(
+            self.attendance_from,
+            self.attendance_from_time,
+            self.attendance_to,
+            self.attendance_to_time,
+        )
         try:
             entries = staff_service.summarize_session_hours(start, end)
         except Exception as exc:
@@ -910,6 +1024,167 @@ class AdminReportsDialog(BigDialog):
         self.attendance_summary.setText(
             f"عدد الجلسات: {total_sessions} | إجمالي الساعات: {total_hours:.2f}"
         )
+
+    # --------------------------------------------------------- shift summary
+    def _build_shift_summary_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        self.shift_table = self._make_table([
+            "الموظف",
+            "بداية الوردية",
+            "نهاية الوردية",
+            "المدة",
+            "طلبات فتحت",
+            "طلبات أغلقت",
+            "طلبات ملغاة",
+            "عدد المدفوعات",
+            "إجمالي التحصيل",
+            "إجمالي الخصومات",
+        ])
+        layout.addWidget(self.shift_table, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
+        controls.addWidget(QLabel("من:"))
+        self.shift_from_date = QDateEdit(QDate.currentDate().addDays(-1))
+        self.shift_from_date.setCalendarPopup(True)
+        controls.addWidget(self.shift_from_date)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.shift_from_time = QTimeEdit(QTime(0, 0))
+        self.shift_from_time.setDisplayFormat("HH:mm")
+        self.shift_from_time.setMinimumWidth(90)
+        controls.addWidget(self.shift_from_time)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.shift_to_date = QDateEdit(QDate.currentDate())
+        self.shift_to_date.setCalendarPopup(True)
+        controls.addWidget(self.shift_to_date)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.shift_to_time = QTimeEdit(QTime(23, 59))
+        self.shift_to_time.setDisplayFormat("HH:mm")
+        self.shift_to_time.setMinimumWidth(90)
+        controls.addWidget(self.shift_to_time)
+
+        controls.addWidget(QLabel("الموظف:"))
+        self.shift_user_filter = QComboBox()
+        self.shift_user_filter.addItem("الكل", "")
+        self._populate_shift_user_filter()
+        controls.addWidget(self.shift_user_filter)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_shift_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.shift_table, "shift_summary"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.shift_summary = QLabel("")
+        self.shift_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.shift_summary)
+
+        return widget
+
+    def _populate_shift_user_filter(self):
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT username FROM users ORDER BY username")
+        rows = cur.fetchall()
+        conn.close()
+        for row in rows:
+            username = (row["username"] or "").strip()
+            if username:
+                self.shift_user_filter.addItem(username, username)
+
+    def _load_shift_report(self):
+        start_iso, end_iso = self._datetime_bounds_from_date_time(
+            self.shift_from_date,
+            self.shift_from_time,
+            self.shift_to_date,
+            self.shift_to_time,
+        )
+        try:
+            start_dt = datetime.fromisoformat(start_iso)
+            end_dt = datetime.fromisoformat(end_iso)
+        except ValueError:
+            QMessageBox.warning(self, "ملخص الورديات", "تواريخ غير صالحة.")
+            return
+
+        username_filter = self.shift_user_filter.currentData() or ""
+        now = datetime.now()
+
+        try:
+            sessions = staff_service.list_sessions_between(start_dt, end_dt)
+        except Exception as exc:
+            QMessageBox.warning(self, "ملخص الورديات", f"تعذر تحميل البيانات:\n{exc}")
+            self._populate_table(self.shift_table, [])
+            self.shift_summary.setText("تعذر تحميل البيانات")
+            return
+
+        rows: list[list[str]] = []
+        totals = {
+            "sessions": 0,
+            "seconds": 0,
+            "opened": 0,
+            "closed": 0,
+            "voided": 0,
+            "payments": 0,
+            "net": 0,
+            "discounts": 0,
+        }
+
+        for session in sessions:
+            username = session.get("username", "")
+            if username_filter and username != username_filter:
+                continue
+            session_start = max(session.get("login_at") or start_dt, start_dt)
+            raw_end = session.get("logout_at") or now
+            session_end = min(raw_end, end_dt)
+            if session_end <= session_start:
+                continue
+
+            metrics = staff_service.summarize_shift_activity(username, session_start, session_end)
+            duration = int(metrics.get("duration_seconds", 0) or 0)
+            if duration <= 0 and metrics.get("orders_opened", 0) <= 0 and metrics.get("payments_count", 0) <= 0:
+                continue
+
+            rows.append([
+                username,
+                session_start.strftime("%Y-%m-%d %H:%M"),
+                session_end.strftime("%Y-%m-%d %H:%M"),
+                self._format_duration(duration),
+                str(metrics.get("orders_opened", 0)),
+                str(metrics.get("orders_closed", 0)),
+                str(metrics.get("voided_orders", 0)),
+                str(metrics.get("payments_count", 0)),
+                self._money(int(metrics.get("payments_total_cents", 0))),
+                self._money(int(metrics.get("discount_cents", 0))),
+            ])
+
+            totals["sessions"] += 1
+            totals["seconds"] += duration
+            totals["opened"] += int(metrics.get("orders_opened", 0))
+            totals["closed"] += int(metrics.get("orders_closed", 0))
+            totals["voided"] += int(metrics.get("voided_orders", 0))
+            totals["payments"] += int(metrics.get("payments_count", 0))
+            totals["net"] += int(metrics.get("payments_total_cents", 0))
+            totals["discounts"] += int(metrics.get("discount_cents", 0))
+
+        self._populate_table(self.shift_table, rows)
+        if rows:
+            hours_total = totals["seconds"] / 3600.0 if totals["seconds"] else 0
+            summary = (
+                f"عدد الورديات: {totals['sessions']} | "
+                f"إجمالي الساعات: {hours_total:.2f} | "
+                f"صافي التحصيل: {self._money(totals['net'])} | "
+                f"الخصومات: {self._money(totals['discounts'])}"
+            )
+        else:
+            summary = "لا توجد بيانات للفترة المحددة."
+        self.shift_summary.setText(summary)
 
     # ---------------------------------------------------------- staff payroll
     def _build_deductions_tab(self) -> QWidget:
@@ -1033,6 +1308,111 @@ class AdminReportsDialog(BigDialog):
         self._populate_table(self.stakeholder_table, table_rows)
         self.stakeholder_summary.setText(f"عدد الأحداث: {len(table_rows)}")
 
+    # ----------------------------------------------------- destructive tools
+    def _build_cleanup_panel(self) -> QWidget:
+        frame = QFrame()
+        frame.setObjectName("CleanupPanel")
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(12)
+
+        layout.addWidget(QLabel("حذف البيانات من:"))
+        self.cleanup_from = QDateTimeEdit(QDateTime.currentDateTime().addDays(-30))
+        self.cleanup_from.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.cleanup_from.setCalendarPopup(True)
+        layout.addWidget(self.cleanup_from)
+
+        layout.addWidget(QLabel("إلى:"))
+        self.cleanup_to = QDateTimeEdit(QDateTime.currentDateTime())
+        self.cleanup_to.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.cleanup_to.setCalendarPopup(True)
+        layout.addWidget(self.cleanup_to)
+
+        layout.addWidget(QLabel("كلمة المرور:"))
+        self.cleanup_password = QLineEdit()
+        self.cleanup_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cleanup_password.setPlaceholderText("كلمة مرور المدير")
+        self.cleanup_password.setMinimumWidth(160)
+        layout.addWidget(self.cleanup_password)
+
+        self.cleanup_button = QPushButton("حذف البيانات للفترة")
+        self.cleanup_button.clicked.connect(self._handle_cleanup)
+        self.cleanup_button.setEnabled(bool(self.actor_username))
+        layout.addWidget(self.cleanup_button)
+
+        self.cleanup_status = QLabel("")
+        self.cleanup_status.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.cleanup_status.setWordWrap(True)
+        layout.addWidget(self.cleanup_status, 1)
+
+        frame.setStyleSheet(
+            "#CleanupPanel { border: 1px solid rgba(0,0,0,0.15); border-radius: 12px; }"
+        )
+        return frame
+
+    def _handle_cleanup(self):
+        if not self.actor_username:
+            QMessageBox.warning(self, "حذف البيانات", "يجب تسجيل الدخول بحساب مدير لإتمام العملية.")
+            return
+
+        password = self.cleanup_password.text().strip()
+        if not password:
+            QMessageBox.warning(self, "حذف البيانات", "أدخل كلمة المرور لتأكيد العملية.")
+            return
+
+        user = authenticate(self.actor_username, password)
+        if not user:
+            QMessageBox.warning(self, "حذف البيانات", "كلمة المرور غير صحيحة.")
+            return
+
+        start_dt = self.cleanup_from.dateTime().toPyDateTime()
+        end_dt = self.cleanup_to.dateTime().toPyDateTime()
+
+        confirm = QMessageBox.question(
+            self,
+            "تأكيد الحذف",
+            "سيتم حذف جميع الطلبات، المدفوعات، المشتريات والملاحظات في هذه الفترة. هل تريد المتابعة؟",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            summary = maintenance_service.purge_activity_between(start_dt, end_dt)
+        except Exception as exc:
+            QMessageBox.critical(self, "حذف البيانات", f"تعذر حذف البيانات:\n{exc}")
+            return
+
+        self.cleanup_password.clear()
+        removed_orders = summary.get("orders", 0)
+        removed_payments = summary.get("order_payments", 0) + summary.get("payments", 0)
+        removed_purchases = summary.get("purchases", 0)
+        removed_expenses = summary.get("expenses", 0)
+        removed_sessions = summary.get("user_sessions", 0)
+        status = (
+            f"تم حذف {removed_orders} طلبًا، {removed_payments} عملية دفع، "
+            f"{removed_purchases} مشتريات، {removed_expenses} مصروفات و {removed_sessions} جلسات." 
+        )
+        self.cleanup_status.setText(status)
+        QMessageBox.information(self, "حذف البيانات", status)
+        self._reload_all_reports()
+
+    def _reload_all_reports(self):
+        self._load_daily_report()
+        self._load_cashier_report()
+        self._load_product_report()
+        self._load_discounts_report()
+        self._load_purchases_report()
+        self._load_profit_report()
+        self._load_price_log()
+        self._load_inventory_report()
+        self._load_attendance_report()
+        self._load_shift_report()
+        self._load_deductions_report()
+        self._load_stakeholder_report()
+
+
     # ------------------------------------------------------------- utilities
     def _make_export_button(self, table: QTableWidget, default_name: str) -> QPushButton:
         button = QPushButton("تنزيل Excel")
@@ -1070,6 +1450,12 @@ class AdminReportsDialog(BigDialog):
         if abs(q - round(q)) < 1e-6:
             return str(int(round(q)))
         return f"{q:.2f}"
+
+    def _format_duration(self, seconds: int) -> str:
+        seconds = max(int(seconds or 0), 0)
+        hours, rem = divmod(seconds, 3600)
+        minutes, secs = divmod(rem, 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     def _date_bounds(self, start_widget: QDateEdit, end_widget: QDateEdit) -> tuple[str, str]:
         s = datetime.combine(start_widget.date().toPyDate(), datetime.min.time())

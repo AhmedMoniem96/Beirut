@@ -550,7 +550,7 @@ class MainWindow(QMainWindow):
             self._show_banner("هذه العملية للمدير فقط.", "warn")
             return
         from .admin_reports_dialog import AdminReportsDialog
-        AdminReportsDialog().exec()
+        AdminReportsDialog(actor_username=self.user.username).exec()
 
     def _open_tables_admin(self):
         if self.user.role != "admin":

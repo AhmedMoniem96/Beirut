@@ -174,6 +174,45 @@ def summarize_session_hours(start_iso: str, end_iso: str) -> List[Dict[str, obje
     return summary
 
 
+def list_sessions_between(start_dt: datetime, end_dt: datetime) -> List[Dict[str, object]]:
+    """Return individual user sessions overlapping the provided window."""
+
+    start = start_dt if isinstance(start_dt, datetime) else datetime.min
+    end = end_dt if isinstance(end_dt, datetime) else datetime.utcnow()
+    if end < start:
+        start, end = end, start
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, username, login_at, logout_at
+        FROM user_sessions
+        WHERE (logout_at IS NULL OR logout_at >= ?) AND login_at <= ?
+        ORDER BY login_at
+        """,
+        (start.isoformat(), end.isoformat()),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    sessions: List[Dict[str, object]] = []
+    for row in rows:
+        login_at = _parse_iso(row["login_at"])
+        logout_at = _parse_iso(row["logout_at"]) if row["logout_at"] else None
+        if login_at is None:
+            continue
+        sessions.append(
+            {
+                "id": int(row["id"]),
+                "username": row["username"],
+                "login_at": login_at,
+                "logout_at": logout_at,
+            }
+        )
+    return sessions
+
+
 def summarize_shift_activity(
     username: str, start_dt: datetime, end_dt: Optional[datetime] = None
 ) -> Dict[str, int]:

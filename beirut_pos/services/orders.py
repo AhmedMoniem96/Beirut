@@ -2023,7 +2023,7 @@ class OrderManager:
         order.discount_type = dtype
         order.discount_value = raw_value
         order.discount_reason = reason or ""
-            bus.emit("table_total_changed", table_code, order.total_cents)
+        bus.emit("table_total_changed", table_code, order.total_cents)
 
     def _cleanup_empty_order(
             self,
@@ -2065,6 +2065,105 @@ class OrderManager:
                 pass
 
         return True
+
+    def empty_table(
+            self,
+            table_code: str,
+            *,
+            username: str = "system",
+            reason: str = "",
+    ) -> bool:
+        """Force-clear a table by voiding the open order and restoring stock."""
+        code = (table_code or "").strip().upper()
+        if not code:
+            raise OrderError("رمز الطاولة غير صالح")
+
+        order = self.orders.get(code)
+        refresh_catalog = False
+        recovery_events: list[tuple[str, float, float, float]] = []
+        now_iso = datetime.utcnow().isoformat()
+        had_order = bool(order)
+
+        with db_transaction() as conn:
+            if order:
+                for item in list(order.items):
+                    prod = self.catalog.get_product(item.product)
+                    before = None
+                    if prod and prod.get("track_stock") == 1:
+                        stock_val = prod.get("stock_qty")
+                        before = float(stock_val) if stock_val is not None else 0.0
+                        state = self.catalog.inc_stock(item.product, item.qty, conn=conn)
+                        new_stock = state[0] if state else None
+                        min_stock = state[1] if state else None
+                        if (
+                                before is not None
+                                and before <= 0
+                                and new_stock is not None
+                                and new_stock > 0
+                        ):
+                            refresh_catalog = True
+                        if (
+                                before is not None
+                                and new_stock is not None
+                                and min_stock is not None
+                                and before <= min_stock < new_stock
+                        ):
+                            recovery_events.append((item.product, before, new_stock, min_stock))
+                    if item.row_id is not None:
+                        conn.execute("DELETE FROM order_items WHERE id=?", (item.row_id,))
+                conn.execute("DELETE FROM order_items WHERE order_id=?", (order.id,))
+                conn.execute("DELETE FROM payments WHERE order_id=?", (order.id,))
+                conn.execute(
+                    "UPDATE orders SET status='void', closed_at=?, closed_by=?, paid_at=NULL WHERE id=?",
+                    (now_iso, username, order.id),
+                )
+                self._write_client_name(conn, code, "")
+            else:
+                conn.execute(
+                    "UPDATE orders SET status='void', closed_at=?, closed_by=? WHERE table_code=? AND status='open'",
+                    (now_iso, username, code),
+                )
+                self._write_client_name(conn, code, "")
+
+            conn.execute("DELETE FROM ps_sessions WHERE table_code=?", (code,))
+
+        self.orders.pop(code, None)
+        self.ps_sessions.pop(code, None)
+        self._apply_client_name(code, "")
+
+        if refresh_catalog:
+            bus.emit("catalog_changed")
+        for prod_name, prev, new_stock, min_stock in recovery_events:
+            bus.emit("inventory_recovered", prod_name, prev, new_stock, min_stock)
+            try:
+                log_action(
+                    username,
+                    "inventory_recovered",
+                    "product",
+                    prod_name,
+                    str(prev),
+                    str(new_stock),
+                )
+            except Exception:
+                pass
+
+        bus.emit("table_state_changed", code, "free")
+        bus.emit("table_total_changed", code, 0)
+        bus.emit("ps_state_changed", code, False)
+
+        try:
+            log_action(
+                username,
+                "table_cleared",
+                "table",
+                code,
+                str(getattr(order, "id", "")),
+                reason or "",
+            )
+        except Exception:
+            pass
+
+        return had_order
     def clear_discount(self, table_code: str, username: str = "system") -> None:
         order = self.orders.get(table_code)
         if not order:

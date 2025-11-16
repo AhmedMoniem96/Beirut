@@ -278,6 +278,11 @@ class MainWindow(QMainWindow):
         self.btn_table_history.setEnabled(False)
         head_row.addWidget(self.btn_table_history, 0)
 
+        self.btn_clear_table = QPushButton()
+        self.btn_clear_table.clicked.connect(self._on_clear_table)
+        self.btn_clear_table.setEnabled(False)
+        head_row.addWidget(self.btn_clear_table, 0)
+
         self.back_big = QPushButton()
         self.back_big.clicked.connect(self._go_back)
         head_row.addWidget(self.back_big, 0)
@@ -493,6 +498,7 @@ class MainWindow(QMainWindow):
         self._update_ps_buttons_state()
         self._status.showMessage(random_tip(), 10000)
         self.btn_merge.setEnabled(False)
+        self.btn_clear_table.setEnabled(False)
 
     def _open_table_history(self):
         if not self.current_table:
@@ -531,6 +537,7 @@ class MainWindow(QMainWindow):
             if self.current_table:
                 self._update_ps_buttons_state()
             self._refresh_edit_lock_state()
+            self.btn_clear_table.setEnabled(bool(self.current_table))
 
     def _open_manage_products(self):
         if self.user.role != "admin":
@@ -610,6 +617,7 @@ class MainWindow(QMainWindow):
         self._refresh_print_buttons()
         self._status.showMessage(random_tip(), 9000)
         self.btn_merge.setEnabled(True)
+        self.btn_clear_table.setEnabled(True)
 
     # REMOVED: _on_table_ps_action method since we don't have PS controls on tiles anymore
 
@@ -731,6 +739,34 @@ class MainWindow(QMainWindow):
             if target in self.table_map.tiles:
                 self.table_map.tiles[target].set_checked(True)
             self._show_banner(f"تم نقل الطلب إلى الطاولة {target} بنجاح.", "success")
+
+    def _on_clear_table(self) -> None:
+        if not self.current_table:
+            self._show_banner(texts.get("main.order.clear_table_warn", "اختر طاولة لتفريغها."), "warn")
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            texts.get("main.order.clear_table", "تفريغ الطاولة"),
+            texts.get(
+                "main.order.clear_table_confirm",
+                "سيتم حذف الطلب الحالي وإعادة الطاولة للوضع الحر. هل تريد المتابعة؟",
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        cleared_table = self.current_table
+        try:
+            order_manager.empty_table(cleared_table, username=self.user.username)
+        except OrderError as exc:
+            self._show_banner(str(exc), "error", duration=8000)
+            return
+
+        self._go_back()
+        self._show_banner(texts.get("main.order.clear_table_success"), "success")
 
     def _on_edit_item(self, index: int) -> None:
         if not self.current_table:
@@ -922,6 +958,8 @@ class MainWindow(QMainWindow):
         self.btn_print_cashier.setText(texts.get("main.order.print_cashier"))
         self.btn_table_history.setText(texts.get("tables.history.button"))
         self.btn_table_history.setToolTip(texts.get("tables.history.button"))
+        self.btn_clear_table.setText(texts.get("main.order.clear_table"))
+        self.btn_clear_table.setToolTip(texts.get("main.order.clear_table_tooltip"))
         self.back_big.setText(texts.get("main.toolbar.back"))
         self._apply_order_header()
 

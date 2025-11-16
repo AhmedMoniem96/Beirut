@@ -1098,6 +1098,15 @@ class OrderManager:
                 for r in cur.fetchall()
             ]
             self.orders[order.table_code] = order
+            if not order.items:
+                # An empty order shouldn't block table management; clean it up.
+                self._cleanup_empty_order(
+                    order.table_code,
+                    username="system",
+                    emit_events=False,
+                    log_event=False,
+                )
+                continue
             bus.emit("table_state_changed", order.table_code, "occupied")
             bus.emit("table_total_changed", order.table_code, order.total_cents)
         conn.close()
@@ -1527,6 +1536,8 @@ class OrderManager:
                     str(new_stock),
                 )
             bus.emit("table_total_changed", table_code, order.total_cents)
+            if not order.items:
+                self._cleanup_empty_order(table_code, username=username)
 
     def update_item(
             self,
@@ -2012,8 +2023,48 @@ class OrderManager:
         order.discount_type = dtype
         order.discount_value = raw_value
         order.discount_reason = reason or ""
-        bus.emit("table_total_changed", table_code, order.total_cents)
+            bus.emit("table_total_changed", table_code, order.total_cents)
 
+    def _cleanup_empty_order(
+            self,
+            table_code: str,
+            *,
+            username: str = "system",
+            emit_events: bool = True,
+            log_event: bool = True,
+    ) -> bool:
+        """Remove an order that no longer has any items."""
+        order = self.orders.get(table_code)
+        if not order or order.items:
+            return False
+
+        with db_transaction() as conn:
+            conn.execute("DELETE FROM order_items WHERE order_id=?", (order.id,))
+            conn.execute("DELETE FROM orders WHERE id=?", (order.id,))
+            self._write_client_name(conn, table_code, "")
+
+        self.orders.pop(table_code, None)
+        self._apply_client_name(table_code, "")
+
+        if emit_events:
+            bus.emit("table_state_changed", table_code, "free")
+            bus.emit("table_total_changed", table_code, 0)
+            bus.emit("ps_state_changed", table_code, False)
+
+        if log_event:
+            try:
+                log_action(
+                    username,
+                    "order_auto_cleared",
+                    "table",
+                    table_code,
+                    None,
+                    "auto",
+                )
+            except Exception:
+                pass
+
+        return True
     def clear_discount(self, table_code: str, username: str = "system") -> None:
         order = self.orders.get(table_code)
         if not order:

@@ -2,11 +2,12 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QPushButton,
     QComboBox, QFileDialog, QTabWidget, QHBoxLayout, QLabel,
-    QColorDialog, QListWidget, QAbstractItemView, QMessageBox,
+    QColorDialog, QListWidget, QListWidgetItem, QAbstractItemView, QMessageBox,
     QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QAction, QKeySequence
+import json
 
 from ..core.db import setting_get, setting_set, get_synchronous_mode, set_synchronous_mode
 from ..core.simple_voucher import deactivate, is_activated, status as voucher_status
@@ -175,6 +176,44 @@ class SettingsDialog(BigDialog):
         _configure_field(self.ps_p4)
         ps_f.addRow("سعر PS لاعبين/ساعة (ج.م):", self.ps_p2)
         ps_f.addRow("سعر PS أربعة/ساعة (ج.م):", self.ps_p4)
+
+        vip_default_raw = setting_get("ps_vip_tables", "[]")
+        try:
+            vip_saved = json.loads(vip_default_raw)
+            if not isinstance(vip_saved, list):
+                vip_saved = []
+        except Exception:
+            vip_saved = []
+        vip_selected = {str(code).strip().upper() for code in vip_saved if isinstance(code, str)}
+
+        vip_hint = QLabel("اختر الطاولات التي تستخدم تسعيرة VIP مختلفة عن باقي الطاولات.")
+        vip_hint.setWordWrap(True)
+
+        self.ps_vip_tables = QListWidget()
+        self.ps_vip_tables.setAlternatingRowColors(True)
+        self.ps_vip_tables.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.ps_vip_tables.setMinimumHeight(160)
+        for code in order_manager.get_table_codes():
+            item = QListWidgetItem(code)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            state = Qt.CheckState.Checked if code in vip_selected else Qt.CheckState.Unchecked
+            item.setCheckState(state)
+            self.ps_vip_tables.addItem(item)
+
+        vip_wrapper = QVBoxLayout(); vip_wrapper.setSpacing(6)
+        vip_wrapper.addWidget(vip_hint)
+        vip_wrapper.addWidget(self.ps_vip_tables)
+        vip_widget = QWidget(); vip_widget.setLayout(vip_wrapper)
+        ps_f.addRow("طاولات VIP:", vip_widget)
+
+        self.ps_vip_p2 = QSpinBox(); self.ps_vip_p2.setRange(0, 1_000_000); self.ps_vip_p2.setSingleStep(1); self.ps_vip_p2.setSuffix(" ج.م")
+        self.ps_vip_p2.setValue(_read_ps_rate("ps_vip_rate_p2", self.ps_p2.value()))
+        self.ps_vip_p4 = QSpinBox(); self.ps_vip_p4.setRange(0, 1_000_000); self.ps_vip_p4.setSingleStep(1); self.ps_vip_p4.setSuffix(" ج.م")
+        self.ps_vip_p4.setValue(_read_ps_rate("ps_vip_rate_p4", self.ps_p4.value()))
+        _configure_field(self.ps_vip_p2)
+        _configure_field(self.ps_vip_p4)
+        ps_f.addRow("سعر VIP PS لاعبين/ساعة (ج.م):", self.ps_vip_p2)
+        ps_f.addRow("سعر VIP PS أربعة/ساعة (ج.م):", self.ps_vip_p4)
         tabs.addTab(ps, "البلايستيشن")
 
         # --- Branding tab ---
@@ -529,6 +568,16 @@ class SettingsDialog(BigDialog):
         set_synchronous_mode(self.sync_mode.currentText().upper())
         setting_set("ps_rate_p2", str(self.ps_p2.value()))
         setting_set("ps_rate_p4", str(self.ps_p4.value()))
+        setting_set("ps_vip_rate_p2", str(self.ps_vip_p2.value()))
+        setting_set("ps_vip_rate_p4", str(self.ps_vip_p4.value()))
+        vip_codes: list[str] = []
+        for idx in range(self.ps_vip_tables.count()):
+            item = self.ps_vip_tables.item(idx)
+            if item and item.checkState() == Qt.CheckState.Checked:
+                code = item.text().strip().upper()
+                if code and code not in vip_codes:
+                    vip_codes.append(code)
+        setting_set("ps_vip_tables", json.dumps(vip_codes, ensure_ascii=False))
         setting_set("bar_printer", bar)
         setting_set("cashier_printer", cash)
         setting_set("logo_path", logo)

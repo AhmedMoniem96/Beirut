@@ -37,6 +37,90 @@ def _list_printers():
         return []
 
 
+class VipTablesPickerDialog(BigDialog):
+    """Modal dialog that lets admins mark PS VIP tables via checkboxes."""
+
+    def __init__(self, selected: set[str] | list[str], parent=None):
+        super().__init__("طاولات VIP للبلايستيشن", remember_key="vip_tables_picker", parent=parent)
+        self._selected = {str(code).strip().upper() for code in selected if str(code).strip()}
+
+        layout = QVBoxLayout(self)
+
+        intro = QLabel("اختر الطاولات التي تحصل على تسعيرة VIP عند تشغيل البلايستيشن.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        controls = QHBoxLayout()
+        self.vip_filter = QLineEdit()
+        self.vip_filter.setPlaceholderText("ابحث عن طاولة…")
+        self.vip_filter.textChanged.connect(self._apply_filter)
+        controls.addWidget(self.vip_filter, 1)
+
+        btn_select_all = QPushButton("تحديد الكل")
+        btn_select_all.clicked.connect(lambda: self._set_all(True))
+        controls.addWidget(btn_select_all)
+
+        btn_clear = QPushButton("مسح التحديد")
+        btn_clear.clicked.connect(lambda: self._set_all(False))
+        controls.addWidget(btn_clear)
+
+        layout.addLayout(controls)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setAlternatingRowColors(True)
+        self.list_widget.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        for code in order_manager.get_table_codes():
+            item = QListWidgetItem(code)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            state = Qt.CheckState.Checked if code in self._selected else Qt.CheckState.Unchecked
+            item.setCheckState(state)
+            self.list_widget.addItem(item)
+        layout.addWidget(self.list_widget, 1)
+
+        buttons = QHBoxLayout()
+        btn_cancel = QPushButton("إلغاء")
+        btn_cancel.clicked.connect(self.reject)
+        btn_save = QPushButton("حفظ")
+        btn_save.setDefault(True)
+        btn_save.clicked.connect(self.accept)
+        buttons.addStretch(1)
+        buttons.addWidget(btn_cancel)
+        buttons.addWidget(btn_save)
+        layout.addLayout(buttons)
+
+    # ----------------------------------------------------------------- utils
+    def _set_all(self, checked: bool):
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        for idx in range(self.list_widget.count()):
+            item = self.list_widget.item(idx)
+            if item:
+                item.setCheckState(state)
+
+    def _apply_filter(self, text: str):
+        needle = (text or "").strip().upper()
+        for idx in range(self.list_widget.count()):
+            item = self.list_widget.item(idx)
+            if not item:
+                continue
+            code = item.text().strip().upper()
+            hidden = bool(needle) and needle not in code
+            item.setHidden(hidden)
+
+    def selected_codes(self) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for idx in range(self.list_widget.count()):
+            item = self.list_widget.item(idx)
+            if not item or item.checkState() != Qt.CheckState.Checked:
+                continue
+            code = item.text().strip().upper()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            cleaned.append(code)
+        return cleaned
+
+
 class SettingsDialog(BigDialog):
     def __init__(self, parent=None):
         super().__init__("الإعدادات", remember_key="settings", parent=parent)
@@ -189,20 +273,21 @@ class SettingsDialog(BigDialog):
         vip_hint = QLabel("اختر الطاولات التي تستخدم تسعيرة VIP مختلفة عن باقي الطاولات.")
         vip_hint.setWordWrap(True)
 
-        self.ps_vip_tables = QListWidget()
-        self.ps_vip_tables.setAlternatingRowColors(True)
-        self.ps_vip_tables.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.ps_vip_tables.setMinimumHeight(160)
-        for code in order_manager.get_table_codes():
-            item = QListWidgetItem(code)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            state = Qt.CheckState.Checked if code in vip_selected else Qt.CheckState.Unchecked
-            item.setCheckState(state)
-            self.ps_vip_tables.addItem(item)
+        self._vip_tables: list[str] = self._normalize_vip_codes(vip_selected)
+        self.vip_summary = QLabel()
+        self.vip_summary.setWordWrap(True)
+        self._refresh_vip_summary()
+
+        vip_actions = QHBoxLayout()
+        vip_actions.addWidget(self.vip_summary, 1)
+        btn_edit_vip = QPushButton("تحديد الطاولات…")
+        btn_edit_vip.clicked.connect(self._edit_vip_tables)
+        vip_actions.addWidget(btn_edit_vip, 0)
+        vip_actions_widget = QWidget(); vip_actions_widget.setLayout(vip_actions)
 
         vip_wrapper = QVBoxLayout(); vip_wrapper.setSpacing(6)
         vip_wrapper.addWidget(vip_hint)
-        vip_wrapper.addWidget(self.ps_vip_tables)
+        vip_wrapper.addWidget(vip_actions_widget)
         vip_widget = QWidget(); vip_widget.setLayout(vip_wrapper)
         ps_f.addRow("طاولات VIP:", vip_widget)
 
@@ -570,14 +655,7 @@ class SettingsDialog(BigDialog):
         setting_set("ps_rate_p4", str(self.ps_p4.value()))
         setting_set("ps_vip_rate_p2", str(self.ps_vip_p2.value()))
         setting_set("ps_vip_rate_p4", str(self.ps_vip_p4.value()))
-        vip_codes: list[str] = []
-        for idx in range(self.ps_vip_tables.count()):
-            item = self.ps_vip_tables.item(idx)
-            if item and item.checkState() == Qt.CheckState.Checked:
-                code = item.text().strip().upper()
-                if code and code not in vip_codes:
-                    vip_codes.append(code)
-        setting_set("ps_vip_tables", json.dumps(vip_codes, ensure_ascii=False))
+        setting_set("ps_vip_tables", json.dumps(self._vip_tables, ensure_ascii=False))
         setting_set("bar_printer", bar)
         setting_set("cashier_printer", cash)
         setting_set("logo_path", logo)
@@ -620,6 +698,40 @@ class SettingsDialog(BigDialog):
         bus.emit("printers_changed", bar, cash)
         bus.emit("settings_saved")
         self.accept()
+
+    def _normalize_vip_codes(self, codes) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for code in codes:
+            try:
+                text = str(code)
+            except Exception:
+                continue
+            normalized = text.strip().upper()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            cleaned.append(normalized)
+        return cleaned
+
+    def _refresh_vip_summary(self):
+        count = len(self._vip_tables)
+        if not count:
+            text = "لا توجد طاولات VIP محددة حاليًا."
+        else:
+            preview_count = 6
+            preview = "، ".join(self._vip_tables[:preview_count])
+            remaining = count - preview_count
+            if remaining > 0:
+                preview += f" … (+{remaining} أخرى)"
+            text = f"عدد الطاولات المميزة: {count}\n{preview}"
+        self.vip_summary.setText(text)
+
+    def _edit_vip_tables(self):
+        dlg = VipTablesPickerDialog(self._vip_tables, parent=self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            self._vip_tables = dlg.selected_codes()
+            self._refresh_vip_summary()
 
     def _reset_palette_fields(self):
         palette = self._default_palette

@@ -2105,10 +2105,23 @@ class OrderManager:
             # Get PS prices from settings
             from ..core.db import setting_get
 
+            table_code_norm = (table_code or "").strip().upper()
+            vip_tables_raw = setting_get("ps_vip_tables", "[]")
+            vip_tables: set[str] = set()
+            try:
+                parsed = json.loads(vip_tables_raw)
+                if isinstance(parsed, list):
+                    vip_tables = {str(code).strip().upper() for code in parsed if isinstance(code, str)}
+            except Exception:
+                vip_tables = set()
+            is_vip = table_code_norm in vip_tables
+
             if sess.mode == "P2":
-                rate_str = setting_get("ps_rate_p2", "50")
+                base_rate = setting_get("ps_rate_p2", "50")
+                rate_str = setting_get("ps_vip_rate_p2", base_rate) if is_vip else base_rate
             else:
-                rate_str = setting_get("ps_rate_p4", "80")
+                base_rate = setting_get("ps_rate_p4", "80")
+                rate_str = setting_get("ps_vip_rate_p4", base_rate) if is_vip else base_rate
 
             try:
                 rate_le_per_hour = int(rate_str)
@@ -2123,6 +2136,8 @@ class OrderManager:
             amount_for_storage = int(round(amount_le))
 
             label = "PS ٢ لاعبين" if sess.mode == "P2" else "PS ٤ لاعبين"
+            if is_vip:
+                label += " (VIP)"
             detail = f"{label} — {minutes} دقيقة"
 
             print(f"DEBUG: PS billing:")

@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from ..core import db as db_module
 from ..core.config_store import get_config_value, set_config_value
@@ -92,6 +93,49 @@ def latest_backup_path() -> Optional[Path]:
         if not best or entry_date > best[0]:
             best = (entry_date, candidate)
     return None if best is None else best[1]
+
+
+@dataclass(frozen=True)
+class BackupMetadata:
+    """Summary information for a backup file on disk."""
+
+    path: Path
+    created_at: datetime
+    size_bytes: int
+
+    @property
+    def human_size(self) -> str:
+        size = float(self.size_bytes)
+        units = ["B", "KB", "MB", "GB", "TB"]
+        for unit in units:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} PB"
+
+
+def list_backup_metadata(limit: int = 10) -> List[BackupMetadata]:
+    """Return metadata objects for the newest *limit* backups."""
+
+    ensure_storage_dirs()
+    if not BACKUP_DIR.exists():
+        return []
+    entries: List[BackupMetadata] = []
+    for day_dir in sorted(BACKUP_DIR.iterdir(), reverse=True):
+        if not day_dir.is_dir():
+            continue
+        candidate = day_dir / _BACKUP_NAME
+        if not candidate.exists():
+            continue
+        try:
+            stat = candidate.stat()
+        except OSError:
+            continue
+        created = datetime.fromtimestamp(stat.st_mtime)
+        entries.append(BackupMetadata(candidate, created, stat.st_size))
+        if len(entries) >= max(1, limit):
+            break
+    return entries
 
 
 def restore_backup(source: Path) -> Path:

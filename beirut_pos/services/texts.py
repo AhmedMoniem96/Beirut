@@ -47,6 +47,11 @@ DEFAULT_TEXTS: Dict[str, str] = {
     "main.order.header": "طلب:",
     "main.order.print_bar": "🧾 بار",
     "main.order.print_cashier": "🧾 كاشير",
+    "main.order.clear_table": "تفريغ الطاولة",
+    "main.order.clear_table_tooltip": "إزالة الطلب الحالي وإعادة الطاولة للوضع الحر حتى لو كانت فارغة.",
+    "main.order.clear_table_confirm": "سيتم حذف الطلب الحالي وإعادة الطاولة للوضع الحر. هل تريد المتابعة؟",
+    "main.order.clear_table_success": "تم تفريغ الطاولة وإعادتها للوضع الحر.",
+    "main.order.clear_table_warn": "اختر طاولة لتفريغها أولاً.",
 
     # Tables history --------------------------------------------------------
     "tables.history.button": "الطلبات السابقة للطاولة",

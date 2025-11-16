@@ -48,6 +48,8 @@ from .merge_tables_dialog import MergeTablesDialog
 from .purchases_dialog import PurchasesDialog
 from .sugar_level_dialog import SugarLevelDialog
 from .dialogs.table_history_dialog import TableHistoryDialog
+from .recovery_center_dialog import RecoveryCenterDialog
+from .shift_summary_dialog import ShiftSummaryDialog
 from ..services import staff as staff_service
 
 PAGE_TABLES = 0
@@ -125,6 +127,8 @@ class MainWindow(QMainWindow):
         # NEW: Settings & Daily Z-Report (admin only)
         self.act_settings = QAction(self)
         self.act_settings.triggered.connect(self._open_settings)
+        self.act_recovery = QAction(self)
+        self.act_recovery.triggered.connect(self._open_recovery_center)
 
         self._admin_actions = [
             self.act_manage,
@@ -133,6 +137,7 @@ class MainWindow(QMainWindow):
             self.act_tables,
             self.act_purchases,
             self.act_settings,
+            self.act_recovery,
         ]
         for action in self._admin_actions:
             action.setVisible(self.user.role == "admin")
@@ -149,6 +154,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+R"), self, activated=self._open_reports)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._open_settings)
         QShortcut(QKeySequence("Ctrl+Shift+T"), self, activated=self._open_tables_admin)
+        QShortcut(QKeySequence("Ctrl+Shift+B"), self, activated=self._open_recovery_center)
         QShortcut(QKeySequence("Ctrl+/"), self, activated=self._show_hotkeys_help)
 
         self.pages = QStackedWidget()
@@ -495,6 +501,7 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _switch_user(self):
+        self._show_shift_summary()
         dlg = LoginDialog()
         if dlg.exec() == dlg.DialogCode.Accepted:
             try:
@@ -559,6 +566,30 @@ class MainWindow(QMainWindow):
 
     def _open_reservations(self):
         ReservationsDialog(parent=self).exec()
+
+    def _open_recovery_center(self):
+        if self.user.role != "admin":
+            self._show_banner("هذه العملية للمدير فقط.", "warn")
+            return
+        dialog = RecoveryCenterDialog(parent=self)
+        dialog.exec()
+        if dialog.restored_path:
+            self.close()
+
+    def _show_shift_summary(self):
+        if not getattr(self, "user", None):
+            return
+        if not isinstance(self._session_started, datetime):
+            return
+        username = getattr(self.user, "username", "")
+        metrics = staff_service.summarize_shift_activity(
+            username,
+            self._session_started,
+            datetime.now(),
+        )
+        if metrics.get("duration_seconds", 0) <= 0 and metrics.get("orders_opened", 0) <= 0:
+            return
+        ShiftSummaryDialog(username, metrics, parent=self).exec()
 
     def _open_settings(self):
         if self.user.role != "admin":

@@ -8,11 +8,12 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from .core.db import init_db, maybe_run_integrity_check
 from .core.simple_voucher import is_activated, status as voucher_status
-from .services.backup import ensure_daily_backup, latest_backup_path, restore_backup
+from .services.backup import ensure_daily_backup
 from .ui.common.branding import get_logo_icon
 from .ui.login_dialog import LoginDialog
 from .ui.main_window import MainWindow
 from .ui.voucher_dialog import VoucherDialog
+from .ui.recovery_center_dialog import RecoveryCenterDialog
 from .services.license import ensure_trial_allowed
 
 def _qt_excepthook(exctype, value, tb):
@@ -42,33 +43,10 @@ def main():
 
     ok, result = maybe_run_integrity_check()
     if not ok:
-        latest = latest_backup_path()
-        box = QMessageBox()
-        box.setWindowTitle("تحذير سلامة قاعدة البيانات")
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setText("تم اكتشاف مشكلة في قاعدة البيانات.")
-        box.setInformativeText(result)
-        restore_button = None
-        if latest and latest.exists():
-            restore_button = box.addButton("استرجاع أحدث نسخة", QMessageBox.ButtonRole.AcceptRole)
-        box.addButton("متابعة (غير مستحسن)", QMessageBox.ButtonRole.RejectRole)
-        box.exec()
-        if restore_button and box.clickedButton() == restore_button:
-            try:
-                restore_backup(latest)
-            except Exception as exc:
-                QMessageBox.critical(
-                    None,
-                    "فشل الاستعادة",
-                    f"تعذر استرجاع النسخة الاحتياطية:\n{exc}",
-                )
-            else:
-                QMessageBox.information(
-                    None,
-                    "تم الاستعادة",
-                    "تمت استعادة قاعدة البيانات من النسخة الأخيرة. سيتم إغلاق التطبيق الآن، الرجاء إعادة تشغيله.",
-                )
-                sys.exit(0)
+        dialog = RecoveryCenterDialog(issue_details=result)
+        dialog.exec()
+        if dialog.restored_path:
+            sys.exit(0)
 
     if not is_activated():
         gate = VoucherDialog(status=voucher_status(), fatal=True)

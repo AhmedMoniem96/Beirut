@@ -172,3 +172,97 @@ def summarize_session_hours(start_iso: str, end_iso: str) -> List[Dict[str, obje
         entry["hours"] = round(seconds / 3600.0, 2)
         entry["minutes"] = seconds // 60
     return summary
+
+
+def summarize_shift_activity(
+    username: str, start_dt: datetime, end_dt: Optional[datetime] = None
+) -> Dict[str, int]:
+    """Return per-shift KPIs for *username* between two datetimes."""
+
+    clean = (username or "").strip()
+    if not clean or not isinstance(start_dt, datetime):
+        return {
+            "orders_opened": 0,
+            "orders_closed": 0,
+            "voided_orders": 0,
+            "payments_count": 0,
+            "payments_total_cents": 0,
+            "discount_cents": 0,
+            "window_start": None,
+            "window_end": None,
+            "duration_seconds": 0,
+        }
+
+    end_dt = end_dt or datetime.utcnow()
+    if end_dt < start_dt:
+        start_dt, end_dt = end_dt, start_dt
+
+    start_iso = start_dt.isoformat()
+    end_iso = end_dt.isoformat()
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    def _scalar(sql: str, params: tuple[str, str, str]) -> int:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        if not row:
+            return 0
+        value = row[0] if isinstance(row, tuple) else row[0]
+        return int(value or 0)
+
+    opened = _scalar(
+        "SELECT COUNT(*) FROM orders WHERE opened_by=? AND opened_at BETWEEN ? AND ?",
+        (clean, start_iso, end_iso),
+    )
+    closed = _scalar(
+        """
+        SELECT COUNT(*)
+        FROM orders
+        WHERE closed_by=? AND closed_at IS NOT NULL AND closed_at BETWEEN ? AND ?
+        """,
+        (clean, start_iso, end_iso),
+    )
+    voided = _scalar(
+        """
+        SELECT COUNT(*)
+        FROM orders
+        WHERE status='void' AND closed_by=? AND closed_at BETWEEN ? AND ?
+        """,
+        (clean, start_iso, end_iso),
+    )
+    discounts = _scalar(
+        """
+        SELECT CAST(COALESCE(SUM(discount_cents), 0) AS INTEGER)
+        FROM orders
+        WHERE closed_by=? AND closed_at BETWEEN ? AND ?
+        """,
+        (clean, start_iso, end_iso),
+    )
+
+    cur.execute(
+        """
+        SELECT COUNT(*) AS cnt, CAST(COALESCE(SUM(amount_cents), 0) AS INTEGER) AS total
+        FROM payments
+        WHERE cashier=? AND paid_at BETWEEN ? AND ?
+        """,
+        (clean, start_iso, end_iso),
+    )
+    payment_row = cur.fetchone()
+    conn.close()
+
+    payments_count = int(payment_row["cnt"] if payment_row and payment_row["cnt"] else 0)
+    payments_total = int(payment_row["total"] if payment_row and payment_row["total"] else 0)
+
+    duration_seconds = max(int((end_dt - start_dt).total_seconds()), 0)
+    return {
+        "orders_opened": opened,
+        "orders_closed": closed,
+        "voided_orders": voided,
+        "payments_count": payments_count,
+        "payments_total_cents": payments_total,
+        "discount_cents": discounts,
+        "window_start": start_dt,
+        "window_end": end_dt,
+        "duration_seconds": duration_seconds,
+    }

@@ -28,6 +28,15 @@ class ShiftSummaryDialog(QDialog):
         self.setWindowTitle("ملخص الوردية")
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.setModal(True)
+        self.setStyleSheet(
+            "\n".join(
+                [
+                    "QDialog { background-color: #FAFAFA; color: #1A1A1A; font-size: 11pt; }",
+                    "QLabel { color: #1A1A1A; }",
+                    "QDialogButtonBox QPushButton { padding: 8px 18px; min-width: 90px; }",
+                ]
+            )
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -35,6 +44,7 @@ class ShiftSummaryDialog(QDialog):
 
         header = QLabel(f"المستخدم: <b>{username}</b>")
         header.setAlignment(Qt.AlignmentFlag.AlignRight)
+        header.setStyleSheet("font-size: 14pt; font-weight: 600;")
         layout.addWidget(header)
 
         form = QFormLayout()

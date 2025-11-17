@@ -443,7 +443,8 @@ class SettingsDialog(BigDialog):
         ]
         self.payroll_table = QTableWidget(0, len(headers))
         self.payroll_table.setHorizontalHeaderLabels(headers)
-        self.payroll_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.payroll_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.payroll_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.payroll_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.payroll_table.setAlternatingRowColors(True)
         header = self.payroll_table.horizontalHeader()
@@ -464,6 +465,10 @@ class SettingsDialog(BigDialog):
         btn_save_payroll = QPushButton("حفظ الرواتب")
         btn_save_payroll.clicked.connect(self._save_payroll_rows)
         controls.addWidget(btn_save_payroll)
+
+        btn_mark_paid = QPushButton("تسجيل دفع الراتب")
+        btn_mark_paid.clicked.connect(self._mark_salary_paid)
+        controls.addWidget(btn_mark_paid)
         controls.addStretch(1)
         acc_v.addLayout(controls)
 
@@ -556,9 +561,9 @@ class SettingsDialog(BigDialog):
             username = str(entry.get("username", "")).strip()
             display_name = str(entry.get("display_name", username)).strip() or username
             role = str(entry.get("role", "")).strip()
-            salary = int(entry.get("salary_cents", 0) or 0) / 100.0
-            deductions = int(entry.get("deductions_cents", 0) or 0) / 100.0
-            loan = int(entry.get("loan_cents", 0) or 0) / 100.0
+            salary = float(entry.get("salary_cents", 0) or 0)
+            deductions = float(entry.get("deductions_cents", 0) or 0)
+            loan = float(entry.get("loan_cents", 0) or 0)
             salary_period = str(entry.get("salary_period", "monthly") or "monthly")
             source = entry.get("source", "system")
             manual_id = entry.get("manual_id")
@@ -688,9 +693,9 @@ class SettingsDialog(BigDialog):
             if user_item and not display_name:
                 display_name = user_item.text().strip()
             role_text = role_item.text().strip() if role_item else str(meta.get("role", ""))
-            salary = int(round(widgets["salary"].value() * 100))
-            deduction = int(round(widgets["deduction"].value() * 100))
-            loan = int(round(widgets["loan"].value() * 100))
+            salary = int(round(widgets["salary"].value()))
+            deduction = int(round(widgets["deduction"].value()))
+            loan = int(round(widgets["loan"].value()))
             period_widget = widgets.get("period")
             period_value = "monthly"
             if isinstance(period_widget, QComboBox):
@@ -714,6 +719,78 @@ class SettingsDialog(BigDialog):
             QMessageBox.critical(self, "المحاسبة", f"تعذر حفظ بيانات الرواتب:\n{exc}")
             return
         QMessageBox.information(self, "المحاسبة", "تم حفظ بيانات الرواتب بنجاح.")
+        self._load_payroll_rows()
+
+    def _mark_salary_paid(self) -> None:
+        if not self._payroll_inputs:
+            QMessageBox.information(self, "الرواتب", "لا توجد بيانات رواتب لعرضها.")
+            return
+
+        row = self.payroll_table.currentRow()
+        if row < 0 or row >= len(self._payroll_inputs):
+            QMessageBox.warning(self, "الرواتب", "يرجى اختيار موظف من الجدول أولاً.")
+            return
+
+        widgets = self._payroll_inputs[row]
+        period_widget = widgets.get("period")
+        period_value = "monthly"
+        if isinstance(period_widget, QComboBox):
+            period_value = period_widget.currentData() or "monthly"
+        if period_value != "monthly":
+            QMessageBox.information(self, "الرواتب", "يمكن تسجيل دفع الرواتب الشهرية فقط من هنا.")
+            return
+
+        salary = int(round(widgets["salary"].value()))
+        deduction = int(round(widgets["deduction"].value()))
+        loan = int(round(widgets["loan"].value()))
+        net = salary - deduction - loan
+        if net <= 0:
+            QMessageBox.warning(self, "الرواتب", "لا يوجد مبلغ مستحق بعد الخصومات والسلف.")
+            return
+
+        meta = widgets.get("meta") if isinstance(widgets, dict) else {}
+        user_item = self.payroll_table.item(row, 0)
+        role_item = self.payroll_table.item(row, 1)
+        display_name = ""
+        if isinstance(meta, dict):
+            display_name = (meta.get("display_name") or meta.get("username") or "").strip()
+        if not display_name and user_item:
+            display_name = user_item.text().strip()
+        role = role_item.text().strip() if role_item else str(meta.get("role", ""))
+        username = meta.get("username") if isinstance(meta, dict) else ""
+        manual_id = meta.get("manual_id") if isinstance(meta, dict) else None
+
+        if not display_name:
+            QMessageBox.warning(self, "الرواتب", "لا يمكن تسجيل الدفع بدون اسم موظف صحيح.")
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "تسجيل دفع راتب",
+            f"هل تريد تسجيل دفع راتب {display_name} بمبلغ {net:.0f} ج.م؟",
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            staff_service.record_salary_payment(
+                {
+                    "source": "payout",
+                    "username": username,
+                    "manual_id": manual_id,
+                    "display_name": display_name,
+                    "role": role,
+                    "salary_cents": salary,
+                    "deductions_cents": deduction,
+                    "loan_cents": loan,
+                    "salary_period": period_value,
+                }
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "الرواتب", f"تعذر تسجيل عملية الدفع:\n{exc}")
+            return
+
+        QMessageBox.information(self, "الرواتب", "تم تسجيل صرف الراتب بنجاح.")
         self._load_payroll_rows()
 
     def _add_manual_staff(self) -> None:

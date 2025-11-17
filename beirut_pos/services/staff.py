@@ -84,6 +84,32 @@ def list_payroll_rows() -> List[Dict[str, int | str]]:
     return rows + manual_rows
 
 
+def daily_payroll_expense() -> int:
+    """Return the net daily payroll amount for all active staff."""
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        WITH combined AS (
+            SELECT salary_cents, deductions_cents, loan_cents
+            FROM staff_payroll
+            WHERE salary_period='daily'
+            UNION ALL
+            SELECT salary_cents, deductions_cents, loan_cents
+            FROM staff_manual
+            WHERE active=1 AND salary_period='daily'
+        )
+        SELECT COALESCE(SUM(salary_cents - deductions_cents - loan_cents), 0) AS net_total
+        FROM combined
+        """
+    )
+    row = cur.fetchone()
+    conn.close()
+    value = int(row[0] or 0)
+    return max(value, 0)
+
+
 def save_payroll_rows(entries: Iterable[Dict[str, float | int | str]]) -> None:
     """Persist payroll values for each username provided."""
 
@@ -262,6 +288,30 @@ def _record_payroll_history(cur, rows: Iterable[Dict[str, object]]) -> None:
         """,
         payload,
     )
+
+
+def record_salary_payment(entry: Dict[str, object]) -> None:
+    """Record a payroll payout snapshot for the provided employee entry."""
+
+    display_name = str(entry.get("display_name", "")).strip()
+    if not display_name:
+        raise ValueError("display_name is required")
+
+    normalized = {
+        "source": entry.get("source") or "payout",
+        "username": entry.get("username") or "",
+        "manual_id": entry.get("manual_id"),
+        "display_name": display_name,
+        "role": entry.get("role") or "",
+        "salary_period": entry.get("salary_period") or "monthly",
+        "salary_cents": int(round(float(entry.get("salary_cents") or 0))),
+        "deductions_cents": int(round(float(entry.get("deductions_cents") or 0))),
+        "loan_cents": int(round(float(entry.get("loan_cents") or 0))),
+    }
+
+    with db_transaction() as conn:
+        cur = conn.cursor()
+        _record_payroll_history(cur, [normalized])
 
 
 # ---------------------------------------------------------------------------

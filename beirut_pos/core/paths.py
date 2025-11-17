@@ -11,6 +11,7 @@ __all__ = [
     "CONFIG_DIR",
     "BACKUP_DIR",
     "LICENSE_DIR",
+    "LOG_DIR",
     "DB_PATH",
     "SETTINGS_FILE",
     "LICENSE_CACHE_FILE",
@@ -36,6 +37,7 @@ DATA_DIR = BASE_DIR / "data"
 CONFIG_DIR = BASE_DIR / "config"
 BACKUP_DIR = BASE_DIR / "backup"
 LICENSE_DIR = BASE_DIR / "license"
+LOG_DIR = BASE_DIR / "logs"
 
 DB_PATH = DATA_DIR / "beirut_pos.db"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
@@ -44,5 +46,5 @@ LICENSE_CACHE_FILE = LICENSE_DIR / "license.sig.json"
 
 def ensure_storage_dirs() -> None:
     """Create the directory tree required for persistent storage."""
-    for path in (DATA_DIR, CONFIG_DIR, BACKUP_DIR, LICENSE_DIR):
+    for path in (DATA_DIR, CONFIG_DIR, BACKUP_DIR, LICENSE_DIR, LOG_DIR):
         path.mkdir(parents=True, exist_ok=True)

@@ -63,6 +63,8 @@ def _ensure_inventory_columns():
         cur.execute("ALTER TABLE products ADD COLUMN min_stock REAL DEFAULT 0")
     if "track_stock" not in cols:
         cur.execute("ALTER TABLE products ADD COLUMN track_stock INTEGER NOT NULL DEFAULT 1")
+    if "package_size" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN package_size REAL NOT NULL DEFAULT 1")
 
     conn.commit()
     conn.close()
@@ -234,7 +236,7 @@ class ProductCatalog:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            """SELECT id, name, price_cents, customizable, track_stock, stock_qty, min_stock, order_index, product_type, sugar_levels
+            """SELECT id, name, price_cents, customizable, track_stock, stock_qty, min_stock, package_size, order_index, product_type, sugar_levels
                    FROM products
                    WHERE category_id=?
                    ORDER BY order_index, id""",
@@ -252,6 +254,7 @@ class ProductCatalog:
                     "track_stock": int(row["track_stock"]),
                     "stock_qty": row["stock_qty"],
                     "min_stock": row["min_stock"],
+                    "package_size": row["package_size"] if "package_size" in keys else 1,
                     "order_index": int(row["order_index"] or 0),
                     "product_type": row["product_type"] if "product_type" in keys else "",
                     "sugar_levels": _deserialize_sugar_levels(row["sugar_levels"] if "sugar_levels" in keys else ""),
@@ -385,6 +388,7 @@ class ProductCatalog:
         track_stock: int = 0,
         stock_qty: Optional[float] = 0,
         min_stock: Optional[float] = 0,
+        package_size: Optional[float] = 1,
         product_type: str = "",
         sugar_levels: Optional[list[str]] = None,
     ) -> dict:
@@ -399,6 +403,9 @@ class ProductCatalog:
         custom_flag = 1 if customizable else 0
         qty_value = float(stock_qty) if stock_qty is not None else 0.0
         min_value = float(min_stock) if min_stock is not None else 0.0
+        pkg_value = float(package_size) if package_size not in (None, 0) else 1.0
+        if pkg_value <= 0:
+            pkg_value = 1.0
         with db_transaction() as conn:
             cur = conn.cursor()
             cur.execute("SELECT name FROM categories WHERE id=?", (category_id,))
@@ -421,8 +428,8 @@ class ProductCatalog:
             qty_sql = qty_value if track else None
             min_sql = min_value if track else 0.0
             cur.execute(
-                """INSERT INTO products(category_id,name,price_cents,customizable,track_stock,stock_qty,min_stock,product_type,sugar_levels,order_index)
-                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO products(category_id,name,price_cents,customizable,track_stock,stock_qty,min_stock,package_size,product_type,sugar_levels,order_index)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     category_id,
                     cleaned,
@@ -431,6 +438,7 @@ class ProductCatalog:
                     track,
                     qty_sql,
                     min_sql,
+                    pkg_value,
                     product_type,
                     _serialize_sugar_levels(sugar_levels),
                     next_idx,
@@ -455,6 +463,7 @@ class ProductCatalog:
             "track_stock": track,
             "stock_qty": qty_sql,
             "min_stock": min_sql,
+            "package_size": pkg_value,
             "product_type": product_type,
             "sugar_levels": list(sugar_levels),
             "order_index": next_idx,
@@ -471,6 +480,7 @@ class ProductCatalog:
         track_stock: int = 0,
         stock_qty: Optional[float] = 0,
         min_stock: Optional[float] = 0,
+        package_size: Optional[float] = 1,
         product_type: str = "",
         sugar_levels: Optional[list[str]] = None,
     ) -> None:
@@ -493,6 +503,7 @@ class ProductCatalog:
             track_stock=track_stock,
             stock_qty=stock_qty,
             min_stock=min_stock,
+            package_size=package_size,
             product_type=product_type,
             sugar_levels=sugar_levels,
         )
@@ -507,6 +518,7 @@ class ProductCatalog:
         track_stock: int | None = None,
         stock_qty: Optional[float] | None = None,
         min_stock: Optional[float] | None = None,
+        package_size: Optional[float] | None = None,
         product_type: str | None = None,
         sugar_levels: Optional[list[str]] | None = None,
         username: str = "admin",
@@ -514,7 +526,7 @@ class ProductCatalog:
         with db_transaction() as conn:
             cur = conn.cursor()
             cur.execute(
-                """SELECT name, price_cents, customizable, track_stock, stock_qty, min_stock, category_id, product_type, sugar_levels
+                """SELECT name, price_cents, customizable, track_stock, stock_qty, min_stock, package_size, category_id, product_type, sugar_levels
                        FROM products WHERE id=?""",
                 (product_id,),
             )
@@ -525,6 +537,7 @@ class ProductCatalog:
             old_price = int(row["price_cents"])
             old_custom = int(row["customizable"])
             category_id = row["category_id"]
+            old_package_size = float(row["package_size"] or 1.0)
             old_type = row["product_type"] if "product_type" in row.keys() else ""
             old_sugar = _deserialize_sugar_levels(row["sugar_levels"] if "sugar_levels" in row.keys() else "")
             cur.execute("SELECT name FROM categories WHERE id=?", (category_id,))
@@ -548,11 +561,16 @@ class ProductCatalog:
                 qty_value = float(stock_qty)
             if min_stock is not None:
                 min_value = float(min_stock)
+            pkg_value = old_package_size
+            if package_size is not None:
+                pkg_value = float(package_size)
+            if pkg_value <= 0:
+                pkg_value = 1.0
             qty_sql = qty_value if new_track else None
             min_sql = min_value if new_track else 0.0
             cur.execute(
                 """UPDATE products
-                       SET name=?, price_cents=?, customizable=?, track_stock=?, stock_qty=?, min_stock=?, product_type=?, sugar_levels=?
+                       SET name=?, price_cents=?, customizable=?, track_stock=?, stock_qty=?, min_stock=?, package_size=?, product_type=?, sugar_levels=?
                        WHERE id=?""",
                 (
                     new_name,
@@ -561,6 +579,7 @@ class ProductCatalog:
                     new_track,
                     qty_sql,
                     min_sql,
+                    pkg_value,
                     new_type,
                     _serialize_sugar_levels(new_sugar_levels),
                     product_id,
@@ -572,6 +591,7 @@ class ProductCatalog:
             old_name != new_name
             or old_price != new_price
             or old_custom != new_custom
+            or old_package_size != pkg_value
             or old_type != new_type
             or old_sugar != new_sugar_levels
         ):
@@ -580,8 +600,8 @@ class ProductCatalog:
                 "update_product",
                 "product",
                 f"{category_name}/{old_name}" if category_name else old_name,
-                f"{old_name}:{old_price}:{old_custom}:{old_type}:{'|'.join(old_sugar)}",
-                f"{new_name}:{new_price}:{new_custom}:{new_type}:{'|'.join(new_sugar_levels)}",
+                f"{old_name}:{old_price}:{old_custom}:{old_package_size}:{old_type}:{'|'.join(old_sugar)}",
+                f"{new_name}:{new_price}:{new_custom}:{pkg_value}:{new_type}:{'|'.join(new_sugar_levels)}",
             )
         bus.emit("catalog_changed")
         return True

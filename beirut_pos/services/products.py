@@ -6,7 +6,7 @@ from ..core.db import get_conn
 from .orders import order_manager
 
 
-ProductRow = Tuple[int, str, int, int, int, Optional[float], Optional[float]]
+ProductRow = Tuple[int, str, int, int, int, Optional[float], Optional[float], Optional[float]]
 OptionRow = Tuple[int, int, str, int, int]
 
 
@@ -16,7 +16,7 @@ def iter_products(search: str = "") -> Iterator[ProductRow]:
     conn = get_conn()
     cur = conn.cursor()
     query = (
-        "SELECT id, name, price_cents, customizable, track_stock, stock_qty, min_stock "
+        "SELECT id, name, price_cents, customizable, track_stock, stock_qty, min_stock, package_size "
         "FROM products "
     )
     params: Tuple[str, ...] = ()
@@ -36,6 +36,7 @@ def iter_products(search: str = "") -> Iterator[ProductRow]:
                 int(row["track_stock"]),
                 row["stock_qty"],
                 row["min_stock"],
+                row["package_size"],
             )
     finally:
         conn.close()
@@ -51,7 +52,7 @@ def get_product(pid: int):
     conn = get_conn()
     row = conn.execute(
         """
-        SELECT id, name, price_cents, customizable, track_stock, stock_qty, min_stock
+        SELECT id, name, price_cents, customizable, track_stock, stock_qty, min_stock, package_size
         FROM products WHERE id=?
     """,
         (pid,),
@@ -116,6 +117,7 @@ def create_product(
     track_stock: int = 0,
     stock_qty: Optional[float] = 0,
     min_stock: Optional[float] = 0,
+    package_size: Optional[float] = 1,
     product_type: str = "",
     sugar_levels: Optional[List[str]] = None,
 ) -> dict:
@@ -128,6 +130,7 @@ def create_product(
         track_stock=track_stock,
         stock_qty=stock_qty,
         min_stock=min_stock,
+        package_size=package_size,
         product_type=product_type,
         sugar_levels=sugar_levels,
     )
@@ -142,6 +145,7 @@ def update_product(
     track_stock: int | None = None,
     stock_qty: Optional[float] | None = None,
     min_stock: Optional[float] | None = None,
+    package_size: Optional[float] | None = None,
     product_type: str | None = None,
     sugar_levels: Optional[List[str]] = None,
     username: str = "admin",
@@ -154,6 +158,7 @@ def update_product(
         track_stock=track_stock,
         stock_qty=stock_qty,
         min_stock=min_stock,
+        package_size=package_size,
         product_type=product_type,
         sugar_levels=sugar_levels,
         username=username,

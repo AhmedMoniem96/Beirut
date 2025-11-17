@@ -117,6 +117,7 @@ DEFAULT_TEXTS: Dict[str, str] = {
     "receipt.cashier.subtitle": "كافيه ومعلم",
     "receipt.cashier.address": "امام سيشن الشلال بجوار مفسله بالثبت",
     "receipt.cashier.phone": "01110110823",
+    "receipt.cashier.date": "التاريخ: {timestamp}",
     "receipt.cashier.meta": "{table_code} : {cashier}",
     "receipt.cashier.method": "دفع: {method}",
     "receipt.cashier.subtotal": "المجموع: {amount}",

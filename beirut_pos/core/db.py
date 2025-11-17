@@ -155,6 +155,7 @@ def safe_migrations() -> None:
                 track_stock INTEGER NOT NULL DEFAULT 0,
                 stock_qty REAL DEFAULT 0,
                 min_stock REAL DEFAULT 0,
+                package_size REAL NOT NULL DEFAULT 1,
                 product_type TEXT DEFAULT '',
                 sugar_levels TEXT NOT NULL DEFAULT '[]',
                 order_index INTEGER NOT NULL DEFAULT 0,
@@ -342,6 +343,8 @@ def _ensure_product_columns(cur) -> None:
         cur.execute("ALTER TABLE products ADD COLUMN stock_qty REAL DEFAULT 0")
     if "min_stock" not in cols:
         cur.execute("ALTER TABLE products ADD COLUMN min_stock REAL DEFAULT 0")
+    if "package_size" not in cols:
+        cur.execute("ALTER TABLE products ADD COLUMN package_size REAL NOT NULL DEFAULT 1")
     if "order_index" not in cols:
         cur.execute("ALTER TABLE products ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0")
         cur.execute("SELECT id, category_id FROM products ORDER BY category_id, id")

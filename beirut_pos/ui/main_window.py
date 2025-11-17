@@ -439,7 +439,11 @@ class MainWindow(QMainWindow):
             self._show_banner("لا توجد عناصر جديدة للطباعة.", "info")
             return
 
-        printer.print_bar_ticket(self.current_table, to_print)
+        try:
+            printer.print_bar_ticket(self.current_table, to_print)
+        except Exception as exc:
+            self._handle_printer_error(exc, context="طلب البار")
+            return
         try:
             order_manager.mark_bar_items_as_printed(self.current_table, to_print)
         except Exception:
@@ -458,16 +462,20 @@ class MainWindow(QMainWindow):
             self._show_banner("لا توجد عناصر في الطلب الحالي.", "warn")
             return
         sub, disc, tot, label_key = self._update_totals(self.current_table)
-        printer.print_cashier_receipt(
-            self.current_table,
-            items,
-            sub,
-            disc,
-            tot,
-            method="manual",
-            cashier=self.user.username,
-            discount_label=texts.get(label_key),
-        )
+        try:
+            printer.print_cashier_receipt(
+                self.current_table,
+                items,
+                sub,
+                disc,
+                tot,
+                method="manual",
+                cashier=self.user.username,
+                discount_label=texts.get(label_key),
+            )
+        except Exception as exc:
+            self._handle_printer_error(exc, context="إيصال الكاشير")
+            return
         self._show_banner("تم إرسال إيصال الكاشير للطابعة.", "success")
 
     def _remove_selected_or_last(self):
@@ -849,16 +857,20 @@ class MainWindow(QMainWindow):
         items = order_manager.get_items(self.current_table)
 
         if order_manager.settle(self.current_table, "cash" if method == "نقدي" else "visa", cashier=self.user.username):
-            printer.print_cashier_receipt(
-                self.current_table,
-                items,
-                subtotal,
-                discount,
-                total,
-                method,
-                self.user.username,
-                discount_label=texts.get(label_key),
-            )
+            try:
+                printer.print_cashier_receipt(
+                    self.current_table,
+                    items,
+                    subtotal,
+                    discount,
+                    total,
+                    method,
+                    self.user.username,
+                    discount_label=texts.get(label_key),
+                )
+            except Exception as exc:
+                self._handle_printer_error(exc, context="إيصال الدفع")
+                return
             self.order_list.set_items([])
             self._update_totals(None)
             if self.current_table:
@@ -1080,6 +1092,16 @@ class MainWindow(QMainWindow):
             self.banner_timer.start(duration)
         self.banner.style().unpolish(self.banner)
         self.banner.style().polish(self.banner)
+
+    def _handle_printer_error(self, exc: Exception, *, context: str) -> None:
+        detail = str(exc).strip()
+        msg = (
+            f"تعذر طباعة {context}. إذا كنت لا تحتاج للطباعة الآن فيمكنك تجاهل هذا الخطأ "
+            "من نافذة الطابعة أو تعطيل الطابعة مؤقتًا من الإعدادات."
+        )
+        if detail:
+            msg += f"\nالتفاصيل: {detail}"
+        self._show_banner(msg, "error", duration=12000)
 
     def _update_session_timer(self):
         elapsed = datetime.now() - self._session_started

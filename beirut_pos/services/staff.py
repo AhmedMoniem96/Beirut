@@ -25,7 +25,7 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
 # ---------------------------------------------------------------------------
 
 def list_payroll_rows() -> List[Dict[str, int | str]]:
-    """Return payroll info for all registered staff members."""
+    """Return payroll info for system users and manual staff."""
 
     conn = get_conn()
     cur = conn.cursor()
@@ -36,43 +36,232 @@ def list_payroll_rows() -> List[Dict[str, int | str]]:
             u.role,
             COALESCE(p.salary_cents, 0)       AS salary_cents,
             COALESCE(p.deductions_cents, 0)  AS deductions_cents,
-            COALESCE(p.loan_cents, 0)        AS loan_cents
+            COALESCE(p.loan_cents, 0)        AS loan_cents,
+            COALESCE(p.salary_period, 'monthly') AS salary_period
         FROM users u
         LEFT JOIN staff_payroll p ON p.username = u.username
         ORDER BY u.role DESC, u.username
         """
+    )
+    rows = [
+        {
+            "username": row["username"],
+            "display_name": row["username"],
+            "role": row["role"],
+            "salary_cents": row["salary_cents"],
+            "deductions_cents": row["deductions_cents"],
+            "loan_cents": row["loan_cents"],
+            "salary_period": row["salary_period"],
+            "source": "system",
+            "manual_id": None,
+        }
+        for row in cur.fetchall()
+    ]
+
+    cur.execute(
+        """
+        SELECT id, display_name, role, salary_cents, deductions_cents, loan_cents, salary_period
+        FROM staff_manual
+        WHERE active=1
+        ORDER BY display_name COLLATE NOCASE
+        """
+    )
+    manual_rows = [
+        {
+            "username": "",
+            "display_name": row["display_name"],
+            "role": row["role"],
+            "salary_cents": row["salary_cents"],
+            "deductions_cents": row["deductions_cents"],
+            "loan_cents": row["loan_cents"],
+            "salary_period": row["salary_period"],
+            "source": "manual",
+            "manual_id": row["id"],
+        }
+        for row in cur.fetchall()
+    ]
+    conn.close()
+    return rows + manual_rows
+
+
+def save_payroll_rows(entries: Iterable[Dict[str, float | int | str]]) -> None:
+    """Persist payroll values for each username provided."""
+
+    normalized: list[dict[str, object]] = []
+    with db_transaction() as conn:
+        cur = conn.cursor()
+        timestamp = _now_iso()
+        for entry in entries:
+            source = (entry.get("source") or "system").strip() or "system"
+            salary_period = str(entry.get("salary_period") or "monthly").strip() or "monthly"
+            salary = int(round(float(entry.get("salary_cents", 0) or 0)))
+            deductions = int(round(float(entry.get("deductions_cents", 0) or 0)))
+            loan = int(round(float(entry.get("loan_cents", 0) or 0)))
+            role = str(entry.get("role", ""))
+            display_name = str(entry.get("display_name", "")).strip()
+
+            if source == "manual":
+                manual_id = entry.get("manual_id")
+                try:
+                    manual_id_int = int(manual_id)
+                except (TypeError, ValueError):
+                    continue
+                if not display_name:
+                    continue
+                cur.execute(
+                    """
+                    UPDATE staff_manual
+                    SET display_name=?, role=?, salary_cents=?, deductions_cents=?, loan_cents=?,
+                        salary_period=?, updated_at=?
+                    WHERE id=? AND active=1
+                    """,
+                    (
+                        display_name,
+                        role,
+                        salary,
+                        deductions,
+                        loan,
+                        salary_period,
+                        timestamp,
+                        manual_id_int,
+                    ),
+                )
+                normalized.append(
+                    {
+                        "source": source,
+                        "username": "",
+                        "manual_id": manual_id_int,
+                        "display_name": display_name,
+                        "role": role,
+                        "salary_cents": salary,
+                        "deductions_cents": deductions,
+                        "loan_cents": loan,
+                        "salary_period": salary_period,
+                    }
+                )
+                continue
+
+            username = str(entry.get("username", "")).strip()
+            if not username:
+                continue
+            if salary <= 0 and deductions <= 0 and loan <= 0:
+                cur.execute("DELETE FROM staff_payroll WHERE username=?", (username,))
+                continue
+            cur.execute(
+                """
+                INSERT INTO staff_payroll(username, salary_cents, deductions_cents, loan_cents, salary_period)
+                VALUES(?,?,?,?,?)
+                ON CONFLICT(username) DO UPDATE SET
+                    salary_cents=excluded.salary_cents,
+                    deductions_cents=excluded.deductions_cents,
+                    loan_cents=excluded.loan_cents,
+                    salary_period=excluded.salary_period
+                """,
+                (username, salary, deductions, loan, salary_period),
+            )
+            normalized.append(
+                {
+                    "source": "system",
+                    "username": username,
+                    "manual_id": None,
+                    "display_name": display_name or username,
+                    "role": role,
+                    "salary_cents": salary,
+                    "deductions_cents": deductions,
+                    "loan_cents": loan,
+                    "salary_period": salary_period,
+                }
+            )
+
+        _record_payroll_history(cur, normalized)
+
+
+def create_manual_staff(display_name: str, role: str = "") -> int:
+    """Create a manual staff member entry for payroll tracking."""
+
+    clean_name = (display_name or "").strip()
+    if not clean_name:
+        raise ValueError("display_name is required")
+    role_text = (role or "").strip()
+    now = _now_iso()
+    with db_transaction() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO staff_manual(display_name, role, created_at, updated_at)
+            VALUES(?,?,?,?)
+            """,
+            (clean_name, role_text, now, now),
+        )
+        return cur.lastrowid
+
+
+def list_payroll_history(start_iso: str, end_iso: str) -> List[Dict[str, object]]:
+    """Return payroll snapshots recorded between *start_iso* and *end_iso*."""
+
+    start = _parse_iso(start_iso) or datetime.min
+    end = _parse_iso(end_iso) or datetime.utcnow()
+    if end < start:
+        start, end = end, start
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT recorded_at, source, username, manual_id, display_name, role, salary_period,
+               salary_cents, deductions_cents, loan_cents, net_cents
+        FROM staff_payroll_history
+        WHERE recorded_at >= ? AND recorded_at <= ?
+        ORDER BY recorded_at DESC, display_name COLLATE NOCASE
+        """,
+        (start.isoformat(), end.isoformat()),
     )
     rows = [dict(row) for row in cur.fetchall()]
     conn.close()
     return rows
 
 
-def save_payroll_rows(entries: Iterable[Dict[str, float | int | str]]) -> None:
-    """Persist payroll values for each username provided."""
+def _record_payroll_history(cur, rows: Iterable[Dict[str, object]]) -> None:
+    """Persist a history snapshot for the given payroll rows."""
 
-    with db_transaction() as conn:
-        cur = conn.cursor()
-        for entry in entries:
-            username = str(entry.get("username", "")).strip()
-            if not username:
-                continue
-            salary = int(round(float(entry.get("salary_cents", 0))))
-            deductions = int(round(float(entry.get("deductions_cents", 0))))
-            loan = int(round(float(entry.get("loan_cents", 0))))
-            if salary <= 0 and deductions <= 0 and loan <= 0:
-                cur.execute("DELETE FROM staff_payroll WHERE username=?", (username,))
-                continue
-            cur.execute(
-                """
-                INSERT INTO staff_payroll(username, salary_cents, deductions_cents, loan_cents)
-                VALUES(?,?,?,?)
-                ON CONFLICT(username) DO UPDATE SET
-                    salary_cents=excluded.salary_cents,
-                    deductions_cents=excluded.deductions_cents,
-                    loan_cents=excluded.loan_cents
-                """,
-                (username, salary, deductions, loan),
+    payload = []
+    recorded_at = _now_iso()
+    for entry in rows:
+        display_name = str(entry.get("display_name", "")).strip()
+        if not display_name:
+            continue
+        salary = int(entry.get("salary_cents") or 0)
+        deductions = int(entry.get("deductions_cents") or 0)
+        loan = int(entry.get("loan_cents") or 0)
+        payload.append(
+            (
+                recorded_at,
+                entry.get("source") or "system",
+                entry.get("username") or None,
+                entry.get("manual_id") if entry.get("manual_id") else None,
+                display_name,
+                entry.get("role") or "",
+                entry.get("salary_period") or "monthly",
+                salary,
+                deductions,
+                loan,
+                salary - deductions - loan,
             )
+        )
+
+    if not payload:
+        return
+
+    cur.executemany(
+        """
+        INSERT INTO staff_payroll_history(
+            recorded_at, source, username, manual_id,
+            display_name, role, salary_period,
+            salary_cents, deductions_cents, loan_cents, net_cents
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        payload,
+    )
 
 
 # ---------------------------------------------------------------------------

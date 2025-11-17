@@ -3,7 +3,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QPushButton,
     QComboBox, QFileDialog, QTabWidget, QHBoxLayout, QLabel,
     QColorDialog, QListWidget, QListWidgetItem, QAbstractItemView, QMessageBox,
-    QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox
+    QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox,
+    QDialog
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QAction, QKeySequence
@@ -119,6 +120,54 @@ class VipTablesPickerDialog(BigDialog):
             seen.add(code)
             cleaned.append(code)
         return cleaned
+
+
+class ManualStaffDialog(BigDialog):
+    """Dialog used to collect basic info for manual payroll entries."""
+
+    def __init__(self, parent=None):
+        super().__init__("إضافة موظف خارجي", remember_key="manual_staff", parent=parent)
+        layout = QVBoxLayout(self)
+
+        intro = QLabel("اكتب اسم الموظف والدور الوظيفي ليظهر في صفحة المحاسبة.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        form.setSpacing(12)
+
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("اسم الموظف")
+        self.role_input = QLineEdit()
+        self.role_input.setPlaceholderText("المسمى الوظيفي")
+        form.addRow("الاسم:", self.name_input)
+        form.addRow("الدور:", self.role_input)
+        layout.addLayout(form)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        btn_cancel = QPushButton("إلغاء")
+        btn_cancel.clicked.connect(self.reject)
+        btn_save = QPushButton("إضافة")
+        btn_save.setDefault(True)
+        btn_save.clicked.connect(self._handle_accept)
+        buttons.addWidget(btn_cancel)
+        buttons.addWidget(btn_save)
+        layout.addLayout(buttons)
+
+    def _handle_accept(self):
+        if not self.name_input.text().strip():
+            QMessageBox.warning(self, "بيانات ناقصة", "يجب إدخال اسم الموظف.")
+            return
+        self.accept()
+
+    def data(self) -> dict[str, str]:
+        return {
+            "name": self.name_input.text().strip(),
+            "role": self.role_input.text().strip(),
+        }
 
 
 class SettingsDialog(BigDialog):
@@ -384,9 +433,10 @@ class SettingsDialog(BigDialog):
         acc_v.setSpacing(16)
 
         headers = [
-            "المستخدم",
+            "الموظف",
             "الدور",
-            "الراتب الشهري (ج.م)",
+            "نوع الأجر",
+            "قيمة الراتب (ج.م)",
             "الخصومات (ج.م)",
             "السلف (ج.م)",
             "الصافي المستحق (ج.م)",
@@ -399,7 +449,8 @@ class SettingsDialog(BigDialog):
         header = self.payroll_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        for col in range(2, len(headers)):
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        for col in range(3, len(headers)):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
         acc_v.addWidget(self.payroll_table, 1)
 
@@ -407,6 +458,9 @@ class SettingsDialog(BigDialog):
         btn_refresh_payroll = QPushButton("تحديث")
         btn_refresh_payroll.clicked.connect(self._load_payroll_rows)
         controls.addWidget(btn_refresh_payroll)
+        btn_add_manual = QPushButton("إضافة موظف خارجي")
+        btn_add_manual.clicked.connect(self._add_manual_staff)
+        controls.addWidget(btn_add_manual)
         btn_save_payroll = QPushButton("حفظ الرواتب")
         btn_save_payroll.clicked.connect(self._save_payroll_rows)
         controls.addWidget(btn_save_payroll)
@@ -418,7 +472,7 @@ class SettingsDialog(BigDialog):
         acc_v.addWidget(self.payroll_summary)
 
         tabs.addTab(acc, "المحاسبة")
-        self._payroll_inputs: list[dict[str, QDoubleSpinBox]] = []
+        self._payroll_inputs: list[dict[str, object]] = []
 
         # --- Category order tab ---
         cat_tab = QWidget(); cat_v = QVBoxLayout(cat_tab)
@@ -500,20 +554,38 @@ class SettingsDialog(BigDialog):
 
         for row_idx, entry in enumerate(rows):
             username = str(entry.get("username", "")).strip()
+            display_name = str(entry.get("display_name", username)).strip() or username
             role = str(entry.get("role", "")).strip()
             salary = int(entry.get("salary_cents", 0) or 0) / 100.0
             deductions = int(entry.get("deductions_cents", 0) or 0) / 100.0
             loan = int(entry.get("loan_cents", 0) or 0) / 100.0
+            salary_period = str(entry.get("salary_period", "monthly") or "monthly")
+            source = entry.get("source", "system")
+            manual_id = entry.get("manual_id")
 
-            user_item = QTableWidgetItem(username)
+            user_item = QTableWidgetItem(display_name)
             user_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             user_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if source == "manual":
+                font = user_item.font()
+                font.setItalic(True)
+                user_item.setFont(font)
             self.payroll_table.setItem(row_idx, 0, user_item)
 
             role_item = QTableWidgetItem(role)
             role_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             role_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.payroll_table.setItem(row_idx, 1, role_item)
+
+            period_combo = QComboBox()
+            period_combo.addItem("شهري", "monthly")
+            period_combo.addItem("يومي", "daily")
+            idx = 0 if salary_period == "monthly" else 1
+            period_combo.setCurrentIndex(idx)
+            period_combo.currentIndexChanged.connect(
+                lambda _=0, index=row_idx: self._update_payroll_summary()
+            )
+            self.payroll_table.setCellWidget(row_idx, 2, period_combo)
 
             def _make_spin(value: float) -> QDoubleSpinBox:
                 spin = QDoubleSpinBox()
@@ -529,12 +601,24 @@ class SettingsDialog(BigDialog):
             deduction_spin = _make_spin(deductions)
             loan_spin = _make_spin(loan)
 
-            self.payroll_table.setCellWidget(row_idx, 2, salary_spin)
-            self.payroll_table.setCellWidget(row_idx, 3, deduction_spin)
-            self.payroll_table.setCellWidget(row_idx, 4, loan_spin)
+            self.payroll_table.setCellWidget(row_idx, 3, salary_spin)
+            self.payroll_table.setCellWidget(row_idx, 4, deduction_spin)
+            self.payroll_table.setCellWidget(row_idx, 5, loan_spin)
 
             self._payroll_inputs.append(
-                {"salary": salary_spin, "deduction": deduction_spin, "loan": loan_spin}
+                {
+                    "salary": salary_spin,
+                    "deduction": deduction_spin,
+                    "loan": loan_spin,
+                    "period": period_combo,
+                    "meta": {
+                        "username": username,
+                        "display_name": display_name,
+                        "role": role,
+                        "source": source,
+                        "manual_id": manual_id,
+                    },
+                }
             )
 
             for spin in (salary_spin, deduction_spin, loan_spin):
@@ -555,37 +639,73 @@ class SettingsDialog(BigDialog):
         net_item = QTableWidgetItem(f"{net:.2f}")
         net_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         net_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.payroll_table.setItem(row, 5, net_item)
+        self.payroll_table.setItem(row, 6, net_item)
         self._update_payroll_summary()
 
     def _update_payroll_summary(self) -> None:
-        total_salary = sum(w["salary"].value() for w in self._payroll_inputs)
-        total_deduction = sum(w["deduction"].value() for w in self._payroll_inputs)
-        total_loans = sum(w["loan"].value() for w in self._payroll_inputs)
-        total_net = total_salary - total_deduction - total_loans
-        self.payroll_summary.setText(
-            f"إجمالي الرواتب: {total_salary:.2f} ج.م | الخصومات: {total_deduction:.2f} ج.م | "
-            f"السلف: {total_loans:.2f} ج.م | الصافي المستحق: {total_net:.2f} ج.م"
+        totals = {
+            "monthly": {"salary": 0.0, "deduction": 0.0, "loan": 0.0, "net": 0.0},
+            "daily": {"salary": 0.0, "deduction": 0.0, "loan": 0.0, "net": 0.0},
+        }
+        for widgets in self._payroll_inputs:
+            period_widget = widgets.get("period")
+            if isinstance(period_widget, QComboBox):
+                period = period_widget.currentData() or "monthly"
+            else:
+                period = "monthly"
+            bucket = totals["daily" if period == "daily" else "monthly"]
+            salary = widgets["salary"].value()
+            deduction = widgets["deduction"].value()
+            loan = widgets["loan"].value()
+            net = salary - deduction - loan
+            bucket["salary"] += salary
+            bucket["deduction"] += deduction
+            bucket["loan"] += loan
+            bucket["net"] += net
+
+        total_salary = totals["monthly"]["salary"] + totals["daily"]["salary"]
+        total_deduction = totals["monthly"]["deduction"] + totals["daily"]["deduction"]
+        total_loans = totals["monthly"]["loan"] + totals["daily"]["loan"]
+        total_net = totals["monthly"]["net"] + totals["daily"]["net"]
+        summary = (
+            f"الرواتب الشهرية: {totals['monthly']['salary']:.2f} ج.م | "
+            f"الصافي الشهري: {totals['monthly']['net']:.2f} ج.م | "
+            f"الأجور اليومية: {totals['daily']['salary']:.2f} ج.م | "
+            f"الصافي اليومي: {totals['daily']['net']:.2f} ج.م | "
+            f"إجمالي الخصومات: {total_deduction:.2f} ج.م | "
+            f"السلف: {total_loans:.2f} ج.م | "
+            f"الصافي الكلي: {total_net:.2f} ج.م"
         )
+        self.payroll_summary.setText(summary)
 
     def _save_payroll_rows(self) -> None:
         entries = []
         for row_idx, widgets in enumerate(self._payroll_inputs):
+            meta = widgets.get("meta", {}) if isinstance(widgets, dict) else {}
             user_item = self.payroll_table.item(row_idx, 0)
-            if not user_item:
-                continue
-            username = user_item.text().strip()
-            if not username:
-                continue
+            role_item = self.payroll_table.item(row_idx, 1)
+            display_name = meta.get("display_name") if isinstance(meta, dict) else ""
+            if user_item and not display_name:
+                display_name = user_item.text().strip()
+            role_text = role_item.text().strip() if role_item else str(meta.get("role", ""))
             salary = int(round(widgets["salary"].value() * 100))
             deduction = int(round(widgets["deduction"].value() * 100))
             loan = int(round(widgets["loan"].value() * 100))
+            period_widget = widgets.get("period")
+            period_value = "monthly"
+            if isinstance(period_widget, QComboBox):
+                period_value = period_widget.currentData() or "monthly"
             entries.append(
                 {
-                    "username": username,
+                    "username": (meta.get("username") or "") if isinstance(meta, dict) else "",
+                    "manual_id": meta.get("manual_id") if isinstance(meta, dict) else None,
+                    "display_name": display_name,
+                    "role": role_text,
                     "salary_cents": salary,
                     "deductions_cents": deduction,
                     "loan_cents": loan,
+                    "salary_period": period_value,
+                    "source": meta.get("source") if isinstance(meta, dict) else "system",
                 }
             )
         try:
@@ -594,6 +714,21 @@ class SettingsDialog(BigDialog):
             QMessageBox.critical(self, "المحاسبة", f"تعذر حفظ بيانات الرواتب:\n{exc}")
             return
         QMessageBox.information(self, "المحاسبة", "تم حفظ بيانات الرواتب بنجاح.")
+        self._load_payroll_rows()
+
+    def _add_manual_staff(self) -> None:
+        dialog = ManualStaffDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        data = dialog.data()
+        try:
+            staff_service.create_manual_staff(data.get("name", ""), data.get("role", ""))
+        except ValueError:
+            QMessageBox.warning(self, "المحاسبة", "يجب إدخال اسم صالح.")
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "المحاسبة", f"تعذر إضافة الموظف الجديد:\n{exc}")
+            return
         self._load_payroll_rows()
 
     def _on_backup_now(self):

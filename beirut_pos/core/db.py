@@ -314,6 +314,7 @@ def safe_migrations() -> None:
     _ensure_staff_payroll_period(cur)
     _ensure_manual_staff_table(cur)
     _ensure_payroll_history_table(cur)
+    _normalize_payroll_units(cur)
     conn.commit()
 
 
@@ -574,6 +575,42 @@ def _ensure_payroll_history_table(cur) -> None:
                 loan_cents INTEGER NOT NULL DEFAULT 0,
                 net_cents INTEGER NOT NULL DEFAULT 0
             )"""
+    )
+
+
+def _normalize_payroll_units(cur) -> None:
+    cur.execute("SELECT value FROM settings WHERE key='payroll_units'")
+    row = cur.fetchone()
+    if row and row["value"] == "pounds":
+        return
+
+    tables = ("staff_payroll", "staff_manual")
+    columns = ("salary_cents", "deductions_cents", "loan_cents")
+    for table in tables:
+        for column in columns:
+            try:
+                cur.execute(
+                    f"UPDATE {table} SET {column} = CAST(ROUND({column} / 100.0) AS INTEGER)"
+                )
+            except sqlite3.OperationalError:
+                continue
+
+    try:
+        cur.execute(
+            """
+            UPDATE staff_payroll_history
+            SET salary_cents = CAST(ROUND(salary_cents / 100.0) AS INTEGER),
+                deductions_cents = CAST(ROUND(deductions_cents / 100.0) AS INTEGER),
+                loan_cents = CAST(ROUND(loan_cents / 100.0) AS INTEGER),
+                net_cents = CAST(ROUND(net_cents / 100.0) AS INTEGER)
+            """
+        )
+    except sqlite3.OperationalError:
+        pass
+
+    cur.execute(
+        "INSERT INTO settings(key,value) VALUES('payroll_units','pounds') "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
     )
 
 

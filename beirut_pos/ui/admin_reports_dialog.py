@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from collections import Counter
+
 from PyQt6.QtCore import Qt, QDate, QDateTime, QTime
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -796,6 +798,12 @@ class AdminReportsDialog(BigDialog):
 
         cur.execute(daily_query, (start, end, start, end))
         daily_rows = cur.fetchall()
+        daily_payroll_net = staff_service.daily_payroll_expense()
+        month_day_counts: Counter[str] = Counter()
+        for row in daily_rows:
+            day_value = row["day"] or ""
+            if day_value:
+                month_day_counts[day_value[:7]] += 1
 
         monthly_query = """
             WITH sales AS (
@@ -833,12 +841,13 @@ class AdminReportsDialog(BigDialog):
         conn.close()
 
         daily_display = []
-        daily_totals = {"sales": 0, "purchases": 0, "profit": 0}
+        daily_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
         for row in daily_rows:
             day = row["day"] or ""
             sales_total = int(row["net_sales"] or 0)
             purchase_total = int(row["purchases_total"] or 0)
-            profit = sales_total - purchase_total
+            payroll_deduction = daily_payroll_net if day else 0
+            profit = sales_total - purchase_total - payroll_deduction
             daily_display.append([
                 day,
                 self._money(sales_total),
@@ -848,21 +857,25 @@ class AdminReportsDialog(BigDialog):
             daily_totals["sales"] += sales_total
             daily_totals["purchases"] += purchase_total
             daily_totals["profit"] += profit
+            daily_totals["payroll"] += payroll_deduction
 
         self._populate_table(self.profit_daily_table, daily_display)
         self.profit_daily_summary.setText(
             f"صافي المبيعات: {self._money(daily_totals['sales'])} | "
             f"إجمالي المشتريات: {self._money(daily_totals['purchases'])} | "
-            f"صافي الربح: {self._money(daily_totals['profit'])}"
+            f"الرواتب اليومية المحتسبة: {self._money(daily_totals['payroll'])} | "
+            f"صافي الربح بعد الرواتب: {self._money(daily_totals['profit'])}"
         )
 
         monthly_display = []
-        monthly_totals = {"sales": 0, "purchases": 0, "profit": 0}
+        monthly_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
         for row in monthly_rows:
             month = row["month"] or ""
             sales_total = int(row["net_sales"] or 0)
             purchase_total = int(row["purchases_total"] or 0)
-            profit = sales_total - purchase_total
+            payroll_days = month_day_counts.get(month, 0)
+            payroll_deduction = daily_payroll_net * payroll_days
+            profit = sales_total - purchase_total - payroll_deduction
             monthly_display.append([
                 month,
                 self._money(sales_total),
@@ -872,12 +885,14 @@ class AdminReportsDialog(BigDialog):
             monthly_totals["sales"] += sales_total
             monthly_totals["purchases"] += purchase_total
             monthly_totals["profit"] += profit
+            monthly_totals["payroll"] += payroll_deduction
 
         self._populate_table(self.profit_monthly_table, monthly_display)
         self.profit_monthly_summary.setText(
             f"صافي المبيعات: {self._money(monthly_totals['sales'])} | "
             f"إجمالي المشتريات: {self._money(monthly_totals['purchases'])} | "
-            f"صافي الربح: {self._money(monthly_totals['profit'])}"
+            f"الرواتب اليومية المحتسبة: {self._money(monthly_totals['payroll'])} | "
+            f"صافي الربح بعد الرواتب: {self._money(monthly_totals['profit'])}"
         )
 
     # ------------------------------------------------------------- price log
@@ -1320,7 +1335,14 @@ class AdminReportsDialog(BigDialog):
         for row in rows:
             recorded_at = row.get("recorded_at", "")
             source = str(row.get("source") or "system")
-            display_source = "مستخدم النظام" if source == "system" else "موظف خارجي"
+            if source == "system":
+                display_source = "مستخدم النظام"
+            elif source == "manual":
+                display_source = "موظف خارجي"
+            elif source == "payout":
+                display_source = "صرف راتب"
+            else:
+                display_source = source
             period = str(row.get("salary_period") or "monthly")
             period_label = "شهري" if period == "monthly" else "يومي"
             salary = int(row.get("salary_cents") or 0)

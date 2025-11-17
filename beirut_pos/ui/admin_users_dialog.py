@@ -151,6 +151,10 @@ class AdminUsersDialog(QDialog):
         except ValueError as exc:
             self._show_feedback(str(exc), kind="error")
             return
+        except Exception as exc:
+            message = str(exc).strip() or "حدث خطأ غير متوقع أثناء الحفظ."
+            self._show_feedback(f"تعذر حفظ التغييرات: {message}", kind="error")
+            return
 
         self._show_feedback("تم تحديث بيانات المستخدم بنجاح.", kind="success")
         self.password.clear()
@@ -241,6 +245,10 @@ class AdminUsersDialog(QDialog):
             delete_user(username)
         except ValueError as exc:
             self._show_feedback(str(exc), kind="error")
+            return
+        except Exception as exc:
+            message = str(exc).strip() or "حدث خطأ غير متوقع أثناء الحذف."
+            self._show_feedback(f"تعذر حذف المستخدم: {message}", kind="error")
             return
 
         self._show_feedback("تم حذف المستخدم بنجاح.", kind="success")

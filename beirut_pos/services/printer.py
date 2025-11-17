@@ -24,6 +24,8 @@ _IS_WINDOWS = platform.system().lower().startswith("win")
 from PIL import Image, ImageDraw, ImageFont
 
 from ..core.paths import DATA_DIR
+from . import settings as settings_service
+from . import texts as texts_service
 from .arabic_codec import sanitize_line, shape_bidi_arabic, encode_for_printer  # keep import for other modules
 
 # Optional: your raw USB optimized class
@@ -210,17 +212,111 @@ def _fit_line_for_col(text: str, col_px: int) -> str:
 
 
 # ===================================================== header/meta (receipt)
-def _build_receipt_header_meta(table_code: str, cashier: str) -> List[str]:
+def _build_receipt_header_meta(table_code: str, cashier: str, method: str | None = None) -> List[str]:
     ts = datetime.now().strftime("%Y/%m/%d %H:%M")
+    client_name = settings_service.get_client_name()
+    box_width = 30
+    brand_lines = [
+        texts_service.get("receipt.cashier.header", client_name=client_name),
+        texts_service.get("receipt.cashier.subtitle", client_name=client_name),
+        texts_service.get("receipt.cashier.address"),
+        texts_service.get("receipt.cashier.phone"),
+    ]
+    brand_lines = [ln.strip() for ln in brand_lines if ln and ln.strip()]
+    if not brand_lines:
+        brand_lines = [client_name]
+
+    def _box_line(text: str) -> str:
+        trimmed = text[:box_width]
+        return ">>C " + f"║{trimmed.center(box_width)}║"
+
     lines: List[str] = []
-    lines.append(">>C " + ("╔" + "═" * 30 + "╗"))
-    lines.append(">>C " + "║  كافيه بيروت  ║")
-    lines.append(">>C " + "║    Cafe Beirut    ║")
-    lines.append(">>C " + ("╚" + "═" * 30 + "╝"))
-    lines.append(">>R " + f"التاريخ: {ts}")
-    lines.append(">>R " + f"الطاولة: {table_code}")
-    lines.append(">>R " + f"الكاشير: {cashier}")
+    lines.append(">>C " + ("╔" + "═" * box_width + "╗"))
+    for segment in brand_lines:
+        lines.append(_box_line(segment))
+    lines.append(">>C " + ("╚" + "═" * box_width + "╝"))
+
+    date_line = texts_service.get(
+        "receipt.cashier.date",
+        default="التاريخ: {timestamp}",
+        timestamp=ts,
+    ).strip()
+    if date_line:
+        lines.append(">>R " + date_line)
+
+    meta_line = texts_service.get(
+        "receipt.cashier.meta",
+        default="{table_code} : {cashier}",
+        table_code=table_code,
+        cashier=cashier,
+    ).strip()
+    if meta_line:
+        lines.append(">>R " + meta_line)
+
+    method_clean = (method or "").strip()
+    if method_clean:
+        method_line = texts_service.get("receipt.cashier.method", method=method_clean).strip()
+        if method_line:
+            lines.append(">>R " + method_line)
+
     lines.append(_draw_line("═"))
+    return lines
+
+
+def _build_receipt_footer_lines(
+    subtotal: int | float | None,
+    discount: int | float | None,
+    total: int | float,
+    *,
+    service: int | float | None = None,
+    tax: int | float | None = None,
+    discount_label: str | None = None,
+) -> List[str]:
+    lines: List[str] = [_draw_line("═")]
+    if subtotal is not None:
+        lines.append(
+            ">>R "
+            + texts_service.get(
+                "receipt.cashier.subtotal",
+                amount=_format_currency_simple(subtotal),
+            )
+        )
+    if discount and float(discount) > 0:
+        discount_amount = _format_currency_simple(-abs(float(discount)))
+        lines.append(
+            ">>R "
+            + texts_service.get(
+                "receipt.cashier.discount",
+                amount=discount_amount,
+                label=discount_label or "الخصم",
+            )
+        )
+    if service and float(service) > 0:
+        lines.append(
+            ">>R "
+            + texts_service.get(
+                "receipt.cashier.service",
+                amount=_format_currency_simple(service),
+            )
+        )
+    if tax and float(tax) > 0:
+        lines.append(
+            ">>R "
+            + texts_service.get(
+                "receipt.cashier.tax",
+                amount=_format_currency_simple(tax),
+            )
+        )
+    lines.append(
+        ">>R "
+        + texts_service.get(
+            "receipt.cashier.total",
+            amount=_format_currency_simple(total),
+        )
+    )
+    footer_text = texts_service.get("receipt.footer", default="شكراً").strip()
+    if footer_text:
+        lines.append(">>C " + footer_text)
     return lines
 
 
@@ -568,22 +664,21 @@ def _print_escpos_receipt(
     total: int,
     method: str,
     cashier: str,
+    *,
+    service: int | float | None = None,
+    tax: int | float | None = None,
+    discount_label: str | None = None,
 ) -> None:
-    head = _build_receipt_header_meta(table_code, cashier)
+    head = _build_receipt_header_meta(table_code, cashier, method)
     _emit_lines_to_printer(printer, head)
 
     headers, rows, calc_sub, total_qty = _build_items_table(items)
-
-    foot: list[list[str]] = []
-    if discount and float(discount) > 0:
-        foot.append(["الخصم", "", "", f"-{_format_currency_simple(discount)}"])
-    foot.append(["الإجمالي", "", "", _format_currency_simple(total)])
 
     if hasattr(printer, "print_table"):
         printer.print_table(
             headers,
             rows,
-            footer_rows=foot,
+            footer_rows=None,
             font_size=int(os.getenv("BEIRUT_POS_TABLE_FONT", "28")),
             col_widths_px=COLS_RECEIPT,
             col_align=("left", "center", "right", "right"),
@@ -593,12 +688,17 @@ def _print_escpos_receipt(
     else:
         _emit_lines_to_printer(
             printer,
-            [" | ".join(headers)]
-            + [" | ".join(map(str, r)) for r in rows]
-            + [" | ".join(map(str, r)) for r in foot],
+            [" | ".join(headers)] + [" | ".join(map(str, r)) for r in rows],
         )
-
-    _print_escpos_lines(printer, [">>C شكراً لزيارتكم", ">>C Thank you for visiting!"])
+    footer_lines = _build_receipt_footer_lines(
+        subtotal,
+        discount,
+        total,
+        service=service,
+        tax=tax,
+        discount_label=discount_label,
+    )
+    _print_escpos_lines(printer, footer_lines)
 
 
 def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]) -> None:
@@ -738,35 +838,49 @@ class PrinterService:
         discount_label: str | None = None,
     ) -> bool:
         data = _collapse_items(items)
-        head = _build_receipt_header_meta(table_code, cashier)
+        head = _build_receipt_header_meta(table_code, cashier, method)
         headers, rows, calc_sub, total_qty = _build_items_table(data)
-        foot: list[list[str]] = []
-        if discount and float(discount) > 0:
-            foot.append(["الخصم", "", "", f"-{_format_currency_simple(discount)}"])
-        foot.append(["الإجمالي", "", "", _format_currency_simple(total)])
+        tail_lines = _build_receipt_footer_lines(
+            subtotal,
+            discount,
+            total,
+            service=service,
+            tax=tax,
+            discount_label=discount_label,
+        )
 
         if self._use_windows_cash():
             bmp_head = _render_lines_to_bitmap(head)
             bmp_tbl = _render_table_to_bitmap(
                 headers,
                 rows,
-                footer_rows=foot,
+                footer_rows=None,
                 font_size=int(os.getenv("BEIRUT_POS_TABLE_FONT", "28")),
                 col_widths_px=COLS_RECEIPT,
                 col_align=("left", "center", "right", "right"),
                 cell_pad=(CELL_PAD_X, CELL_PAD_Y),
                 draw_borders=True,
             )
-            bmp_tail = _render_lines_to_bitmap(
-                [">>C شكراً لزيارتكم", ">>C Thank you for visiting!"]
-            )
+            bmp_tail = _render_lines_to_bitmap(tail_lines)
             img = _stack_bitmaps([bmp_head, bmp_tbl, bmp_tail]).convert("RGB")
             win_print_image(self._cash_win, img)
             return True
 
         prn = self._escpos_printer
         if prn:
-            _print_escpos_receipt(prn, table_code, data, subtotal, discount, total, method, cashier)
+            _print_escpos_receipt(
+                prn,
+                table_code,
+                data,
+                subtotal,
+                discount,
+                total,
+                method,
+                cashier,
+                service=service,
+                tax=tax,
+                discount_label=discount_label,
+            )
         return True
 
 

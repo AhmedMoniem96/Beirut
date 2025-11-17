@@ -54,6 +54,7 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_attendance_tab(), "ساعات العمل")
         self.tabs.addTab(self._build_shift_summary_tab(), "ملخص الورديات")
         self.tabs.addTab(self._build_deductions_tab(), "خصومات الموظفين")
+        self.tabs.addTab(self._build_payroll_history_tab(), "سجل الرواتب")
         self.tabs.addTab(self._build_stakeholder_tab(), "تقرير المساهمين")
 
         layout = QVBoxLayout(self)
@@ -75,6 +76,7 @@ class AdminReportsDialog(BigDialog):
         self._load_attendance_report()
         self._load_shift_report()
         self._load_deductions_report()
+        self._load_payroll_history()
         self._load_stakeholder_report()
 
     # ------------------------------------------------------------------ daily
@@ -1225,7 +1227,7 @@ class AdminReportsDialog(BigDialog):
         totals = {"salary": 0, "deductions": 0, "loans": 0, "net": 0}
 
         for row in rows:
-            username = row.get("username", "")
+            username = row.get("display_name") or row.get("username", "")
             role = row.get("role", "")
             salary = int(row.get("salary_cents") or 0)
             deduction = int(row.get("deductions_cents") or 0)
@@ -1254,6 +1256,106 @@ class AdminReportsDialog(BigDialog):
             f"إجمالي السلف: {self._money(totals['loans'])} | "
             f"صافي الرواتب: {self._money(totals['net'])}"
         )
+
+    def _build_payroll_history_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        self.payroll_history_table = self._make_table([
+            "التوقيت",
+            "المصدر",
+            "الموظف",
+            "الدور",
+            "نوع الأجر",
+            "الراتب",
+            "الخصومات",
+            "السلف",
+            "الصافي",
+        ])
+        layout.addWidget(self.payroll_history_table, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
+        controls.addWidget(QLabel("من:"))
+        start_dt = QDateTime.currentDateTime()
+        start_dt.setDate(QDate.currentDate().addDays(-6))
+        start_dt.setTime(QTime(0, 0))
+        self.payroll_history_from = QDateTimeEdit(start_dt)
+        self.payroll_history_from.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.payroll_history_from.setCalendarPopup(True)
+        controls.addWidget(self.payroll_history_from)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.payroll_history_to = QDateTimeEdit(QDateTime.currentDateTime())
+        self.payroll_history_to.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.payroll_history_to.setCalendarPopup(True)
+        controls.addWidget(self.payroll_history_to)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_payroll_history)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.payroll_history_table, "payroll_history"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.payroll_history_summary = QLabel("")
+        self.payroll_history_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.payroll_history_summary)
+
+        return widget
+
+    def _load_payroll_history(self):
+        start, end = self._datetime_bounds(self.payroll_history_from, self.payroll_history_to)
+        try:
+            rows = staff_service.list_payroll_history(start, end)
+        except Exception as exc:
+            QMessageBox.warning(self, "سجل الرواتب", f"تعذر تحميل السجل:\n{exc}")
+            self._populate_table(self.payroll_history_table, [])
+            self.payroll_history_summary.setText("تعذر تحميل البيانات")
+            return
+
+        table_rows: list[list[str]] = []
+        totals = {"salary": 0, "deductions": 0, "loans": 0, "net": 0}
+        for row in rows:
+            recorded_at = row.get("recorded_at", "")
+            source = str(row.get("source") or "system")
+            display_source = "مستخدم النظام" if source == "system" else "موظف خارجي"
+            period = str(row.get("salary_period") or "monthly")
+            period_label = "شهري" if period == "monthly" else "يومي"
+            salary = int(row.get("salary_cents") or 0)
+            deduction = int(row.get("deductions_cents") or 0)
+            loan = int(row.get("loan_cents") or 0)
+            net = int(row.get("net_cents") or (salary - deduction - loan))
+            table_rows.append([
+                recorded_at.replace("T", " ")[:16],
+                display_source,
+                row.get("display_name", ""),
+                row.get("role", ""),
+                period_label,
+                self._money(salary),
+                self._money(deduction),
+                self._money(loan),
+                self._money(net),
+            ])
+
+            totals["salary"] += salary
+            totals["deductions"] += deduction
+            totals["loans"] += loan
+            totals["net"] += net
+
+        self._populate_table(self.payroll_history_table, table_rows)
+        if table_rows:
+            summary = (
+                f"عدد السجلات: {len(table_rows)} | "
+                f"إجمالي الرواتب: {self._money(totals['salary'])} | "
+                f"إجمالي الخصومات: {self._money(totals['deductions'])} | "
+                f"إجمالي السلف: {self._money(totals['loans'])} | "
+                f"صافي المسجل: {self._money(totals['net'])}"
+            )
+        else:
+            summary = "لا توجد بيانات في الفترة المحددة."
+        self.payroll_history_summary.setText(summary)
 
     # ------------------------------------------------------ stakeholders log
     def _build_stakeholder_tab(self) -> QWidget:

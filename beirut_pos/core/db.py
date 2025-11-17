@@ -257,6 +257,7 @@ def safe_migrations() -> None:
                 salary_cents INTEGER NOT NULL DEFAULT 0,
                 deductions_cents INTEGER NOT NULL DEFAULT 0,
                 loan_cents INTEGER NOT NULL DEFAULT 0,
+                salary_period TEXT NOT NULL DEFAULT 'monthly',
                 FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE
             )"""
     )
@@ -310,6 +311,9 @@ def safe_migrations() -> None:
     _ensure_currency_unit(cur)
     _ensure_ui_texts_table(cur)
     _ensure_default_settings(cur)
+    _ensure_staff_payroll_period(cur)
+    _ensure_manual_staff_table(cur)
+    _ensure_payroll_history_table(cur)
     conn.commit()
 
 
@@ -528,6 +532,49 @@ def _ensure_default_settings(cur) -> None:
             "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",
             (key, value),
         )
+
+
+def _ensure_staff_payroll_period(cur) -> None:
+    cur.execute("PRAGMA table_info(staff_payroll)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "salary_period" not in cols:
+        cur.execute("ALTER TABLE staff_payroll ADD COLUMN salary_period TEXT NOT NULL DEFAULT 'monthly'")
+
+
+def _ensure_manual_staff_table(cur) -> None:
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS staff_manual (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                display_name TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT '',
+                salary_cents INTEGER NOT NULL DEFAULT 0,
+                deductions_cents INTEGER NOT NULL DEFAULT 0,
+                loan_cents INTEGER NOT NULL DEFAULT 0,
+                salary_period TEXT NOT NULL DEFAULT 'monthly',
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+    )
+
+
+def _ensure_payroll_history_table(cur) -> None:
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS staff_payroll_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                recorded_at TEXT NOT NULL,
+                source TEXT NOT NULL,
+                username TEXT,
+                manual_id INTEGER,
+                display_name TEXT NOT NULL,
+                role TEXT,
+                salary_period TEXT NOT NULL DEFAULT 'monthly',
+                salary_cents INTEGER NOT NULL DEFAULT 0,
+                deductions_cents INTEGER NOT NULL DEFAULT 0,
+                loan_cents INTEGER NOT NULL DEFAULT 0,
+                net_cents INTEGER NOT NULL DEFAULT 0
+            )"""
+    )
 
 
 def _seed_defaults(cur) -> None:

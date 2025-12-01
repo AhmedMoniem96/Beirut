@@ -55,9 +55,17 @@ class ShiftSummaryDialog(QDialog):
         form.addRow("بداية الوردية:", QLabel(_format_dt(metrics.get("window_start"))))
         form.addRow("نهاية الوردية:", QLabel(_format_dt(metrics.get("window_end"))))
         form.addRow("المدة:", QLabel(_format_duration(metrics.get("duration_seconds", 0))))
-        form.addRow("طلبات تم فتحها:", QLabel(str(metrics.get("orders_opened", 0))))
+        form.addRow(
+            "طلبات تم فتحها:", QLabel(str(metrics.get("orders_opened", 0)))
+        )
+        form.addRow(
+            "طاولات تم خدمتها:", QLabel(str(metrics.get("orders_touched", 0)))
+        )
         form.addRow("طلبات تم إغلاقها:", QLabel(str(metrics.get("orders_closed", 0))))
         form.addRow("طلبات ملغاة:", QLabel(str(metrics.get("voided_orders", 0))))
+        form.addRow(
+            "عناصر تمت إضافتها:", QLabel(str(metrics.get("items_added", 0)))
+        )
         form.addRow(
             "عدد المدفوعات:",
             QLabel(str(metrics.get("payments_count", 0))),

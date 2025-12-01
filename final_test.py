@@ -1,27 +1,22 @@
-import sys
-sys.path.insert(0, '.')
+from beirut_pos.services import printer as printer_module
 
-from beirut_pos.services.printer import printer
 
-print("🎉 Testing actual receipt printing...")
+def test_print_cashier_receipt_works_without_physical_printer(monkeypatch):
+    mock = printer_module.MockPrinter("unit-test")
+    monkeypatch.setattr(printer_module, "_find_thermal_printer", lambda: mock)
+    service = printer_module.PrinterService()
 
-# Create test order
-test_items = [
-    {"name": "قهوة", "qty": 2, "unit_price": 500, "total_cents": 1000, "note": ""},
-    {"name": "شاي", "qty": 1, "unit_price": 300, "total_cents": 300, "note": "سكر خفيف"},
-    {"name": "عصير برتقال", "qty": 1, "unit_price": 800, "total_cents": 800, "note": "مثلج"},
-]
+    items = [
+        {"name": "Latte", "qty": 2, "total_cents": 2000, "unit_price": 1000, "note": ""},
+        {"name": "Tea", "qty": 1, "total_cents": 500, "unit_price": 500, "note": "سكر خفيف"},
+    ]
 
-# Print receipt
-success = printer.print_cashier_receipt(
-    table_code="A1",
-    items=test_items,
-    subtotal=2100,
-    discount=100,
-    total=2000,
-    method="نقدي",
-    cashier="أحمد"
-)
-
-print(f"✅ Receipt printed: {success}")
-print("📄 Check your printer!")
+    assert service.print_cashier_receipt(
+        table_code="A1",
+        items=items,
+        subtotal=2500,
+        discount=0,
+        total=2500,
+        method="نقدي",
+        cashier="أحمد",
+    )

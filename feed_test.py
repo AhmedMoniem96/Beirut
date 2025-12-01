@@ -1,15 +1,6 @@
-from escpos.printer import File
+from beirut_pos.services.printer import _format_qty
 
-p = File('/dev/usb/lp0')
-p.open()
 
-print("🧪 Testing line feed (like the feed button)...")
-
-# Just send line feeds
-for i in range(10):
-    p.device.write(b"\n")
-    
-p.device.flush()
-p.close()
-
-print("✅ Sent 10 line feeds - did paper move?")
+def test_format_qty_trims_trailing_zero():
+    assert _format_qty(3.0) == "3"
+    assert _format_qty(1.25) == "1.25"

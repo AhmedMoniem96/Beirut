@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ...utils.currency import format_pounds
+from ..common import branding
 
 # English->Arabic display map (DB can stay English internally)
 AR_DISPLAY = {
@@ -37,6 +38,10 @@ class CategoryGrid(QWidget):
     def __init__(self, categories, on_pick):
         super().__init__()
         self.on_pick = on_pick
+        self._button_height = branding.get_menu_button_height()
+        self._button_font_size = branding.get_menu_button_font_size()
+        self._button_padding = branding.get_menu_button_padding()
+        self._columns = branding.get_menu_columns()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(6)
@@ -117,7 +122,10 @@ class CategoryGrid(QWidget):
                     track_stock, stock_qty = 0, None
 
                 status_prefix = ""
-                style_parts: list[str] = ["padding: 12px; font-size: 16px;"]
+                style_parts: list[str] = [
+                    f"padding: {self._button_padding}px;",
+                    f"font-size: {self._button_font_size}px;",
+                ]
                 tooltip_lines = [label, format_pounds(price_cents), f"الفئة: {title}"]
 
                 if track_stock == 1:
@@ -138,7 +146,7 @@ class CategoryGrid(QWidget):
                 text = f"{status_prefix}{label}\n{format_pounds(price_cents)}"
                 b = QPushButton(text)
                 b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-                b.setMinimumHeight(76)
+                b.setMinimumHeight(self._button_height)
                 b.setStyleSheet(" ".join(style_parts))
                 b.setToolTip("\n".join(tooltip_lines))
                 b.clicked.connect(lambda _=False, L=label, P=price_cents: self.on_pick(L, P))
@@ -147,9 +155,11 @@ class CategoryGrid(QWidget):
                 if track_stock == 1 and (stock_qty is None or stock_qty <= 0):
                     b.setEnabled(False)
                     b.setText(f"{status_prefix}{label}\n(غير متوفر) {format_pounds(price_cents)}")
-                    b.setStyleSheet("padding: 12px; font-size: 16px; color: gray;")
+                    b.setStyleSheet(
+                        f"padding: {self._button_padding}px; font-size: {self._button_font_size}px; color: gray;"
+                    )
 
-                grid.addWidget(b, i // 3, i % 3)
+                grid.addWidget(b, i // self._columns, i % self._columns)
 
             self.v.addWidget(box)
             self._boxes.append(box)

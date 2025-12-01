@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QFileDialog, QTabWidget, QHBoxLayout, QLabel,
     QColorDialog, QListWidget, QListWidgetItem, QAbstractItemView, QMessageBox,
     QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox,
-    QDialog
+    QDialog, QScrollArea, QGridLayout
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QAction, QKeySequence
@@ -352,9 +352,21 @@ class SettingsDialog(BigDialog):
 
         # --- Branding tab ---
         br = QWidget()
-        br_v = QVBoxLayout(br)
+        br_outer = QVBoxLayout(br)
+        br_outer.setContentsMargins(0, 0, 0, 0)
+        br_outer.setSpacing(0)
+
+        br_scroll = QScrollArea()
+        br_scroll.setWidgetResizable(True)
+        br_outer.addWidget(br_scroll)
+
+        br_body = QWidget()
+        br_scroll.setWidget(br_body)
+
+        br_v = QVBoxLayout(br_body)
         br_v.setContentsMargins(24, 24, 24, 24)
         br_v.setSpacing(18)
+
         br_f = QFormLayout()
         br_f.setFormAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         br_f.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -386,7 +398,7 @@ class SettingsDialog(BigDialog):
 
         palette = self._default_palette
 
-        def make_color_row(key: str, label: str, dialog_title: str):
+        def make_color_row(target_layout: QFormLayout, key: str, label: str, dialog_title: str):
             field = QLineEdit(setting_get(key, palette[key]))
             _configure_field(field)
             field.setMaxLength(7)
@@ -403,27 +415,78 @@ class SettingsDialog(BigDialog):
             row.addWidget(field, 1)
             row.addWidget(button, 0)
             wrapper = QWidget(); wrapper.setLayout(row)
-            br_f.addRow(label, wrapper)
+            target_layout.addRow(label, wrapper)
             return field
 
-        self.accent_color = make_color_row("accent_color", "اللون الرئيسي:", "اختر اللون الرئيسي")
-        self.surface_color = make_color_row("surface_color", "لون خلفية الواجهة:", "اختر لون لوحة التحكم")
-        self.text_color = make_color_row("text_color", "لون النص:", "اختر لون النص")
-        self.muted_text_color = make_color_row("muted_text_color", "لون النص الثانوي:", "اختر لون النص الثانوي")
-        self.menu_card_color = make_color_row("menu_card_color", "لون بطاقات الأقسام:", "اختر لون بطاقات الأقسام")
-        self.menu_header_color = make_color_row("menu_header_color", "لون عناوين الأقسام:", "اختر لون عنوان القسم")
-        self.menu_button_color = make_color_row("menu_button_color", "لون أزرار المنتجات:", "اختر لون أزرار المنتجات")
-        self.menu_button_text_color = make_color_row("menu_button_text_color", "لون خط أزرار المنتجات:", "اختر لون خط زر المنتج")
-        self.menu_button_hover_color = make_color_row("menu_button_hover_color", "لون الزر عند التحويم:", "اختر لون الزر عند التحويم")
-        self.toolbar_color = make_color_row("toolbar_color", "لون شريط الأدوات:", "اختر لون شريط الأدوات")
-        self.toolbar_text_color = make_color_row("toolbar_text_color", "لون خط شريط الأدوات:", "اختر لون خط شريط الأدوات")
+        color_columns = QHBoxLayout()
+        color_columns.setSpacing(24)
+
+        left_colors = QFormLayout()
+        left_colors.setFormAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        left_colors.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        left_colors.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        left_colors.setSpacing(12)
+
+        right_colors = QFormLayout()
+        right_colors.setFormAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        right_colors.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        right_colors.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        right_colors.setSpacing(12)
+
+        self.accent_color = make_color_row(left_colors, "accent_color", "اللون الرئيسي:", "اختر اللون الرئيسي")
+        self.surface_color = make_color_row(left_colors, "surface_color", "لون خلفية الواجهة:", "اختر لون لوحة التحكم")
+        self.text_color = make_color_row(left_colors, "text_color", "لون النص:", "اختر لون النص")
+        self.muted_text_color = make_color_row(left_colors, "muted_text_color", "لون النص الثانوي:", "اختر لون النص الثانوي")
+        self.toolbar_color = make_color_row(left_colors, "toolbar_color", "لون شريط الأدوات:", "اختر لون شريط الأدوات")
+        self.toolbar_text_color = make_color_row(left_colors, "toolbar_text_color", "لون خط شريط الأدوات:", "اختر لون خط شريط الأدوات")
+
+        self.menu_card_color = make_color_row(right_colors, "menu_card_color", "لون بطاقات الأقسام:", "اختر لون بطاقات الأقسام")
+        self.menu_header_color = make_color_row(right_colors, "menu_header_color", "لون عناوين الأقسام:", "اختر لون عنوان القسم")
+        self.menu_button_color = make_color_row(right_colors, "menu_button_color", "لون أزرار المنتجات:", "اختر لون أزرار المنتجات")
+        self.menu_button_text_color = make_color_row(right_colors, "menu_button_text_color", "لون خط أزرار المنتجات:", "اختر لون خط زر المنتج")
+        self.menu_button_hover_color = make_color_row(right_colors, "menu_button_hover_color", "لون الزر عند التحويم:", "اختر لون الزر عند التحويم")
+
+        color_columns.addLayout(left_colors, 1)
+        color_columns.addLayout(right_colors, 1)
+        br_v.addLayout(color_columns)
+
+        button_grid = QGridLayout()
+        button_grid.setHorizontalSpacing(18)
+        button_grid.setVerticalSpacing(10)
 
         self.menu_button_height = QSpinBox()
         _configure_field(self.menu_button_height)
         self.menu_button_height.setRange(40, 200)
         self.menu_button_height.setSuffix(" px")
         self.menu_button_height.setValue(branding.get_menu_button_height())
-        br_f.addRow("ارتفاع زر المنتج:", self.menu_button_height)
+        button_grid.addWidget(QLabel("ارتفاع زر المنتج"), 0, 0, alignment=Qt.AlignmentFlag.AlignRight)
+        button_grid.addWidget(self.menu_button_height, 0, 1)
+
+        self.menu_button_font_size = QSpinBox()
+        _configure_field(self.menu_button_font_size)
+        self.menu_button_font_size.setRange(10, 32)
+        self.menu_button_font_size.setSuffix(" px")
+        self.menu_button_font_size.setValue(branding.get_menu_button_font_size())
+        button_grid.addWidget(QLabel("حجم خط الزر"), 1, 0, alignment=Qt.AlignmentFlag.AlignRight)
+        button_grid.addWidget(self.menu_button_font_size, 1, 1)
+
+        self.menu_button_padding = QSpinBox()
+        _configure_field(self.menu_button_padding)
+        self.menu_button_padding.setRange(4, 36)
+        self.menu_button_padding.setSuffix(" px")
+        self.menu_button_padding.setValue(branding.get_menu_button_padding())
+        button_grid.addWidget(QLabel("الحشو الداخلي"), 2, 0, alignment=Qt.AlignmentFlag.AlignRight)
+        button_grid.addWidget(self.menu_button_padding, 2, 1)
+
+        self.menu_columns = QSpinBox()
+        _configure_field(self.menu_columns)
+        self.menu_columns.setRange(1, 6)
+        self.menu_columns.setSuffix(" عمود")
+        self.menu_columns.setValue(branding.get_menu_columns())
+        button_grid.addWidget(QLabel("عدد الأعمدة في الشبكة"), 3, 0, alignment=Qt.AlignmentFlag.AlignRight)
+        button_grid.addWidget(self.menu_columns, 3, 1)
+
+        br_v.addLayout(button_grid)
 
         reset_colors = QPushButton("استعادة الألوان الافتراضية")
         reset_colors.clicked.connect(self._reset_palette_fields)
@@ -864,6 +927,9 @@ class SettingsDialog(BigDialog):
         menu_button_text = self.menu_button_text_color.text().strip()
         menu_button_hover = self.menu_button_hover_color.text().strip()
         menu_button_height = self.menu_button_height.value()
+        menu_button_font_size = self.menu_button_font_size.value()
+        menu_button_padding = self.menu_button_padding.value()
+        menu_columns = self.menu_columns.value()
         toolbar_color = self.toolbar_color.text().strip()
         toolbar_text_color = self.toolbar_text_color.text().strip()
 
@@ -890,6 +956,9 @@ class SettingsDialog(BigDialog):
         setting_set("menu_button_text_color", menu_button_text)
         setting_set("menu_button_hover_color", menu_button_hover)
         setting_set("menu_button_height", str(menu_button_height))
+        setting_set("menu_button_font_size", str(menu_button_font_size))
+        setting_set("menu_button_padding", str(menu_button_padding))
+        setting_set("menu_columns", str(menu_columns))
         setting_set("toolbar_color", toolbar_color)
         setting_set("toolbar_text_color", toolbar_text_color)
 
@@ -912,6 +981,9 @@ class SettingsDialog(BigDialog):
                 "menu_button_text": menu_button_text,
                 "menu_button_hover": menu_button_hover,
                 "menu_button_height": menu_button_height,
+                "menu_button_font_size": menu_button_font_size,
+                "menu_button_padding": menu_button_padding,
+                "menu_columns": menu_columns,
                 "toolbar": toolbar_color,
                 "toolbar_text": toolbar_text_color,
             },
@@ -967,6 +1039,9 @@ class SettingsDialog(BigDialog):
         self.menu_button_text_color.setText(palette["menu_button_text_color"])
         self.menu_button_hover_color.setText(palette["menu_button_hover_color"])
         self.menu_button_height.setValue(palette["menu_button_height"])
+        self.menu_button_font_size.setValue(palette["menu_button_font_size"])
+        self.menu_button_padding.setValue(palette["menu_button_padding"])
+        self.menu_columns.setValue(palette["menu_columns"])
         self.toolbar_color.setText(palette["toolbar_color"])
         self.toolbar_text_color.setText(palette["toolbar_text_color"])
 

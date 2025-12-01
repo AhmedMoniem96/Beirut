@@ -771,6 +771,31 @@ class PrinterService:
         if not (_IS_WINDOWS and _WIN_PRINT_OK and (self._bar_win or self._cash_win)):
             self._escpos_printer = _find_thermal_printer()
 
+    def _refresh_escpos_printer(self) -> bool:
+        """
+        Ensure there is an active ESC/POS printer handle.
+
+        This is useful after a printer power cycle so the user does not need to
+        re-open the settings dialog to trigger a reload.
+        """
+
+        if self._escpos_printer is not None:
+            return True
+        new_printer = _find_thermal_printer()
+        if new_printer:
+            self._escpos_printer = new_printer
+            _log("✅ Thermal printer handle refreshed")
+            return True
+        _log("ℹ️  No thermal printer available after refresh")
+        return False
+
+    def ensure_printer_ready(self) -> bool:
+        """Return True when any configured printer is reachable/ready."""
+
+        if self._use_windows_bar() or self._use_windows_cash():
+            return True
+        return self._refresh_escpos_printer()
+
     def update_printers(self, bar: Optional[str], cash: Optional[str]) -> None:
         self._bar_win = (bar or "").strip()
         self._cash_win = (cash or "").strip()
@@ -847,6 +872,7 @@ class PrinterService:
             win_print_image(self._bar_win, img)
             return True
 
+        self._refresh_escpos_printer()
         prn = self._escpos_printer
         if prn:
             _print_escpos_bar_ticket(prn, table_code, data)
@@ -896,6 +922,7 @@ class PrinterService:
             win_print_image(self._cash_win, img)
             return True
 
+        self._refresh_escpos_printer()
         prn = self._escpos_printer
         if prn:
             _print_escpos_receipt(

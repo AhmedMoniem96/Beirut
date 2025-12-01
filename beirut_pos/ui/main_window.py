@@ -889,6 +889,18 @@ class MainWindow(QMainWindow):
         subtotal, discount, total, label_key = order_manager.get_totals(self.current_table)
         items = order_manager.get_items(self.current_table)
 
+        if not printer.ensure_printer_ready():
+            proceed = QMessageBox.question(
+                self,
+                "الطابعة غير متصلة",
+                "يبدو أن الطابعة غير متاحة. هل تريد إتمام الإيصال بدون طباعة؟",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if proceed != QMessageBox.StandardButton.Yes:
+                self._show_banner("قم بتوصيل الطابعة ثم أعد المحاولة.", "warn", duration=8000)
+                return
+
         if order_manager.settle(self.current_table, "cash" if method == "نقدي" else "visa", cashier=self.user.username):
             try:
                 printer.print_cashier_receipt(

@@ -94,12 +94,14 @@ class CategoryGrid(QWidget):
                     background-color: {bg_color};
                     border: 1px solid #dfe3eb;
                     border-radius: 10px;
+                    color: #0f172a;
                     margin-top: 8px;
                     font-weight: 600;
                     padding-top: 10px;
                 }}
                 QGroupBox::title {{
                     subcontrol-origin: margin;
+                    color: #0f172a;
                     left: 12px;
                     padding: 4px 8px;
                 }}

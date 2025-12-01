@@ -396,9 +396,11 @@ class CatalogManagerDialog(BigDialog):
         cat_header.addWidget(QLabel("الأقسام"))
         self.btn_cat_add = QPushButton("إضافة…")
         self.btn_cat_edit = QPushButton("تعديل…")
+        self.btn_cat_color = QPushButton("لون…")
         self.btn_cat_delete = QPushButton("حذف")
         cat_header.addWidget(self.btn_cat_add)
         cat_header.addWidget(self.btn_cat_edit)
+        cat_header.addWidget(self.btn_cat_color)
         cat_header.addWidget(self.btn_cat_delete)
         cat_panel.addLayout(cat_header)
 
@@ -486,6 +488,7 @@ class CatalogManagerDialog(BigDialog):
         self.category_list.currentRowChanged.connect(self._on_category_changed)
         self.btn_cat_add.clicked.connect(self._add_category)
         self.btn_cat_edit.clicked.connect(self._edit_category)
+        self.btn_cat_color.clicked.connect(self._change_category_color)
         self.btn_cat_delete.clicked.connect(self._delete_category)
         self.btn_cat_up.clicked.connect(lambda: self._move_category(-1))
         self.btn_cat_down.clicked.connect(lambda: self._move_category(1))
@@ -666,6 +669,31 @@ class CatalogManagerDialog(BigDialog):
             return
         self._catalog.delete_category(cat["id"], username=self._actor)
         self._load_categories()
+
+    def _change_category_color(self) -> None:
+        row, cat = self._current_category()
+        if cat is None:
+            return
+
+        current_color = cat.get("color") or ""
+        initial = QColor(current_color) if current_color else QColor("#f6f7fb")
+        chosen = QColorDialog.getColor(initial, self, "اختر لون القسم")
+        if not chosen.isValid():
+            return
+
+        try:
+            self._catalog.rename_category(
+                cat["id"],
+                cat["name"],
+                username=self._actor,
+                color=chosen.name(),
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "تعذر التعديل", str(exc))
+            return
+        self._load_categories(select_id=cat["id"])
+        if row >= 0:
+            self.category_list.setCurrentRow(row)
 
     def _move_category(self, delta: int) -> None:
         row, cat = self._current_category()

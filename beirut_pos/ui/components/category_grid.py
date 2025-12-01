@@ -32,6 +32,8 @@ class CategoryGrid(QWidget):
     Now auto-disables out-of-stock buttons for tracked items.
     """
 
+    LOW_STOCK_THRESHOLD = 3
+
     def __init__(self, categories, on_pick):
         super().__init__()
         self.on_pick = on_pick
@@ -72,12 +74,32 @@ class CategoryGrid(QWidget):
         self.clear()
         source = categories() if callable(categories) else categories
 
-        for cat_name, items in source:
+        for idx, (cat_name, items) in enumerate(source):
             title = AR_DISPLAY.get(cat_name, cat_name)
             box = QGroupBox(title)
             grid = QGridLayout(box)
             grid.setHorizontalSpacing(8)
             grid.setVerticalSpacing(8)
+
+            # Alternate subtle backgrounds per category to improve scanning
+            bg_color = "#f6f7fb" if idx % 2 == 0 else "#eef5ff"
+            box.setStyleSheet(
+                f"""
+                QGroupBox {{
+                    background-color: {bg_color};
+                    border: 1px solid #dfe3eb;
+                    border-radius: 10px;
+                    margin-top: 8px;
+                    font-weight: 600;
+                    padding-top: 10px;
+                }}
+                QGroupBox::title {{
+                    subcontrol-origin: margin;
+                    left: 12px;
+                    padding: 4px 8px;
+                }}
+                """
+            )
 
             for i, tup in enumerate(items):
                 # Unpack flexibly
@@ -87,16 +109,38 @@ class CategoryGrid(QWidget):
                     label, price_cents = tup[0], tup[1]
                     track_stock, stock_qty = 0, None
 
-                text = f"{label}\n{format_pounds(price_cents)}"
+                status_prefix = ""
+                style_parts: list[str] = ["padding: 12px; font-size: 16px;"]
+                tooltip_lines = [label, format_pounds(price_cents), f"الفئة: {title}"]
+
+                if track_stock == 1:
+                    stock_display = "غير متوفر" if stock_qty is None else str(stock_qty)
+                    tooltip_lines.append(f"المخزون: {stock_display}")
+                    if stock_qty is None:
+                        status_prefix = "🟠 "
+                        style_parts.append("color: #c47a00;")
+                    elif stock_qty <= 0:
+                        status_prefix = "🔴 "
+                    elif stock_qty <= self.LOW_STOCK_THRESHOLD:
+                        status_prefix = "🟠 "
+                        style_parts.append("color: #c47a00;")
+                    else:
+                        status_prefix = "🟢 "
+                        style_parts.append("color: #1b7a1b;")
+
+                text = f"{status_prefix}{label}\n{format_pounds(price_cents)}"
                 b = QPushButton(text)
                 b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+                b.setMinimumHeight(76)
+                b.setStyleSheet(" ".join(style_parts))
+                b.setToolTip("\n".join(tooltip_lines))
                 b.clicked.connect(lambda _=False, L=label, P=price_cents: self.on_pick(L, P))
 
                 # Disable if tracked & out of stock
                 if track_stock == 1 and (stock_qty is None or stock_qty <= 0):
                     b.setEnabled(False)
-                    b.setText(f"{label}\n(غير متوفر) {format_pounds(price_cents)}")
-                    b.setStyleSheet("color: gray;")
+                    b.setText(f"{status_prefix}{label}\n(غير متوفر) {format_pounds(price_cents)}")
+                    b.setStyleSheet("padding: 12px; font-size: 16px; color: gray;")
 
                 grid.addWidget(b, i // 3, i % 3)
 

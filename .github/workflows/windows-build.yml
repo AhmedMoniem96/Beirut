@@ -58,6 +58,7 @@ jobs:
           pip install --no-cache-dir reportlab==4.0.7
           pip install --no-cache-dir pillow>=10.0.0
           pip install --no-cache-dir qrcode>=7.4
+          pip install --no-cache-dir openpyxl>=3.1.2
 
           # ESC/POS printing stack
           pip install --no-cache-dir python-escpos==3.1.0
@@ -96,6 +97,7 @@ jobs:
               ("pyserial", "serial"),
               ("arabic-reshaper", "arabic_reshaper"),
               ("python-bidi", "bidi"),
+              ("openpyxl", "openpyxl"),
               ("pywin32", "win32api"),
           ]
           for dist, mod in checks:

@@ -142,7 +142,8 @@ def safe_migrations() -> None:
         """CREATE TABLE IF NOT EXISTS categories(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
-                order_index INTEGER NOT NULL DEFAULT 0
+                order_index INTEGER NOT NULL DEFAULT 0,
+                color TEXT NOT NULL DEFAULT ''
             )"""
     )
     cur.execute(
@@ -403,6 +404,8 @@ def _ensure_catalog_order_columns(cur) -> None:
         cat_ids = [row[0] for row in cur.fetchall()]
         for idx, cat_id in enumerate(cat_ids):
             cur.execute("UPDATE categories SET order_index=? WHERE id=?", (idx, cat_id))
+    if "color" not in cat_cols:
+        cur.execute("ALTER TABLE categories ADD COLUMN color TEXT NOT NULL DEFAULT ''")
 
     cur.execute("PRAGMA table_info(products)")
     prod_cols = {row[1] for row in cur.fetchall()}

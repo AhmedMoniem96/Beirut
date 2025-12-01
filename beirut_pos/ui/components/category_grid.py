@@ -74,7 +74,12 @@ class CategoryGrid(QWidget):
         self.clear()
         source = categories() if callable(categories) else categories
 
-        for idx, (cat_name, items) in enumerate(source):
+        for idx, cat in enumerate(source):
+            if len(cat) >= 3:
+                cat_name, items, color = cat[0], cat[1], cat[2]
+            else:
+                cat_name, items = cat[0], cat[1]
+                color = ""
             title = AR_DISPLAY.get(cat_name, cat_name)
             box = QGroupBox(title)
             grid = QGridLayout(box)
@@ -82,7 +87,7 @@ class CategoryGrid(QWidget):
             grid.setVerticalSpacing(8)
 
             # Alternate subtle backgrounds per category to improve scanning
-            bg_color = "#f6f7fb" if idx % 2 == 0 else "#eef5ff"
+            bg_color = color or ("#f6f7fb" if idx % 2 == 0 else "#eef5ff")
             box.setStyleSheet(
                 f"""
                 QGroupBox {{

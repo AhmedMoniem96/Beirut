@@ -2,6 +2,7 @@
 
 import json
 import os
+import string
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple, Optional
@@ -118,6 +119,21 @@ def _serialize_sugar_levels(levels: list[str]) -> str:
     return json.dumps(cleaned, ensure_ascii=False)
 
 
+def _normalize_hex_color(value: str | None) -> str:
+    """Return a validated #RRGGBB string or an empty string."""
+
+    if not value:
+        return ""
+    cleaned = value.strip()
+    if cleaned.startswith("#"):
+        cleaned = cleaned[1:]
+    if len(cleaned) != 6:
+        return ""
+    if not all(ch in string.hexdigits for ch in cleaned):
+        return ""
+    return f"#{cleaned.lower()}"
+
+
 def get_category_order() -> list[str]:
     conn = get_conn()
     cur = conn.cursor()
@@ -195,12 +211,12 @@ StockState = Tuple[Optional[float], Optional[float]]
 class ProductCatalog:
     __slots__ = ()
 
-    def categories(self) -> List[Tuple[str, List[Tuple[str, int, int, Optional[float]]]]]:
+    def categories(self) -> List[Tuple[str, List[Tuple[str, int, int, Optional[float]]], str]]:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT id, name FROM categories ORDER BY order_index, id")
+        cur.execute("SELECT id, name, color FROM categories ORDER BY order_index, id")
         cat_rows = cur.fetchall()
-        out: List[Tuple[str, List[Tuple[str, int, int, Optional[float]]]]] = []
+        out: List[Tuple[str, List[Tuple[str, int, int, Optional[float]]], str]] = []
         for cat in cat_rows:
             cur.execute(
                 """SELECT name, price_cents, track_stock, stock_qty
@@ -213,19 +229,20 @@ class ProductCatalog:
                 (row["name"], int(row["price_cents"]), int(row["track_stock"]), row["stock_qty"])
                 for row in cur.fetchall()
             ]
-            out.append((cat["name"], items))
+            out.append((cat["name"], items, cat["color"] or ""))
         conn.close()
         return out
 
     def list_categories(self) -> list[dict]:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT id, name, order_index FROM categories ORDER BY order_index, id")
+        cur.execute("SELECT id, name, order_index, color FROM categories ORDER BY order_index, id")
         rows = [
             {
                 "id": row["id"],
                 "name": row["name"],
                 "order_index": int(row["order_index"] or 0),
+                "color": row["color"] or "",
             }
             for row in cur.fetchall()
         ]
@@ -285,10 +302,11 @@ class ProductCatalog:
         conn.close()
         return options
 
-    def create_category(self, name: str, *, username: str = "admin") -> dict:
+    def create_category(self, name: str, *, username: str = "admin", color: str | None = None) -> dict:
         cleaned = (name or "").strip()
         if not cleaned:
             raise ValueError("اسم القسم مطلوب")
+        color_value = _normalize_hex_color(color)
         with db_transaction() as conn:
             cur = conn.cursor()
             cur.execute("SELECT id FROM categories WHERE name=?", (cleaned,))
@@ -298,32 +316,36 @@ class ProductCatalog:
             max_row = cur.fetchone()
             next_idx = int(max_row[0]) + 1 if max_row and max_row[0] is not None else 0
             cur.execute(
-                "INSERT INTO categories(name, order_index) VALUES(?, ?)",
-                (cleaned, next_idx),
+                "INSERT INTO categories(name, order_index, color) VALUES(?, ?, ?)",
+                (cleaned, next_idx, color_value),
             )
             category_id = cur.lastrowid
         log_action(username, "add_category", "category", cleaned, None, None)
         bus.emit("catalog_changed")
-        return {"id": category_id, "name": cleaned, "order_index": next_idx}
+        return {"id": category_id, "name": cleaned, "order_index": next_idx, "color": color_value}
 
-    def add_category(self, name: str, *, username: str = "admin") -> None:
+    def add_category(self, name: str, *, username: str = "admin", color: str | None = None) -> None:
         try:
-            self.create_category(name, username=username)
+            self.create_category(name, username=username, color=color)
         except ValueError:
             pass
 
-    def rename_category(self, category_id: int, new_name: str, *, username: str = "admin") -> bool:
+    def rename_category(
+        self, category_id: int, new_name: str, *, username: str = "admin", color: str | None = None
+    ) -> bool:
         cleaned = (new_name or "").strip()
         if not cleaned:
             raise ValueError("اسم القسم مطلوب")
+        new_color = _normalize_hex_color(color) if color is not None else None
         with db_transaction() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT name FROM categories WHERE id=?", (category_id,))
+            cur.execute("SELECT name, color FROM categories WHERE id=?", (category_id,))
             row = cur.fetchone()
             if not row:
                 return False
             old_name = row["name"]
-            if old_name == cleaned:
+            old_color = row["color"] or ""
+            if old_name == cleaned and (new_color is None or old_color == new_color):
                 return True
             cur.execute(
                 "SELECT 1 FROM categories WHERE name=? AND id<>?",
@@ -331,8 +353,25 @@ class ProductCatalog:
             )
             if cur.fetchone():
                 raise ValueError("القسم موجود بالفعل")
-            cur.execute("UPDATE categories SET name=? WHERE id=?", (cleaned, category_id))
-        log_action(username, "rename_category", "category", old_name, old_name, cleaned)
+            updates = []
+            params: list[str] = []
+            if old_name != cleaned:
+                updates.append("name=?")
+                params.append(cleaned)
+            if new_color is not None and new_color != old_color:
+                updates.append("color=?")
+                params.append(new_color)
+            if updates:
+                params.append(str(category_id))
+                cur.execute(f"UPDATE categories SET {', '.join(updates)} WHERE id=?", params)
+        log_action(
+            username,
+            "rename_category",
+            "category",
+            old_name,
+            json.dumps({"name": old_name, "color": old_color}, ensure_ascii=False),
+            json.dumps({"name": cleaned, "color": new_color if new_color is not None else old_color}, ensure_ascii=False),
+        )
         bus.emit("catalog_changed")
         return True
 

@@ -1,25 +1,14 @@
-from escpos.printer import File
+from beirut_pos.services import printer as printer_module
 
-p = File('/dev/usb/lp0')
-p.open()
 
-# POS-80 specific initialization
-p._raw(b"\x1B\x40")  # Initialize
-p._raw(b"\x1B\x61\x00")  # Left align
-p._raw(b"\x1B\x21\x00")  # Normal font
-
-# IMPORTANT: Use codepage for your language
-p._raw(b"\x1Bt\x00")  # CP437 (standard)
-
-# Simple test
-p.text("=" * 32 + "\n")
-p.text("POS-80 TEST\n")
-p.text("=" * 32 + "\n")
-p.text("Hello World\n")
-p.text("123456789\n")
-p.text("\n\n\n")
-
-p.cut()
-p.close()
-
-print("✅ Test sent")
+def test_build_items_table_calculates_totals():
+    headers, rows, subtotal, qty = printer_module._build_items_table(
+        [
+            {"name": "Coffee", "qty": 2, "total_cents": 1000, "unit_price": 500},
+            {"name": "Tea", "qty": 1, "total_cents": 500, "unit_price": 500},
+        ]
+    )
+    assert headers[0] == "الصنف"
+    assert rows[0][1] == "2"
+    assert subtotal == 1500
+    assert qty == 3

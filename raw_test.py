@@ -1,18 +1,8 @@
-from escpos.printer import File
+from beirut_pos.services.printer import MockPrinter, _emit_lines_to_printer
 
-p = File('/dev/usb/lp0')
-p.open()
 
-print("🧪 Sending raw ESC/POS commands...")
-
-# Method 1: Direct byte writing to device
-p.device.write(b"\x1B\x40")  # ESC @ - Initialize
-p.device.write(b"DIRECT WRITE TEST\n")
-p.device.write(b"Hello World\n")
-p.device.write(b"123456789\n")
-p.device.write(b"\n\n\n\n")
-p.device.write(b"\x1D\x56\x00")  # Cut paper
-p.device.flush()
-
-print("✅ Raw commands sent via device.write()")
-p.close()
+def test_emit_lines_to_printer_appends_newlines():
+    printer = MockPrinter("raw-test")
+    _emit_lines_to_printer(printer, ["foo", "bar"])
+    assert "foo\n" in printer.buffer
+    assert "bar\n" in printer.buffer

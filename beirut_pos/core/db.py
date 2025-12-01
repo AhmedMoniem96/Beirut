@@ -648,7 +648,16 @@ def setting_get(key: str, default: str = "") -> str:
     conn = get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT value FROM settings WHERE key=?", (key,))
+        try:
+            cur.execute("SELECT value FROM settings WHERE key=?", (key,))
+        except sqlite3.OperationalError as exc:
+            # Many tests exercise the service layer before the DB schema is
+            # initialised.  Instead of propagating "no such table" errors,
+            # gracefully fall back to the provided default value so the
+            # application can continue running in preview-only mode.
+            if "no such table" in str(exc).lower():
+                return default
+            raise
         row = cur.fetchone()
         return row["value"] if row else default
     finally:

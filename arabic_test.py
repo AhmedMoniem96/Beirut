@@ -1,19 +1,14 @@
-import usb.core
-import usb.util
+from beirut_pos.services import arabic_codec
 
-dev = usb.core.find(idVendor=0x0483, idProduct=0x5743)
-dev.set_configuration()
-cfg = dev.get_active_configuration()
-intf = cfg[(0,0)]
-ep_out = usb.util.find_descriptor(intf, custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT)
 
-# Set codepage for Arabic
-data = b"\x1B\x40"           # Initialize
-data += b"\x1Bt\x13"         # Select CP1256 (Arabic Windows)
-data += b"ASCII: Hello\n"
-data += "Arabic: مرحبا\n".encode('cp1256')
-data += b"\n\n\n"
-data += b"\x1D\x56\x00"
+def test_sanitize_line_replaces_emojis():
+    raw = "Hello ✅ Cafe"
+    sanitized = arabic_codec.sanitize_line(raw)
+    assert "✅" not in sanitized
+    assert "[OK]" in sanitized
 
-ep_out.write(data)
-print("✅ Sent with CP1256 encoding")
+
+def test_encode_for_printer_falls_back_to_utf8():
+    data = arabic_codec.encode_for_printer("مرحبا", encoding="cp9999")
+    assert isinstance(data, bytes)
+    assert data != b""

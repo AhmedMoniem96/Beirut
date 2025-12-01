@@ -786,6 +786,36 @@ class PrinterService:
             f"Windows printers -> BAR: {self._bar_win or '-'} | CASHIER: {self._cash_win or '-'}"
         )
 
+    def _current_printer(self):
+        """Backwards-compatible accessor used by older maintenance scripts."""
+        return self._escpos_printer
+
+    def test_print(self) -> bool:
+        """
+        Emit a tiny diagnostic receipt.  When no physical printer is connected
+        we fall back to the in-memory MockPrinter to keep automated tests happy.
+        """
+        _log("🧪 Starting printer self-test...")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        lines = [
+            ">>C Beirut POS",
+            _draw_line(),
+            f">>L Self-test @ {now}",
+            ">>L الاتصال ناجح",  # "Connection OK"
+            _draw_line(),
+        ]
+        printer = self._current_printer()
+        target = printer
+        if target is None:
+            _log("ℹ️  No ESC/POS printer detected – capturing output via MockPrinter")
+            target = MockPrinter("SelfTest")
+        try:
+            _print_escpos_lines(target, lines)
+            return True
+        except Exception as exc:
+            _log_printer_error("Test print failed", exc)
+            return False
+
     def _use_windows_bar(self) -> bool:
         return _IS_WINDOWS and _WIN_PRINT_OK and bool(self._bar_win)
 

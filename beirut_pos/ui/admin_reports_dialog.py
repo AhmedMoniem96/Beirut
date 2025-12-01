@@ -1,4 +1,5 @@
 import json
+import calendar
 from datetime import datetime
 
 from collections import Counter
@@ -758,6 +759,45 @@ class AdminReportsDialog(BigDialog):
         self.profit_monthly_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
         layout.addWidget(self.profit_monthly_summary)
 
+        detail_title = QLabel("التقرير الشهري التفصيلي")
+        detail_title.setAlignment(Qt.AlignmentFlag.AlignRight)
+        detail_title.setStyleSheet("font-weight:600; margin-top:16px;")
+        layout.addWidget(detail_title)
+
+        picker_layout = QHBoxLayout()
+        picker_layout.setSpacing(12)
+        picker_layout.setContentsMargins(8, 0, 8, 0)
+        picker_layout.addWidget(QLabel("الشهر:"))
+        self.month_picker = QComboBox()
+        self.month_picker.setMinimumWidth(140)
+        picker_layout.addWidget(self.month_picker)
+        picker_layout.addWidget(QLabel("السنة:"))
+        self.year_picker = QComboBox()
+        self.year_picker.setMinimumWidth(120)
+        picker_layout.addWidget(self.year_picker)
+
+        month_refresh = QPushButton("عرض التقرير")
+        month_refresh.clicked.connect(self._load_monthly_detail)
+        picker_layout.addWidget(month_refresh)
+        picker_layout.addStretch(1)
+        layout.addLayout(picker_layout)
+
+        self.monthly_detail_table = self._make_table([
+            "اليوم",
+            "صافي المبيعات",
+            "المشتريات",
+            "صافي الربح",
+        ])
+        layout.addWidget(self.monthly_detail_table, 1)
+
+        self.monthly_detail_summary = QLabel("")
+        self.monthly_detail_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.monthly_detail_summary)
+
+        self._refresh_month_picker_defaults()
+        self.month_picker.currentIndexChanged.connect(self._load_monthly_detail)
+        self.year_picker.currentIndexChanged.connect(self._load_monthly_detail)
+
         return widget
 
     def _load_profit_report(self):
@@ -897,6 +937,129 @@ class AdminReportsDialog(BigDialog):
             f"إجمالي المشتريات: {self._money(monthly_totals['purchases'])} | "
             f"الرواتب اليومية المحتسبة: {self._money(monthly_totals['payroll'])} | "
             f"صافي الربح بعد الرواتب: {self._money(monthly_totals['profit'])}"
+        )
+
+    def _refresh_month_picker_defaults(self):
+        month_names = [
+            "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+            "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر",
+        ]
+        years = self._available_years()
+        current_year = str(datetime.now().year)
+        selected_year = current_year if current_year in years else (years[0] if years else current_year)
+        selected_month = datetime.now().month
+
+        self.year_picker.blockSignals(True)
+        self.month_picker.blockSignals(True)
+        self.year_picker.clear()
+        for y in years or [current_year]:
+            self.year_picker.addItem(y, int(y))
+        idx_year = max(self.year_picker.findData(int(selected_year)), 0)
+        self.year_picker.setCurrentIndex(idx_year)
+
+        self.month_picker.clear()
+        for i, label in enumerate(month_names, start=1):
+            self.month_picker.addItem(label, i)
+        idx_month = max(self.month_picker.findData(selected_month), 0)
+        self.month_picker.setCurrentIndex(idx_month)
+        self.month_picker.blockSignals(False)
+        self.year_picker.blockSignals(False)
+        self._load_monthly_detail()
+
+    def _available_years(self):
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            WITH years AS (
+                SELECT strftime('%Y', paid_at) AS y FROM payments
+                UNION ALL
+                SELECT strftime('%Y', purchased_at) AS y FROM purchases
+            )
+            SELECT DISTINCT y FROM years WHERE y IS NOT NULL ORDER BY y DESC
+            """
+        )
+        years = [row[0] for row in cur.fetchall() if row[0]]
+        conn.close()
+        return years
+
+    def _load_monthly_detail(self):
+        try:
+            year = int(self.year_picker.currentData() or self.year_picker.currentText())
+        except Exception:
+            year = datetime.now().year
+        try:
+            month = int(self.month_picker.currentData() or self.month_picker.currentText())
+        except Exception:
+            month = datetime.now().month
+
+        last_day = calendar.monthrange(year, month)[1]
+        start_iso = datetime(year, month, 1, 0, 0).isoformat()
+        end_iso = datetime(year, month, last_day, 23, 59, 59).isoformat()
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            WITH sales AS (
+                SELECT DATE(p.paid_at) AS day, SUM(p.amount_cents) AS net_total
+                FROM payments p
+                WHERE p.paid_at BETWEEN ? AND ?
+                GROUP BY day
+            ),
+            purchase_totals AS (
+                SELECT DATE(pr.purchased_at) AS day, SUM(pr.amount_cents) AS purchase_total
+                FROM purchases pr
+                WHERE pr.purchased_at BETWEEN ? AND ?
+                GROUP BY day
+            ),
+            days AS (
+                SELECT day FROM sales
+                UNION
+                SELECT day FROM purchase_totals
+            )
+            SELECT
+                d.day AS day,
+                COALESCE(sales.net_total, 0) AS net_sales,
+                COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
+            FROM days d
+            LEFT JOIN sales ON sales.day = d.day
+            LEFT JOIN purchase_totals ON purchase_totals.day = d.day
+            ORDER BY d.day
+            """,
+            (start_iso, end_iso, start_iso, end_iso),
+        )
+        daily_rows = cur.fetchall()
+        conn.close()
+
+        payroll_per_day = staff_service.daily_payroll_expense()
+        payroll_days = len({row["day"] for row in daily_rows if row["day"]})
+
+        table_rows = []
+        totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
+        for row in daily_rows:
+            day = row["day"] or ""
+            sales_total = int(row["net_sales"] or 0)
+            purchase_total = int(row["purchases_total"] or 0)
+            profit = sales_total - purchase_total - payroll_per_day
+            table_rows.append([
+                day,
+                self._money(sales_total),
+                self._money(purchase_total),
+                self._money(profit),
+            ])
+            totals["sales"] += sales_total
+            totals["purchases"] += purchase_total
+            totals["profit"] += profit
+
+        totals["payroll"] = payroll_per_day * payroll_days
+        self._populate_table(self.monthly_detail_table, table_rows)
+        net_after_payroll = totals["profit"]
+        self.monthly_detail_summary.setText(
+            f"صافي المبيعات: {self._money(totals['sales'])} | "
+            f"إجمالي المشتريات: {self._money(totals['purchases'])} | "
+            f"الرواتب اليومية المحتسبة: {self._money(totals['payroll'])} | "
+            f"صافي الربح بعد الرواتب: {self._money(net_after_payroll)}"
         )
 
     # ------------------------------------------------------------- price log

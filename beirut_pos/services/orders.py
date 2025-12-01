@@ -1539,6 +1539,25 @@ class OrderManager:
                 str(before),
                 str(after),
             )
+        try:
+            log_action(
+                cashier,
+                "order_item_added",
+                "order",
+                table_code,
+                product,
+                str(qty),
+                json.dumps(
+                    {
+                        "unit_price_cents": price_cents,
+                        "note": note or "",
+                        "order_id": order.id,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to log item addition for table %s", table_code)
 
     def remove_item(self, table_code: str, index: int, username: str = "system"):
         order = self.orders.get(table_code)

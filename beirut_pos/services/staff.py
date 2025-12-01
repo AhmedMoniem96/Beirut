@@ -527,16 +527,33 @@ def summarize_shift_activity(
         (clean, start_iso, end_iso),
     )
     payment_row = cur.fetchone()
+    cur.execute(
+        """
+        SELECT
+            COUNT(*) AS item_count,
+            COUNT(DISTINCT entity_name) AS orders_count
+        FROM audit_log
+        WHERE username=? AND action='order_item_added' AND ts BETWEEN ? AND ?
+        """,
+        (clean, start_iso, end_iso),
+    )
+    audit_row = cur.fetchone()
     conn.close()
 
     payments_count = int(payment_row["cnt"] if payment_row and payment_row["cnt"] else 0)
     payments_total = int(payment_row["total"] if payment_row and payment_row["total"] else 0)
+    items_added = int(audit_row["item_count"] if audit_row and audit_row["item_count"] else 0)
+    orders_touched = int(
+        audit_row["orders_count"] if audit_row and audit_row["orders_count"] else 0
+    )
 
     duration_seconds = max(int((end_dt - start_dt).total_seconds()), 0)
     return {
         "orders_opened": opened,
+        "orders_touched": orders_touched,
         "orders_closed": closed,
         "voided_orders": voided,
+        "items_added": items_added,
         "payments_count": payments_count,
         "payments_total_cents": payments_total,
         "discount_cents": discounts,

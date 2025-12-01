@@ -25,6 +25,7 @@ _FALLBACK_MENU_HEADER = "#F1C58F"
 _FALLBACK_MENU_BUTTON = "#F5E1C8"
 _FALLBACK_MENU_BUTTON_TEXT = "#2B130B"
 _FALLBACK_MENU_BUTTON_HOVER = "#E3C69F"
+_FALLBACK_MENU_BUTTON_HEIGHT = 72
 _FALLBACK_TOOLBAR = "#000000"
 _FALLBACK_TOOLBAR_TEXT = "#FFFFFF"
 
@@ -181,6 +182,15 @@ def get_menu_button_hover_color(default: str = _FALLBACK_MENU_BUTTON_HOVER) -> s
     return _sanitize_color(raw, default)
 
 
+def get_menu_button_height(default: int = _FALLBACK_MENU_BUTTON_HEIGHT) -> int:
+    raw = setting_get("menu_button_height", str(default)).strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return min(200, max(40, value))
+
+
 def get_toolbar_color(default: str = _FALLBACK_TOOLBAR) -> str:
     raw = setting_get("toolbar_color", default).strip()
     return _sanitize_color(raw, default)
@@ -191,7 +201,7 @@ def get_toolbar_text_color(default: str = _FALLBACK_TOOLBAR_TEXT) -> str:
     return _sanitize_color(raw, default)
 
 
-def default_palette() -> dict[str, str]:
+def default_palette() -> dict[str, str | int]:
     """Return the default color palette used when resetting branding options."""
 
     return {
@@ -204,6 +214,7 @@ def default_palette() -> dict[str, str]:
         "menu_button_color": _FALLBACK_MENU_BUTTON,
         "menu_button_text_color": _FALLBACK_MENU_BUTTON_TEXT,
         "menu_button_hover_color": _FALLBACK_MENU_BUTTON_HOVER,
+        "menu_button_height": _FALLBACK_MENU_BUTTON_HEIGHT,
         "toolbar_color": _FALLBACK_TOOLBAR,
         "toolbar_text_color": _FALLBACK_TOOLBAR_TEXT,
     }
@@ -265,6 +276,7 @@ def build_main_window_stylesheet() -> str:
     menu_button = get_menu_button_color()
     menu_button_text = get_menu_button_text_color()
     menu_button_hover = get_menu_button_hover_color()
+    menu_button_height = get_menu_button_height()
     bg_path = get_background_path()
     toolbar_color = get_toolbar_color()
     toolbar_text = get_toolbar_text_color()
@@ -302,7 +314,7 @@ def build_main_window_stylesheet() -> str:
             f"QMainWindow QListWidget::item:selected {{ background-color: {accent}; color: #20130B; font-weight: 700; }}",
             "QScrollArea { border: none; background: transparent; }",
             "QScrollArea > QWidget > QWidget { background: transparent; }",
-            "QGroupBox QPushButton { font-size: 12pt; font-weight: 600; min-height: 72px; }",
+            f"QGroupBox QPushButton {{ font-size: 12pt; font-weight: 600; min-height: {menu_button_height}px; }}",
             f"QGroupBox QPushButton {{ background-color: {menu_button}; color: {menu_button_text}; border-radius: 18px; padding: 12px; }}",
             f"QGroupBox QPushButton:hover {{ background-color: {menu_button_hover}; color: {menu_button_text}; }}",
             "QFrame#ToastBanner { border-radius: 18px; padding: 14px 20px; border: 1px solid rgba(255,255,255,0.18); background-color: rgba(255,255,255,0.90); color: #1B0F08; font-weight: 600; }",

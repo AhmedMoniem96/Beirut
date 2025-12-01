@@ -418,6 +418,13 @@ class SettingsDialog(BigDialog):
         self.toolbar_color = make_color_row("toolbar_color", "لون شريط الأدوات:", "اختر لون شريط الأدوات")
         self.toolbar_text_color = make_color_row("toolbar_text_color", "لون خط شريط الأدوات:", "اختر لون خط شريط الأدوات")
 
+        self.menu_button_height = QSpinBox()
+        _configure_field(self.menu_button_height)
+        self.menu_button_height.setRange(40, 200)
+        self.menu_button_height.setSuffix(" px")
+        self.menu_button_height.setValue(branding.get_menu_button_height())
+        br_f.addRow("ارتفاع زر المنتج:", self.menu_button_height)
+
         reset_colors = QPushButton("استعادة الألوان الافتراضية")
         reset_colors.clicked.connect(self._reset_palette_fields)
         br_v.addWidget(reset_colors, 0, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -856,6 +863,7 @@ class SettingsDialog(BigDialog):
         menu_button_color = self.menu_button_color.text().strip()
         menu_button_text = self.menu_button_text_color.text().strip()
         menu_button_hover = self.menu_button_hover_color.text().strip()
+        menu_button_height = self.menu_button_height.value()
         toolbar_color = self.toolbar_color.text().strip()
         toolbar_text_color = self.toolbar_text_color.text().strip()
 
@@ -881,6 +889,7 @@ class SettingsDialog(BigDialog):
         setting_set("menu_button_color", menu_button_color)
         setting_set("menu_button_text_color", menu_button_text)
         setting_set("menu_button_hover_color", menu_button_hover)
+        setting_set("menu_button_height", str(menu_button_height))
         setting_set("toolbar_color", toolbar_color)
         setting_set("toolbar_text_color", toolbar_text_color)
 
@@ -902,6 +911,7 @@ class SettingsDialog(BigDialog):
                 "menu_button": menu_button_color,
                 "menu_button_text": menu_button_text,
                 "menu_button_hover": menu_button_hover,
+                "menu_button_height": menu_button_height,
                 "toolbar": toolbar_color,
                 "toolbar_text": toolbar_text_color,
             },
@@ -956,6 +966,7 @@ class SettingsDialog(BigDialog):
         self.menu_button_color.setText(palette["menu_button_color"])
         self.menu_button_text_color.setText(palette["menu_button_text_color"])
         self.menu_button_hover_color.setText(palette["menu_button_hover_color"])
+        self.menu_button_height.setValue(palette["menu_button_height"])
         self.toolbar_color.setText(palette["toolbar_color"])
         self.toolbar_text_color.setText(palette["toolbar_text_color"])
 

@@ -502,6 +502,7 @@ def _ensure_default_settings(cur) -> None:
         "menu_button_color": "#F5E1C8",
         "menu_button_text_color": "#2B130B",
         "menu_button_hover_color": "#E3C69F",
+        "menu_button_height": "72",
         "toolbar_color": "#000000",
         "toolbar_text_color": "#FFFFFF",
         "category_order": "",

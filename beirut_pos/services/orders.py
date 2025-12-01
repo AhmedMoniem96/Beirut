@@ -1555,6 +1555,25 @@ class OrderManager:
                     str(prev),
                     str(new_stock),
                 )
+            try:
+                log_action(
+                    username,
+                    "order_item_deleted",
+                    "order",
+                    table_code,
+                    item.product,
+                    str(item.qty),
+                    json.dumps(
+                        {
+                            "unit_price_cents": item.unit_price_cents,
+                            "note": item.note or "",
+                            "row_id": item.row_id,
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            except Exception:
+                logger.exception("Failed to log item deletion for table %s", table_code)
             bus.emit("table_total_changed", table_code, order.total_cents)
             if not order.items:
                 self._cleanup_empty_order(table_code, username=username)

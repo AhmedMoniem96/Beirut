@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from collections import Counter
@@ -52,6 +53,7 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_purchases_tab(), "المشتريات")  # NEW!
         self.tabs.addTab(self._build_profit_tab(), "الأرباح")
         self.tabs.addTab(self._build_price_log_tab(), "سجل الأسعار")
+        self.tabs.addTab(self._build_deleted_items_tab(), "حذف العناصر")
         self.tabs.addTab(self._build_inventory_tab(), "المخزون")
         self.tabs.addTab(self._build_attendance_tab(), "ساعات العمل")
         self.tabs.addTab(self._build_shift_summary_tab(), "ملخص الورديات")
@@ -75,6 +77,7 @@ class AdminReportsDialog(BigDialog):
         self._load_purchases_report()  # NEW!
         self._load_profit_report()
         self._load_price_log()
+        self._load_deleted_items_report()
         self._load_inventory_report()
         self._load_attendance_report()
         self._load_shift_report()
@@ -930,6 +933,116 @@ class AdminReportsDialog(BigDialog):
                      rows]
         self._populate_table(self.price_table, rows_list)
 
+    # --------------------------------------------------------- deleted items
+    def _build_deleted_items_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        self.deleted_items_table = self._make_table([
+            "التوقيت",
+            "المستخدم",
+            "رقم الطاولة",
+            "العنصر",
+            "الكمية",
+            "السعر للوحدة",
+            "الملاحظة",
+        ])
+        layout.addWidget(self.deleted_items_table, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
+        controls.addWidget(QLabel("من:"))
+        start_dt = QDateTime.currentDateTime()
+        start_dt.setDate(QDate.currentDate().addDays(-6))
+        start_dt.setTime(QTime(0, 0))
+        self.deleted_items_from = QDateTimeEdit(start_dt)
+        self.deleted_items_from.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.deleted_items_from.setCalendarPopup(True)
+        controls.addWidget(self.deleted_items_from)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.deleted_items_to = QDateTimeEdit(QDateTime.currentDateTime())
+        self.deleted_items_to.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.deleted_items_to.setCalendarPopup(True)
+        controls.addWidget(self.deleted_items_to)
+
+        controls.addWidget(QLabel("الطاولة:"))
+        self.deleted_items_table_filter = QLineEdit()
+        self.deleted_items_table_filter.setPlaceholderText("مثال: A1")
+        self.deleted_items_table_filter.setMaximumWidth(120)
+        controls.addWidget(self.deleted_items_table_filter)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_deleted_items_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.deleted_items_table, "deleted_items"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.deleted_items_summary = QLabel("")
+        self.deleted_items_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.deleted_items_summary)
+
+        return widget
+
+    def _load_deleted_items_report(self):
+        start, end = self._datetime_bounds(self.deleted_items_from, self.deleted_items_to)
+        table_filter = self.deleted_items_table_filter.text().strip().upper()
+        query = (
+            "SELECT ts, username, entity_name, old_value, new_value, extra "
+            "FROM audit_log WHERE action='order_item_deleted' AND ts BETWEEN ? AND ?"
+        )
+        params: list[str] = [start, end]
+        if table_filter:
+            query += " AND UPPER(entity_name)=?"
+            params.append(table_filter)
+        query += " ORDER BY ts DESC"
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        conn.close()
+
+        table_rows: list[list[str]] = []
+        for row in rows:
+            ts = (row["ts"] or "").replace("T", " ")[:19]
+            username = row.get("username", "") if isinstance(row, dict) else row["username"]
+            table_code = (row["entity_name"] or "").strip()
+            product = row["old_value"] or ""
+            qty_raw = row["new_value"]
+            try:
+                qty = float(qty_raw) if qty_raw is not None else 0.0
+            except (TypeError, ValueError):
+                qty = 0.0
+
+            unit_price_cents = None
+            note = ""
+            extra_raw = row["extra"]
+            if extra_raw:
+                try:
+                    extra_data = json.loads(extra_raw)
+                    unit_price_cents = extra_data.get("unit_price_cents")
+                    note = extra_data.get("note") or ""
+                except Exception:
+                    note = str(extra_raw)
+
+            unit_price = self._money(int(unit_price_cents)) if unit_price_cents is not None else "-"
+
+            table_rows.append([
+                ts,
+                username,
+                table_code,
+                product,
+                f"{qty:g}",
+                unit_price,
+                note,
+            ])
+
+        self._populate_table(self.deleted_items_table, table_rows)
+        self.deleted_items_summary.setText(f"عدد العمليات: {len(table_rows)}")
+
     # -------------------------------------------------------------- inventory
     def _build_inventory_tab(self) -> QWidget:
         widget = QWidget()
@@ -1534,12 +1647,13 @@ class AdminReportsDialog(BigDialog):
             4: self._load_purchases_report,
             5: self._load_profit_report,
             6: self._load_price_log,
-            7: self._load_inventory_report,
-            8: self._load_attendance_report,
-            9: self._load_shift_report,
-            10: self._load_deductions_report,
-            11: self._load_payroll_history,
-            12: self._load_stakeholder_report,
+            7: self._load_deleted_items_report,
+            8: self._load_inventory_report,
+            9: self._load_attendance_report,
+            10: self._load_shift_report,
+            11: self._load_deductions_report,
+            12: self._load_payroll_history,
+            13: self._load_stakeholder_report,
         }
         loader = loaders.get(idx)
         if loader:
@@ -1553,10 +1667,12 @@ class AdminReportsDialog(BigDialog):
         self._load_purchases_report()
         self._load_profit_report()
         self._load_price_log()
+        self._load_deleted_items_report()
         self._load_inventory_report()
         self._load_attendance_report()
         self._load_shift_report()
         self._load_deductions_report()
+        self._load_payroll_history()
         self._load_stakeholder_report()
 
 

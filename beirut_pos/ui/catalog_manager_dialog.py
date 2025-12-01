@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
+    QColorDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -299,6 +301,71 @@ class _OptionEditor(QDialog):
         return self._result
 
 
+class _CategoryEditor(QDialog):
+    def __init__(self, parent=None, *, name: str = "", color: str = ""):
+        super().__init__(parent)
+        self.setWindowTitle("القسم")
+        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.setModal(True)
+        self._color_value = color or ""
+        self._result: tuple[str, str] | None = None
+
+        form = QFormLayout(self)
+        self.name_edit = QLineEdit(name)
+        form.addRow("اسم القسم:", self.name_edit)
+
+        color_row = QHBoxLayout()
+        self.color_preview = QLabel()
+        self.color_preview.setMinimumWidth(80)
+        self.color_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.color_preview.setStyleSheet("border: 1px solid #ccc; padding: 6px; border-radius: 4px;")
+        self._apply_color_preview()
+        color_btn = QPushButton("اختيار اللون…")
+        color_btn.clicked.connect(self._choose_color)
+        color_row.addWidget(color_btn)
+        color_row.addWidget(self.color_preview, 1)
+        color_row.addStretch(1)
+        color_widget = QWidget()
+        color_widget.setLayout(color_row)
+        form.addRow("لون القسم:", color_widget)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        ok_btn = QPushButton("حفظ")
+        cancel_btn = QPushButton("إلغاء")
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+        form.addRow(btn_row)
+
+    def _choose_color(self) -> None:
+        initial = QColor(self._color_value) if self._color_value else QColor("#f6f7fb")
+        chosen = QColorDialog.getColor(initial, self, "اختر لون القسم")
+        if chosen.isValid():
+            self._color_value = chosen.name()
+            self._apply_color_preview()
+
+    def _apply_color_preview(self) -> None:
+        label = self._color_value or "بدون لون مخصّص"
+        self.color_preview.setText(label)
+        bg = self._color_value or "#f6f7fb"
+        self.color_preview.setStyleSheet(
+            f"background-color: {bg}; border: 1px solid #ccc; padding: 6px; border-radius: 4px;"
+        )
+
+    def accept(self) -> None:
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "خطأ", "اسم القسم مطلوب.")
+            return
+        self._result = (name, self._color_value)
+        super().accept()
+
+    def get_values(self) -> tuple[str, str] | None:
+        return self._result
+
+
 class CatalogManagerDialog(BigDialog):
     def __init__(self, actor: str = "admin", parent=None):
         super().__init__("إدارة الكتالوج", remember_key="catalog_admin", parent=parent)
@@ -448,6 +515,10 @@ class CatalogManagerDialog(BigDialog):
         for idx, cat in enumerate(self._categories):
             item = QListWidgetItem(cat["name"])
             item.setData(Qt.ItemDataRole.UserRole, cat["id"])
+            color_value = cat.get("color") or ""
+            if color_value:
+                item.setBackground(QColor(color_value))
+                item.setToolTip(f"{cat['name']} — {color_value}")
             self.category_list.addItem(item)
             if select_id is not None and cat["id"] == select_id:
                 selected_row = idx
@@ -547,15 +618,15 @@ class CatalogManagerDialog(BigDialog):
             self.options_table.setCurrentCell(0, 0)
 
     def _add_category(self) -> None:
-        name, ok = QInputDialog.getText(self, "إضافة قسم", "اسم القسم:")
-        if not ok:
+        editor = _CategoryEditor(self)
+        if editor.exec() != editor.DialogCode.Accepted:
             return
-        name = name.strip()
-        if not name:
-            QMessageBox.warning(self, "خطأ", "اسم القسم مطلوب.")
+        values = editor.get_values()
+        if not values:
             return
+        name, color = values
         try:
-            created = self._catalog.create_category(name, username=self._actor)
+            created = self._catalog.create_category(name, username=self._actor, color=color)
         except ValueError as exc:
             QMessageBox.warning(self, "تعذر الإضافة", str(exc))
             return
@@ -565,15 +636,15 @@ class CatalogManagerDialog(BigDialog):
         row, cat = self._current_category()
         if cat is None:
             return
-        name, ok = QInputDialog.getText(self, "تعديل القسم", "اسم القسم:", text=cat["name"])
-        if not ok:
+        editor = _CategoryEditor(self, name=cat["name"], color=cat.get("color") or "")
+        if editor.exec() != editor.DialogCode.Accepted:
             return
-        name = name.strip()
-        if not name:
-            QMessageBox.warning(self, "خطأ", "اسم القسم مطلوب.")
+        values = editor.get_values()
+        if not values:
             return
+        name, color = values
         try:
-            self._catalog.rename_category(cat["id"], name, username=self._actor)
+            self._catalog.rename_category(cat["id"], name, username=self._actor, color=color)
         except ValueError as exc:
             QMessageBox.warning(self, "تعذر التعديل", str(exc))
             return

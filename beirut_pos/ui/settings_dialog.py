@@ -500,7 +500,7 @@ class SettingsDialog(BigDialog):
         cat_v.addWidget(self.category_list, 1)
 
         ordered = get_category_order()
-        existing = [cat for cat, _ in order_manager.categories]
+        existing = [cat[0] for cat in order_manager.categories]
         seen = set()
         for name in ordered + [n for n in existing if n not in ordered]:
             if name in seen:

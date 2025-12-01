@@ -58,6 +58,7 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_deductions_tab(), "خصومات الموظفين")
         self.tabs.addTab(self._build_payroll_history_tab(), "سجل الرواتب")
         self.tabs.addTab(self._build_stakeholder_tab(), "تقرير المساهمين")
+        self.tabs.currentChanged.connect(self._reload_current_tab)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
@@ -1523,6 +1524,27 @@ class AdminReportsDialog(BigDialog):
         QMessageBox.information(self, "حذف البيانات", status)
         self._reload_all_reports()
 
+    def _reload_current_tab(self, index: int | None = None):
+        idx = self.tabs.currentIndex() if index is None else index
+        loaders = {
+            0: self._load_daily_report,
+            1: self._load_cashier_report,
+            2: self._load_product_report,
+            3: self._load_discounts_report,
+            4: self._load_purchases_report,
+            5: self._load_profit_report,
+            6: self._load_price_log,
+            7: self._load_inventory_report,
+            8: self._load_attendance_report,
+            9: self._load_shift_report,
+            10: self._load_deductions_report,
+            11: self._load_payroll_history,
+            12: self._load_stakeholder_report,
+        }
+        loader = loaders.get(idx)
+        if loader:
+            loader()
+
     def _reload_all_reports(self):
         self._load_daily_report()
         self._load_cashier_report()
@@ -1551,7 +1573,9 @@ class AdminReportsDialog(BigDialog):
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(True)
         header = table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header.setMinimumSectionSize(110)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(True)
         return table
 
     def _populate_table(self, table: QTableWidget, rows: list[list[str]]):

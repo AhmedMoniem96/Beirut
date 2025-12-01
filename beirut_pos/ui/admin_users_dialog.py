@@ -88,7 +88,7 @@ class AdminUsersDialog(QDialog):
         form.addRow("كلمة المرور", self.password)
 
         self.key = QLineEdit()
-        self.key.setPlaceholderText("المفتاح السري")
+        self.key.setPlaceholderText("المفتاح السري (اختياري - ليس مطلوبًا للحذف)")
         form.addRow("المفتاح السري", self.key)
 
         card_layout.addLayout(form)

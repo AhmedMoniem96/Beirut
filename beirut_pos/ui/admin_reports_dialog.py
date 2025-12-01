@@ -1851,6 +1851,8 @@ class AdminReportsDialog(BigDialog):
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(True)
+        table.setTextElideMode(Qt.TextElideMode.ElideNone)
+        table.setWordWrap(True)
         header = table.horizontalHeader()
         header.setMinimumSectionSize(110)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -1861,8 +1863,10 @@ class AdminReportsDialog(BigDialog):
         table.setRowCount(len(rows))
         for r, row in enumerate(rows):
             for c, value in enumerate(row):
-                item = QTableWidgetItem(str(value or ""))
+                display = str(value or "")
+                item = QTableWidgetItem(display)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setToolTip(display)
                 table.setItem(r, c, item)
         if not rows:
             table.setRowCount(0)

@@ -84,6 +84,9 @@ class MainWindow(QMainWindow):
         self._session_label.setObjectName("sessionTimer")
         self._status.addPermanentWidget(self._session_label)
 
+        # Track tables where a cashier receipt was printed to lock destructive edits
+        self._cashier_printed_tables: set[str] = set()
+
         self._session_timer = QTimer(self)
         self._session_timer.timeout.connect(self._update_session_timer)
         self._session_timer.start(1000)
@@ -348,6 +351,20 @@ class MainWindow(QMainWindow):
         self.btn_print_cashier.setEnabled(has_items)
         self._refresh_history_button()
 
+    def _is_cashier_locked(self, table_code: str | None = None) -> bool:
+        """Return True if a cashier receipt was printed for the open order on *table_code*."""
+
+        code = (table_code or self.current_table or "").strip()
+        if not code:
+            return False
+
+        order = order_manager.orders.get(code)
+        if not order or getattr(order, "status", "") != "open":
+            self._cashier_printed_tables.discard(code)
+            return False
+
+        return code in self._cashier_printed_tables
+
     def _user_can_edit_orders(self) -> bool:
         """Return True if the current user role is allowed to edit order items here."""
         return self.user.role in {"admin", "cashier"}
@@ -383,6 +400,7 @@ class MainWindow(QMainWindow):
         message = texts.get("orders.edit_locked")
         table_editable = bool(self.current_table) and order_manager.can_edit(self.current_table)
         locked = bool(self.current_table) and not table_editable
+        cashier_locked = self._is_cashier_locked(self.current_table)
 
         # Edit button: requires both order window availability and user role permission.
         edit_btn = self.order_list.edit_btn
@@ -393,8 +411,14 @@ class MainWindow(QMainWindow):
         else:
             edit_btn.setToolTip(message if locked else "")
 
-        # Remove/discount buttons still follow the order window availability only.
-        other_targets = [self.order_list.remove_btn, self.payment.discount_btn]
+        # Deleting items is blocked once a cashier receipt was printed for the order.
+        delete_btn = self.order_list.remove_btn
+        cashier_tip = "تم طباعة إيصال الكاشير، لا يمكن الحذف قبل إغلاق الطلب."
+        delete_btn.setEnabled(table_editable and not cashier_locked)
+        delete_btn.setToolTip(cashier_tip if cashier_locked else (message if locked else ""))
+
+        # Discount button still follows the order window availability only.
+        other_targets = [self.payment.discount_btn]
         for btn in other_targets:
             btn.setEnabled(table_editable)
             btn.setToolTip(message if locked else "")
@@ -476,10 +500,15 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self._handle_printer_error(exc, context="إيصال الكاشير")
             return
+        self._cashier_printed_tables.add(self.current_table)
+        self._refresh_edit_lock_state()
         self._show_banner("تم إرسال إيصال الكاشير للطابعة.", "success")
 
     def _remove_selected_or_last(self):
         if not self.current_table:
+            return
+        if self._is_cashier_locked(self.current_table):
+            self._show_banner("تم طباعة إيصال الكاشير، لا يمكن حذف العناصر قبل إنهاء الطلب.", "warn")
             return
         idx = -1
         if hasattr(self.order_list, "current_index"):
@@ -696,6 +725,9 @@ class MainWindow(QMainWindow):
         if not self.current_table:
             self._show_banner("اختر طاولة لإزالة العناصر.", "warn")
             return
+        if self._is_cashier_locked(self.current_table):
+            self._show_banner("تم طباعة إيصال الكاشير، لا يمكن حذف العناصر قبل إنهاء الطلب.", "warn")
+            return
         try:
             order_manager.remove_item(self.current_table, index, username=self.user.username)
         except OrderError as exc:
@@ -773,6 +805,7 @@ class MainWindow(QMainWindow):
             self._show_banner(str(exc), "error", duration=8000)
             return
 
+        self._cashier_printed_tables.discard(cleared_table)
         self._go_back()
         self._show_banner(texts.get("main.order.clear_table_success"), "success")
 
@@ -871,6 +904,7 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self._handle_printer_error(exc, context="إيصال الدفع")
                 return
+            self._cashier_printed_tables.discard(self.current_table)
             self.order_list.set_items([])
             self._update_totals(None)
             if self.current_table:
@@ -1119,6 +1153,10 @@ class MainWindow(QMainWindow):
         self._show_banner(help_text, "info", duration=10000)
 
     def closeEvent(self, event):
+        try:
+            self._show_shift_summary()
+        except Exception:
+            pass
         if self._session_timer.isActive():
             self._session_timer.stop()
         if self._ps_snapshot_timer.isActive():

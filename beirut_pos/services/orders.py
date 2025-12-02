@@ -1432,17 +1432,29 @@ class OrderManager:
             pass
         return list(self.table_codes)
 
-    def _ensure_db_order_tx(self, conn, table_code: str, opened_by: str) -> tuple[Order, bool]:
+    def _ensure_db_order_tx(
+        self,
+        conn,
+        table_code: str,
+        opened_by: str,
+        *,
+        opened_at: datetime | None = None,
+    ) -> tuple[Order, bool]:
         existing = self.orders.get(table_code)
         if existing and existing.status == "open":
             return existing, False
         cur = conn.cursor()
+        opened_iso = (
+            opened_at.isoformat()
+            if isinstance(opened_at, datetime)
+            else datetime.utcnow().isoformat()
+        )
         cur.execute(
             """INSERT INTO orders(table_code, opened_at, status, opened_by, client_name)
                VALUES(?,?,?,?,?)""",
             (
                 table_code,
-                datetime.utcnow().isoformat(),
+                opened_iso,
                 "open",
                 opened_by,
                 self.table_clients.get(table_code, ""),
@@ -2434,6 +2446,14 @@ class OrderManager:
         # if there's an open session, bill it first
         self._close_session_and_bill(table_code, cashier=cashier)
         now = datetime.now(timezone.utc)
+        order_created = False
+        with db_transaction() as conn:
+            _, order_created = self._ensure_db_order_tx(
+                conn,
+                table_code,
+                opened_by=cashier,
+                opened_at=now.replace(tzinfo=None),
+            )
         # keep started_at as datetime on object, store ISO in DB
         self.ps_sessions[table_code] = PSSession(mode=mode, started_at=now, total_seconds=0)
         with db_transaction() as conn:
@@ -2442,11 +2462,21 @@ class OrderManager:
                 (table_code, mode, self._isoutc(now), 0),
             )
         bus.emit("ps_state_changed", table_code, True)
+        if order_created:
+            bus.emit("table_state_changed", table_code, "occupied")
 
     def ps_switch(self, table_code: str, new_mode: str, cashier: str = "cashier"):
         # close and bill current session first
         self._close_session_and_bill(table_code, cashier=cashier)
         now = datetime.now(timezone.utc)
+        order_created = False
+        with db_transaction() as conn:
+            _, order_created = self._ensure_db_order_tx(
+                conn,
+                table_code,
+                opened_by=cashier,
+                opened_at=now.replace(tzinfo=None),
+            )
         self.ps_sessions[table_code] = PSSession(mode=new_mode, started_at=now, total_seconds=0)
         with db_transaction() as conn:
             conn.execute(
@@ -2454,6 +2484,8 @@ class OrderManager:
                 (table_code, new_mode, self._isoutc(now), 0),
             )
         bus.emit("ps_state_changed", table_code, True)
+        if order_created:
+            bus.emit("table_state_changed", table_code, "occupied")
 
     def ps_stop(self, table_code: str, cashier: str = "cashier"):
         self._close_session_and_bill(table_code, cashier=cashier)

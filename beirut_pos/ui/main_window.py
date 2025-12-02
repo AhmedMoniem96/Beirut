@@ -78,7 +78,7 @@ class MainWindow(QMainWindow):
         self._status.setSizeGripEnabled(False)
         self._status.showMessage(random_tip(), 12000)
 
-        self._session_started = datetime.now()
+        self._session_started = datetime.utcnow()
         self._session_label = QLabel()
         self._session_label.setObjectName("sessionTimer")
         self._status.addPermanentWidget(self._session_label)
@@ -555,7 +555,7 @@ class MainWindow(QMainWindow):
             self._apply_window_title()
             for action in self._admin_actions:
                 action.setVisible(self.user.role == "admin")
-            self._session_started = datetime.now()
+            self._session_started = datetime.utcnow()
             self._update_session_timer()
             if self.current_table:
                 try:
@@ -625,7 +625,7 @@ class MainWindow(QMainWindow):
         metrics = staff_service.summarize_shift_activity(
             username,
             self._session_started,
-            datetime.now(),
+            datetime.utcnow(),
         )
         if metrics.get("duration_seconds", 0) <= 0 and metrics.get("orders_opened", 0) <= 0:
             return
@@ -1144,7 +1144,7 @@ class MainWindow(QMainWindow):
         self._show_banner(msg, "error", duration=12000)
 
     def _update_session_timer(self):
-        elapsed = datetime.now() - self._session_started
+        elapsed = datetime.utcnow() - self._session_started
         seconds = int(elapsed.total_seconds())
         hours = seconds // 3600
         minutes = (seconds % 3600) // 60

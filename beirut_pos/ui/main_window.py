@@ -31,7 +31,6 @@ from .catalog_manager_dialog import CatalogManagerDialog
 from .discount_dialog import DiscountDialog
 from .admin_users_dialog import AdminUsersDialog
 from .admin_reports_dialog import AdminReportsDialog
-from ..services.orders import order_manager, StockError, OrderError
 
 
 # NEW: settings & daily Z-report dialogs
@@ -200,7 +199,7 @@ class MainWindow(QMainWindow):
         self.tables_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tv.addWidget(self.tables_title)
         self.table_codes = order_manager.get_table_codes()
-        self.table_map = TableMap(self.table_codes, self._on_table_select)  # REMOVED: on_ps_action parameter
+        self.table_map = TableMap(self.table_codes, self._on_table_select)
         self.table_map.set_client_names(order_manager.list_client_names())
         tv.addWidget(self.table_map, 1)
         self._refresh_reservation_overlays()
@@ -213,9 +212,6 @@ class MainWindow(QMainWindow):
         except Exception:
             # ignore restore errors during startup
             pass
-
-        # Temporary debug - remove after testing
-        self._debug_ps_sessions()
 
         # Order page - REDESIGNED for maximum products space
         order_page = QWidget()
@@ -656,8 +652,6 @@ class MainWindow(QMainWindow):
         self.btn_merge.setEnabled(True)
         self.btn_clear_table.setEnabled(True)
 
-    # REMOVED: _on_table_ps_action method since we don't have PS controls on tiles anymore
-
     def _on_pick(self, label, price_cents):
         if not self.current_table:
             self._show_banner("اختر طاولة لإضافة الطلب.", "warn")
@@ -929,7 +923,7 @@ class MainWindow(QMainWindow):
     def _ps_start(self, mode):
         if not self.current_table:
             return
-        order_manager.ps_start(self.current_table, mode)
+        order_manager.ps_start(self.current_table, mode, cashier=self.user.username)
         self._update_table_ps_display(self.current_table)
         self._update_ps_buttons_state()
         self._update_totals()
@@ -938,7 +932,7 @@ class MainWindow(QMainWindow):
     def _ps_stop(self):
         if not self.current_table:
             return
-        order_manager.ps_stop(self.current_table)
+        order_manager.ps_stop(self.current_table, cashier=self.user.username)
         self._update_table_ps_display(self.current_table)
         self._update_ps_buttons_state()
         self.order_list.set_items(order_manager.get_items(self.current_table))
@@ -1199,8 +1193,6 @@ class MainWindow(QMainWindow):
                 ))
         return out
 
-    # In main_window.py, update the _update_table_ps_display method:
-
     def _update_table_ps_display(self, table_code: str, sess=None):
         """
         Update table tile PS display - only show timer, no controls
@@ -1252,17 +1244,3 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Error in _update_table_ps_display for {table_code}: {e}")
             pass
-
-    def _debug_ps_sessions(self):
-        """Debug method to check PS session status"""
-        for table_code in self.table_codes:
-            try:
-                sess = order_manager.load_ps_session_from_db(table_code)
-                if sess:
-                    print(f"Table {table_code} has active PS session: {sess.mode}")
-                    # Force update the display
-                    self._update_table_ps_display(table_code, sess)
-                else:
-                    print(f"Table {table_code} has no PS session")
-            except Exception as e:
-                print(f"Error checking PS session for {table_code}: {e}")

@@ -6,7 +6,7 @@ import string
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple, Optional
-import math  # ADD THIS IMPORT
+import math
 
 
 from ..core.bus import bus
@@ -21,7 +21,6 @@ from ..core.db import (
 from ..texts import texts
 import logging
 
-# Add this after imports, before init_db()
 logger = logging.getLogger(__name__)
 init_db()
 
@@ -1275,8 +1274,6 @@ class OrderManager:
         warnings.warn("load_order_for_edit is deprecated; use reopen_for_edit()", DeprecationWarning)
         return self.reopen_for_edit(order_id, username=username)
 
-    # In orders.py, update the _load_ps_sessions method to ensure it emits the proper events:
-
     def _load_ps_sessions(self) -> None:
         conn = get_conn()
         cur = conn.cursor()
@@ -1917,7 +1914,7 @@ class OrderManager:
             try:
                 if source in self.ps_sessions:
                     logger.info(f"Closing PS session on source table '{source}' before merge")
-                    self._close_session_and_bill(source)
+                    self._close_session_and_bill(source, cashier=username)
                     # Reload secondary order after billing
                     secondary = self.orders.get(source)
                     if not secondary or secondary.status != "open":
@@ -2296,37 +2293,39 @@ class OrderManager:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
 
-    def _force_add_ps_item(self, table_code: str, detail: str, amount_cents: int):
-        """Force add PS billing item bypassing normal edit checks"""
-        # Get or create order
-        if table_code not in self.orders:
-            # Create a new order for the PS billing
-            from datetime import datetime
-            new_order = type('Order', (), {})()  # Create a simple order object
-            new_order.table_code = table_code
-            new_order.opened_at = datetime.utcnow().isoformat()
-            new_order.status = "open"
-            new_order.opened_by = "system"
-            self.orders[table_code] = new_order
+    def _force_add_ps_item(
+            self,
+            table_code: str,
+            detail: str,
+            amount_cents: int,
+            *,
+            cashier: str = "system",
+    ):
+        """Force add PS billing item bypassing normal edit checks."""
+        with db_transaction() as conn:
+            order, created = self._ensure_db_order_tx(conn, table_code, opened_by=cashier)
+            self._ensure_order_editable(order)
+            cursor = conn.execute(
+                """INSERT INTO order_items(order_id, product_name, price_cents, qty, note, printed_qty)
+                   VALUES(?,?,?,?,?,?)""",
+                (order.id, detail, amount_cents, 1.0, "", 0),
+            )
+            order.items.append(
+                OrderItem(
+                    detail,
+                    amount_cents,
+                    1.0,
+                    note="",
+                    row_id=cursor.lastrowid,
+                    printed_qty=0.0,
+                )
+            )
 
-        # Add the item directly to order items
-        order = self.orders[table_code]
-        if not hasattr(order, 'items'):
-            order.items = []
+        if created:
+            bus.emit("table_state_changed", table_code, "occupied")
+        bus.emit("table_total_changed", table_code, order.total_cents)
 
-        # Create item object
-        new_item = type('OrderItem', (), {})()
-        new_item.product = detail
-        new_item.price_cents = amount_cents
-        new_item.qty = 1
-        new_item.note = ""
-
-        order.items.append(new_item)
-
-        # Update totals
-        bus.emit("table_total_changed", table_code, self._calculate_order_total(table_code))
-
-    def _close_session_and_bill(self, table_code: str):
+    def _close_session_and_bill(self, table_code: str, cashier: str = "cashier"):
         """Close PlayStation session and bill it to the order"""
         sess = self.ps_sessions.get(table_code)
         if not sess:
@@ -2387,19 +2386,41 @@ class OrderManager:
                 label += " (VIP)"
             detail = f"{label} — {minutes} دقيقة"
 
-            print(f"DEBUG: PS billing:")
-            print(f"  Amount in LE: {amount_le:.2f} LE")
-            print(f"  Stored as: {amount_for_storage}")  # Should be 1 for 1.33 LE
-            print(f"  Will display as: {amount_for_storage} ج.م")
+            logger.debug(
+                "PS billing calculated",
+                extra={
+                    "table_code": table_code,
+                    "mode": sess.mode,
+                    "minutes": minutes,
+                    "amount_le": amount_le,
+                    "stored_amount": amount_for_storage,
+                },
+            )
 
             try:
-                self.add_item(table_code, detail, amount_for_storage)
-                print(f"SUCCESS: PS billing added - {amount_le:.2f} LE for {minutes} minutes")
+                self.add_item(table_code, detail, amount_for_storage, cashier=cashier)
+                logger.info(
+                    "PS billing added for %s: %.2f LE (%s minutes, mode=%s, vip=%s)",
+                    table_code,
+                    amount_le,
+                    minutes,
+                    sess.mode,
+                    is_vip,
+                )
             except Exception as e:
-                print(f"ERROR: Failed to add PS billing item: {e}")
+                logger.warning("Failed to add PS billing item normally for %s: %s", table_code, e)
+                try:
+                    self._force_add_ps_item(table_code, detail, amount_for_storage, cashier=cashier)
+                    logger.info("PS billing force-added for %s after fallback", table_code)
+                except Exception as inner_exc:
+                    logger.error(
+                        "Force-inserting PS billing failed for %s: %s",
+                        table_code,
+                        inner_exc,
+                    )
 
         except Exception as e:
-            logger.error(f"Error calculating PS bill for '{table_code}': {e}")
+            logger.error("Error calculating PS bill for '%s': %s", table_code, e)
 
         finally:
             try:
@@ -2408,10 +2429,10 @@ class OrderManager:
                     conn.execute("DELETE FROM ps_sessions WHERE table_code=?", (table_code,))
                 bus.emit("ps_state_changed", table_code, False)
             except Exception as e:
-                logger.error(f"Failed to cleanup PS session for '{table_code}': {e}")
-    def ps_start(self, table_code: str, mode: str):
+                logger.error("Failed to cleanup PS session for '%s': %s", table_code, e)
+    def ps_start(self, table_code: str, mode: str, cashier: str = "cashier"):
         # if there's an open session, bill it first
-        self._close_session_and_bill(table_code)
+        self._close_session_and_bill(table_code, cashier=cashier)
         now = datetime.now(timezone.utc)
         # keep started_at as datetime on object, store ISO in DB
         self.ps_sessions[table_code] = PSSession(mode=mode, started_at=now, total_seconds=0)
@@ -2422,9 +2443,9 @@ class OrderManager:
             )
         bus.emit("ps_state_changed", table_code, True)
 
-    def ps_switch(self, table_code: str, new_mode: str):
+    def ps_switch(self, table_code: str, new_mode: str, cashier: str = "cashier"):
         # close and bill current session first
-        self._close_session_and_bill(table_code)
+        self._close_session_and_bill(table_code, cashier=cashier)
         now = datetime.now(timezone.utc)
         self.ps_sessions[table_code] = PSSession(mode=new_mode, started_at=now, total_seconds=0)
         with db_transaction() as conn:
@@ -2434,8 +2455,8 @@ class OrderManager:
             )
         bus.emit("ps_state_changed", table_code, True)
 
-    def ps_stop(self, table_code: str):
-        self._close_session_and_bill(table_code)
+    def ps_stop(self, table_code: str, cashier: str = "cashier"):
+        self._close_session_and_bill(table_code, cashier=cashier)
 
     def snapshot_ps_sessions(self) -> None:
         """Persist current sessions: update total_seconds and started_at (reset to now)."""
@@ -2536,7 +2557,7 @@ class OrderManager:
 
     def settle(self, table_code: str, method: str = "cash", cashier: str = "cashier"):
         # Close any running PS session and bill it first
-        self._close_session_and_bill(table_code)
+        self._close_session_and_bill(table_code, cashier=cashier)
 
         o = self.orders.get(table_code)
         if not o:

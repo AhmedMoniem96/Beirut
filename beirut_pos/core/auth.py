@@ -105,8 +105,13 @@ def update_user(
     return True
 
 
-def delete_user(username: str) -> bool:
-    """Delete the given username if it exists."""
+def delete_user(username: str, *, force: bool = False) -> bool:
+    """Delete the given username if it exists.
+
+    When ``force`` is True, dependent session rows are removed first to
+    prevent foreign key errors. The primary seeded admin account (``admin``)
+    cannot be removed via the force path.
+    """
 
     username = (username or "").strip()
     if not username:
@@ -124,6 +129,11 @@ def delete_user(username: str) -> bool:
             admin_count = int(cur.fetchone()[0])
             if admin_count <= 1:
                 raise ValueError("لا يمكن حذف آخر مدير في النظام.")
+
+        if force:
+            if username.lower() == "admin":
+                raise ValueError("لا يمكن حذف المدير الرئيسي.")
+            cur.execute("DELETE FROM user_sessions WHERE username=?", (username,))
 
         cur.execute("DELETE FROM users WHERE username=?", (username,))
 

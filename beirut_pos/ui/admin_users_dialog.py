@@ -107,10 +107,13 @@ class AdminUsersDialog(QDialog):
         self.btn_save = QPushButton("حفظ التغييرات")
         self.btn_delete = QPushButton("حذف المستخدم")
         self.btn_delete.setProperty("class", "flat")
+        self.btn_force_delete = QPushButton("حذف إجباري (تجاوز)")
+        self.btn_force_delete.setProperty("class", "flat")
         self.btn_close = QPushButton("إغلاق")
         self.btn_close.setProperty("class", "flat")
         actions.addWidget(self.btn_save, 2)
         actions.addWidget(self.btn_delete, 1)
+        actions.addWidget(self.btn_force_delete, 1)
         actions.addWidget(self.btn_close, 1)
         root.addLayout(actions)
 
@@ -118,6 +121,7 @@ class AdminUsersDialog(QDialog):
         self.btn_close.clicked.connect(self.accept)
         self.btn_create.clicked.connect(self._create_user)
         self.btn_delete.clicked.connect(self._delete)
+        self.btn_force_delete.clicked.connect(self._force_delete)
         self.users.currentIndexChanged.connect(self._populate_user_details)
 
         self._user_rows: list[dict] = []
@@ -214,6 +218,7 @@ class AdminUsersDialog(QDialog):
             self.key.clear()
             self.password.clear()
             self.btn_delete.setEnabled(False)
+            self.btn_force_delete.setEnabled(False)
             return
 
         role_value = info.get("role", "cashier")
@@ -222,19 +227,28 @@ class AdminUsersDialog(QDialog):
             self.role.setCurrentIndex(idx)
         self.key.setText(info.get("secret_key", ""))
         self.password.clear()
-        self.btn_delete.setEnabled(True)
+        is_admin = info.get("username", "").lower() == "admin"
+        self.btn_delete.setEnabled(not is_admin)
+        self.btn_force_delete.setEnabled(not is_admin)
 
     def _delete(self):
+        self._confirm_and_delete(force=False)
+
+    def _force_delete(self):
+        self._confirm_and_delete(force=True)
+
+    def _confirm_and_delete(self, *, force: bool):
         info = self._current_user()
         if not info:
             self._show_feedback("اختر مستخدمًا لحذفه.", kind="error")
             return
 
         username = info["username"]
+        action_label = "حذف إجباري" if force else "حذف"
         confirm = QMessageBox.question(
             self,
             "تأكيد الحذف",
-            f"هل تريد حذف المستخدم {username}؟",
+            f"هل تريد {action_label} المستخدم {username}؟",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -242,7 +256,7 @@ class AdminUsersDialog(QDialog):
             return
 
         try:
-            delete_user(username)
+            delete_user(username, force=force)
         except ValueError as exc:
             self._show_feedback(str(exc), kind="error")
             return
@@ -251,6 +265,7 @@ class AdminUsersDialog(QDialog):
             self._show_feedback(f"تعذر حذف المستخدم: {message}", kind="error")
             return
 
-        self._show_feedback("تم حذف المستخدم بنجاح.", kind="success")
+        success_text = "تم حذف المستخدم إجباريًا." if force else "تم حذف المستخدم بنجاح."
+        self._show_feedback(success_text, kind="success")
         self.password.clear()
         self._refresh_users()

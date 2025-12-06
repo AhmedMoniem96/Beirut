@@ -880,9 +880,6 @@ class MainWindow(QMainWindow):
             self._show_banner("اختر طاولة أولاً.", "warn")
             return
 
-        subtotal, discount, total, label_key = order_manager.get_totals(self.current_table)
-        items = order_manager.get_items(self.current_table)
-
         if not printer.ensure_printer_ready():
             proceed = QMessageBox.question(
                 self,
@@ -895,17 +892,22 @@ class MainWindow(QMainWindow):
                 self._show_banner("قم بتوصيل الطابعة ثم أعد المحاولة.", "warn", duration=8000)
                 return
 
-        if order_manager.settle(self.current_table, "cash" if method == "نقدي" else "visa", cashier=self.user.username):
+        settled, receipt = order_manager.settle(
+            self.current_table,
+            "cash" if method == "نقدي" else "visa",
+            cashier=self.user.username,
+        )
+        if settled and receipt:
             try:
                 printer.print_cashier_receipt(
                     self.current_table,
-                    items,
-                    subtotal,
-                    discount,
-                    total,
+                    receipt.get("items", []),
+                    receipt.get("subtotal", 0),
+                    receipt.get("discount", 0),
+                    receipt.get("total", 0),
                     method,
                     self.user.username,
-                    discount_label=texts.get(label_key),
+                    discount_label=texts.get(receipt.get("label_key")),
                 )
             except Exception as exc:
                 self._handle_printer_error(exc, context="إيصال الدفع")

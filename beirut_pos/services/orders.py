@@ -2587,13 +2587,25 @@ class OrderManager:
 
         return int(marked_total)  # or round(...) if you expect halves
 
-    def settle(self, table_code: str, method: str = "cash", cashier: str = "cashier"):
+    def settle(
+        self, table_code: str, method: str = "cash", cashier: str = "cashier"
+    ) -> tuple[bool, dict | None]:
         # Close any running PS session and bill it first
         self._close_session_and_bill(table_code, cashier=cashier)
 
         o = self.orders.get(table_code)
         if not o:
-            return False
+            return False, None
+
+        # Capture receipt data after PS billing and before the order is cleared
+        subtotal, discount, total, label_key = self.get_totals(table_code)
+        receipt_data = {
+            "items": list(o.items),
+            "subtotal": subtotal,
+            "discount": discount,
+            "total": total,
+            "label_key": label_key,
+        }
 
         amount = o.total_cents
 
@@ -2622,7 +2634,7 @@ class OrderManager:
         bus.emit("table_state_changed", table_code, "free")
         bus.emit("table_total_changed", table_code, 0)
         bus.emit("ps_state_changed", table_code, False)
-        return True
+        return True, receipt_data
 
     def load_ps_session_from_db(self, table_code: str) -> Optional[PSSession]:
         """Load PS session from database for a table."""

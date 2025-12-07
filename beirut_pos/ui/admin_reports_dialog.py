@@ -48,6 +48,7 @@ class AdminReportsDialog(BigDialog):
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_daily_tab(), "ملخص يومي")
+        self.tabs.addTab(self._build_order_items_tab(), "تفاصيل الطلبات")
         self.tabs.addTab(self._build_cashier_tab(), "حسب الكاشير")
         self.tabs.addTab(self._build_products_tab(), "الأصناف")
         self.tabs.addTab(self._build_discounts_tab(), "الخصومات")  # NEW!
@@ -72,6 +73,7 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.cleanup_panel)
 
         self._load_daily_report()
+        self._load_order_items_report()
         self._load_cashier_report()
         self._load_product_report()
         self._load_discounts_report()  # NEW!
@@ -232,6 +234,139 @@ class AdminReportsDialog(BigDialog):
             f"صافي المبيعات: {self._money(totals['net'])}"
         )
         self.daily_summary.setText(summary)
+
+    # ---------------------------------------------------------- order items
+    def _build_order_items_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        self.order_items_table = self._make_table(
+            [
+                "اليوم",
+                "التاريخ",
+                "التصنيف",
+                "رقم الطلب",
+                "توقيت الإغلاق",
+                "وقت الدفع",
+                "العدد",
+                "السعر",
+                "القيمة",
+            ]
+        )
+        layout.addWidget(self.order_items_table, 1)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.setContentsMargins(8, 0, 8, 0)
+        controls.addWidget(QLabel("من:"))
+
+        self.order_items_from = QDateEdit(QDate.currentDate().addDays(-6))
+        self.order_items_from.setCalendarPopup(True)
+        self.order_items_from.setMinimumWidth(150)
+        controls.addWidget(self.order_items_from)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.order_items_from_time = QTimeEdit(QTime(0, 0))
+        self.order_items_from_time.setDisplayFormat("HH:mm")
+        self.order_items_from_time.setMinimumWidth(90)
+        controls.addWidget(self.order_items_from_time)
+
+        controls.addWidget(QLabel("إلى:"))
+        self.order_items_to = QDateEdit(QDate.currentDate())
+        self.order_items_to.setCalendarPopup(True)
+        self.order_items_to.setMinimumWidth(150)
+        controls.addWidget(self.order_items_to)
+
+        controls.addWidget(QLabel("الساعة:"))
+        self.order_items_to_time = QTimeEdit(QTime(23, 59))
+        self.order_items_to_time.setDisplayFormat("HH:mm")
+        self.order_items_to_time.setMinimumWidth(90)
+        controls.addWidget(self.order_items_to_time)
+
+        refresh = QPushButton("تحديث")
+        refresh.clicked.connect(self._load_order_items_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.order_items_table, "order_items_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        self.order_items_summary = QLabel("")
+        self.order_items_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.order_items_summary)
+
+        return widget
+
+    def _load_order_items_report(self):
+        start, end = self._datetime_bounds_from_date_time(
+            self.order_items_from,
+            self.order_items_from_time,
+            self.order_items_to,
+            self.order_items_to_time,
+        )
+
+        query = """
+            WITH paid_orders AS (
+                SELECT
+                    o.id,
+                    o.closed_at,
+                    MIN(p.paid_at) AS paid_at
+                FROM orders o
+                JOIN payments p ON p.order_id = o.id
+                WHERE o.status = 'paid' AND p.paid_at BETWEEN ? AND ?
+                GROUP BY o.id, o.closed_at
+            )
+            SELECT
+                paid_orders.id AS order_id,
+                paid_orders.closed_at,
+                paid_orders.paid_at,
+                oi.product_name,
+                oi.price_cents,
+                oi.qty
+            FROM paid_orders
+            JOIN order_items oi ON oi.order_id = paid_orders.id
+            ORDER BY paid_orders.closed_at DESC, paid_orders.id DESC, oi.id ASC
+        """
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(query, (start, end))
+        rows = cur.fetchall()
+        conn.close()
+
+        table_rows: list[list[str]] = []
+        totals = {"qty": 0.0, "value": 0}
+
+        for row in rows:
+            closed_at = row["closed_at"] or ""
+            paid_at = row["paid_at"] or ""
+            closed_dt = self._parse_iso_datetime(closed_at)
+            paid_dt = self._parse_iso_datetime(paid_at)
+            qty = float(row["qty"] or 0)
+            price = int(row["price_cents"] or 0)
+            value = int(round(price * qty))
+
+            date_value = closed_dt.date() if closed_dt else None
+            table_rows.append(
+                [
+                    self._weekday_name(date_value),
+                    date_value.isoformat() if date_value else "",
+                    row["product_name"] or "—",
+                    str(row["order_id"] or ""),
+                    closed_dt.strftime("%H:%M") if closed_dt else "",
+                    paid_dt.strftime("%H:%M") if paid_dt else "",
+                    self._format_qty(qty),
+                    self._money(price),
+                    self._money(value),
+                ]
+            )
+
+            totals["qty"] += qty
+            totals["value"] += value
+
+        self._populate_table(self.order_items_table, table_rows)
+        self.order_items_summary.setText(
+            f"عدد الصفوف: {len(table_rows)} | إجمالي الكمية: {self._format_qty(totals['qty'])} | إجمالي القيمة: {self._money(totals['value'])}"
+        )
 
     # --------------------------------------------------------------- cashier
     def _build_cashier_tab(self) -> QWidget:
@@ -1804,19 +1939,20 @@ class AdminReportsDialog(BigDialog):
         idx = self.tabs.currentIndex() if index is None else index
         loaders = {
             0: self._load_daily_report,
-            1: self._load_cashier_report,
-            2: self._load_product_report,
-            3: self._load_discounts_report,
-            4: self._load_purchases_report,
-            5: self._load_profit_report,
-            6: self._load_price_log,
-            7: self._load_deleted_items_report,
-            8: self._load_inventory_report,
-            9: self._load_attendance_report,
-            10: self._load_shift_report,
-            11: self._load_deductions_report,
-            12: self._load_payroll_history,
-            13: self._load_stakeholder_report,
+            1: self._load_order_items_report,
+            2: self._load_cashier_report,
+            3: self._load_product_report,
+            4: self._load_discounts_report,
+            5: self._load_purchases_report,
+            6: self._load_profit_report,
+            7: self._load_price_log,
+            8: self._load_deleted_items_report,
+            9: self._load_inventory_report,
+            10: self._load_attendance_report,
+            11: self._load_shift_report,
+            12: self._load_deductions_report,
+            13: self._load_payroll_history,
+            14: self._load_stakeholder_report,
         }
         loader = loaders.get(idx)
         if loader:
@@ -1824,6 +1960,7 @@ class AdminReportsDialog(BigDialog):
 
     def _reload_all_reports(self):
         self._load_daily_report()
+        self._load_order_items_report()
         self._load_cashier_report()
         self._load_product_report()
         self._load_discounts_report()
@@ -1888,6 +2025,31 @@ class AdminReportsDialog(BigDialog):
         hours, rem = divmod(seconds, 3600)
         minutes, secs = divmod(rem, 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    def _weekday_name(self, date_obj):
+        if not date_obj:
+            return ""
+        names = [
+            "الإثنين",
+            "الثلاثاء",
+            "الأربعاء",
+            "الخميس",
+            "الجمعة",
+            "السبت",
+            "الأحد",
+        ]
+        try:
+            return names[date_obj.weekday()]
+        except Exception:
+            return ""
+
+    def _parse_iso_datetime(self, value: str | None):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except Exception:
+            return None
 
     def _date_bounds(self, start_widget: QDateEdit, end_widget: QDateEdit) -> tuple[str, str]:
         s = datetime.combine(start_widget.date().toPyDate(), datetime.min.time())

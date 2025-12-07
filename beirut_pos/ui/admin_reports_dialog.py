@@ -246,7 +246,8 @@ class AdminReportsDialog(BigDialog):
                 "التاريخ",
                 "التصنيف",
                 "رقم الطلب",
-                "توقيت الإغلاق",
+                "رقم الطاولة",
+                "توقيت الفتح",
                 "وقت الدفع",
                 "العدد",
                 "السعر",
@@ -308,23 +309,25 @@ class AdminReportsDialog(BigDialog):
             WITH paid_orders AS (
                 SELECT
                     o.id,
-                    o.closed_at,
+                    o.opened_at,
+                    o.table_code,
                     MIN(p.paid_at) AS paid_at
                 FROM orders o
                 JOIN payments p ON p.order_id = o.id
                 WHERE o.status = 'paid' AND p.paid_at BETWEEN ? AND ?
-                GROUP BY o.id, o.closed_at
+                GROUP BY o.id, o.opened_at, o.table_code
             )
             SELECT
                 paid_orders.id AS order_id,
-                paid_orders.closed_at,
+                paid_orders.opened_at,
+                paid_orders.table_code,
                 paid_orders.paid_at,
                 oi.product_name,
                 oi.price_cents,
                 oi.qty
             FROM paid_orders
             JOIN order_items oi ON oi.order_id = paid_orders.id
-            ORDER BY paid_orders.closed_at DESC, paid_orders.id DESC, oi.id ASC
+            ORDER BY paid_orders.opened_at DESC, paid_orders.id DESC, oi.id ASC
         """
 
         conn = get_conn()
@@ -337,22 +340,23 @@ class AdminReportsDialog(BigDialog):
         totals = {"qty": 0.0, "value": 0}
 
         for row in rows:
-            closed_at = row["closed_at"] or ""
+            opened_at = row["opened_at"] or ""
             paid_at = row["paid_at"] or ""
-            closed_dt = self._parse_iso_datetime(closed_at)
+            opened_dt = self._parse_iso_datetime(opened_at)
             paid_dt = self._parse_iso_datetime(paid_at)
             qty = float(row["qty"] or 0)
             price = int(row["price_cents"] or 0)
             value = int(round(price * qty))
 
-            date_value = closed_dt.date() if closed_dt else None
+            date_value = opened_dt.date() if opened_dt else None
             table_rows.append(
                 [
                     self._weekday_name(date_value),
                     date_value.isoformat() if date_value else "",
                     row["product_name"] or "—",
                     str(row["order_id"] or ""),
-                    closed_dt.strftime("%H:%M") if closed_dt else "",
+                    (row["table_code"] or "").strip(),
+                    opened_dt.strftime("%H:%M") if opened_dt else "",
                     paid_dt.strftime("%H:%M") if paid_dt else "",
                     self._format_qty(qty),
                     self._money(price),

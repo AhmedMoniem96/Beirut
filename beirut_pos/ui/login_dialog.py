@@ -1,8 +1,6 @@
 from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
-    QLineEdit,
-    QPushButton,
     QLabel,
     QHBoxLayout,
     QFrame,
@@ -16,6 +14,13 @@ from .common.branding import get_logo_pixmap, get_logo_icon, build_login_stylesh
 from ..core.bus import bus
 from ..services import texts
 from ..services import settings as settings_service
+from .theme import (
+    DSButton,
+    DSLinkButton,
+    DSTextField,
+    SPACING,
+    apply_typography,
+)
 
 class LoginDialog(QDialog):
     def __init__(self):
@@ -32,22 +37,22 @@ class LoginDialog(QDialog):
             self.setWindowIcon(icon)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(72, 64, 72, 64)
-        root.setSpacing(24)
+        root.setContentsMargins(SPACING.xl * 2 + SPACING.xs, SPACING.xl + SPACING.sm, SPACING.xl * 2 + SPACING.xs, SPACING.xl + SPACING.sm)
+        root.setSpacing(SPACING.lg)
         root.addStretch(1)
 
         card = QFrame()
         card.setObjectName("LoginCard")
         card_layout = QHBoxLayout(card)
-        card_layout.setContentsMargins(40, 36, 40, 36)
-        card_layout.setSpacing(48)
+        card_layout.setContentsMargins(SPACING.xl + SPACING.xs, SPACING.lg + SPACING.sm, SPACING.xl + SPACING.xs, SPACING.lg + SPACING.sm)
+        card_layout.setSpacing(SPACING.xl)
 
         # Brand column -----------------------------------------------------
         brand_frame = QFrame()
         brand_frame.setObjectName("BrandColumn")
         brand_layout = QVBoxLayout(brand_frame)
-        brand_layout.setSpacing(18)
-        brand_layout.setContentsMargins(18, 24, 18, 24)
+        brand_layout.setSpacing(SPACING.md + SPACING.xs)
+        brand_layout.setContentsMargins(SPACING.md, SPACING.lg, SPACING.md, SPACING.lg)
 
         self.logo = QLabel()
         self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -59,7 +64,7 @@ class LoginDialog(QDialog):
         self.brand_title = QLabel()
         self.brand_title.setObjectName("BrandTitle")
         self.brand_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.brand_title.setStyleSheet("font-size: 30px; font-weight: 700;")
+        apply_typography(self.brand_title, "display")
         brand_layout.addWidget(self.brand_title)
 
         self.hero = QLabel()
@@ -67,7 +72,7 @@ class LoginDialog(QDialog):
         self.hero.setWordWrap(True)
         self.hero.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.hero.setMaximumWidth(420)
-        self.hero.setStyleSheet("font-size: 17px; line-height: 1.5;")
+        apply_typography(self.hero, "title")
         brand_layout.addWidget(self.hero)
 
         self.hero_hint = QLabel()
@@ -75,7 +80,7 @@ class LoginDialog(QDialog):
         self.hero_hint.setObjectName("HeroHint")
         self.hero_hint.setWordWrap(True)
         self.hero_hint.setMaximumWidth(420)
-        self.hero_hint.setStyleSheet("font-size: 15px; line-height: 1.5; color: #f0ebe2;")
+        apply_typography(self.hero_hint, "body")
         brand_layout.addWidget(self.hero_hint)
 
         card_layout.addWidget(brand_frame, 3)
@@ -84,12 +89,13 @@ class LoginDialog(QDialog):
         form_frame = QFrame()
         form_frame.setObjectName("LoginForm")
         form_layout = QVBoxLayout(form_frame)
-        form_layout.setSpacing(18)
-        form_layout.setContentsMargins(28, 28, 28, 28)
+        form_layout.setSpacing(SPACING.md + SPACING.xs)
+        form_layout.setContentsMargins(SPACING.lg, SPACING.lg, SPACING.lg, SPACING.lg)
 
         self.form_title = QLabel()
         self.form_title.setObjectName("FormTitle")
         self.form_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        apply_typography(self.form_title, "title")
         form_layout.addWidget(self.form_title)
 
         self.msg = QLabel()
@@ -98,31 +104,27 @@ class LoginDialog(QDialog):
         self.msg.setWordWrap(True)
         form_layout.addWidget(self.msg)
 
-        self.u = QLineEdit()
+        self.u = DSTextField()
         self.u.setMinimumWidth(360)
         self.u.setFixedHeight(52)
         self.u.setClearButtonEnabled(True)
-        self.u.setStyleSheet("padding: 10px 14px; font-size: 16px;")
         form_layout.addWidget(self.u)
 
-        self.p = QLineEdit()
-        self.p.setEchoMode(QLineEdit.EchoMode.Password)
+        self.p = DSTextField()
+        self.p.setEchoMode(self.p.EchoMode.Password)
         self.p.setFixedHeight(52)
         self.p.setClearButtonEnabled(True)
-        self.p.setStyleSheet("padding: 10px 14px; font-size: 16px;")
         form_layout.addWidget(self.p)
 
         row = QHBoxLayout()
-        row.setSpacing(12)
-        self.btn = QPushButton()
-        self.forgot = QPushButton()
-        self.forgot.setProperty("class", "link")
+        row.setSpacing(SPACING.md)
+        self.btn = DSButton()
+        self.forgot = DSLinkButton()
         row.addWidget(self.btn, 2)
         row.addWidget(self.forgot, 1)
         form_layout.addLayout(row)
 
-        self.create_user = QPushButton()
-        self.create_user.setProperty("class", "link")
+        self.create_user = DSLinkButton()
         self.create_user.setCursor(Qt.CursorShape.PointingHandCursor)
         form_layout.addWidget(self.create_user, alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -141,15 +143,20 @@ class LoginDialog(QDialog):
         bus.subscribe("client_branding_changed", self._apply_texts)
         bus.subscribe("client_branding_changed", self._apply_logo)
 
+    def _set_message_state(self, state: str = "info"):
+        self.msg.setProperty("state", state)
+        self.msg.style().unpolish(self.msg)
+        self.msg.style().polish(self.msg)
+
     def _do_login(self):
         user = authenticate(self.u.text().strip(), self.p.text())
         if user:
             self._user = user
-            self.msg.setStyleSheet("")
+            self._set_message_state("info")
             self.accept()
         else:
             self.msg.setText(texts.get("login.error"))
-            self.msg.setStyleSheet("color: #FFB4A2; font-weight: 600;")
+            self._set_message_state("error")
 
     def _open_forgot(self):
         dlg = ForgotPasswordDialog()
@@ -163,7 +170,7 @@ class LoginDialog(QDialog):
                 self.u.setText(new_user)
                 self.p.clear()
                 self.msg.setText(texts.get("login.create_success"))
-                self.msg.setStyleSheet("color: #A7F3D0; font-weight: 600;")
+                self._set_message_state("success")
 
     def get_user(self): return self._user
 
@@ -173,11 +180,11 @@ class LoginDialog(QDialog):
             scaled = pix.scaledToHeight(260, Qt.TransformationMode.SmoothTransformation)
             self.logo.setPixmap(scaled)
             self.logo.setText("")
-            self.logo.setStyleSheet("")
         else:
             self.logo.clear()
             self.logo.setText(settings_service.get_client_name())
-            self.logo.setStyleSheet("font-size: 32pt; font-weight: 800; letter-spacing: 1px;")
+            apply_typography(self.logo, "display")
+            self.logo.setProperty("state", "fallback")
 
     def _apply_texts(self):
         client_name = settings_service.get_client_name()
@@ -187,7 +194,7 @@ class LoginDialog(QDialog):
         self.hero_hint.setText(texts.get("login.hero_hint"))
         self.form_title.setText(texts.get("login.form_title"))
         self.msg.setText(texts.get("login.form_hint"))
-        self.msg.setStyleSheet("")
+        self._set_message_state("info")
         self.u.setPlaceholderText(texts.get("login.username_placeholder"))
         self.p.setPlaceholderText(texts.get("login.password_placeholder"))
         self.btn.setText(texts.get("login.submit"))

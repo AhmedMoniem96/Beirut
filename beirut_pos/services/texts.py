@@ -42,6 +42,7 @@ DEFAULT_TEXTS: Dict[str, str] = {
     "main.toolbar.purchases": "المشتريات",
     "main.toolbar.inventory": "المخزون",
     "main.toolbar.reservations": "الحجوزات",
+    "main.toolbar.style_guide": "دليل النمط",
     "main.toolbar.settings": "الإعدادات",
     "main.banner.close": "✕",
     "main.tables.title": "الطاولات — اختر طاولة",

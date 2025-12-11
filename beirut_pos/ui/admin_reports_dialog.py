@@ -1350,7 +1350,13 @@ class AdminReportsDialog(BigDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        self.inventory_table = self._make_table(["المنتج", "القسم", "المتاح", "الحد الأدنى"])
+        self.inventory_table = self._make_table([
+            "المنتج",
+            "القسم",
+            "المتاح",
+            "الحد الأدنى",
+            "حجم العبوة",
+        ])
         layout.addWidget(self.inventory_table, 1)
 
         controls = QHBoxLayout()
@@ -1371,6 +1377,7 @@ class AdminReportsDialog(BigDialog):
                 r["category"],
                 self._format_qty(r.get("stock_qty", 0)),
                 self._format_qty(r.get("min_stock", 0)),
+                self._format_qty(r.get("package_size", 0)),
             ]
             for r in entries
             if r.get("track_stock", True)

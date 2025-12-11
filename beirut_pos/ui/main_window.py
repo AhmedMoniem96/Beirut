@@ -141,13 +141,13 @@ class MainWindow(QMainWindow):
             self.act_reports,
             self.act_tables,
             self.act_purchases,
-            self.act_inventory,
             self.act_settings,
             self.act_recovery,
         ]
         for action in self._admin_actions:
             action.setVisible(self.user.role == "admin")
             bar.addAction(action)
+        bar.addAction(self.act_inventory)
         bar.addAction(self.act_reservations)
 
         # Hotkeys

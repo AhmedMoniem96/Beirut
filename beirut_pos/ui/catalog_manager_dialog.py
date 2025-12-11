@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
@@ -38,7 +37,6 @@ class _ProductValues:
     price_cents: int
     customizable: bool
     track_stock: bool
-    stock_qty: float
     min_stock: float
     package_size: float
     product_type: str
@@ -62,9 +60,6 @@ class _ProductEditor(QDialog):
         self.price_edit.setSuffix(" ج.م")
         self.custom_box = QCheckBox("يدعم خيارات مخصصة")
         self.track_box = QCheckBox("تتبع المخزون")
-        self.stock_spin = QDoubleSpinBox()
-        self.stock_spin.setRange(0, 1_000_000)
-        self.stock_spin.setDecimals(2)
         self.min_spin = QDoubleSpinBox()
         self.min_spin.setRange(0, 1_000_000)
         self.min_spin.setDecimals(2)
@@ -72,12 +67,6 @@ class _ProductEditor(QDialog):
         self.package_size_spin.setRange(0, 100_000)
         self.package_size_spin.setDecimals(2)
         self.package_size_spin.setMinimum(1.0)
-        self.package_add_spin = QDoubleSpinBox()
-        self.package_add_spin.setRange(0, 100_000)
-        self.package_add_spin.setDecimals(2)
-        self.package_hint = QLabel("—")
-        self.package_hint.setStyleSheet("color: #b9b9b9; font-size: 9.5pt;")
-        self.package_apply = QPushButton("إضافة")
         self.type_edit = QLineEdit()
         self.type_edit.setPlaceholderText("مثال: مشروب ساخن")
         self.sugar_list = QListWidget()
@@ -105,17 +94,8 @@ class _ProductEditor(QDialog):
         form.addRow("مستويات السكر:", sugar_widget)
         form.addRow("", self.custom_box)
         form.addRow("", self.track_box)
-        form.addRow("المخزون الحالي:", self.stock_spin)
         form.addRow("حد أدنى للتنبيه:", self.min_spin)
         form.addRow("حجم العبوة (وحدات):", self.package_size_spin)
-        pkg_widget = QWidget()
-        pkg_layout = QHBoxLayout(pkg_widget)
-        pkg_layout.setContentsMargins(0, 0, 0, 0)
-        pkg_layout.setSpacing(8)
-        pkg_layout.addWidget(self.package_add_spin)
-        pkg_layout.addWidget(self.package_apply)
-        pkg_layout.addWidget(self.package_hint, 1)
-        form.addRow("إضافة للمخزون (عبوات):", pkg_widget)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
@@ -133,7 +113,6 @@ class _ProductEditor(QDialog):
             self.price_edit.setValue(values.price_cents)
             self.custom_box.setChecked(values.customizable)
             self.track_box.setChecked(values.track_stock)
-            self.stock_spin.setValue(values.stock_qty)
             self.min_spin.setValue(values.min_stock)
             self.package_size_spin.setValue(max(1.0, values.package_size))
             self.type_edit.setText(values.product_type)
@@ -143,49 +122,14 @@ class _ProductEditor(QDialog):
             self.package_size_spin.setValue(1.0)
 
         self._toggle_stock(self.track_box.isChecked())
-        self.package_add_spin.setValue(0)
-        self._update_package_hint()
         self.track_box.toggled.connect(self._toggle_stock)
-        self.package_add_spin.valueChanged.connect(self._update_package_hint)
-        self.package_size_spin.valueChanged.connect(self._update_package_hint)
-        self.package_apply.clicked.connect(self._apply_package_add)
         self.btn_sugar_add.clicked.connect(self._add_sugar_level)
         self.btn_sugar_edit.clicked.connect(self._edit_sugar_level)
         self.btn_sugar_delete.clicked.connect(self._delete_sugar_level)
 
     def _toggle_stock(self, checked: bool) -> None:
-        self.stock_spin.setEnabled(checked)
         self.min_spin.setEnabled(checked)
         self.package_size_spin.setEnabled(checked)
-        self.package_add_spin.setEnabled(checked)
-        self.package_apply.setEnabled(checked)
-        self.package_hint.setEnabled(checked)
-
-    def _update_package_hint(self) -> None:
-        size = max(0.0, float(self.package_size_spin.value()))
-        packages = max(0.0, float(self.package_add_spin.value()))
-        if packages <= 0 or size <= 0:
-            self.package_hint.setText("أدخل عبوات لإضافتها للمخزون.")
-            return
-        units = packages * size
-        self.package_hint.setText(f"{packages:g} عبوة = {units:g} وحدة")
-
-    def _apply_package_add(self) -> None:
-        if not self.track_box.isChecked():
-            QMessageBox.warning(self, "المخزون معطل", "فعّل تتبع المخزون لتحديث الكمية.")
-            return
-        size = float(self.package_size_spin.value())
-        packages = float(self.package_add_spin.value())
-        if size <= 0:
-            QMessageBox.warning(self, "قيمة غير صالحة", "حدد حجم العبوة أولاً.")
-            return
-        if packages <= 0:
-            QMessageBox.warning(self, "قيمة غير صالحة", "أدخل عدد العبوات المراد إضافتها.")
-            return
-        units = packages * size
-        self.stock_spin.setValue(self.stock_spin.value() + units)
-        self.package_add_spin.setValue(0)
-        self._update_package_hint()
 
     def _populate_sugar_levels(self, levels: list[str]) -> None:
         self.sugar_list.clear()
@@ -242,7 +186,6 @@ class _ProductEditor(QDialog):
             price_cents=price,
             customizable=self.custom_box.isChecked(),
             track_stock=self.track_box.isChecked(),
-            stock_qty=float(self.stock_spin.value()),
             min_stock=float(self.min_spin.value()),
             package_size=float(max(1.0, self.package_size_spin.value())),
             product_type=product_type,
@@ -728,7 +671,7 @@ class CatalogManagerDialog(BigDialog):
                 username=self._actor,
                 customizable=1 if values.customizable else 0,
                 track_stock=1 if values.track_stock else 0,
-                stock_qty=values.stock_qty,
+                stock_qty=0,
                 min_stock=values.min_stock,
                 package_size=values.package_size,
                 product_type=values.product_type,
@@ -751,7 +694,6 @@ class CatalogManagerDialog(BigDialog):
                 price_cents=prod["price_cents"],
                 customizable=bool(prod.get("customizable", 0)),
                 track_stock=bool(prod["track_stock"]),
-                stock_qty=float(prod["stock_qty"] or 0.0),
                 min_stock=float(prod["min_stock"] or 0.0),
                 package_size=float(prod.get("package_size") or 1.0),
                 product_type=prod.get("product_type", ""),
@@ -770,7 +712,7 @@ class CatalogManagerDialog(BigDialog):
                 price_cents=values.price_cents,
                 customizable=1 if values.customizable else 0,
                 track_stock=1 if values.track_stock else 0,
-                stock_qty=values.stock_qty,
+                stock_qty=None,
                 min_stock=values.min_stock,
                 package_size=values.package_size,
                 product_type=values.product_type,

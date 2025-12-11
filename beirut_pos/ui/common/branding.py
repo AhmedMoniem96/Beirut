@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 from beirut_pos.core.db import setting_get
 from beirut_pos.services.settings import get_client_logo_path
 from beirut_pos.utils.paths import resource_path
+from beirut_pos.ui.theme import design_system_stylesheet, typography_rule
 
 
 _FALLBACK_BG = "#160D08"
@@ -260,6 +261,7 @@ def build_login_stylesheet() -> str:
     bg_path = get_background_path()
 
     parts = [
+        design_system_stylesheet(accent),
         "#LoginDialog {",
         f"    background-color: {_FALLBACK_BG};",
     ]
@@ -278,12 +280,14 @@ def build_login_stylesheet() -> str:
         f"    color: {text};",
         "    border: 1px solid rgba(255,255,255,0.1);",
         "}",
-        f"#LoginCard QLabel {{ color: {text}; font-size: 12.5pt; font-weight: 600; }}",
-        f"#LoginCard QLabel#BrandTitle {{ font-size: 22pt; font-weight: 800; letter-spacing: 1.2px; color: {accent}; }}",
-        f"#LoginCard QLabel#LoginHero {{ font-size: 14pt; font-weight: 700; color: {text}; }}",
-        f"#LoginCard QLabel#HeroHint {{ color: {muted}; font-size: 11.5pt; }}",
-        f"#LoginCard QLabel#FormTitle {{ font-size: 16pt; font-weight: 800; margin-bottom: 8px; }}",
-        f"#LoginCard QLabel#LoginHint {{ color: {muted}; font-size: 11.5pt; letter-spacing: 0.4px; }}",
+        f"#LoginCard QLabel {{ color: {text}; {typography_rule('body')} }}",
+        f"#LoginCard QLabel#BrandTitle {{ {typography_rule('display')}; letter-spacing: 1.2px; color: {accent}; }}",
+        f"#LoginCard QLabel#LoginHero {{ {typography_rule('title')}; color: {text}; }}",
+        f"#LoginCard QLabel#HeroHint {{ color: {muted}; {typography_rule('body')}; }}",
+        f"#LoginCard QLabel#FormTitle {{ {typography_rule('title')}; margin-bottom: 8px; }}",
+        f"#LoginCard QLabel#LoginHint {{ color: {muted}; {typography_rule('caption')}; letter-spacing: 0.4px; }}",
+        "#LoginCard QLabel#LoginHint[state=\"error\"] { color: #FFB4A2; font-weight: 700; }",
+        "#LoginCard QLabel#LoginHint[state=\"success\"] { color: #A7F3D0; font-weight: 700; }",
         "#LoginCard QFrame#BrandColumn { background: transparent; }",
         "#LoginCard QFrame#LoginForm { background-color: rgba(12, 7, 4, 0.72); border-radius: 26px; border: 1px solid rgba(255,255,255,0.08); }",
         f"#LoginDialog QPushButton {{ background-color: {accent}; color: #1B0F08; border-radius: 18px; padding: 14px 28px; font-weight: 700; letter-spacing: 0.5px; min-height: 48px; }}",
@@ -317,6 +321,7 @@ def build_main_window_stylesheet() -> str:
     toolbar_text = get_toolbar_text_color()
 
     parts = [
+        design_system_stylesheet(accent),
         "QMainWindow {",
         f"    background-color: {_FALLBACK_BG};",
     ]
@@ -343,7 +348,7 @@ def build_main_window_stylesheet() -> str:
             f"QMainWindow QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top right; padding: 0 16px; font-size: 13pt; color: {menu_header}; }}",
             "QMainWindow QListWidget { background-color: rgba(255,255,255,0.94); border-radius: 18px; padding: 10px; font-size: 12pt; }",
             "QMainWindow QListWidget#OrderItems { padding: 16px; }",
-            f"QMainWindow QLabel {{ color: {text}; font-size: 12pt; font-weight: 600; }}",
+            f"QMainWindow QLabel {{ color: {text}; {typography_rule('body')} }}",
             "QMainWindow QLineEdit, QMainWindow QSpinBox, QMainWindow QComboBox { background-color: rgba(255,255,255,0.92); border-radius: 12px; padding: 8px 12px; }",
             "QMainWindow QListWidget::item { margin: 6px; padding: 10px 14px; border-radius: 12px; }",
             f"QMainWindow QListWidget::item:selected {{ background-color: {accent}; color: #20130B; font-weight: 700; }}",

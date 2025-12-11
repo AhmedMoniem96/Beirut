@@ -50,6 +50,7 @@ from .dialogs.table_history_dialog import TableHistoryDialog
 from .recovery_center_dialog import RecoveryCenterDialog
 from .shift_summary_dialog import ShiftSummaryDialog
 from .inventory_dialog import InventoryDialog
+from .style_guide_dialog import StyleGuideDialog
 from ..services import staff as staff_service
 
 PAGE_TABLES = 0
@@ -128,6 +129,8 @@ class MainWindow(QMainWindow):
         self.act_inventory.triggered.connect(self._open_inventory)
         self.act_reservations = QAction(self)
         self.act_reservations.triggered.connect(self._open_reservations)
+        self.act_style_guide = QAction(self)
+        self.act_style_guide.triggered.connect(self._open_style_guide)
 
         # NEW: Settings & Daily Z-Report (admin only)
         self.act_settings = QAction(self)
@@ -143,6 +146,7 @@ class MainWindow(QMainWindow):
             self.act_purchases,
             self.act_settings,
             self.act_recovery,
+            self.act_style_guide,
         ]
         for action in self._admin_actions:
             action.setVisible(self.user.role == "admin")
@@ -647,6 +651,12 @@ class MainWindow(QMainWindow):
             return
         SettingsDialog(self).exec()
 
+    def _open_style_guide(self):
+        if self.user.role != "admin":
+            self._show_banner("هذه العملية للمدير فقط.", "warn")
+            return
+        StyleGuideDialog(self).exec()
+
     # POS flow
     def _on_table_select(self, code):
         self.current_table = code
@@ -1017,6 +1027,7 @@ class MainWindow(QMainWindow):
         self.act_inventory.setText(texts.get("main.toolbar.inventory"))
         self.act_settings.setText(texts.get("main.toolbar.settings"))
         self.act_reservations.setText(texts.get("main.toolbar.reservations"))
+        self.act_style_guide.setText(texts.get("main.toolbar.style_guide", "دليل النمط"))
         self.banner_close.setText(texts.get("main.banner.close"))
         self.tables_title.setText(texts.get("main.tables.title"))
         self.btn_print_bar.setText(texts.get("main.order.print_bar"))

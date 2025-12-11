@@ -1350,7 +1350,7 @@ class AdminReportsDialog(BigDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        self.inventory_table = self._make_table(["المنتج", "المتاح", "الحد الأدنى"])
+        self.inventory_table = self._make_table(["المنتج", "القسم", "المتاح", "الحد الأدنى"])
         layout.addWidget(self.inventory_table, 1)
 
         controls = QHBoxLayout()
@@ -1364,8 +1364,17 @@ class AdminReportsDialog(BigDialog):
         return widget
 
     def _load_inventory_report(self):
-        entries = order_manager.catalog.get_low_stock()
-        rows = [[n, self._format_qty(q or 0), self._format_qty(m or 0)] for n, q, m in entries]
+        entries = order_manager.catalog.inventory_overview()
+        rows = [
+            [
+                r["name"],
+                r["category"],
+                self._format_qty(r.get("stock_qty", 0)),
+                self._format_qty(r.get("min_stock", 0)),
+            ]
+            for r in entries
+            if r.get("track_stock", True)
+        ]
         self._populate_table(self.inventory_table, rows)
 
     # --------------------------------------------------------- attendance log

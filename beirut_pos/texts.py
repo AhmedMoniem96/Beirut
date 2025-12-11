@@ -31,6 +31,7 @@ _TRANSLATIONS: Dict[str, str] = {
     "orders.pay_button": "تحصيل / دفع",
     "orders.subtotal_label": "المجموع",
     "orders.total_label": "الإجمالي",
+    "main.toolbar.inventory": "المخزون",
 }
 
 

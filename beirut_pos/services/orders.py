@@ -992,6 +992,106 @@ class ProductCatalog:
         conn.close()
         return res
 
+    def inventory_overview(self, *, tracked_only: bool = True) -> list[dict]:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                p.id,
+                p.name,
+                p.stock_qty,
+                p.min_stock,
+                p.track_stock,
+                c.name  AS category,
+                c.order_index AS cat_idx,
+                p.order_index AS prod_idx
+            FROM products p
+            JOIN categories c ON c.id = p.category_id
+            WHERE (?=0 OR p.track_stock=1)
+            ORDER BY cat_idx, c.id, prod_idx, p.id
+            """,
+            (0 if not tracked_only else 1,),
+        )
+        rows = [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "stock_qty": None if r["stock_qty"] is None else float(r["stock_qty"]),
+                "min_stock": None if r["min_stock"] is None else float(r["min_stock"]),
+                "track_stock": bool(r["track_stock"]),
+                "category": r["category"],
+            }
+            for r in cur.fetchall()
+        ]
+        conn.close()
+        return rows
+
+    def adjust_stock(self, product_id: int, delta: float, *, actor: str = "system") -> StockState:
+        if math.isnan(delta):
+            raise ValueError("قيمة المخزون غير صالحة")
+        clean_delta = float(delta)
+        if abs(clean_delta) < 1e-9:
+            raise ValueError("قيمة المخزون يجب أن تكون أكبر من صفر")
+
+        with db_transaction() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT name, track_stock, stock_qty, min_stock FROM products WHERE id=?",
+                (product_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError("المنتج غير موجود")
+            if int(row["track_stock"]) != 1:
+                raise ValueError("هذا المنتج لا يتتبع المخزون")
+
+            before = float(row["stock_qty"] or 0.0)
+            min_stock_val = (
+                None if row["min_stock"] is None else float(row["min_stock"])
+            )
+
+            cur.execute(
+                "UPDATE products SET stock_qty = COALESCE(stock_qty,0) + ? WHERE id=?",
+                (clean_delta, product_id),
+            )
+            cur.execute(
+                "SELECT stock_qty, min_stock FROM products WHERE id=?",
+                (product_id,),
+            )
+            new_row = cur.fetchone()
+
+        new_stock = None if new_row["stock_qty"] is None else float(new_row["stock_qty"])
+        min_stock = None if new_row["min_stock"] is None else float(new_row["min_stock"])
+
+        log_action(actor, "inventory_adjust", "product", row["name"], str(before), str(new_stock))
+
+        self._emit_inventory_events(row["name"], before, new_stock, min_stock_val)
+        bus.emit("catalog_changed")
+        return (new_stock, min_stock)
+
+    def _emit_inventory_events(
+        self,
+        product: str,
+        previous: float | None,
+        new_stock: float | None,
+        min_stock: float | None,
+    ) -> None:
+        if new_stock is None:
+            return
+
+        prev_val = 0.0 if previous is None else previous
+        min_val = min_stock if min_stock is not None else None
+
+        if min_val is not None:
+            if prev_val >= min_val and new_stock <= min_val:
+                bus.emit("inventory_low", product, previous, new_stock, min_val)
+            elif prev_val <= min_val and new_stock > min_val:
+                bus.emit("inventory_recovered", product, previous, new_stock, min_val)
+
+        if prev_val > 0 and new_stock <= 0:
+            bus.emit("inventory_low", product, previous, new_stock, min_val or 0)
+
     def get_ps_rate_hour_cents(self, mode: str) -> Optional[int]:
         cat = "PlayStation 2 Players" if mode == "P2" else "PlayStation 4 Players"
         conn = get_conn()

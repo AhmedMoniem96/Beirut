@@ -49,6 +49,7 @@ from .sugar_level_dialog import SugarLevelDialog
 from .dialogs.table_history_dialog import TableHistoryDialog
 from .recovery_center_dialog import RecoveryCenterDialog
 from .shift_summary_dialog import ShiftSummaryDialog
+from .inventory_dialog import InventoryDialog
 from ..services import staff as staff_service
 
 PAGE_TABLES = 0
@@ -123,6 +124,8 @@ class MainWindow(QMainWindow):
         self.act_tables.triggered.connect(self._open_tables_admin)
         self.act_purchases = QAction(self)
         self.act_purchases.triggered.connect(self._open_purchases)
+        self.act_inventory = QAction(self)
+        self.act_inventory.triggered.connect(self._open_inventory)
         self.act_reservations = QAction(self)
         self.act_reservations.triggered.connect(self._open_reservations)
 
@@ -138,6 +141,7 @@ class MainWindow(QMainWindow):
             self.act_reports,
             self.act_tables,
             self.act_purchases,
+            self.act_inventory,
             self.act_settings,
             self.act_recovery,
         ]
@@ -604,6 +608,12 @@ class MainWindow(QMainWindow):
             return
         PurchasesDialog(actor=self.user.username, parent=self).exec()
 
+    def _open_inventory(self):
+        if self.user.role != "admin":
+            self._show_banner("هذه العملية للمدير فقط.", "warn")
+            return
+        InventoryDialog(actor=self.user.username, parent=self).exec()
+
     def _open_reservations(self):
         ReservationsDialog(parent=self).exec()
 
@@ -1004,6 +1014,7 @@ class MainWindow(QMainWindow):
         self.act_reports.setText(texts.get("main.toolbar.reports"))
         self.act_tables.setText(texts.get("main.toolbar.tables"))
         self.act_purchases.setText(texts.get("main.toolbar.purchases"))
+        self.act_inventory.setText(texts.get("main.toolbar.inventory"))
         self.act_settings.setText(texts.get("main.toolbar.settings"))
         self.act_reservations.setText(texts.get("main.toolbar.reservations"))
         self.banner_close.setText(texts.get("main.banner.close"))

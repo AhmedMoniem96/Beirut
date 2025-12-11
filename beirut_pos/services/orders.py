@@ -1002,6 +1002,7 @@ class ProductCatalog:
                 p.name,
                 p.stock_qty,
                 p.min_stock,
+                p.package_size,
                 p.track_stock,
                 c.name  AS category,
                 c.order_index AS cat_idx,
@@ -1019,6 +1020,7 @@ class ProductCatalog:
                 "name": r["name"],
                 "stock_qty": None if r["stock_qty"] is None else float(r["stock_qty"]),
                 "min_stock": None if r["min_stock"] is None else float(r["min_stock"]),
+                "package_size": None if r["package_size"] is None else float(r["package_size"]),
                 "track_stock": bool(r["track_stock"]),
                 "category": r["category"],
             }

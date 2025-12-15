@@ -13,8 +13,10 @@ from PyQt6.QtWidgets import (
     QFrame,
     QMessageBox,
     QLineEdit,
+    QToolButton,
+    QStyle,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
 from .components.table_map import TableMap
 from .components.category_grid import CategoryGrid
@@ -52,6 +54,7 @@ from .shift_summary_dialog import ShiftSummaryDialog
 from .inventory_dialog import InventoryDialog
 from .style_guide_dialog import StyleGuideDialog
 from ..services import staff as staff_service
+from .command_palette import CommandPaletteDialog, build_command
 
 PAGE_TABLES = 0
 PAGE_ORDER = 1
@@ -166,14 +169,27 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+T"), self, activated=self._open_tables_admin)
         QShortcut(QKeySequence("Ctrl+Shift+B"), self, activated=self._open_recovery_center)
         QShortcut(QKeySequence("Ctrl+/"), self, activated=self._show_hotkeys_help)
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_command_palette)
 
-        self.pages = QStackedWidget()
+        # Primary navigation (side panel)
+        self._nav_panel = self._build_nav_panel()
+        self._nav_collapsed = False
 
+        # Layouts
         container = QWidget()
         container.setObjectName("MainContainer")
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(12, 12, 12, 12)
-        container_layout.setSpacing(8)
+        root_layout = QHBoxLayout(container)
+        root_layout.setContentsMargins(12, 12, 12, 12)
+        root_layout.setSpacing(8)
+
+        root_layout.addWidget(self._nav_panel, 0)
+
+        content_holder = QVBoxLayout()
+        content_holder.setContentsMargins(0, 0, 0, 0)
+        content_holder.setSpacing(8)
+
+        self._page_header = self._build_page_header()
+        self.pages = QStackedWidget()
 
         self.banner = QFrame()
         self.banner.setObjectName("ToastBanner")
@@ -190,8 +206,11 @@ class MainWindow(QMainWindow):
         banner_layout.addWidget(self.banner_close, 0, alignment=Qt.AlignmentFlag.AlignTop)
         self.banner.setVisible(False)
 
-        container_layout.addWidget(self.banner, 0)
-        container_layout.addWidget(self.pages, 1)
+        content_holder.addWidget(self._page_header)
+        content_holder.addWidget(self.banner, 0)
+        content_holder.addWidget(self.pages, 1)
+
+        root_layout.addLayout(content_holder, 1)
 
         self.banner_timer = QTimer(self)
         self.banner_timer.setSingleShot(True)
@@ -347,6 +366,276 @@ class MainWindow(QMainWindow):
         self._refresh_print_buttons()
         self._refresh_branding()
         self._apply_texts()
+        self._refresh_nav_selection("tables")
+        self._update_breadcrumbs()
+        self._update_nav_collapsed()
+
+    # ---------------- layout helpers ----------------
+    def _build_page_header(self) -> QWidget:
+        header = QFrame()
+        header.setObjectName("PageHeader")
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(8)
+
+        self.page_title_label = QLabel(texts.get("app.window_title_fallback", "Beirut POS"))
+        self.page_title_label.setObjectName("PageTitle")
+        self.page_title_label.setMinimumWidth(200)
+
+        self.breadcrumbs_label = QLabel()
+        self.breadcrumbs_label.setObjectName("Breadcrumbs")
+        self.breadcrumbs_label.setStyleSheet("color: #666;")
+        self.breadcrumbs_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        layout.addWidget(self.page_title_label, 0)
+        layout.addWidget(self.breadcrumbs_label, 1)
+
+        self.command_palette_btn = QPushButton("بحث سريع (Ctrl+K)")
+        self.command_palette_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
+        )
+        self.command_palette_btn.clicked.connect(self._open_command_palette)
+        layout.addWidget(self.command_palette_btn, 0)
+
+        return header
+
+    def _build_nav_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("SideNavigation")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        self._nav_buttons: dict[str, QToolButton] = {}
+
+        self._nav_toggle = QToolButton(panel)
+        self._nav_toggle.setText("≡")
+        self._nav_toggle.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMenuButton)
+        )
+        self._nav_toggle.setCheckable(True)
+        self._nav_toggle.clicked.connect(
+            lambda: self._update_nav_collapsed(not self._nav_collapsed)
+        )
+        layout.addWidget(self._nav_toggle, 0, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        nav_items = [
+            {
+                "key": "tables",
+                "text": texts.get("main.tables.title", "الطاولات"),
+                "icon": QStyle.StandardPixmap.SP_FileDialogDetailedView,
+                "handler": self._go_back,
+                "admin": False,
+            },
+            {
+                "key": "reservations",
+                "text": texts.get("main.toolbar.reservations", "الحجوزات"),
+                "icon": QStyle.StandardPixmap.SP_DialogYesButton,
+                "handler": self._open_reservations,
+                "admin": False,
+            },
+            {
+                "key": "inventory",
+                "text": texts.get("main.toolbar.inventory", "المخزون"),
+                "icon": QStyle.StandardPixmap.SP_DriveHDIcon,
+                "handler": self._open_inventory,
+                "admin": True,
+            },
+            {
+                "key": "reports",
+                "text": texts.get("main.toolbar.reports", "التقارير"),
+                "icon": QStyle.StandardPixmap.SP_FileDialogInfoView,
+                "handler": self._open_reports,
+                "admin": True,
+            },
+            {
+                "key": "purchases",
+                "text": texts.get("main.toolbar.purchases", "المشتريات"),
+                "icon": QStyle.StandardPixmap.SP_FileDialogListView,
+                "handler": self._open_purchases,
+                "admin": True,
+            },
+            {
+                "key": "tables_admin",
+                "text": texts.get("main.toolbar.tables", "إدارة الطاولات"),
+                "icon": QStyle.StandardPixmap.SP_DesktopIcon,
+                "handler": self._open_tables_admin,
+                "admin": True,
+            },
+            {
+                "key": "settings",
+                "text": texts.get("main.toolbar.settings", "الإعدادات"),
+                "icon": QStyle.StandardPixmap.SP_FileDialogDetailedView,
+                "handler": self._open_settings,
+                "admin": True,
+            },
+            {
+                "key": "recovery",
+                "text": texts.get("main.toolbar.recovery", "مركز الاستعادة"),
+                "icon": QStyle.StandardPixmap.SP_DialogResetButton,
+                "handler": self._open_recovery_center,
+                "admin": True,
+            },
+        ]
+
+        for item in nav_items:
+            if item.get("admin") and self.user.role != "admin":
+                continue
+            btn = QToolButton(panel)
+            btn.setCheckable(True)
+            btn.setIcon(self.style().standardIcon(item["icon"]))
+            btn.setIconSize(QSize(20, 20))
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            btn.setText(item["text"])
+            btn.setProperty("navKey", item["key"])
+            btn.setProperty("fullText", item["text"])
+            btn.clicked.connect(item["handler"])
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._nav_buttons[item["key"]] = btn
+            layout.addWidget(btn, 0)
+
+        layout.addStretch(1)
+        return panel
+
+    def _apply_navigation_texts(self):
+        labels = {
+            "tables": texts.get("main.tables.title", "الطاولات"),
+            "reservations": texts.get("main.toolbar.reservations", "الحجوزات"),
+            "inventory": texts.get("main.toolbar.inventory", "المخزون"),
+            "reports": texts.get("main.toolbar.reports", "التقارير"),
+            "purchases": texts.get("main.toolbar.purchases", "المشتريات"),
+            "tables_admin": texts.get("main.toolbar.tables", "إدارة الطاولات"),
+            "settings": texts.get("main.toolbar.settings", "الإعدادات"),
+            "recovery": texts.get("main.toolbar.recovery", "مركز الاستعادة"),
+        }
+        for key, btn in self._nav_buttons.items():
+            full_text = labels.get(key, btn.text())
+            btn.setProperty("fullText", full_text)
+            if not self._nav_collapsed:
+                btn.setText(full_text)
+        self.command_palette_btn.setText(texts.get("main.toolbar.search", "بحث سريع (Ctrl+K)"))
+        self._sync_nav_collapse_state()
+
+    def _sync_nav_collapse_state(self):
+        for btn in self._nav_buttons.values():
+            full_text = btn.property("fullText") or btn.text()
+            if self._nav_collapsed:
+                btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                btn.setText("")
+            else:
+                btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                btn.setText(full_text)
+        self._nav_toggle.setChecked(self._nav_collapsed)
+
+    def _update_nav_collapsed(self, collapse: bool | None = None):
+        if collapse is None:
+            collapse = self.width() < 1100
+        if collapse == self._nav_collapsed:
+            self._nav_panel.setFixedWidth(68 if collapse else 220)
+            self._sync_nav_collapse_state()
+            return
+        self._nav_collapsed = collapse
+        self._nav_panel.setFixedWidth(68 if collapse else 220)
+        self._sync_nav_collapse_state()
+
+    def resizeEvent(self, event):  # noqa: D401 - Qt lifecycle hook
+        super().resizeEvent(event)
+        self._update_nav_collapsed()
+
+    def _refresh_nav_selection(self, key: str):
+        for nav_key, btn in self._nav_buttons.items():
+            btn.setChecked(nav_key == key)
+
+    def _update_breadcrumbs(self):
+        if not hasattr(self, "breadcrumbs_label"):
+            return
+        client = settings_service.get_client_name()
+        base = texts.get("app.window_title_fallback", client_name=client)
+        trail = [base]
+        page_title = texts.get("main.tables.title", "الطاولات")
+
+        if self.pages.currentIndex() == PAGE_ORDER:
+            page_title = texts.get("main.order.header", "الطلبات")
+            trail.append(texts.get("main.tables.title", "الطاولات"))
+            if self.current_table:
+                client_name = order_manager.get_client_name(self.current_table)
+                label = self.current_table
+                if client_name:
+                    label = f"{label} — {client_name}"
+                trail.append(label)
+        else:
+            trail.append(texts.get("main.tables.title", "الطاولات"))
+
+        self.page_title_label.setText(page_title)
+        self.breadcrumbs_label.setText(" › ".join(trail))
+
+    def _build_command_entries(self):
+        entries = [
+            build_command(
+                texts.get("main.tables.title", "الطاولات"),
+                self._go_back,
+                subtitle="العودة لشاشة الطاولات",
+            ),
+            build_command(
+                texts.get("main.toolbar.reservations", "الحجوزات"),
+                self._open_reservations,
+                shortcut="Ctrl+Shift+V",
+                subtitle="عرض وإدارة الحجوزات",
+            ),
+        ]
+
+        if self.user.role == "admin":
+            entries.extend(
+                [
+                    build_command(
+                        texts.get("main.toolbar.inventory", "المخزون"),
+                        self._open_inventory,
+                        subtitle="تنبيهات المخزون وإعادة الترتيب",
+                    ),
+                    build_command(
+                        texts.get("main.toolbar.reports", "التقارير"),
+                        self._open_reports,
+                        shortcut="Ctrl+Shift+R",
+                        subtitle="عرض الملخصات اليومية",  
+                    ),
+                    build_command(
+                        texts.get("main.toolbar.purchases", "المشتريات"),
+                        self._open_purchases,
+                        subtitle="إدارة المشتريات والفواتير",
+                    ),
+                    build_command(
+                        texts.get("main.toolbar.tables", "إدارة الطاولات"),
+                        self._open_tables_admin,
+                        shortcut="Ctrl+Shift+T",
+                        subtitle="إضافة أو تعديل الطاولات",
+                    ),
+                    build_command(
+                        texts.get("main.toolbar.settings", "الإعدادات"),
+                        self._open_settings,
+                        shortcut="Ctrl+Shift+S",
+                        subtitle="تعديل الهوية البصرية والإعدادات العامة",
+                    ),
+                    build_command(
+                        texts.get("main.toolbar.recovery", "مركز الاستعادة"),
+                        self._open_recovery_center,
+                        shortcut="Ctrl+Shift+B",
+                        subtitle="استرجاع النسخ الاحتياطية",
+                    ),
+                ]
+            )
+        return entries
+
+    def _open_command_palette(self):
+        dlg = CommandPaletteDialog(self._build_command_entries(), parent=self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        selection = dlg.selected_command()
+        if selection and selection.get("handler"):
+            handler = selection["handler"]
+            try:
+                handler()
+            except Exception:
+                self._show_banner("تعذر تنفيذ الأمر المختار.", "error")
 
     # ---------------- helpers: printing ----------------
     def _refresh_print_buttons(self):
@@ -388,6 +677,7 @@ class MainWindow(QMainWindow):
             self.order_list.set_table(self.current_table, name)
         self.client_name_edit.blockSignals(False)
         self._apply_order_header()
+        self._update_breadcrumbs()
 
     def _commit_client_name(self):
         if not self.current_table:
@@ -540,6 +830,8 @@ class MainWindow(QMainWindow):
         self._status.showMessage(random_tip(), 10000)
         self.btn_merge.setEnabled(False)
         self.btn_clear_table.setEnabled(False)
+        self._refresh_nav_selection("tables")
+        self._update_breadcrumbs()
 
     def _open_table_history(self):
         if not self.current_table:
@@ -671,6 +963,8 @@ class MainWindow(QMainWindow):
         self._status.showMessage(random_tip(), 9000)
         self.btn_merge.setEnabled(True)
         self.btn_clear_table.setEnabled(True)
+        self._refresh_nav_selection("tables")
+        self._update_breadcrumbs()
 
     def _on_pick(self, label, price_cents):
         if not self.current_table:
@@ -1038,6 +1332,8 @@ class MainWindow(QMainWindow):
         self.btn_clear_table.setToolTip(texts.get("main.order.clear_table_tooltip"))
         self.back_big.setText(texts.get("main.toolbar.back"))
         self._apply_order_header()
+        self._apply_navigation_texts()
+        self._update_breadcrumbs()
 
     def _on_table_state_changed(self, table_code, state):
         self.table_map.update_table(table_code, state=state)

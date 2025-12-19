@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QFileDialog,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -27,7 +28,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTimeEdit,
 )
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
 
 from ..core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
@@ -55,6 +56,13 @@ class AdminReportsDialog(BigDialog):
         super().__init__("التقارير الإدارية", remember_key="reports", parent=None)
         self.currency = setting_get("currency", "EGP") or "EGP"
         self.actor_username = (actor_username or "").strip()
+
+        # Start the reports window larger by default to give the winnings/profit
+        # visuals room to breathe. If the user has a saved geometry it will
+        # override the resize below.
+        self.setMinimumSize(1100, 750)
+        if not setting_get("geom_reports", ""):
+            self.resize(1220, 840)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_daily_tab(), "ملخص يومي")
@@ -854,21 +862,40 @@ class AdminReportsDialog(BigDialog):
 
     # --------------------------------------------------------------- profits
     def _build_profit_tab(self) -> QWidget:
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        container = QWidget()
+        outer_layout = QVBoxLayout(container)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        outer_layout.addWidget(scroll)
+
+        content = QWidget()
+        scroll.setWidget(content)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(16)
 
         daily_title = QLabel("الربح اليومي")
         daily_title.setAlignment(Qt.AlignmentFlag.AlignRight)
         daily_title.setStyleSheet("font-weight:600;")
         layout.addWidget(daily_title)
 
+        self.profit_daily_strip = self._build_range_strip(kind="detail")
+        layout.addWidget(self.profit_daily_strip)
+
         self.profit_daily_table = self._make_table([
             "التاريخ",
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ], include_thumbnail=True)
-        layout.addWidget(self.profit_daily_table, 1)
+        ])
+        layout.addWidget(self.profit_daily_table)
 
         controls = QHBoxLayout()
         controls.setSpacing(12)
@@ -915,13 +942,16 @@ class AdminReportsDialog(BigDialog):
         monthly_title.setStyleSheet("font-weight:600; margin-top:16px;")
         layout.addWidget(monthly_title)
 
+        self.profit_monthly_strip = self._build_range_strip(kind="month")
+        layout.addWidget(self.profit_monthly_strip)
+
         self.profit_monthly_table = self._make_table([
             "الشهر",
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ], include_thumbnail=True)
-        layout.addWidget(self.profit_monthly_table, 1)
+        ])
+        layout.addWidget(self.profit_monthly_table)
 
         monthly_controls = QHBoxLayout()
         monthly_controls.setSpacing(12)
@@ -938,6 +968,9 @@ class AdminReportsDialog(BigDialog):
         detail_title.setAlignment(Qt.AlignmentFlag.AlignRight)
         detail_title.setStyleSheet("font-weight:600; margin-top:16px;")
         layout.addWidget(detail_title)
+
+        self.monthly_detail_strip = self._build_range_strip(kind="day")
+        layout.addWidget(self.monthly_detail_strip)
 
         picker_layout = QHBoxLayout()
         picker_layout.setSpacing(12)
@@ -962,8 +995,8 @@ class AdminReportsDialog(BigDialog):
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ], include_thumbnail=True)
-        layout.addWidget(self.monthly_detail_table, 1)
+        ])
+        layout.addWidget(self.monthly_detail_table)
 
         self.monthly_detail_summary = QLabel("")
         self.monthly_detail_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -973,148 +1006,174 @@ class AdminReportsDialog(BigDialog):
         self.month_picker.currentIndexChanged.connect(self._load_monthly_detail)
         self.year_picker.currentIndexChanged.connect(self._load_monthly_detail)
 
-        return widget
+        layout.addStretch(1)
+
+        return container
 
     def _load_profit_report(self):
-        start, end = self._datetime_bounds_from_date_time(
-            self.profit_from,
-            self.profit_from_time,
-            self.profit_to,
-            self.profit_to_time,
-        )
-        conn = get_conn()
-        cur = conn.cursor()
-
-        daily_query = """
-            WITH sales AS (
-                SELECT DATE(p.paid_at) AS day,
-                       SUM(p.amount_cents) AS net_total
-                FROM payments p
-                WHERE p.paid_at BETWEEN ? AND ?
-                GROUP BY day
-            ),
-            purchase_totals AS (
-                SELECT DATE(pr.purchased_at) AS day,
-                       SUM(pr.amount_cents) AS purchase_total
-                FROM purchases pr
-                WHERE pr.purchased_at BETWEEN ? AND ?
-                GROUP BY day
-            ),
-            days AS (
-                SELECT day FROM sales
-                UNION
-                SELECT day FROM purchase_totals
+        conn = None
+        try:
+            start, end = self._datetime_bounds_from_date_time(
+                self.profit_from,
+                self.profit_from_time,
+                self.profit_to,
+                self.profit_to_time,
             )
-            SELECT
-                d.day AS day,
-                COALESCE(sales.net_total, 0) AS net_sales,
-                COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
-            FROM days d
-            LEFT JOIN sales ON sales.day = d.day
-            LEFT JOIN purchase_totals ON purchase_totals.day = d.day
-            ORDER BY d.day DESC
-        """
+            conn = get_conn()
+            cur = conn.cursor()
 
-        cur.execute(daily_query, (start, end, start, end))
-        daily_rows = cur.fetchall()
-        daily_payroll_net = staff_service.daily_payroll_expense()
-        month_day_counts: Counter[str] = Counter()
-        for row in daily_rows:
-            day_value = row["day"] or ""
-            if day_value:
-                month_day_counts[day_value[:7]] += 1
+            daily_query = """
+                WITH sales AS (
+                    SELECT DATE(p.paid_at) AS day,
+                           SUM(p.amount_cents) AS net_total
+                    FROM payments p
+                    WHERE p.paid_at BETWEEN ? AND ?
+                    GROUP BY day
+                ),
+                purchase_totals AS (
+                    SELECT DATE(pr.purchased_at) AS day,
+                           SUM(pr.amount_cents) AS purchase_total
+                    FROM purchases pr
+                    WHERE pr.purchased_at BETWEEN ? AND ?
+                    GROUP BY day
+                ),
+                days AS (
+                    SELECT day FROM sales
+                    UNION
+                    SELECT day FROM purchase_totals
+                )
+                SELECT
+                    d.day AS day,
+                    COALESCE(sales.net_total, 0) AS net_sales,
+                    COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
+                FROM days d
+                LEFT JOIN sales ON sales.day = d.day
+                LEFT JOIN purchase_totals ON purchase_totals.day = d.day
+                ORDER BY d.day DESC
+            """
 
-        monthly_query = """
-            WITH sales AS (
-                SELECT strftime('%Y-%m', p.paid_at) AS month,
-                       SUM(p.amount_cents) AS net_total
-                FROM payments p
-                WHERE p.paid_at BETWEEN ? AND ?
-                GROUP BY month
-            ),
-            purchase_totals AS (
-                SELECT strftime('%Y-%m', pr.purchased_at) AS month,
-                       SUM(pr.amount_cents) AS purchase_total
-                FROM purchases pr
-                WHERE pr.purchased_at BETWEEN ? AND ?
-                GROUP BY month
-            ),
-            months AS (
-                SELECT month FROM sales
-                UNION
-                SELECT month FROM purchase_totals
+            cur.execute(daily_query, (start, end, start, end))
+            daily_rows = cur.fetchall()
+            daily_payroll_net = staff_service.daily_payroll_expense()
+            start_label = (start or "").split("T")[0]
+            end_label = (end or "").split("T")[0]
+            self._update_range_strip(self.profit_daily_strip, start_label, end_label, kind="detail")
+            month_day_counts: Counter[str] = Counter()
+            for row in daily_rows:
+                day_value = row["day"] or ""
+                if day_value:
+                    month_day_counts[day_value[:7]] += 1
+
+            monthly_query = """
+                WITH sales AS (
+                    SELECT strftime('%Y-%m', p.paid_at) AS month,
+                           SUM(p.amount_cents) AS net_total
+                    FROM payments p
+                    WHERE p.paid_at BETWEEN ? AND ?
+                    GROUP BY month
+                ),
+                purchase_totals AS (
+                    SELECT strftime('%Y-%m', pr.purchased_at) AS month,
+                           SUM(pr.amount_cents) AS purchase_total
+                    FROM purchases pr
+                    WHERE pr.purchased_at BETWEEN ? AND ?
+                    GROUP BY month
+                ),
+                months AS (
+                    SELECT month FROM sales
+                    UNION
+                    SELECT month FROM purchase_totals
+                )
+                SELECT
+                    m.month AS month,
+                    COALESCE(sales.net_total, 0) AS net_sales,
+                    COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
+                FROM months m
+                LEFT JOIN sales ON sales.month = m.month
+                LEFT JOIN purchase_totals ON purchase_totals.month = m.month
+                WHERE m.month IS NOT NULL
+                ORDER BY m.month DESC
+            """
+
+            cur.execute(monthly_query, (start, end, start, end))
+            monthly_rows = cur.fetchall()
+
+            daily_display = []
+            daily_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
+            for row in daily_rows:
+                day = row["day"] or ""
+                sales_total = int(row["net_sales"] or 0)
+                purchase_total = int(row["purchases_total"] or 0)
+                payroll_deduction = daily_payroll_net if day else 0
+                profit = sales_total - purchase_total - payroll_deduction
+                daily_display.append([
+                    day,
+                    self._money(sales_total),
+                    self._money(purchase_total),
+                    self._money(profit),
+                ])
+                daily_totals["sales"] += sales_total
+                daily_totals["purchases"] += purchase_total
+                daily_totals["profit"] += profit
+                daily_totals["payroll"] += payroll_deduction
+
+            self._populate_table(self.profit_daily_table, daily_display)
+            self.profit_daily_summary.setText(
+                f"صافي المبيعات: {self._money(daily_totals['sales'])} | "
+                f"إجمالي المشتريات: {self._money(daily_totals['purchases'])} | "
+                f"الرواتب اليومية المحتسبة: {self._money(daily_totals['payroll'])} | "
+                f"صافي الربح بعد الرواتب: {self._money(daily_totals['profit'])}"
             )
-            SELECT
-                m.month AS month,
-                COALESCE(sales.net_total, 0) AS net_sales,
-                COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
-            FROM months m
-            LEFT JOIN sales ON sales.month = m.month
-            LEFT JOIN purchase_totals ON purchase_totals.month = m.month
-            WHERE m.month IS NOT NULL
-            ORDER BY m.month DESC
-        """
 
-        cur.execute(monthly_query, (start, end, start, end))
-        monthly_rows = cur.fetchall()
-        conn.close()
+            monthly_display = []
+            monthly_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
+            range_months = [row["month"] for row in monthly_rows if row["month"]]
+            if range_months:
+                self._update_range_strip(
+                    self.profit_monthly_strip,
+                    range_months[-1],
+                    range_months[0],
+                    kind="month",
+                )
+            else:
+                self._update_range_strip(self.profit_monthly_strip, start_label[:7], end_label[:7], kind="month")
+            for row in monthly_rows:
+                month = row["month"] or ""
+                sales_total = int(row["net_sales"] or 0)
+                purchase_total = int(row["purchases_total"] or 0)
+                payroll_days = month_day_counts.get(month, 0)
+                payroll_deduction = daily_payroll_net * payroll_days
+                profit = sales_total - purchase_total - payroll_deduction
+                monthly_display.append([
+                    month,
+                    self._money(sales_total),
+                    self._money(purchase_total),
+                    self._money(profit),
+                ])
+                monthly_totals["sales"] += sales_total
+                monthly_totals["purchases"] += purchase_total
+                monthly_totals["profit"] += profit
+                monthly_totals["payroll"] += payroll_deduction
 
-        daily_display = []
-        daily_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
-        for row in daily_rows:
-            day = row["day"] or ""
-            sales_total = int(row["net_sales"] or 0)
-            purchase_total = int(row["purchases_total"] or 0)
-            payroll_deduction = daily_payroll_net if day else 0
-            profit = sales_total - purchase_total - payroll_deduction
-            daily_display.append([
-                self._thumbnail_cell(day),
-                day,
-                self._money(sales_total),
-                self._money(purchase_total),
-                self._money(profit),
-            ])
-            daily_totals["sales"] += sales_total
-            daily_totals["purchases"] += purchase_total
-            daily_totals["profit"] += profit
-            daily_totals["payroll"] += payroll_deduction
-
-        self._populate_table(self.profit_daily_table, daily_display)
-        self.profit_daily_summary.setText(
-            f"صافي المبيعات: {self._money(daily_totals['sales'])} | "
-            f"إجمالي المشتريات: {self._money(daily_totals['purchases'])} | "
-            f"الرواتب اليومية المحتسبة: {self._money(daily_totals['payroll'])} | "
-            f"صافي الربح بعد الرواتب: {self._money(daily_totals['profit'])}"
-        )
-
-        monthly_display = []
-        monthly_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
-        for row in monthly_rows:
-            month = row["month"] or ""
-            sales_total = int(row["net_sales"] or 0)
-            purchase_total = int(row["purchases_total"] or 0)
-            payroll_days = month_day_counts.get(month, 0)
-            payroll_deduction = daily_payroll_net * payroll_days
-            profit = sales_total - purchase_total - payroll_deduction
-            monthly_display.append([
-                self._thumbnail_cell(month),
-                month,
-                self._money(sales_total),
-                self._money(purchase_total),
-                self._money(profit),
-            ])
-            monthly_totals["sales"] += sales_total
-            monthly_totals["purchases"] += purchase_total
-            monthly_totals["profit"] += profit
-            monthly_totals["payroll"] += payroll_deduction
-
-        self._populate_table(self.profit_monthly_table, monthly_display)
-        self.profit_monthly_summary.setText(
-            f"صافي المبيعات: {self._money(monthly_totals['sales'])} | "
-            f"إجمالي المشتريات: {self._money(monthly_totals['purchases'])} | "
-            f"الرواتب اليومية المحتسبة: {self._money(monthly_totals['payroll'])} | "
-            f"صافي الربح بعد الرواتب: {self._money(monthly_totals['profit'])}"
-        )
+            self._populate_table(self.profit_monthly_table, monthly_display)
+            self.profit_monthly_summary.setText(
+                f"صافي المبيعات: {self._money(monthly_totals['sales'])} | "
+                f"إجمالي المشتريات: {self._money(monthly_totals['purchases'])} | "
+                f"الرواتب اليومية المحتسبة: {self._money(monthly_totals['payroll'])} | "
+                f"صافي الربح بعد الرواتب: {self._money(monthly_totals['profit'])}"
+            )
+        except Exception as exc:
+            self._populate_table(self.profit_daily_table, [])
+            self._populate_table(self.profit_monthly_table, [])
+            self.profit_daily_summary.setText("تعذر تحميل بيانات الأرباح")
+            self.profit_monthly_summary.setText("تعذر تحميل بيانات الأرباح")
+            QMessageBox.warning(self, "تقرير الأرباح", f"حدث خطأ أثناء تحميل التقرير:\n{exc}")
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def _refresh_month_picker_defaults(self):
         month_names = [
@@ -1211,6 +1270,8 @@ class AdminReportsDialog(BigDialog):
 
         payroll_per_day = staff_service.daily_payroll_expense()
         payroll_days = len({row["day"] for row in daily_rows if row["day"]})
+        month_label = f"{year}-{month:02d}"
+        self._update_range_strip(self.monthly_detail_strip, month_label, month_label, kind="day")
 
         table_rows = []
         totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
@@ -1220,7 +1281,6 @@ class AdminReportsDialog(BigDialog):
             purchase_total = int(row["purchases_total"] or 0)
             profit = sales_total - purchase_total - payroll_per_day
             table_rows.append([
-                self._thumbnail_cell(day),
                 day,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -2125,6 +2185,132 @@ class AdminReportsDialog(BigDialog):
 
     def _thumbnail_size(self) -> int:
         return 72
+
+    def _make_date_thumbnail(self, label: str, *, kind: str = "day") -> QPixmap | None:
+        label = (label or "").strip()
+        if not label:
+            return None
+
+        size = self._thumbnail_size()
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        palettes = {
+            "day": ("#FAD8B6", "#E8A86B"),
+            "month": ("#C5E5FF", "#7CB7E3"),
+            "detail": ("#E7D8FF", "#B094F7"),
+        }
+        start, end = palettes.get(kind, palettes["day"])
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(start))
+        painter.drawRoundedRect(0, 0, size - 1, size - 1, 12, 12)
+
+        painter.setBrush(QColor(end))
+        painter.drawRoundedRect(6, 6, size - 13, size - 13, 10, 10)
+
+        text = label
+        if kind == "month" and len(label) >= 7:
+            text = f"{label[5:7]} / {label[:4]}"
+        elif len(label) >= 10:
+            text = f"{label[-2:]}\n{label[5:7]}"
+
+        painter.setPen(QColor("#1B0F08"))
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(11)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect().adjusted(6, 6, -6, -6), Qt.AlignmentFlag.AlignCenter, text)
+
+        painter.setBrush(QColor("#F0C674"))
+        painter.setPen(QColor("#6B4B2A"))
+        painter.drawEllipse(size - 26, size - 26, 20, 20)
+        font.setPointSize(7)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect().adjusted(size - 28, size - 28, -4, -4), Qt.AlignmentFlag.AlignCenter, self.currency[:2])
+        painter.end()
+
+        return pixmap
+
+    def _build_thumb_chip(self, *, kind: str) -> tuple[QFrame, QLabel, QLabel]:
+        chip = QFrame()
+        chip.setStyleSheet(
+            "background: #ffffff; border: 1px solid #e3e3e3; border-radius: 12px;"
+        )
+        layout = QHBoxLayout(chip)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(10)
+
+        icon = QLabel()
+        icon.setFixedSize(self._thumbnail_size(), self._thumbnail_size())
+        icon.setStyleSheet("border-radius: 10px; background: #f7f7f7;")
+        icon.setScaledContents(True)
+        text = QLabel("—")
+        text.setStyleSheet("font-weight:600;")
+
+        layout.addWidget(icon)
+        layout.addWidget(text)
+        layout.addStretch(1)
+
+        chip._thumb_icon = icon
+        chip._thumb_text = text
+        chip._thumb_kind = kind
+        return chip, icon, text
+
+    def _build_range_strip(self, *, kind: str) -> QFrame:
+        panel = QFrame()
+        panel.setStyleSheet(
+            "background: #f6f6f6; border: 1px solid #e6e6e6; border-radius: 14px;"
+        )
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(12)
+
+        start_chip, _, _ = self._build_thumb_chip(kind=kind)
+        end_chip, _, _ = self._build_thumb_chip(kind=kind)
+
+        arrow = QLabel("↔")
+        arrow.setStyleSheet("color: #8a8a8a; font-size:16px; font-weight:600;")
+        arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        layout.addStretch(1)
+        layout.addWidget(start_chip)
+        layout.addWidget(arrow)
+        layout.addWidget(end_chip)
+
+        panel._start_chip = start_chip
+        panel._end_chip = end_chip
+        panel._range_kind = kind
+        return panel
+
+    def _update_range_strip(self, strip: QFrame | None, start_label: str, end_label: str, *, kind: str | None = None):
+        if strip is None:
+            return
+
+        chip_kind = kind or getattr(strip, "_range_kind", "day")
+        self._set_chip_content(getattr(strip, "_start_chip", None), start_label, chip_kind)
+        self._set_chip_content(getattr(strip, "_end_chip", None), end_label, chip_kind)
+
+    def _set_chip_content(self, chip: QFrame | None, label: str, kind: str):
+        if chip is None:
+            return
+
+        clean_label = (label or "—").strip() or "—"
+        icon = getattr(chip, "_thumb_icon", None)
+        text_label = getattr(chip, "_thumb_text", None)
+        if isinstance(icon, QLabel):
+            pix = self._make_date_thumbnail(clean_label, kind=kind)
+            if pix is not None and not pix.isNull():
+                icon.setPixmap(pix)
+                icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            else:
+                icon.clear()
+                icon.setText(clean_label[:3])
+                icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if isinstance(text_label, QLabel):
+            text_label.setText(clean_label)
 
     def _normalize_cell(self, value):
         if isinstance(value, ReportCell):

@@ -145,21 +145,8 @@ class MainWindow(QMainWindow):
         self.act_recovery = QAction(self)
         self.act_recovery.triggered.connect(self._open_recovery_center)
 
-        self._admin_actions = [
-            self.act_manage,
-            self.act_users,
-            self.act_reports,
-            self.act_tables,
-            self.act_purchases,
-            self.act_settings,
-            self.act_recovery,
-            self.act_style_guide,
-        ]
-        for action in self._admin_actions:
-            action.setVisible(self.user.role == "admin")
-            bar.addAction(action)
-        bar.addAction(self.act_inventory)
-        bar.addAction(self.act_reservations)
+        bar.setMovable(False)
+        bar.addSeparator()
 
         # Hotkeys
         QShortcut(QKeySequence("Esc"), self, activated=self._go_back)
@@ -424,6 +411,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(6)
 
         self._nav_buttons: dict[str, QToolButton] = {}
+        self._admin_nav_buttons: list[QToolButton] = []
 
         self._nav_toggle = QToolButton(panel)
         self._nav_toggle.setText("≡")
@@ -454,6 +442,13 @@ class MainWindow(QMainWindow):
                 "admin": False,
             },
             {
+                "key": "manage",
+                "text": texts.get("main.toolbar.manage", "المنتجات"),
+                "icon": QStyle.StandardPixmap.SP_FileDialogDetailedView,
+                "handler": self._open_manage_products,
+                "admin": True,
+            },
+            {
                 "key": "inventory",
                 "text": texts.get("main.toolbar.inventory", "المخزون"),
                 "icon": QStyle.StandardPixmap.SP_DriveHDIcon,
@@ -482,6 +477,13 @@ class MainWindow(QMainWindow):
                 "admin": True,
             },
             {
+                "key": "users",
+                "text": texts.get("main.toolbar.users", "الموظفون"),
+                "icon": QStyle.StandardPixmap.SP_FileDialogNewFolder,
+                "handler": self._open_users,
+                "admin": True,
+            },
+            {
                 "key": "settings",
                 "text": texts.get("main.toolbar.settings", "الإعدادات"),
                 "icon": QStyle.StandardPixmap.SP_FileDialogDetailedView,
@@ -495,11 +497,16 @@ class MainWindow(QMainWindow):
                 "handler": self._open_recovery_center,
                 "admin": True,
             },
+            {
+                "key": "style_guide",
+                "text": texts.get("main.toolbar.styleGuide", "دليل الواجهة"),
+                "icon": QStyle.StandardPixmap.SP_FileDialogListView,
+                "handler": self._open_style_guide,
+                "admin": True,
+            },
         ]
 
         for item in nav_items:
-            if item.get("admin") and self.user.role != "admin":
-                continue
             btn = QToolButton(panel)
             btn.setCheckable(True)
             btn.setIcon(self.style().standardIcon(item["icon"]))
@@ -513,6 +520,9 @@ class MainWindow(QMainWindow):
             btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             btn.setAccessibleName(item["text"])
             self._nav_buttons[item["key"]] = btn
+            if item.get("admin"):
+                self._admin_nav_buttons.append(btn)
+                btn.setVisible(self.user.role == "admin")
             layout.addWidget(btn, 0)
 
         layout.addStretch(1)
@@ -953,8 +963,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 self._active_session_id = None
             self._apply_window_title()
-            for action in self._admin_actions:
-                action.setVisible(self.user.role == "admin")
+            is_admin = self.user.role == "admin"
+            for btn in self._admin_nav_buttons:
+                btn.setVisible(is_admin)
             self._session_started = datetime.utcnow()
             self._update_session_timer()
             if self.current_table:

@@ -1011,47 +1011,45 @@ class AdminReportsDialog(BigDialog):
             conn = get_conn()
             cur = conn.cursor()
 
-            daily_query = """
-                WITH sales AS (
-                    SELECT DATE(p.paid_at) AS day,
-                           SUM(p.amount_cents) AS net_total
-                    FROM payments p
-                    WHERE p.paid_at BETWEEN ? AND ?
-                    GROUP BY day
-                ),
-                purchase_totals AS (
-                    SELECT DATE(pr.purchased_at) AS day,
-                           SUM(pr.amount_cents) AS purchase_total
-                    FROM purchases pr
-                    WHERE pr.purchased_at BETWEEN ? AND ?
-                    GROUP BY day
-                ),
-                days AS (
-                    SELECT day FROM sales
-                    UNION
-                    SELECT day FROM purchase_totals
-                )
-                SELECT
-                    d.day AS day,
-                    COALESCE(sales.net_total, 0) AS net_sales,
-                    COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
-                FROM days d
-                LEFT JOIN sales ON sales.day = d.day
-                LEFT JOIN purchase_totals ON purchase_totals.day = d.day
-                ORDER BY d.day DESC
-            """
+            daily_query = (
+                "WITH sales AS ("
+                "SELECT DATE(p.paid_at) AS day, SUM(p.amount_cents) AS net_total FROM payments p "
+                "WHERE p.paid_at BETWEEN ? AND ? GROUP BY day"  # noqa: E501
+                "), purchase_totals AS ("
+                "SELECT DATE(pr.purchased_at) AS day, SUM(pr.amount_cents) AS purchase_total FROM purchases pr "
+                "WHERE pr.purchased_at BETWEEN ? AND ? GROUP BY day"  # noqa: E501
+                "), days AS (SELECT day FROM sales UNION SELECT day FROM purchase_totals) "
+                "SELECT d.day AS day, COALESCE(sales.net_total, 0) AS net_sales, "
+                "COALESCE(purchase_totals.purchase_total, 0) AS purchases_total FROM days d "
+                "LEFT JOIN sales ON sales.day = d.day LEFT JOIN purchase_totals ON purchase_totals.day = d.day "
+                "ORDER BY d.day DESC"
+            )
 
-        cur.execute(daily_query, (start, end, start, end))
-        daily_rows = cur.fetchall()
-        daily_payroll_net = staff_service.daily_payroll_expense()
-        start_label = (start or "").split("T")[0]
-        end_label = (end or "").split("T")[0]
-        self._update_range_strip(self.profit_daily_strip, start_label, end_label, kind="detail")
-        month_day_counts: Counter[str] = Counter()
-        for row in daily_rows:
-            day_value = row["day"] or ""
-            if day_value:
-                month_day_counts[day_value[:7]] += 1
+            monthly_query = (
+                "WITH sales AS ("
+                "SELECT strftime('%Y-%m', paid_at) AS month, SUM(amount_cents) AS net_total FROM payments "
+                "WHERE paid_at BETWEEN ? AND ? GROUP BY month"  # noqa: E501
+                "), purchase_totals AS ("
+                "SELECT strftime('%Y-%m', purchased_at) AS month, SUM(amount_cents) AS purchase_total FROM purchases "
+                "WHERE purchased_at BETWEEN ? AND ? GROUP BY month"  # noqa: E501
+                "), months AS (SELECT month FROM sales UNION SELECT month FROM purchase_totals) "
+                "SELECT m.month AS month, COALESCE(sales.net_total, 0) AS net_sales, "
+                "COALESCE(purchase_totals.purchase_total, 0) AS purchases_total FROM months m "
+                "LEFT JOIN sales ON sales.month = m.month LEFT JOIN purchase_totals ON purchase_totals.month = m.month "
+                "WHERE m.month IS NOT NULL ORDER BY m.month DESC"
+            )
+
+            cur.execute(daily_query, (start, end, start, end))
+            daily_rows = cur.fetchall()
+            daily_payroll_net = staff_service.daily_payroll_expense()
+            start_label = (start or "").split("T")[0]
+            end_label = (end or "").split("T")[0]
+            self._update_range_strip(self.profit_daily_strip, start_label, end_label, kind="detail")
+            month_day_counts: Counter[str] = Counter()
+            for row in daily_rows:
+                day_value = row["day"] or ""
+                if day_value:
+                    month_day_counts[day_value[:7]] += 1
 
             cur.execute(monthly_query, (start, end, start, end))
             monthly_rows = cur.fetchall()
@@ -1082,89 +1080,83 @@ class AdminReportsDialog(BigDialog):
                 f"الرواتب اليومية المحتسبة: {self._money(daily_totals['payroll'])} | "
                 f"صافي الربح بعد الرواتب: {self._money(daily_totals['profit'])}"
             )
-            SELECT
-                m.month AS month,
-                COALESCE(sales.net_total, 0) AS net_sales,
-                COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
-            FROM months m
-            LEFT JOIN sales ON sales.month = m.month
-            LEFT JOIN purchase_totals ON purchase_totals.month = m.month
-            WHERE m.month IS NOT NULL
-            ORDER BY m.month DESC
-        """
 
-        cur.execute(monthly_query, (start, end, start, end))
-        monthly_rows = cur.fetchall()
-        conn.close()
+            cur.execute(monthly_query, (start, end, start, end))
+            monthly_rows = cur.fetchall()
 
-        daily_display = []
-        daily_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
-        for row in daily_rows:
-            day = row["day"] or ""
-            sales_total = int(row["net_sales"] or 0)
-            purchase_total = int(row["purchases_total"] or 0)
-            payroll_deduction = daily_payroll_net if day else 0
-            profit = sales_total - purchase_total - payroll_deduction
-            day_thumb = self._make_date_thumbnail(day, kind="detail")
-            daily_display.append([
-                self._thumbnail_cell(day, day_thumb),
-                day,
-                self._money(sales_total),
-                self._money(purchase_total),
-                self._money(profit),
-            ])
-            daily_totals["sales"] += sales_total
-            daily_totals["purchases"] += purchase_total
-            daily_totals["profit"] += profit
-            daily_totals["payroll"] += payroll_deduction
+            daily_display = []
+            daily_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
+            for row in daily_rows:
+                day = row["day"] or ""
+                sales_total = int(row["net_sales"] or 0)
+                purchase_total = int(row["purchases_total"] or 0)
+                payroll_deduction = daily_payroll_net if day else 0
+                profit = sales_total - purchase_total - payroll_deduction
+                day_thumb = self._make_date_thumbnail(day, kind="detail")
+                daily_display.append([
+                    self._thumbnail_cell(day, day_thumb),
+                    day,
+                    self._money(sales_total),
+                    self._money(purchase_total),
+                    self._money(profit),
+                ])
+                daily_totals["sales"] += sales_total
+                daily_totals["purchases"] += purchase_total
+                daily_totals["profit"] += profit
+                daily_totals["payroll"] += payroll_deduction
 
-        self._populate_table(self.profit_daily_table, daily_display)
-        self.profit_daily_summary.setText(
-            f"صافي المبيعات: {self._money(daily_totals['sales'])} | "
-            f"إجمالي المشتريات: {self._money(daily_totals['purchases'])} | "
-            f"الرواتب اليومية المحتسبة: {self._money(daily_totals['payroll'])} | "
-            f"صافي الربح بعد الرواتب: {self._money(daily_totals['profit'])}"
-        )
-
-        monthly_display = []
-        monthly_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
-        range_months = [row["month"] for row in monthly_rows if row["month"]]
-        if range_months:
-            self._update_range_strip(
-                self.profit_monthly_strip,
-                range_months[-1],
-                range_months[0],
-                kind="month",
+            self._populate_table(self.profit_daily_table, daily_display)
+            self.profit_daily_summary.setText(
+                f"صافي المبيعات: {self._money(daily_totals['sales'])} | "
+                f"إجمالي المشتريات: {self._money(daily_totals['purchases'])} | "
+                f"الرواتب اليومية المحتسبة: {self._money(daily_totals['payroll'])} | "
+                f"صافي الربح بعد الرواتب: {self._money(daily_totals['profit'])}"
             )
-        else:
-            self._update_range_strip(self.profit_monthly_strip, start_label[:7], end_label[:7], kind="month")
-        for row in monthly_rows:
-            month = row["month"] or ""
-            sales_total = int(row["net_sales"] or 0)
-            purchase_total = int(row["purchases_total"] or 0)
-            payroll_days = month_day_counts.get(month, 0)
-            payroll_deduction = daily_payroll_net * payroll_days
-            profit = sales_total - purchase_total - payroll_deduction
-            month_thumb = self._make_date_thumbnail(month, kind="month")
-            monthly_display.append([
-                self._thumbnail_cell(month, month_thumb),
-                month,
-                self._money(sales_total),
-                self._money(purchase_total),
-                self._money(profit),
-            ])
-            monthly_totals["sales"] += sales_total
-            monthly_totals["purchases"] += purchase_total
-            monthly_totals["profit"] += profit
-            monthly_totals["payroll"] += payroll_deduction
 
-        self._populate_table(self.profit_monthly_table, monthly_display)
-        self.profit_monthly_summary.setText(
-            f"صافي المبيعات: {self._money(monthly_totals['sales'])} | "
-            f"إجمالي المشتريات: {self._money(monthly_totals['purchases'])} | "
-            f"الرواتب اليومية المحتسبة: {self._money(monthly_totals['payroll'])} | "
-            f"صافي الربح بعد الرواتب: {self._money(monthly_totals['profit'])}"
-        )
+            monthly_display = []
+            monthly_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
+            range_months = [row["month"] for row in monthly_rows if row["month"]]
+            if range_months:
+                self._update_range_strip(
+                    self.profit_monthly_strip,
+                    range_months[-1],
+                    range_months[0],
+                    kind="month",
+                )
+            else:
+                self._update_range_strip(self.profit_monthly_strip, start_label[:7], end_label[:7], kind="month")
+            for row in monthly_rows:
+                month = row["month"] or ""
+                sales_total = int(row["net_sales"] or 0)
+                purchase_total = int(row["purchases_total"] or 0)
+                payroll_days = month_day_counts.get(month, 0)
+                payroll_deduction = daily_payroll_net * payroll_days
+                profit = sales_total - purchase_total - payroll_deduction
+                month_thumb = self._make_date_thumbnail(month, kind="month")
+                monthly_display.append([
+                    self._thumbnail_cell(month, month_thumb),
+                    month,
+                    self._money(sales_total),
+                    self._money(purchase_total),
+                    self._money(profit),
+                ])
+                monthly_totals["sales"] += sales_total
+                monthly_totals["purchases"] += purchase_total
+                monthly_totals["profit"] += profit
+                monthly_totals["payroll"] += payroll_deduction
+
+            self._populate_table(self.profit_monthly_table, monthly_display)
+            self.profit_monthly_summary.setText(
+                f"صافي المبيعات: {self._money(monthly_totals['sales'])} | "
+                f"إجمالي المشتريات: {self._money(monthly_totals['purchases'])} | "
+                f"الرواتب اليومية المحتسبة: {self._money(monthly_totals['payroll'])} | "
+                f"صافي الربح بعد الرواتب: {self._money(monthly_totals['profit'])}"
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "تقرير الأرباح", f"تعذر تحميل التقرير:\n{exc}")
+        finally:
+            if conn:
+                conn.close()
 
     def _refresh_month_picker_defaults(self):
         month_names = [
@@ -1197,14 +1189,10 @@ class AdminReportsDialog(BigDialog):
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            """
-            WITH years AS (
-                SELECT strftime('%Y', paid_at) AS y FROM payments
-                UNION ALL
-                SELECT strftime('%Y', purchased_at) AS y FROM purchases
-            )
-            SELECT DISTINCT y FROM years WHERE y IS NOT NULL ORDER BY y DESC
-            """
+            "WITH years AS ("
+            "SELECT strftime('%Y', paid_at) AS y FROM payments "
+            "UNION ALL SELECT strftime('%Y', purchased_at) AS y FROM purchases"
+            ") SELECT DISTINCT y FROM years WHERE y IS NOT NULL ORDER BY y DESC"
         )
         years = [row[0] for row in cur.fetchall() if row[0]]
         conn.close()
@@ -1227,33 +1215,17 @@ class AdminReportsDialog(BigDialog):
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            """
-            WITH sales AS (
-                SELECT DATE(p.paid_at) AS day, SUM(p.amount_cents) AS net_total
-                FROM payments p
-                WHERE p.paid_at BETWEEN ? AND ?
-                GROUP BY day
-            ),
-            purchase_totals AS (
-                SELECT DATE(pr.purchased_at) AS day, SUM(pr.amount_cents) AS purchase_total
-                FROM purchases pr
-                WHERE pr.purchased_at BETWEEN ? AND ?
-                GROUP BY day
-            ),
-            days AS (
-                SELECT day FROM sales
-                UNION
-                SELECT day FROM purchase_totals
-            )
-            SELECT
-                d.day AS day,
-                COALESCE(sales.net_total, 0) AS net_sales,
-                COALESCE(purchase_totals.purchase_total, 0) AS purchases_total
-            FROM days d
-            LEFT JOIN sales ON sales.day = d.day
-            LEFT JOIN purchase_totals ON purchase_totals.day = d.day
-            ORDER BY d.day
-            """,
+            "WITH sales AS ("
+            "SELECT DATE(p.paid_at) AS day, SUM(p.amount_cents) AS net_total FROM payments p "
+            "WHERE p.paid_at BETWEEN ? AND ? GROUP BY day"  # noqa: E501
+            "), purchase_totals AS ("
+            "SELECT DATE(pr.purchased_at) AS day, SUM(pr.amount_cents) AS purchase_total FROM purchases pr "
+            "WHERE pr.purchased_at BETWEEN ? AND ? GROUP BY day"  # noqa: E501
+            "), days AS (SELECT day FROM sales UNION SELECT day FROM purchase_totals) "
+            "SELECT d.day AS day, COALESCE(sales.net_total, 0) AS net_sales, "
+            "COALESCE(purchase_totals.purchase_total, 0) AS purchases_total FROM days d "
+            "LEFT JOIN sales ON sales.day = d.day LEFT JOIN purchase_totals ON purchase_totals.day = d.day "
+            "ORDER BY d.day",
             (start_iso, end_iso, start_iso, end_iso),
         )
         daily_rows = cur.fetchall()
@@ -1316,11 +1288,10 @@ class AdminReportsDialog(BigDialog):
     def _load_price_log(self):
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("""
-            SELECT ts, username, entity_name, old_value, new_value, extra
-            FROM audit_log WHERE action='price_change'
-            ORDER BY id DESC LIMIT 200
-        """)
+        cur.execute(
+            "SELECT ts, username, entity_name, old_value, new_value, extra "
+            "FROM audit_log WHERE action='price_change' ORDER BY id DESC LIMIT 200"
+        )
         rows = cur.fetchall()
         conn.close()
         rows_list = [[r["ts"], r["username"], r["entity_name"], r["old_value"], r["new_value"], r["extra"]] for r in
@@ -1984,10 +1955,11 @@ class AdminReportsDialog(BigDialog):
         start, end = self._datetime_bounds(self.stakeholder_from, self.stakeholder_to)
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("""
-            SELECT ts, username, action, entity_type, entity_name, old_value, new_value, extra
-            FROM audit_log WHERE ts BETWEEN ? AND ? ORDER BY ts
-        """, (start, end))
+        cur.execute(
+            "SELECT ts, username, action, entity_type, entity_name, old_value, new_value, extra "
+            "FROM audit_log WHERE ts BETWEEN ? AND ? ORDER BY ts",
+            (start, end),
+        )
         rows = cur.fetchall()
         conn.close()
 

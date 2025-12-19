@@ -9,16 +9,18 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QAbstractItemView,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPalette
 
-from .tokens import COLORS, RADII, SPACING, typography_rule
+from .tokens import COLORS, RADII, SPACING, SHADOWS, typography_rule
 
 
 class DSButton(QPushButton):
@@ -61,16 +63,31 @@ class DSTable(QTableWidget):
         self.setAlternatingRowColors(True)
         self.verticalHeader().setVisible(False)
         self.horizontalHeader().setStretchLastSection(True)
+        self.horizontalHeader().setHighlightSections(False)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSortingEnabled(True)
+        self._column_alignments: list[Qt.AlignmentFlag | None] = []
 
     def set_headers(self, labels: list[str]):
         self.setColumnCount(len(labels))
         self.setHorizontalHeaderLabels(labels)
+
+    def set_column_alignments(self, alignments: list[Qt.AlignmentFlag | None]):
+        self._column_alignments = alignments
 
     def add_row(self, values: list[str]):
         row = self.rowCount()
         self.insertRow(row)
         for col, value in enumerate(values):
             self.setItem(row, col, QTableWidgetItem(value))
+
+    def setItem(self, row: int, column: int, item: QTableWidgetItem) -> None:  # noqa: N802 (Qt override)
+        if self._column_alignments and column < len(self._column_alignments):
+            alignment = self._column_alignments[column]
+            if alignment:
+                item.setTextAlignment(alignment)
+        super().setItem(row, column, item)
 
 
 class DSAlert(QFrame):
@@ -132,6 +149,42 @@ class TokenDocBlock(QFrame):
         body_label.setWordWrap(True)
         body_label.setProperty("data-typo", "body")
         layout.addWidget(body_label)
+
+
+class KpiCard(QFrame):
+    """Small pill-like summary card used for KPIs and totals."""
+
+    def __init__(self, icon: str, title: str, value: str, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("KpiCard")
+        root = QHBoxLayout(self)
+        root.setContentsMargins(SPACING.md, SPACING.md, SPACING.md, SPACING.md)
+        root.setSpacing(SPACING.sm)
+
+        self.icon_label = QLabel(icon)
+        self.icon_label.setFixedWidth(28)
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_label.setProperty("data-typo", "title")
+
+        text_box = QVBoxLayout()
+        text_box.setContentsMargins(0, 0, 0, 0)
+        text_box.setSpacing(2)
+
+        self.title_label = QLabel(title)
+        self.title_label.setProperty("data-typo", "caption")
+        self.title_label.setStyleSheet(f"color: {COLORS.text_muted};")
+
+        self.value_label = QLabel(value)
+        self.value_label.setProperty("data-typo", "title")
+
+        text_box.addWidget(self.title_label)
+        text_box.addWidget(self.value_label)
+
+        root.addWidget(self.icon_label)
+        root.addLayout(text_box, 1)
+
+    def set_value(self, value: str) -> None:
+        self.value_label.setText(value)
 
 
 # Utility helpers -----------------------------------------------------------
@@ -219,6 +272,20 @@ QTableWidget#DSTable {{
     gridline-color: rgba(0,0,0,0.08);
     {typography_rule("body")}
 }}
+QTableWidget#DSTable::item {{
+    padding: {SPACING.xs}px;
+}}
+QTableWidget#DSTable::item:selected {{
+    background: rgba(212,160,94,0.35);
+    color: #2A170C;
+}}
+QTableWidget#DSTable::item:hover:!active {{
+    background: rgba(212,160,94,0.14);
+}}
+QTableCornerButton::section {{
+    background-color: rgba(0,0,0,0.08);
+    border: none;
+}}
 QHeaderView::section {{
     background-color: rgba(0,0,0,0.08);
     color: #2A170C;
@@ -226,7 +293,12 @@ QHeaderView::section {{
     border: none;
     {typography_rule("caption")}
 }}
-QTableWidget#DSTable::item:selected {{ background: rgba(212,160,94,0.35); color: #2A170C; }}
+QHeaderView::section:horizontal {{
+    border-bottom: 2px solid rgba(0,0,0,0.12);
+}}
+QHeaderView::section:pressed {{
+    background-color: rgba(0,0,0,0.14);
+}}
 
 QDialog#DSModal {{
     background-color: {COLORS.surface_muted};
@@ -237,6 +309,12 @@ QFrame#TokenDocBlock {{
     border-radius: {RADII.lg}px;
     border: 1px solid {COLORS.border};
     background-color: {COLORS.surface_alt};
+}}
+QFrame#KpiCard {{
+    border-radius: {RADII.lg}px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background-color: rgba(255,255,255,0.06);
+    box-shadow: {SHADOWS.soft};
 }}
 QFrame#SectionCard {{
     border-radius: {RADII.lg}px;

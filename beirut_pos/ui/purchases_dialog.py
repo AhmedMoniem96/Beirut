@@ -283,7 +283,7 @@ class PurchasesDialog(BigDialog):
 
     def _set_row_values(self, row: int, record: purchases.PurchaseRecord) -> None:
         values = (
-            record.purchased_at.strftime("%Y-%m-%d %H:%M"),
+            record.purchased_at.strftime("%Y-%m-%d %I:%M %p"),
             record.supplier,
             record.invoice_no,
             format_pounds(record.amount_pounds),

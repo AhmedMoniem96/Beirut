@@ -38,7 +38,7 @@ def _ensure_schema_backup() -> None:
     if _SCHEMA_BACKUP_CREATED or not DB_PATH.exists():
         return
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%I%M%S%p")
     backup_name = f"{DB_PATH.stem}.{timestamp}.bak"
     backup_path = DATA_DIR / backup_name
     try:
@@ -329,7 +329,7 @@ def safe_migrations() -> None:
 def _backup_database() -> None:
     if not DB_PATH.exists():
         return
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%I%M%S%p")
     target = DATA_DIR / f"{DB_PATH.stem}-{timestamp}.bak"
     try:
         shutil.copy2(DB_PATH, target)

@@ -12,7 +12,7 @@ from ..utils.currency import format_pounds
 def _format_dt(value: datetime | None) -> str:
     if not isinstance(value, datetime):
         return "—"
-    return value.strftime("%Y-%m-%d %H:%M")
+    return value.strftime("%Y-%m-%d %I:%M %p")
 
 
 def _format_duration(seconds: int) -> str:

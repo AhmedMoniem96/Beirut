@@ -131,7 +131,7 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(QLabel("الساعة:"))
 
         self.daily_from_time = QTimeEdit(QTime(0, 0))
-        self.daily_from_time.setDisplayFormat("HH:mm")
+        self.daily_from_time.setDisplayFormat("hh:mm AP")
         self.daily_from_time.setMinimumWidth(90)
         self.daily_from_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_from_time)
@@ -147,7 +147,7 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(QLabel("الساعة:"))
 
         self.daily_to_time = QTimeEdit(QTime(23, 59))
-        self.daily_to_time.setDisplayFormat("HH:mm")
+        self.daily_to_time.setDisplayFormat("hh:mm AP")
         self.daily_to_time.setMinimumWidth(90)
         self.daily_to_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_to_time)
@@ -278,7 +278,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.order_items_from_time = QTimeEdit(QTime(0, 0))
-        self.order_items_from_time.setDisplayFormat("HH:mm")
+        self.order_items_from_time.setDisplayFormat("hh:mm AP")
         self.order_items_from_time.setMinimumWidth(90)
         controls.addWidget(self.order_items_from_time)
 
@@ -290,7 +290,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.order_items_to_time = QTimeEdit(QTime(23, 59))
-        self.order_items_to_time.setDisplayFormat("HH:mm")
+        self.order_items_to_time.setDisplayFormat("hh:mm AP")
         self.order_items_to_time.setMinimumWidth(90)
         controls.addWidget(self.order_items_to_time)
 
@@ -366,8 +366,8 @@ class AdminReportsDialog(BigDialog):
                     row["product_name"] or "—",
                     str(row["order_id"] or ""),
                     (row["table_code"] or "").strip(),
-                    opened_dt.strftime("%H:%M") if opened_dt else "",
-                    paid_dt.strftime("%H:%M") if paid_dt else "",
+                    opened_dt.strftime("%I:%M %p") if opened_dt else "",
+                    paid_dt.strftime("%I:%M %p") if paid_dt else "",
                     self._format_qty(qty),
                     self._money(price),
                     self._money(value),
@@ -412,7 +412,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.cashier_from_time = QTimeEdit(QTime(0, 0))
-        self.cashier_from_time.setDisplayFormat("HH:mm")
+        self.cashier_from_time.setDisplayFormat("hh:mm AP")
         self.cashier_from_time.setMinimumWidth(90)
         self.cashier_from_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_from_time)
@@ -426,7 +426,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.cashier_to_time = QTimeEdit(QTime(23, 59))
-        self.cashier_to_time.setDisplayFormat("HH:mm")
+        self.cashier_to_time.setDisplayFormat("hh:mm AP")
         self.cashier_to_time.setMinimumWidth(90)
         self.cashier_to_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_to_time)
@@ -581,7 +581,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.products_from_time = QTimeEdit(QTime(0, 0))
-        self.products_from_time.setDisplayFormat("HH:mm")
+        self.products_from_time.setDisplayFormat("hh:mm AP")
         self.products_from_time.setMinimumWidth(90)
         controls.addWidget(self.products_from_time)
 
@@ -592,7 +592,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.products_to_time = QTimeEdit(QTime(23, 59))
-        self.products_to_time.setDisplayFormat("HH:mm")
+        self.products_to_time.setDisplayFormat("hh:mm AP")
         self.products_to_time.setMinimumWidth(90)
         controls.addWidget(self.products_to_time)
 
@@ -677,7 +677,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.discounts_from_time = QTimeEdit(QTime(0, 0))
-        self.discounts_from_time.setDisplayFormat("HH:mm")
+        self.discounts_from_time.setDisplayFormat("hh:mm AP")
         self.discounts_from_time.setMinimumWidth(90)
         controls.addWidget(self.discounts_from_time)
 
@@ -689,7 +689,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.discounts_to_time = QTimeEdit(QTime(23, 59))
-        self.discounts_to_time.setDisplayFormat("HH:mm")
+        self.discounts_to_time.setDisplayFormat("hh:mm AP")
         self.discounts_to_time.setMinimumWidth(90)
         controls.addWidget(self.discounts_to_time)
 
@@ -778,7 +778,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.purchases_from_time = QTimeEdit(QTime(0, 0))
-        self.purchases_from_time.setDisplayFormat("HH:mm")
+        self.purchases_from_time.setDisplayFormat("hh:mm AP")
         self.purchases_from_time.setMinimumWidth(90)
         controls.addWidget(self.purchases_from_time)
 
@@ -790,7 +790,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.purchases_to_time = QTimeEdit(QTime(23, 59))
-        self.purchases_to_time.setDisplayFormat("HH:mm")
+        self.purchases_to_time.setDisplayFormat("hh:mm AP")
         self.purchases_to_time.setMinimumWidth(90)
         controls.addWidget(self.purchases_to_time)
 
@@ -882,7 +882,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.profit_from_time = QTimeEdit(QTime(0, 0))
-        self.profit_from_time.setDisplayFormat("HH:mm")
+        self.profit_from_time.setDisplayFormat("hh:mm AP")
         self.profit_from_time.setMinimumWidth(90)
         controls.addWidget(self.profit_from_time)
 
@@ -895,7 +895,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.profit_to_time = QTimeEdit(QTime(23, 59))
-        self.profit_to_time.setDisplayFormat("HH:mm")
+        self.profit_to_time.setDisplayFormat("hh:mm AP")
         self.profit_to_time.setMinimumWidth(90)
         controls.addWidget(self.profit_to_time)
 
@@ -1298,13 +1298,13 @@ class AdminReportsDialog(BigDialog):
         start_dt.setDate(QDate.currentDate().addDays(-6))
         start_dt.setTime(QTime(0, 0))
         self.deleted_items_from = QDateTimeEdit(start_dt)
-        self.deleted_items_from.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.deleted_items_from.setDisplayFormat("yyyy-MM-dd hh:mm AP")
         self.deleted_items_from.setCalendarPopup(True)
         controls.addWidget(self.deleted_items_from)
 
         controls.addWidget(QLabel("إلى:"))
         self.deleted_items_to = QDateTimeEdit(QDateTime.currentDateTime())
-        self.deleted_items_to.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.deleted_items_to.setDisplayFormat("yyyy-MM-dd hh:mm AP")
         self.deleted_items_to.setCalendarPopup(True)
         controls.addWidget(self.deleted_items_to)
 
@@ -1486,7 +1486,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.attendance_from_time = QTimeEdit(QTime(0, 0))
-        self.attendance_from_time.setDisplayFormat("HH:mm")
+        self.attendance_from_time.setDisplayFormat("hh:mm AP")
         self.attendance_from_time.setMinimumWidth(90)
         controls.addWidget(self.attendance_from_time)
 
@@ -1498,7 +1498,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.attendance_to_time = QTimeEdit(QTime(23, 59))
-        self.attendance_to_time.setDisplayFormat("HH:mm")
+        self.attendance_to_time.setDisplayFormat("hh:mm AP")
         self.attendance_to_time.setMinimumWidth(90)
         controls.addWidget(self.attendance_to_time)
 
@@ -1583,7 +1583,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.shift_from_time = QTimeEdit(QTime(0, 0))
-        self.shift_from_time.setDisplayFormat("HH:mm")
+        self.shift_from_time.setDisplayFormat("hh:mm AP")
         self.shift_from_time.setMinimumWidth(90)
         controls.addWidget(self.shift_from_time)
 
@@ -1594,7 +1594,7 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
         self.shift_to_time = QTimeEdit(QTime(23, 59))
-        self.shift_to_time.setDisplayFormat("HH:mm")
+        self.shift_to_time.setDisplayFormat("hh:mm AP")
         self.shift_to_time.setMinimumWidth(90)
         controls.addWidget(self.shift_to_time)
 
@@ -1682,8 +1682,8 @@ class AdminReportsDialog(BigDialog):
 
             rows.append([
                 username,
-                session_start.strftime("%Y-%m-%d %H:%M"),
-                session_end.strftime("%Y-%m-%d %H:%M"),
+                session_start.strftime("%Y-%m-%d %I:%M %p"),
+                session_end.strftime("%Y-%m-%d %I:%M %p"),
                 self._format_duration(duration),
                 str(metrics.get("orders_opened", 0)),
                 str(metrics.get("orders_closed", 0)),
@@ -1807,13 +1807,13 @@ class AdminReportsDialog(BigDialog):
         start_dt.setDate(QDate.currentDate().addDays(-6))
         start_dt.setTime(QTime(0, 0))
         self.payroll_history_from = QDateTimeEdit(start_dt)
-        self.payroll_history_from.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.payroll_history_from.setDisplayFormat("yyyy-MM-dd hh:mm AP")
         self.payroll_history_from.setCalendarPopup(True)
         controls.addWidget(self.payroll_history_from)
 
         controls.addWidget(QLabel("إلى:"))
         self.payroll_history_to = QDateTimeEdit(QDateTime.currentDateTime())
-        self.payroll_history_to.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.payroll_history_to.setDisplayFormat("yyyy-MM-dd hh:mm AP")
         self.payroll_history_to.setCalendarPopup(True)
         controls.addWidget(self.payroll_history_to)
 
@@ -1904,13 +1904,13 @@ class AdminReportsDialog(BigDialog):
         start_dt = QDateTime.currentDateTime()
         start_dt.setTime(QTime(0, 0))
         self.stakeholder_from = QDateTimeEdit(start_dt)
-        self.stakeholder_from.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.stakeholder_from.setDisplayFormat("yyyy-MM-dd hh:mm AP")
         self.stakeholder_from.setCalendarPopup(True)
         controls.addWidget(self.stakeholder_from)
 
         controls.addWidget(QLabel("إلى:"))
         self.stakeholder_to = QDateTimeEdit(QDateTime.currentDateTime())
-        self.stakeholder_to.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.stakeholder_to.setDisplayFormat("yyyy-MM-dd hh:mm AP")
         self.stakeholder_to.setCalendarPopup(True)
         controls.addWidget(self.stakeholder_to)
 
@@ -1954,13 +1954,13 @@ class AdminReportsDialog(BigDialog):
 
         layout.addWidget(QLabel("حذف البيانات من:"))
         self.cleanup_from = QDateTimeEdit(QDateTime.currentDateTime().addDays(-30))
-        self.cleanup_from.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.cleanup_from.setDisplayFormat("yyyy-MM-dd hh:mm AP")
         self.cleanup_from.setCalendarPopup(True)
         layout.addWidget(self.cleanup_from)
 
         layout.addWidget(QLabel("إلى:"))
         self.cleanup_to = QDateTimeEdit(QDateTime.currentDateTime())
-        self.cleanup_to.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.cleanup_to.setDisplayFormat("yyyy-MM-dd hh:mm AP")
         self.cleanup_to.setCalendarPopup(True)
         layout.addWidget(self.cleanup_to)
 
@@ -2246,7 +2246,7 @@ class AdminReportsDialog(BigDialog):
     def _export_table(self, table: QTableWidget, default_name: str) -> None:
         """Export table to Excel with timestamped filename."""
         # Generate filename with current date and time
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d_%I-%M-%S_%p")
         suggested_filename = f"{default_name}_{timestamp}.xlsx"
 
         path, _ = QFileDialog.getSaveFileName(

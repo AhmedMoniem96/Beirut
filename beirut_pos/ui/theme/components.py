@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QColor, QPalette
 
 from .tokens import COLORS, RADII, SPACING, SHADOWS, typography_rule

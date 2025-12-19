@@ -1040,16 +1040,46 @@ class AdminReportsDialog(BigDialog):
             cur.execute(daily_query, (start, end, start, end))
             daily_rows = cur.fetchall()
             daily_payroll_net = staff_service.daily_payroll_expense()
-
             start_label = (start or "").split("T")[0]
             end_label = (end or "").split("T")[0]
             self._update_range_strip(self.profit_daily_strip, start_label, end_label, kind="detail")
-
             month_day_counts: Counter[str] = Counter()
             for row in daily_rows:
                 day_value = row["day"] or ""
                 if day_value:
                     month_day_counts[day_value[:7]] += 1
+
+            cur.execute(monthly_query, (start, end, start, end))
+            monthly_rows = cur.fetchall()
+
+            daily_display = []
+            daily_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
+            for row in daily_rows:
+                day = row["day"] or ""
+                sales_total = int(row["net_sales"] or 0)
+                purchase_total = int(row["purchases_total"] or 0)
+                payroll_deduction = daily_payroll_net if day else 0
+                profit = sales_total - purchase_total - payroll_deduction
+                day_thumb = self._make_date_thumbnail(day, kind="detail")
+                daily_display.append([
+                    self._thumbnail_cell(day, day_thumb),
+                    day,
+                    self._money(sales_total),
+                    self._money(purchase_total),
+                    self._money(profit),
+                ])
+                daily_totals["sales"] += sales_total
+                daily_totals["purchases"] += purchase_total
+                daily_totals["profit"] += profit
+                daily_totals["payroll"] += payroll_deduction
+
+            self._populate_table(self.profit_daily_table, daily_display)
+            self.profit_daily_summary.setText(
+                f"صافي المبيعات: {self._money(daily_totals['sales'])} | "
+                f"إجمالي المشتريات: {self._money(daily_totals['purchases'])} | "
+                f"الرواتب اليومية المحتسبة: {self._money(daily_totals['payroll'])} | "
+                f"صافي الربح بعد الرواتب: {self._money(daily_totals['profit'])}"
+            )
 
             cur.execute(monthly_query, (start, end, start, end))
             monthly_rows = cur.fetchall()

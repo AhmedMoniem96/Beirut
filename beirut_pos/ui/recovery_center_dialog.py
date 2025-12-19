@@ -97,7 +97,7 @@ class RecoveryCenterDialog(BigDialog):
         rows: Iterable[BackupMetadata] = list_backup_metadata(limit=12)
         for meta in rows:
             item = QTreeWidgetItem()
-            item.setText(0, meta.created_at.strftime("%Y-%m-%d %H:%M"))
+            item.setText(0, meta.created_at.strftime("%Y-%m-%d %I:%M %p"))
             item.setText(1, meta.human_size)
             item.setText(2, str(meta.path))
             item.setData(0, Qt.ItemDataRole.UserRole, str(meta.path))

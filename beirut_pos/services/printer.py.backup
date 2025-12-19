@@ -169,7 +169,7 @@ def _build_receipt_lines(
     total: int,
     cashier: str,
 ) -> List[str]:
-    timestamp = datetime.now().strftime("%Y/%m/%d %H:%M")
+    timestamp = datetime.now().strftime("%Y/%m/%d %I:%M %p")
     lines: List[str] = []
 
     lines.append(_center_text("╔" + "═" * 30 + "╗"))
@@ -233,7 +233,7 @@ def _build_receipt_lines(
 
 
 def _build_bar_ticket_lines(table_code: str, items: Sequence[dict]) -> List[str]:
-    timestamp = datetime.now().strftime("%H:%M")
+    timestamp = datetime.now().strftime("%I:%M %p")
     lines: List[str] = []
 
     lines.append(f"🕐 {timestamp}  |  🪑 {_shape_ar_text('الطاولة:')} {table_code}")

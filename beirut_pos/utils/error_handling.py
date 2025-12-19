@@ -33,7 +33,7 @@ def log_exception(
     """Persist the traceback to the log directory and return the log path."""
 
     _ensure_log_dir()
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%I%M%S%p")
     safe_context = context.replace("/", "-").replace(" ", "_")
     path = LOG_DIR / f"{timestamp}-{safe_context}.log"
     with open(path, "w", encoding="utf-8") as fh:

@@ -213,7 +213,7 @@ def _fit_line_for_col(text: str, col_px: int) -> str:
 
 # ===================================================== header/meta (receipt)
 def _build_receipt_header_meta(table_code: str, cashier: str, method: str | None = None) -> List[str]:
-    ts = datetime.now().strftime("%Y/%m/%d %H:%M")
+    ts = datetime.now().strftime("%Y/%m/%d %I:%M %p")
     client_name = settings_service.get_client_name()
     box_width = 30
     brand_lines = [
@@ -702,7 +702,7 @@ def _print_escpos_receipt(
 
 
 def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]) -> None:
-    now = datetime.now().strftime("%H:%M")
+    now = datetime.now().strftime("%I:%M %p")
     _emit_lines_to_printer(
         printer,
         [
@@ -821,7 +821,7 @@ class PrinterService:
         we fall back to the in-memory MockPrinter to keep automated tests happy.
         """
         _log("🧪 Starting printer self-test...")
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        now = datetime.now().strftime("%Y-%m-%d %I:%M %p")
         lines = [
             ">>C Beirut POS",
             _draw_line(),
@@ -851,7 +851,7 @@ class PrinterService:
     def print_bar_ticket(self, table_code: str, items: Iterable) -> bool:
         data = _collapse_items(items)
 
-        now = datetime.now().strftime("%H:%M")
+        now = datetime.now().strftime("%I:%M %p")
         head_lines = [">>C " + f"{now}  |  {table_code}", _draw_line("═")]
         headers, rows = _build_bar_table(data)
 

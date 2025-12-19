@@ -338,7 +338,7 @@ def _format_datetime(value: str | None) -> str:
         return ""
     try:
         dt = datetime.fromisoformat(value)
-        return dt.strftime("%Y-%m-%d %H:%M")
+        return dt.strftime("%Y-%m-%d %I:%M %p")
     except ValueError:
         return value
 

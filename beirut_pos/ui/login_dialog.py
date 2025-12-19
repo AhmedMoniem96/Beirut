@@ -44,6 +44,8 @@ class LoginDialog(QDialog):
 
         card = QFrame()
         card.setObjectName("LoginCard")
+        card.setMinimumWidth(880)
+        card.setMaximumWidth(1240)
         card_layout = QHBoxLayout(card)
         card_layout.setContentsMargins(SPACING.xl + SPACING.xs, SPACING.lg + SPACING.sm, SPACING.xl + SPACING.xs, SPACING.lg + SPACING.sm)
         card_layout.setSpacing(SPACING.xl)

@@ -16,9 +16,11 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect,
 )
-from PyQt6.QtCore import Qt, QEvent
-from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtCore import Qt, QEvent, QPropertyAnimation, QEasingCurve, pyqtProperty, QParallelAnimationGroup
+from PyQt6.QtGui import QColor, QPalette, QPixmap
 
 from .tokens import COLORS, RADII, SPACING, SHADOWS, typography_rule
 
@@ -35,6 +37,50 @@ class DSButton(QPushButton):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         if not self.accessibleName():
             self.setAccessibleName(text or "زر")
+
+        self._shadow = QGraphicsDropShadowEffect(self)
+        self._shadow.setBlurRadius(8)
+        self._shadow.setOffset(0, 2)
+        self._shadow.setColor(QColor(0, 0, 0, 70))
+        self.setGraphicsEffect(self._shadow)
+
+        self._elevation = 0.0
+        self._elevation_anim = QPropertyAnimation(self, b"elevation", self)
+        self._elevation_anim.setDuration(160)
+        self._elevation_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+
+    # Qt property used for micro-interaction shadow animation
+    def get_elevation(self) -> float:  # noqa: N802 (Qt property)
+        return self._elevation
+
+    def set_elevation(self, value: float) -> None:  # noqa: N802 (Qt property)
+        self._elevation = value
+        self._shadow.setBlurRadius(8 + 6 * value)
+        self._shadow.setOffset(0, 2 + 2 * value)
+
+    elevation = pyqtProperty(float, fget=get_elevation, fset=set_elevation)
+
+    def enterEvent(self, event):  # noqa: N802 (Qt override)
+        self._animate_elevation(1.0)
+        return super().enterEvent(event)
+
+    def leaveEvent(self, event):  # noqa: N802 (Qt override)
+        self._animate_elevation(0.0)
+        return super().leaveEvent(event)
+
+    def mousePressEvent(self, event):  # noqa: N802 (Qt override)
+        self._animate_elevation(0.35)
+        return super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):  # noqa: N802 (Qt override)
+        target = 1.0 if self.underMouse() else 0.0
+        self._animate_elevation(target)
+        return super().mouseReleaseEvent(event)
+
+    def _animate_elevation(self, target: float) -> None:
+        self._elevation_anim.stop()
+        self._elevation_anim.setEndValue(target)
+        self._elevation_anim.start()
 
 
 class DSLinkButton(DSButton):
@@ -236,7 +282,7 @@ class DSTable(QTableWidget):
 
 
 class DSAlert(QFrame):
-    def __init__(self, text: str, *, severity: str = "info", parent: QWidget | None = None):
+    def __init__(self, text: str, *, severity: str = "info", parent: QWidget | None = None, animated: bool = False):
         super().__init__(parent)
         self.setObjectName("DSAlert")
         self.setProperty("data-severity", severity)
@@ -248,13 +294,92 @@ class DSAlert(QFrame):
         self.label.setProperty("data-typo", "body")
         layout.addWidget(self.label)
 
+        self._animated = animated
+        self._opacity_effect: QGraphicsOpacityEffect | None = None
+        if animated:
+            self._opacity_effect = QGraphicsOpacityEffect(self)
+            self._opacity_effect.setOpacity(0.0)
+            self.setGraphicsEffect(self._opacity_effect)
+            self.setMaximumHeight(0)
+
     def setText(self, text: str) -> None:  # noqa: N802 (Qt compatibility)
         self.label.setText(text)
+        if self._animated:
+            self._refresh_animation_targets()
 
     def set_severity(self, severity: str) -> None:
         self.setProperty("data-severity", severity)
         self.style().unpolish(self)
         self.style().polish(self)
+        if self._animated:
+            self._refresh_animation_targets()
+
+    def animate_in(self) -> None:
+        if not self._animated:
+            self.setVisible(True)
+            return
+
+        self.setVisible(True)
+        opacity = self._opacity_effect
+        if opacity is None:
+            return
+        fade = QPropertyAnimation(opacity, b"opacity", self)
+        fade.setDuration(220)
+        fade.setStartValue(0.0)
+        fade.setEndValue(1.0)
+        fade.setEasingCurve(QEasingCurve.Type.OutQuad)
+
+        slide = QPropertyAnimation(self, b"maximumHeight", self)
+        slide.setDuration(220)
+        slide.setStartValue(0)
+        slide.setEndValue(self._target_height())
+        slide.setEasingCurve(QEasingCurve.Type.OutQuad)
+
+        group = QParallelAnimationGroup(self)
+        group.addAnimation(fade)
+        group.addAnimation(slide)
+        group.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+
+    def animate_out(self) -> None:
+        if not self._animated:
+            self.hide()
+            return
+
+        opacity = self._opacity_effect
+        if opacity is None:
+            self.hide()
+            return
+
+        fade = QPropertyAnimation(opacity, b"opacity", self)
+        fade.setDuration(200)
+        fade.setStartValue(opacity.opacity())
+        fade.setEndValue(0.0)
+        fade.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
+        slide = QPropertyAnimation(self, b"maximumHeight", self)
+        slide.setDuration(200)
+        slide.setStartValue(self.maximumHeight())
+        slide.setEndValue(0)
+        slide.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
+        group = QParallelAnimationGroup(self)
+        group.addAnimation(fade)
+        group.addAnimation(slide)
+
+        def _hide():
+            self.hide()
+            self.setMaximumHeight(0)
+
+        group.finished.connect(_hide)
+        group.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+
+    # Internal helpers --------------------------------------------------
+    def _refresh_animation_targets(self) -> None:
+        if self._animated:
+            self.setMaximumHeight(self._target_height())
+
+    def _target_height(self) -> int:
+        return max(self.sizeHint().height(), SPACING.lg)
 
 
 class DSTabWidget(QTabWidget):
@@ -276,6 +401,19 @@ class DSModal(QDialog):
         self.setPalette(pal)
 
 
+class DSDivider(QFrame):
+    """Thin divider that respects the design tokens."""
+
+    def __init__(self, *, orientation: Qt.Orientation = Qt.Orientation.Horizontal, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setProperty("data-role", "divider")
+        self.setFrameShape(
+            QFrame.Shape.HLine if orientation == Qt.Orientation.Horizontal else QFrame.Shape.VLine
+        )
+        self.setFrameShadow(QFrame.Shadow.Plain)
+        self.setLineWidth(1)
+
+
 class TokenDocBlock(QFrame):
     """Small helper used on the style guide page to highlight token usage."""
 
@@ -294,6 +432,54 @@ class TokenDocBlock(QFrame):
         body_label.setWordWrap(True)
         body_label.setProperty("data-typo", "body")
         layout.addWidget(body_label)
+
+
+class LogoLockup(QFrame):
+    """Consistent logo + wordmark lockup for toolbars and dialogs."""
+
+    def __init__(self, title: str = "Beirut POS", subtitle: str = "Café Edition", parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("LogoLockup")
+        root = QHBoxLayout(self)
+        root.setContentsMargins(SPACING.sm, SPACING.xs, SPACING.sm, SPACING.xs)
+        root.setSpacing(SPACING.sm)
+
+        self.icon_label = QLabel()
+        self.icon_label.setFixedSize(40, 40)
+        self.icon_label.setScaledContents(True)
+        self.icon_label.setProperty("data-role", "logo")
+
+        text_box = QVBoxLayout()
+        text_box.setContentsMargins(0, 0, 0, 0)
+        text_box.setSpacing(0)
+
+        self.wordmark = QLabel(title)
+        self.wordmark.setProperty("data-typo", "title")
+        self.wordmark.setStyleSheet(f"letter-spacing: 0.6px; color: {COLORS.text};")
+
+        self.tagline = QLabel(subtitle)
+        self.tagline.setProperty("data-typo", "caption")
+        self.tagline.setStyleSheet(f"color: {COLORS.text_muted}; letter-spacing: 0.4px;")
+
+        text_box.addWidget(self.wordmark)
+        text_box.addWidget(self.tagline)
+
+        root.addWidget(self.icon_label)
+        root.addLayout(text_box)
+
+    def set_pixmap(self, pixmap: QPixmap | None) -> None:
+        if pixmap:
+            scaled = pixmap.scaled(self.icon_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.icon_label.setPixmap(scaled)
+            self.icon_label.setVisible(True)
+        else:
+            self.icon_label.clear()
+            self.icon_label.setVisible(False)
+
+    def set_titles(self, title: str, subtitle: str | None = None) -> None:
+        self.wordmark.setText(title)
+        if subtitle is not None:
+            self.tagline.setText(subtitle)
 
 
 class KpiCard(QFrame):
@@ -488,6 +674,8 @@ QDialog#DSModal {{
     background-color: {COLORS.surface_muted};
     color: {COLORS.text};
     border-radius: {RADII.xl}px;
+    border: 1px solid {COLORS.border};
+    box-shadow: {SHADOWS.raised};
 }}
 QFrame#TokenDocBlock {{
     border-radius: {RADII.lg}px;
@@ -500,11 +688,35 @@ QFrame#KpiCard {{
     background-color: rgba(255,255,255,0.06);
     box-shadow: {SHADOWS.soft};
 }}
+QFrame#LogoLockup {{
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: {RADII.md}px;
+    padding: {SPACING.xs}px {SPACING.sm}px;
+}}
+QFrame#LogoLockup QLabel[data-role="logo"] {{
+    background: rgba(255,255,255,0.04);
+    border-radius: {RADII.lg}px;
+    padding: {SPACING.xs}px;
+}}
 QFrame#SectionCard {{
     border-radius: {RADII.lg}px;
     border: 1px solid {COLORS.border};
     background-color: {COLORS.surface_alt};
-    padding: {SPACING.md}px;
+    padding: {SPACING.lg}px;
+    margin-bottom: {SPACING.sm}px;
+    box-shadow: {SHADOWS.soft};
+}}
+QFrame#InlineToast {{
+    border-radius: {RADII.lg}px;
+    box-shadow: {SHADOWS.soft};
+}}
+QFrame[data-role="divider"] {{
+    color: {COLORS.border};
+    background: {COLORS.border};
+    max-height: 1px;
+    min-height: 1px;
+    margin: {SPACING.sm}px 0;
 }}
 
 *[data-typo="display"] {{ {typography_rule("display")} }}

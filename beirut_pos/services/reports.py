@@ -24,11 +24,15 @@ def z_report(iso_date: str):
     by_method = [(r["method"], int(r["amt"] or 0)) for r in by_method_rows]
     total_rev = sum(amt for _, amt in by_method)
 
-    # 2) count paid orders for the day
+    # 2) count paid orders for the day (anchored to payments.paid_at)
     orders_count = c.execute("""
-      SELECT COUNT(*) AS cnt
-      FROM orders
-      WHERE status='paid' AND closed_at BETWEEN ? AND ?
+      WITH paid_orders AS (
+        SELECT DISTINCT o.id
+        FROM orders o
+        JOIN payments p ON p.order_id=o.id
+        WHERE o.status='paid' AND p.paid_at BETWEEN ? AND ?
+      )
+      SELECT COUNT(*) AS cnt FROM paid_orders
     """, (start, end)).fetchone()["cnt"] or 0
     orders_count = int(orders_count)
 
@@ -36,9 +40,10 @@ def z_report(iso_date: str):
     # subtotal_cents uses ROUND() to avoid float artifacts from qty REAL
     total_disc_row = c.execute("""
       WITH paid_orders AS (
-        SELECT id
-        FROM orders
-        WHERE status='paid' AND closed_at BETWEEN ? AND ?
+        SELECT DISTINCT o.id
+        FROM orders o
+        JOIN payments p ON p.order_id=o.id
+        WHERE o.status='paid' AND p.paid_at BETWEEN ? AND ?
       ),
       subtotals AS (
         SELECT oi.order_id,
@@ -52,6 +57,7 @@ def z_report(iso_date: str):
                CAST(SUM(p.amount_cents) AS INTEGER) AS paid_cents
         FROM payments p
         WHERE p.order_id IN (SELECT id FROM paid_orders)
+          AND p.paid_at BETWEEN ? AND ?
         GROUP BY p.order_id
       )
       SELECT CAST(SUM(
@@ -64,16 +70,20 @@ def z_report(iso_date: str):
       FROM paid_orders o
       LEFT JOIN subtotals s ON s.order_id=o.id
       LEFT JOIN paid      p ON p.order_id=o.id
-    """, (start, end)).fetchone()
+    """, (start, end, start, end)).fetchone()
     total_disc = int(total_disc_row["total_disc"] or 0)
 
     # 4) PS items count (heuristic: product contains 'PS ')
     ps_items_count = c.execute("""
+      WITH paid_orders AS (
+        SELECT DISTINCT o.id
+        FROM orders o
+        JOIN payments p ON p.order_id=o.id
+        WHERE o.status='paid' AND p.paid_at BETWEEN ? AND ?
+      )
       SELECT COUNT(*) AS cnt
       FROM order_items
-      WHERE order_id IN (
-        SELECT id FROM orders WHERE status='paid' AND closed_at BETWEEN ? AND ?
-      )
+      WHERE order_id IN (SELECT id FROM paid_orders)
       AND (product_name LIKE 'PS %' OR product_name LIKE '% PS %')
     """, (start, end)).fetchone()["cnt"] or 0
     ps_items_count = int(ps_items_count)

@@ -586,7 +586,6 @@ class CatalogManagerDialog(BigDialog):
         card.setStyleSheet(
             f"#productCard {{ background-color: {bg}; border: 1px solid #e5e7eb; border-radius: 12px; }}"
         )
-        card.setMinimumHeight(86)
         layout = QHBoxLayout(card)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(10)
@@ -700,8 +699,8 @@ class CatalogManagerDialog(BigDialog):
             for col_idx, cell in enumerate(cells, start=1):
                 self.product_table.setItem(row_idx, col_idx, cell)
                 cell.setData(Qt.ItemDataRole.UserRole, prod["id"])
-            card_height = card.sizeHint().height()
-            self.product_table.setRowHeight(row_idx, max(92, card_height + 6))
+
+            self.product_table.setRowHeight(row_idx, 82)
         current = self.product_table.currentRow()
         if self._products and current < 0:
             self.product_table.setCurrentCell(0, 0)

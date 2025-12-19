@@ -3,8 +3,9 @@ import calendar
 from datetime import datetime
 
 from collections import Counter
+from dataclasses import dataclass
 
-from PyQt6.QtCore import Qt, QDate, QDateTime, QTime
+from PyQt6.QtCore import Qt, QDate, QDateTime, QTime, QSize
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDateEdit,
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTimeEdit,
 )
+from PyQt6.QtGui import QPixmap
 
 from ..core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
@@ -37,6 +39,13 @@ from .theme.components import DSTable, KpiCard
 
 
 CLEANUP_STATIC_PASSWORD = "mn3mbasha"
+
+
+@dataclass
+class ReportCell:
+    text: str
+    thumbnail: QPixmap | bytes | str | None = None
+    badge: str | None = None
 
 
 class AdminReportsDialog(BigDialog):
@@ -858,7 +867,7 @@ class AdminReportsDialog(BigDialog):
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ])
+        ], include_thumbnail=True)
         layout.addWidget(self.profit_daily_table, 1)
 
         controls = QHBoxLayout()
@@ -911,7 +920,7 @@ class AdminReportsDialog(BigDialog):
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ])
+        ], include_thumbnail=True)
         layout.addWidget(self.profit_monthly_table, 1)
 
         monthly_controls = QHBoxLayout()
@@ -953,7 +962,7 @@ class AdminReportsDialog(BigDialog):
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ])
+        ], include_thumbnail=True)
         layout.addWidget(self.monthly_detail_table, 1)
 
         self.monthly_detail_summary = QLabel("")
@@ -1059,6 +1068,7 @@ class AdminReportsDialog(BigDialog):
             payroll_deduction = daily_payroll_net if day else 0
             profit = sales_total - purchase_total - payroll_deduction
             daily_display.append([
+                self._thumbnail_cell(day),
                 day,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -1087,6 +1097,7 @@ class AdminReportsDialog(BigDialog):
             payroll_deduction = daily_payroll_net * payroll_days
             profit = sales_total - purchase_total - payroll_deduction
             monthly_display.append([
+                self._thumbnail_cell(month),
                 month,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -1209,6 +1220,7 @@ class AdminReportsDialog(BigDialog):
             purchase_total = int(row["purchases_total"] or 0)
             profit = sales_total - purchase_total - payroll_per_day
             table_rows.append([
+                self._thumbnail_cell(day),
                 day,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -2068,9 +2080,15 @@ class AdminReportsDialog(BigDialog):
         button.clicked.connect(lambda _, t=table, n=default_name: self._export_table(t, n))
         return button
 
-    def _make_table(self, headers: list[str]) -> QTableWidget:
-        table = QTableWidget(0, len(headers))
-        table.setHorizontalHeaderLabels(headers)
+    def _make_table(self, headers: list[str], *, include_thumbnail: bool = False) -> QTableWidget:
+        labels = list(headers)
+        thumbnail_column = -1
+        if include_thumbnail:
+            thumbnail_column = 0
+            labels = ["معاينة"] + labels
+
+        table = QTableWidget(0, len(labels))
+        table.setHorizontalHeaderLabels(labels)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(True)
@@ -2080,19 +2098,78 @@ class AdminReportsDialog(BigDialog):
         header.setMinimumSectionSize(110)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
+        table.setProperty("thumbnail_column", thumbnail_column)
+        if include_thumbnail:
+            table.setIconSize(QSize(self._thumbnail_size(), self._thumbnail_size()))
+            header.resizeSection(0, self._thumbnail_size() + 12)
         return table
 
     def _populate_table(self, table: QTableWidget, rows: list[list[str]]):
         table.setRowCount(len(rows))
+        thumb_col = table.property("thumbnail_column")
+        if thumb_col is None:
+            thumb_col = -1
         for r, row in enumerate(rows):
             for c, value in enumerate(row):
-                display = str(value or "")
+                cell = self._normalize_cell(value)
+                display = cell.text
                 item = QTableWidgetItem(display)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setToolTip(display)
                 table.setItem(r, c, item)
+
+                if thumb_col == c:
+                    table.setCellWidget(r, c, self._build_thumbnail_widget(cell))
         if not rows:
             table.setRowCount(0)
+
+    def _thumbnail_size(self) -> int:
+        return 72
+
+    def _normalize_cell(self, value):
+        if isinstance(value, ReportCell):
+            return value
+        if isinstance(value, dict):
+            return ReportCell(
+                text=str(value.get("text") or ""),
+                thumbnail=value.get("thumbnail"),
+                badge=value.get("badge"),
+            )
+        if isinstance(value, tuple) and len(value) >= 2:
+            return ReportCell(text=str(value[0] or ""), thumbnail=value[1], badge=value[2] if len(value) > 2 else None)
+        return ReportCell(text=str(value or ""))
+
+    def _build_thumbnail_widget(self, cell: "ReportCell") -> QWidget:
+        size = self._thumbnail_size()
+        label = QLabel()
+        label.setFixedSize(size, size)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet(
+            "border: 1px solid #d9d9d9; border-radius: 8px; background: #fafafa; padding: 6px;"
+        )
+
+        pixmap: QPixmap | None = None
+        if isinstance(cell.thumbnail, QPixmap):
+            pixmap = cell.thumbnail
+        elif isinstance(cell.thumbnail, (bytes, bytearray)):
+            pixmap = QPixmap()
+            pixmap.loadFromData(cell.thumbnail)
+        elif isinstance(cell.thumbnail, str) and cell.thumbnail.strip():
+            pixmap = QPixmap(cell.thumbnail)
+
+        if pixmap is not None and not pixmap.isNull():
+            scaled = pixmap.scaled(size - 16, size - 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            label.setPixmap(scaled)
+        else:
+            badge = (cell.badge or cell.text or "—").strip()
+            label.setText(badge[:3])
+            label.setStyleSheet(
+                "border: 1px solid #d9d9d9; border-radius: 8px; background: #f5f5f5; padding: 6px; color: #666;"
+            )
+        return label
+
+    def _thumbnail_cell(self, label: str, thumbnail: QPixmap | bytes | str | None = None) -> "ReportCell":
+        return ReportCell(text=label or "", thumbnail=thumbnail, badge=(label or "").strip()[:2])
 
     def _money(self, cents: int) -> str:
         return format_pounds(cents, self.currency)

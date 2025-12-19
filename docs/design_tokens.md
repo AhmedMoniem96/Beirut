@@ -35,5 +35,4 @@ Import from `beirut_pos.ui.theme`:
 - Use `apply_typography(label, "title")` for headings and `apply_typography(label, "body")` for descriptions.
 - When you need alerts or validation messages, show a `DSAlert` and adjust its severity via `set_severity()`.
 
-See `StyleGuideDialog` from the toolbar to preview component states and tokens in context. For brand-level usage of the logo lockup,
-iconography, and imagery, refer to `docs/visual_language.md`.
+See `StyleGuideDialog` from the toolbar to preview component states and tokens in context.

@@ -12,7 +12,6 @@ from .common.branding import get_accent_color
 from .theme import (
     DSAlert,
     DSButton,
-    DSDivider,
     DSFormField,
     DSModal,
     DSSelect,
@@ -43,16 +42,14 @@ class CreateUserDialog(DSModal):
         apply_typography(title, "title")
         root.addWidget(title)
 
-        self.toast = DSAlert("", severity="info", animated=True)
+        self.toast = DSAlert("", severity="info")
         self.toast.setObjectName("InlineToast")
         self.toast.setVisible(False)
         root.addWidget(self.toast)
 
-        root.addWidget(DSDivider())
-
         self._toast_timer = QTimer(self)
         self._toast_timer.setSingleShot(True)
-        self._toast_timer.timeout.connect(self.toast.animate_out)
+        self._toast_timer.timeout.connect(self.toast.hide)
         self._toast_durations = {
             "info": 4200,
             "success": 3600,
@@ -213,7 +210,6 @@ class CreateUserDialog(DSModal):
         duration = self._toast_durations.get(severity, 4200)
         self._toast_timer.stop()
         self._toast_timer.start(duration)
-        self.toast.animate_in()
 
     def _on_primary_action(self) -> None:
         if self.steps.currentIndex() == 0:

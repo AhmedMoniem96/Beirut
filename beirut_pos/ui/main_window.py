@@ -114,7 +114,6 @@ class MainWindow(QMainWindow):
         self._lockup_spec = LogoLockupSpec()
         self.logo_lockup = LogoLockup(self._lockup_spec.title, self._lockup_spec.subtitle)
         self.logo_lockup.setToolTip(self._lockup_spec.description)
-        self.logo_lockup.set_pixmap(get_logo_pixmap(self._lockup_spec.preferred_height_px))
         bar.addWidget(self.logo_lockup)
         bar.addSeparator()
 

@@ -56,8 +56,6 @@ from .inventory_dialog import InventoryDialog
 from .style_guide_dialog import StyleGuideDialog
 from ..services import staff as staff_service
 from .command_palette import CommandPaletteDialog, build_command
-from .theme import LogoLockup, SPACING
-from .theme.brand import resolve_icon, LogoLockupSpec
 
 PAGE_TABLES = 0
 PAGE_ORDER = 1
@@ -111,10 +109,10 @@ class MainWindow(QMainWindow):
         # Tool bar
         bar = QToolBar("Main")
         self.addToolBar(bar)
-        self._lockup_spec = LogoLockupSpec()
-        self.logo_lockup = LogoLockup(self._lockup_spec.title, self._lockup_spec.subtitle)
-        self.logo_lockup.setToolTip(self._lockup_spec.description)
-        bar.addWidget(self.logo_lockup)
+        self.logo_label = QLabel()
+        self.logo_label.setObjectName("appLogo")
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar.addWidget(self.logo_label)
         bar.addSeparator()
 
         self.act_back = QAction(self)
@@ -185,15 +183,15 @@ class MainWindow(QMainWindow):
         container = QWidget()
         container.setObjectName("MainContainer")
         root_layout = QHBoxLayout(container)
-        root_layout.setContentsMargins(SPACING.lg, SPACING.lg, SPACING.lg, SPACING.lg)
-        root_layout.setSpacing(SPACING.md)
+        root_layout.setContentsMargins(12, 12, 12, 12)
+        root_layout.setSpacing(8)
         self._root_layout = root_layout
 
         root_layout.addWidget(self._nav_panel, 0)
 
         content_holder = QVBoxLayout()
         content_holder.setContentsMargins(0, 0, 0, 0)
-        content_holder.setSpacing(SPACING.md)
+        content_holder.setSpacing(8)
 
         self._page_header = self._build_page_header()
         self.pages = QStackedWidget()
@@ -421,8 +419,8 @@ class MainWindow(QMainWindow):
         panel = QFrame()
         panel.setObjectName("SideNavigation")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(SPACING.md, SPACING.md, SPACING.md, SPACING.md)
-        layout.setSpacing(SPACING.sm)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
         self._nav_buttons: dict[str, QToolButton] = {}
 
@@ -503,8 +501,7 @@ class MainWindow(QMainWindow):
                 continue
             btn = QToolButton(panel)
             btn.setCheckable(True)
-            icon = resolve_icon(self.style(), item["key"]) or self.style().standardIcon(item["icon"])
-            btn.setIcon(icon)
+            btn.setIcon(self.style().standardIcon(item["icon"]))
             btn.setIconSize(QSize(20, 20))
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             btn.setText(item["text"])
@@ -1502,7 +1499,13 @@ class MainWindow(QMainWindow):
     def _refresh_branding(self):
         self.setStyleSheet(build_main_window_stylesheet())
         pix = get_logo_pixmap(64)
-        self.logo_lockup.set_pixmap(pix)
+        if pix:
+            scaled = pix.scaledToHeight(56, Qt.TransformationMode.SmoothTransformation)
+            self.logo_label.setPixmap(scaled)
+            self.logo_label.setText("")
+        else:
+            self.logo_label.clear()
+            self.logo_label.setText("Beirut POS")
         icon = get_logo_icon(64)
         if icon:
             self.setWindowIcon(icon)

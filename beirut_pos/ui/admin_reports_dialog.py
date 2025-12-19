@@ -33,6 +33,7 @@ from ..services.orders import order_manager
 from ..services import staff as staff_service
 from ..services import maintenance as maintenance_service
 from ..utils.currency import format_pounds
+from .theme.components import DSTable, KpiCard
 
 
 CLEANUP_STATIC_PASSWORD = "mn3mbasha"
@@ -535,9 +536,32 @@ class AdminReportsDialog(BigDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        self.products_table = self._make_table([
+        cards_row = QHBoxLayout()
+        cards_row.setContentsMargins(0, 0, 0, 0)
+        cards_row.setSpacing(12)
+        self.products_card_total = KpiCard("🛍️", "عدد الأصناف", "—")
+        self.products_card_qty = KpiCard("📦", "إجمالي الكمية", "—")
+        self.products_card_sales = KpiCard("💰", "إجمالي المبيعات", "—")
+        for card in (
+            self.products_card_total,
+            self.products_card_qty,
+            self.products_card_sales,
+        ):
+            cards_row.addWidget(card)
+        cards_row.addStretch(1)
+        layout.addLayout(cards_row)
+
+        self.products_table = DSTable(0, 3)
+        self.products_table.set_headers([
             "المنتج", "الكمية", "إجمالي المبيعات"
         ])
+        self.products_table.set_column_alignments(
+            [
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                Qt.AlignmentFlag.AlignCenter,
+                Qt.AlignmentFlag.AlignCenter,
+            ]
+        )
         layout.addWidget(self.products_table, 1)
 
         controls = QHBoxLayout()
@@ -619,6 +643,9 @@ class AdminReportsDialog(BigDialog):
         self.products_summary.setText(
             f"عدد الأصناف: {len(rows_list)} | إجمالي الكمية: {self._format_qty(total_qty)} | إجمالي المبيعات: {self._money(total_sales)}"
         )
+        self.products_card_total.value_label.setText(str(len(rows_list)))
+        self.products_card_qty.value_label.setText(self._format_qty(total_qty))
+        self.products_card_sales.value_label.setText(self._money(total_sales))
 
     # ------------------------------------------------------------ discounts (NEW!)
     def _build_discounts_tab(self) -> QWidget:
@@ -1350,13 +1377,38 @@ class AdminReportsDialog(BigDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        self.inventory_table = self._make_table([
+        cards_row = QHBoxLayout()
+        cards_row.setContentsMargins(0, 0, 0, 0)
+        cards_row.setSpacing(12)
+        self.inventory_card_items = KpiCard("📋", "منتجات متتبعة", "—")
+        self.inventory_card_low = KpiCard("⚠️", "دون الحد الأدنى", "—")
+        self.inventory_card_packages = KpiCard("📦", "متوسط العبوة", "—")
+        for card in (
+            self.inventory_card_items,
+            self.inventory_card_low,
+            self.inventory_card_packages,
+        ):
+            cards_row.addWidget(card)
+        cards_row.addStretch(1)
+        layout.addLayout(cards_row)
+
+        self.inventory_table = DSTable(0, 5)
+        self.inventory_table.set_headers([
             "المنتج",
             "القسم",
             "المتاح",
             "الحد الأدنى",
             "حجم العبوة",
         ])
+        self.inventory_table.set_column_alignments(
+            [
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                Qt.AlignmentFlag.AlignCenter,
+                Qt.AlignmentFlag.AlignCenter,
+                Qt.AlignmentFlag.AlignCenter,
+            ]
+        )
         layout.addWidget(self.inventory_table, 1)
 
         controls = QHBoxLayout()
@@ -1383,6 +1435,20 @@ class AdminReportsDialog(BigDialog):
             if r.get("track_stock", True)
         ]
         self._populate_table(self.inventory_table, rows)
+        tracked = len(rows)
+        low_stock = sum(
+            1
+            for r in entries
+            if r.get("track_stock", True)
+            and float(r.get("stock_qty", 0) or 0) < float(r.get("min_stock", 0) or 0)
+        )
+        avg_package = 0.0
+        if tracked:
+            package_total = sum(float(r.get("package_size", 0) or 0) for r in entries if r.get("track_stock", True))
+            avg_package = package_total / tracked if package_total else 0.0
+        self.inventory_card_items.value_label.setText(str(tracked))
+        self.inventory_card_low.value_label.setText(str(low_stock))
+        self.inventory_card_packages.value_label.setText(self._format_qty(avg_package))
 
     # --------------------------------------------------------- attendance log
     def _build_attendance_tab(self) -> QWidget:

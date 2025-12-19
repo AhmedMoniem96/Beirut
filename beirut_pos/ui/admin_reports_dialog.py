@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QFileDialog,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -27,7 +28,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTimeEdit,
 )
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
 
 from ..core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
@@ -55,6 +56,13 @@ class AdminReportsDialog(BigDialog):
         super().__init__("التقارير الإدارية", remember_key="reports", parent=None)
         self.currency = setting_get("currency", "EGP") or "EGP"
         self.actor_username = (actor_username or "").strip()
+
+        # Start the reports window larger by default to give the winnings/profit
+        # visuals room to breathe. If the user has a saved geometry it will
+        # override the resize below.
+        self.setMinimumSize(1100, 750)
+        if not setting_get("geom_reports", ""):
+            self.resize(1220, 840)
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_daily_tab(), "ملخص يومي")
@@ -854,8 +862,8 @@ class AdminReportsDialog(BigDialog):
 
     # --------------------------------------------------------------- profits
     def _build_profit_tab(self) -> QWidget:
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        content = QWidget()
+        layout = QVBoxLayout(content)
 
         daily_title = QLabel("الربح اليومي")
         daily_title.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -973,7 +981,12 @@ class AdminReportsDialog(BigDialog):
         self.month_picker.currentIndexChanged.connect(self._load_monthly_detail)
         self.year_picker.currentIndexChanged.connect(self._load_monthly_detail)
 
-        return widget
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(content)
+        return scroll
 
     def _load_profit_report(self):
         start, end = self._datetime_bounds_from_date_time(
@@ -1067,8 +1080,9 @@ class AdminReportsDialog(BigDialog):
             purchase_total = int(row["purchases_total"] or 0)
             payroll_deduction = daily_payroll_net if day else 0
             profit = sales_total - purchase_total - payroll_deduction
+            day_thumb = self._make_date_thumbnail(day, kind="detail")
             daily_display.append([
-                self._thumbnail_cell(day),
+                self._thumbnail_cell(day, day_thumb),
                 day,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -1096,8 +1110,9 @@ class AdminReportsDialog(BigDialog):
             payroll_days = month_day_counts.get(month, 0)
             payroll_deduction = daily_payroll_net * payroll_days
             profit = sales_total - purchase_total - payroll_deduction
+            month_thumb = self._make_date_thumbnail(month, kind="month")
             monthly_display.append([
-                self._thumbnail_cell(month),
+                self._thumbnail_cell(month, month_thumb),
                 month,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -1219,8 +1234,9 @@ class AdminReportsDialog(BigDialog):
             sales_total = int(row["net_sales"] or 0)
             purchase_total = int(row["purchases_total"] or 0)
             profit = sales_total - purchase_total - payroll_per_day
+            day_thumb = self._make_date_thumbnail(day, kind="day")
             table_rows.append([
-                self._thumbnail_cell(day),
+                self._thumbnail_cell(day, day_thumb),
                 day,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -2125,6 +2141,54 @@ class AdminReportsDialog(BigDialog):
 
     def _thumbnail_size(self) -> int:
         return 72
+
+    def _make_date_thumbnail(self, label: str, *, kind: str = "day") -> QPixmap | None:
+        label = (label or "").strip()
+        if not label:
+            return None
+
+        size = self._thumbnail_size()
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        palettes = {
+            "day": ("#FAD8B6", "#E8A86B"),
+            "month": ("#C5E5FF", "#7CB7E3"),
+            "detail": ("#E7D8FF", "#B094F7"),
+        }
+        start, end = palettes.get(kind, palettes["day"])
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(start))
+        painter.drawRoundedRect(0, 0, size - 1, size - 1, 12, 12)
+
+        painter.setBrush(QColor(end))
+        painter.drawRoundedRect(6, 6, size - 13, size - 13, 10, 10)
+
+        text = label
+        if kind == "month" and len(label) >= 7:
+            text = f"{label[5:7]} / {label[:4]}"
+        elif len(label) >= 10:
+            text = f"{label[-2:]}\n{label[5:7]}"
+
+        painter.setPen(QColor("#1B0F08"))
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(11)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect().adjusted(6, 6, -6, -6), Qt.AlignmentFlag.AlignCenter, text)
+
+        painter.setBrush(QColor("#F0C674"))
+        painter.setPen(QColor("#6B4B2A"))
+        painter.drawEllipse(size - 26, size - 26, 20, 20)
+        font.setPointSize(7)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect().adjusted(size - 28, size - 28, -4, -4), Qt.AlignmentFlag.AlignCenter, self.currency[:2])
+        painter.end()
+
+        return pixmap
 
     def _normalize_cell(self, value):
         if isinstance(value, ReportCell):

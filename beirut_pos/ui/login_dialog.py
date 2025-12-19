@@ -44,8 +44,6 @@ class LoginDialog(QDialog):
 
         card = QFrame()
         card.setObjectName("LoginCard")
-        card.setMinimumWidth(880)
-        card.setMaximumWidth(1240)
         card_layout = QHBoxLayout(card)
         card_layout.setContentsMargins(SPACING.xl + SPACING.xs, SPACING.lg + SPACING.sm, SPACING.xl + SPACING.xs, SPACING.lg + SPACING.sm)
         card_layout.setSpacing(SPACING.xl)
@@ -107,31 +105,15 @@ class LoginDialog(QDialog):
         self.msg.setWordWrap(True)
         form_layout.addWidget(self.msg)
 
-        field_width = 560
-
-        self.u = DSTextField(width=field_width)
-        self.u.setMinimumHeight(56)
+        self.u = DSTextField()
         self.u.setClearButtonEnabled(True)
-        self.u_field = DSFormField(
-            "اسم المستخدم",
-            self.u,
-            helper="أدخل اسم المستخدم الخاص بك.",
-            required=True,
-            width=field_width,
-        )
+        self.u_field = DSFormField("اسم المستخدم", self.u, helper="أدخل اسم المستخدم الخاص بك.", required=True)
         form_layout.addWidget(self.u_field)
 
-        self.p = DSTextField(width=field_width)
-        self.p.setMinimumHeight(56)
+        self.p = DSTextField()
         self.p.setEchoMode(self.p.EchoMode.Password)
         self.p.setClearButtonEnabled(True)
-        self.p_field = DSFormField(
-            "كلمة المرور",
-            self.p,
-            helper="اكتب كلمة المرور ثم اضغط دخول.",
-            required=True,
-            width=field_width,
-        )
+        self.p_field = DSFormField("كلمة المرور", self.p, helper="اكتب كلمة المرور ثم اضغط دخول.", required=True)
         form_layout.addWidget(self.p_field)
 
         row = QHBoxLayout()

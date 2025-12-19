@@ -1,9 +1,10 @@
 # beirut_pos/ui/components/category_grid.py
+from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QGridLayout, QGroupBox, QVBoxLayout,
     QSizePolicy, QScrollArea
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSize, Qt
 
 from ...utils.currency import format_pounds
 from ..common import branding
@@ -42,6 +43,15 @@ class CategoryGrid(QWidget):
         self._button_font_size = branding.get_menu_button_font_size()
         self._button_padding = branding.get_menu_button_padding()
         self._columns = branding.get_menu_columns()
+        self._thumb_size = 56
+        self._palette_cycle = [
+            "#e0f2fe",
+            "#fee2e2",
+            "#f5f3ff",
+            "#ecfdf3",
+            "#fff7ed",
+            "#fef3c7",
+        ]
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(6)
@@ -143,25 +153,102 @@ class CategoryGrid(QWidget):
                         status_prefix = "🟢 "
                         style_parts.append("color: #1b7a1b;")
 
-                text = f"{status_prefix}{label}\n{format_pounds(price_cents)}"
-                b = QPushButton(text)
-                b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-                b.setMinimumHeight(self._button_height)
-                b.setStyleSheet(" ".join(style_parts))
-                b.setToolTip("\n".join(tooltip_lines))
-                b.clicked.connect(lambda _=False, L=label, P=price_cents: self.on_pick(L, P))
-
-                # Disable if tracked & out of stock
-                if track_stock == 1 and (stock_qty is None or stock_qty <= 0):
-                    b.setEnabled(False)
-                    b.setText(f"{status_prefix}{label}\n(غير متوفر) {format_pounds(price_cents)}")
-                    b.setStyleSheet(
-                        f"padding: {self._button_padding}px; font-size: {self._button_font_size}px; color: gray;"
-                    )
-
-                grid.addWidget(b, i // self._columns, i % self._columns)
+                button = self._make_product_button(
+                    label,
+                    price_cents,
+                    status_prefix,
+                    track_stock,
+                    stock_qty,
+                    tooltip_lines,
+                    style_parts,
+                    bg_color,
+                    i,
+                )
+                grid.addWidget(button, i // self._columns, i % self._columns)
 
             self.v.addWidget(box)
             self._boxes.append(box)
 
         # NO MORE addStretch here! The alignment handles it
+
+    # ----------------- helpers -----------------
+    def _make_product_button(
+        self,
+        label: str,
+        price_cents: int,
+        status_prefix: str,
+        track_stock: int,
+        stock_qty: int | None,
+        tooltip_lines: list[str],
+        style_parts: list[str],
+        category_color: str,
+        row_index: int,
+    ) -> QPushButton:
+        button = QPushButton()
+        button.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        button.setMinimumHeight(max(self._button_height, self._thumb_size + 26))
+
+        thumb_color = self._resolve_thumb_color(category_color, row_index)
+        pixmap = self._render_thumbnail(label, thumb_color)
+        button.setIcon(QIcon(pixmap))
+        button.setIconSize(QSize(self._thumb_size, self._thumb_size))
+
+        price_line = format_pounds(price_cents)
+        stock_suffix = "" if track_stock == 0 else (" — غير متوفر" if stock_qty is None or stock_qty <= 0 else "")
+        button.setText(f"{status_prefix}{label}\n{price_line}{stock_suffix}")
+
+        base_style = (
+            f"""
+            QPushButton {{
+                text-align: left;
+                padding: {self._button_padding}px;
+                padding-left: {self._button_padding + self._thumb_size + 10}px;
+                font-size: {self._button_font_size}px;
+                border: 1px solid #dfe3eb;
+                border-radius: 12px;
+                background: #ffffff;
+                color: #0f172a;
+            }}
+            QPushButton:hover {{
+                background: #f5f7fb;
+            }}
+            QPushButton:disabled {{
+                color: #888;
+                background: #f7f7f7;
+                border-color: #e5e7eb;
+            }}
+            """
+        )
+        button.setStyleSheet(base_style + " ".join(style_parts))
+        button.setToolTip("\n".join(tooltip_lines))
+        button.clicked.connect(lambda _=False, L=label, P=price_cents: self.on_pick(L, P))
+
+        if track_stock == 1 and (stock_qty is None or stock_qty <= 0):
+            button.setEnabled(False)
+
+        return button
+
+    def _render_thumbnail(self, label: str, color: str) -> QPixmap:
+        pix = QPixmap(self._thumb_size, self._thumb_size)
+        pix.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(color))
+        painter.drawEllipse(0, 0, self._thumb_size - 1, self._thumb_size - 1)
+
+        painter.setPen(QPen(Qt.GlobalColor.white))
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(16)
+        painter.setFont(font)
+        painter.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, (label or "?").strip()[:2] or "?")
+        painter.end()
+        return pix
+
+    def _resolve_thumb_color(self, category_color: str, row_index: int) -> str:
+        if category_color:
+            return category_color
+        return self._palette_cycle[row_index % len(self._palette_cycle)]

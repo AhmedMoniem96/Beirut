@@ -520,7 +520,7 @@ class CatalogManagerDialog(BigDialog):
         self.options_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.options_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.options_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.options_table.setMinimumHeight(260)
+        self.options_table.setMinimumHeight(220)
         opt_layout.addWidget(self.options_table, 1)
 
         opt_buttons = QHBoxLayout()
@@ -532,6 +532,7 @@ class CatalogManagerDialog(BigDialog):
         for btn in (self.btn_opt_add, self.btn_opt_edit, self.btn_opt_delete, self.btn_opt_up, self.btn_opt_down):
             opt_buttons.addWidget(btn)
         opt_layout.addLayout(opt_buttons)
+        prod_panel.addWidget(self.options_group, 2)
         self.options_group.setEnabled(False)
 
         close_btn = QPushButton("إغلاق")

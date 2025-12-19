@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QColorDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -51,7 +52,13 @@ class _ProductEditor(QDialog):
         self.setModal(True)
         self._result: _ProductValues | None = None
 
-        form = QFormLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 18)
+        root.setSpacing(12)
+        self.setMinimumWidth(520)
+
+        preview = self._build_preview()
+        root.addWidget(preview)
 
         self.name_edit = QLineEdit()
         self.price_edit = QSpinBox()
@@ -88,14 +95,36 @@ class _ProductEditor(QDialog):
         sugar_widget = QWidget()
         sugar_widget.setLayout(sugar_container)
 
-        form.addRow("اسم المنتج:", self.name_edit)
-        form.addRow("السعر (ج.م):", self.price_edit)
-        form.addRow("نوع المنتج:", self.type_edit)
-        form.addRow("مستويات السكر:", sugar_widget)
-        form.addRow("", self.custom_box)
-        form.addRow("", self.track_box)
-        form.addRow("حد أدنى للتنبيه:", self.min_spin)
-        form.addRow("حجم العبوة (وحدات):", self.package_size_spin)
+        basics = QGroupBox("التعريف والتسعير")
+        basics_form = QFormLayout(basics)
+        basics_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        basics_form.addRow("اسم المنتج:", self.name_edit)
+        basics_form.addRow("نوع المنتج:", self.type_edit)
+        basics_form.addRow("السعر (ج.م):", self.price_edit)
+        basics_form.addRow("مستويات السكر:", sugar_widget)
+
+        toggles = QGroupBox("خيارات الطلب")
+        toggle_layout = QVBoxLayout(toggles)
+        toggle_layout.setSpacing(4)
+        toggle_layout.addWidget(self.custom_box)
+        toggle_layout.addWidget(self.track_box)
+
+        stock = QGroupBox("المخزون والتعبئة")
+        stock_form = QFormLayout(stock)
+        stock_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.package_size_spin.setSuffix(" وحدة")
+        stock_form.addRow("حجم العبوة (وحدات):", self.package_size_spin)
+        stock_form.addRow("حد أدنى للتنبيه:", self.min_spin)
+
+        sections = QHBoxLayout()
+        sections.setSpacing(12)
+        sections.addWidget(basics, 2)
+        sidebar = QVBoxLayout()
+        sidebar.setSpacing(12)
+        sidebar.addWidget(toggles)
+        sidebar.addWidget(stock)
+        sections.addLayout(sidebar, 1)
+        root.addLayout(sections)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
@@ -103,7 +132,7 @@ class _ProductEditor(QDialog):
         cancel_btn = QPushButton("إلغاء")
         btn_row.addWidget(ok_btn)
         btn_row.addWidget(cancel_btn)
-        form.addRow(btn_row)
+        root.addLayout(btn_row)
 
         ok_btn.clicked.connect(self.accept)
         cancel_btn.clicked.connect(self.reject)
@@ -126,10 +155,56 @@ class _ProductEditor(QDialog):
         self.btn_sugar_add.clicked.connect(self._add_sugar_level)
         self.btn_sugar_edit.clicked.connect(self._edit_sugar_level)
         self.btn_sugar_delete.clicked.connect(self._delete_sugar_level)
+        self.name_edit.textChanged.connect(self._refresh_preview)
+        self.price_edit.valueChanged.connect(self._refresh_preview)
+        self.type_edit.textChanged.connect(self._refresh_preview)
+        self._refresh_preview()
 
     def _toggle_stock(self, checked: bool) -> None:
         self.min_spin.setEnabled(checked)
         self.package_size_spin.setEnabled(checked)
+
+    def _build_preview(self) -> QWidget:
+        card = QFrame()
+        card.setObjectName("productPreviewCard")
+        card.setStyleSheet(
+            "#productPreviewCard {"
+            "  border: 1px solid #dcdde3;"
+            "  border-radius: 10px;"
+            "  background: #f9fafc;"
+            "  padding: 12px;"
+            "}"
+        )
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(12)
+
+        self.avatar_label = QLabel()
+        self.avatar_label.setFixedSize(56, 56)
+        self.avatar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.avatar_label.setStyleSheet(
+            "border-radius: 12px; color: white; font-weight: 800; font-size: 18px;"
+        )
+
+        text_box = QVBoxLayout()
+        text_box.setSpacing(2)
+        self.preview_name_label = QLabel("—")
+        self.preview_name_label.setStyleSheet("font-size: 16px; font-weight: 700;")
+        self.preview_meta_label = QLabel("")
+        self.preview_meta_label.setStyleSheet(
+            "color: #4a5060; background-color: #eef1f7; padding: 2px 8px; border-radius: 8px;"
+        )
+        text_box.addWidget(self.preview_name_label)
+        text_box.addWidget(self.preview_meta_label)
+
+        self.preview_price_label = QLabel("0 ج.م")
+        self.preview_price_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.preview_price_label.setStyleSheet("font-size: 15px; font-weight: 600; color: #2f3b52;")
+
+        layout.addWidget(self.avatar_label)
+        layout.addLayout(text_box, 1)
+        layout.addWidget(self.preview_price_label, 0, Qt.AlignmentFlag.AlignRight)
+        return card
 
     def _populate_sugar_levels(self, levels: list[str]) -> None:
         self.sugar_list.clear()
@@ -137,6 +212,39 @@ class _ProductEditor(QDialog):
             cleaned = level.strip()
             if cleaned:
                 self.sugar_list.addItem(cleaned)
+
+    def _avatar_palette(self, seed: str) -> tuple[str, str]:
+        palettes = [
+            ("#2f80ed", "#e9f2ff"),
+            ("#9b51e0", "#f3e9ff"),
+            ("#f2994a", "#fff1e0"),
+            ("#56ccf2", "#e8f9ff"),
+            ("#27ae60", "#e8f7ef"),
+            ("#eb5757", "#ffecec"),
+        ]
+        idx = abs(hash(seed or "")) % len(palettes)
+        return palettes[idx]
+
+    def _refresh_preview(self) -> None:
+        name = self.name_edit.text().strip() or "المنتج الجديد"
+        product_type = self.type_edit.text().strip()
+        price = int(self.price_edit.value())
+
+        fg, bg = self._avatar_palette(name)
+        initials = (name[:2] if len(name) >= 2 else name or "? ").strip()
+        self.avatar_label.setText(initials)
+        self.avatar_label.setStyleSheet(
+            f"border-radius: 12px; color: white; font-weight: 800; font-size: 18px;"
+            f" background-color: {fg};"
+        )
+
+        self.preview_name_label.setText(name)
+        meta = product_type if product_type else "بدون نوع محدد"
+        self.preview_meta_label.setText(meta)
+        self.preview_meta_label.setStyleSheet(
+            f"color: #4a5060; background-color: {bg}; padding: 2px 8px; border-radius: 8px;"
+        )
+        self.preview_price_label.setText(f"{price:,} ج.م")
 
     def _add_sugar_level(self) -> None:
         text, ok = QInputDialog.getText(self, "إضافة مستوى سكر", "المستوى:")

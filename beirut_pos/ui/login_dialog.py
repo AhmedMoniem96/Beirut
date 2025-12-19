@@ -16,6 +16,7 @@ from ..services import texts
 from ..services import settings as settings_service
 from .theme import (
     DSButton,
+    DSFormField,
     DSLinkButton,
     DSTextField,
     SPACING,
@@ -105,16 +106,15 @@ class LoginDialog(QDialog):
         form_layout.addWidget(self.msg)
 
         self.u = DSTextField()
-        self.u.setMinimumWidth(360)
-        self.u.setFixedHeight(52)
         self.u.setClearButtonEnabled(True)
-        form_layout.addWidget(self.u)
+        self.u_field = DSFormField("اسم المستخدم", self.u, helper="أدخل اسم المستخدم الخاص بك.", required=True)
+        form_layout.addWidget(self.u_field)
 
         self.p = DSTextField()
         self.p.setEchoMode(self.p.EchoMode.Password)
-        self.p.setFixedHeight(52)
         self.p.setClearButtonEnabled(True)
-        form_layout.addWidget(self.p)
+        self.p_field = DSFormField("كلمة المرور", self.p, helper="اكتب كلمة المرور ثم اضغط دخول.", required=True)
+        form_layout.addWidget(self.p_field)
 
         row = QHBoxLayout()
         row.setSpacing(SPACING.md)
@@ -148,15 +148,25 @@ class LoginDialog(QDialog):
         self.msg.style().unpolish(self.msg)
         self.msg.style().polish(self.msg)
 
+        if state == "info":
+            self.u_field.clear_status()
+            self.p_field.clear_status()
+
     def _do_login(self):
+        self.u_field.clear_status()
+        self.p_field.clear_status()
         user = authenticate(self.u.text().strip(), self.p.text())
         if user:
             self._user = user
             self._set_message_state("info")
+            self.u_field.mark_success()
+            self.p_field.mark_success()
             self.accept()
         else:
             self.msg.setText(texts.get("login.error"))
             self._set_message_state("error")
+            self.u_field.mark_error(texts.get("login.error"))
+            self.p_field.mark_error(texts.get("login.error"))
 
     def _open_forgot(self):
         dlg = ForgotPasswordDialog()
@@ -195,8 +205,14 @@ class LoginDialog(QDialog):
         self.form_title.setText(texts.get("login.form_title"))
         self.msg.setText(texts.get("login.form_hint"))
         self._set_message_state("info")
+        username_label = texts.get("login.username_label", texts.get("login.username_placeholder"))
+        password_label = texts.get("login.password_label", texts.get("login.password_placeholder"))
+        self.u_field.label.setText(username_label)
+        self.p_field.label.setText(password_label)
         self.u.setPlaceholderText(texts.get("login.username_placeholder"))
         self.p.setPlaceholderText(texts.get("login.password_placeholder"))
+        self.u_field.set_helper_text(texts.get("login.username_helper", texts.get("login.form_hint")))
+        self.p_field.set_helper_text(texts.get("login.password_helper", texts.get("login.form_hint")))
         self.btn.setText(texts.get("login.submit"))
         self.forgot.setText(texts.get("login.forgot"))
         self.create_user.setText(texts.get("login.create_user"))

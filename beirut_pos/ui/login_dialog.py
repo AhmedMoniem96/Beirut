@@ -105,9 +105,10 @@ class LoginDialog(QDialog):
         self.msg.setWordWrap(True)
         form_layout.addWidget(self.msg)
 
-        field_width = 460
+        field_width = 560
 
         self.u = DSTextField(width=field_width)
+        self.u.setMinimumHeight(56)
         self.u.setClearButtonEnabled(True)
         self.u_field = DSFormField(
             "اسم المستخدم",
@@ -119,6 +120,7 @@ class LoginDialog(QDialog):
         form_layout.addWidget(self.u_field)
 
         self.p = DSTextField(width=field_width)
+        self.p.setMinimumHeight(56)
         self.p.setEchoMode(self.p.EchoMode.Password)
         self.p.setClearButtonEnabled(True)
         self.p_field = DSFormField(

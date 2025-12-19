@@ -215,6 +215,12 @@ class MainWindow(QMainWindow):
         self.banner_timer = QTimer(self)
         self.banner_timer.setSingleShot(True)
         self.banner_timer.timeout.connect(self._hide_banner)
+        self._banner_durations = {
+            "info": 6000,
+            "success": 4800,
+            "warn": 7000,
+            "error": 8200,
+        }
 
         self.setCentralWidget(container)
 
@@ -1443,13 +1449,16 @@ class MainWindow(QMainWindow):
         self.banner_timer.stop()
         self.banner.setVisible(False)
 
-    def _show_banner(self, text: str, kind: str = "info", duration: int | None = 6000):
+    def _show_banner(self, text: str, kind: str = "info", duration: int | None = None):
         self.banner.setProperty("kind", kind)
         self.banner_label.setText(text)
         self.banner.setVisible(True)
         self.banner_timer.stop()
-        if duration and duration > 0:
-            self.banner_timer.start(duration)
+
+        target_duration = duration if duration is not None else self._banner_durations.get(kind, 6000)
+        if target_duration and target_duration > 0:
+            self.banner_timer.start(target_duration)
+
         self.banner.style().unpolish(self.banner)
         self.banner.style().polish(self.banner)
 

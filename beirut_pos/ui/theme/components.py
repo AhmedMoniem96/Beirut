@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QEvent
 from PyQt6.QtGui import QColor, QPalette
 
 from .tokens import COLORS, RADII, SPACING, SHADOWS, typography_rule
@@ -45,8 +45,7 @@ class DSTextField(QLineEdit):
         super().__init__(parent)
         self.setObjectName("DSTextField")
         self.setPlaceholderText(placeholder)
-        if width:
-            self.setMinimumWidth(width)
+        self.setMinimumWidth(width or 320)
 
 
 class DSSelect(QComboBox):
@@ -54,6 +53,143 @@ class DSSelect(QComboBox):
         super().__init__(parent)
         self.setObjectName("DSSelect")
         self.setEditable(False)
+
+
+class DSFormField(QFrame):
+    """Labeled form wrapper with helper/error text and focus states."""
+
+    def __init__(
+        self,
+        label: str,
+        field: QWidget,
+        *,
+        helper: str = "",
+        required: bool = False,
+        width: int = 360,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self.setObjectName("DSFormField")
+        self.setProperty("data-status", "neutral")
+        self.setProperty("data-focused", False)
+        self._field = field
+        self._default_helper = helper
+        self._required = required
+        self.setMinimumWidth(width)
+        self._field.setParent(self)
+        self._field.setMinimumWidth(width)
+        self._field.installEventFilter(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(SPACING.sm, SPACING.sm, SPACING.sm, SPACING.sm)
+        layout.setSpacing(SPACING.xs)
+
+        self.label = QLabel(f"{label}{' *' if required else ''}")
+        self.label.setProperty("data-role", "label")
+        apply_typography(self.label, "caption")
+        layout.addWidget(self.label)
+
+        layout.addWidget(self._field)
+
+        self.helper = QLabel(helper)
+        self.helper.setWordWrap(True)
+        self.helper.setProperty("data-role", "helper")
+        self.helper.setProperty("data-status", "neutral")
+        apply_typography(self.helper, "caption")
+        layout.addWidget(self.helper)
+
+    # ------------------------------------------------------------------ api
+    @property
+    def field(self) -> QWidget:
+        return self._field
+
+    def set_helper_text(self, text: str) -> None:
+        self._default_helper = text
+        self.helper.setText(text)
+        self.helper.setProperty("data-status", "neutral")
+        self._refresh_styles()
+
+    def set_status(self, status: str = "neutral", message: Optional[str] = None) -> None:
+        self.setProperty("data-status", status)
+        self._field.setProperty("data-status", status)
+        self.helper.setProperty("data-status", status)
+        self.helper.setText(message if message is not None else self._default_helper)
+        self._refresh_styles()
+
+    def mark_error(self, message: str) -> None:
+        self.set_status("error", message)
+
+    def mark_success(self, message: Optional[str] = None) -> None:
+        self.set_status("success", message or self._default_helper)
+
+    def clear_status(self) -> None:
+        self.set_status("neutral", self._default_helper)
+
+    def eventFilter(self, source, event):  # noqa: N802 (Qt override)
+        if source is self._field:
+            if event.type() == QEvent.Type.FocusIn:
+                self.setProperty("data-focused", True)
+                self._refresh_styles()
+            elif event.type() == QEvent.Type.FocusOut:
+                self.setProperty("data-focused", False)
+                self._refresh_styles()
+        return super().eventFilter(source, event)
+
+    # ------------------------------------------------------------------ utils
+    def _refresh_styles(self) -> None:
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self._field.style().unpolish(self._field)
+        self._field.style().polish(self._field)
+
+
+class ProgressStepper(QFrame):
+    """Horizontal stepper used for wizard-like flows."""
+
+    def __init__(self, steps: list[str], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("ProgressStepper")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(SPACING.sm, SPACING.sm, SPACING.sm, SPACING.sm)
+        layout.setSpacing(SPACING.md)
+        self._badges: list[QLabel] = []
+        self._labels: list[QLabel] = []
+
+        for idx, title in enumerate(steps):
+            wrapper = QVBoxLayout()
+            wrapper.setSpacing(SPACING.xs)
+
+            badge = QLabel(str(idx + 1))
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setProperty("data-role", "badge")
+            badge.setProperty("data-state", "inactive")
+            badge.setFixedSize(32, 32)
+
+            label = QLabel(title)
+            label.setProperty("data-role", "label")
+            label.setProperty("data-state", "inactive")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setWordWrap(True)
+            apply_typography(label, "body")
+
+            wrapper.addWidget(badge, alignment=Qt.AlignmentFlag.AlignCenter)
+            wrapper.addWidget(label)
+
+            layout.addLayout(wrapper, 1)
+            self._badges.append(badge)
+            self._labels.append(label)
+
+        self.set_active_step(0)
+
+    def set_active_step(self, index: int) -> None:
+        for idx, (badge, label) in enumerate(zip(self._badges, self._labels)):
+            state = "active" if idx == index else "inactive"
+            badge.setProperty("data-state", state)
+            label.setProperty("data-state", state)
+            badge.style().unpolish(badge)
+            badge.style().polish(badge)
+            label.style().unpolish(label)
+            label.style().polish(label)
 
 
 class DSTable(QTableWidget):
@@ -215,6 +351,7 @@ QPushButton#DSButton[data-variant="secondary"] {{ background-color: transparent;
 QPushButton#DSButton[data-variant="secondary"]:hover {{ background-color: rgba(255,255,255,0.08); }}
 QPushButton#DSButton[data-variant="link"] {{ background-color: transparent; color: {accent}; text-decoration: none; padding: {SPACING.xs}px {SPACING.sm}px; }}
 QPushButton#DSButton[data-variant="link"]:hover {{ color: {COLORS.text}; text-decoration: underline; }}
+QPushButton#DSButton:focus {{ outline: 3px solid rgba(212,160,94,0.55); outline-offset: 2px; }}
 QPushButton#DSButton:disabled {{ background-color: rgba(110,96,80,0.55); color: rgba(27,15,8,0.45); }}
 
 QLineEdit#DSTextField {{
@@ -225,7 +362,9 @@ QLineEdit#DSTextField {{
     border: 1px solid rgba(255,255,255,0.16);
     {typography_rule("body")}
 }}
-QLineEdit#DSTextField:focus {{ border: 2px solid {accent}; }}
+QLineEdit#DSTextField:focus {{ border: 2px solid {accent}; box-shadow: 0 0 0 3px rgba(212,160,94,0.25); }}
+QLineEdit#DSTextField[data-status="error"] {{ border: 2px solid {COLORS.danger}; box-shadow: 0 0 0 3px rgba(178,70,70,0.28); }}
+QLineEdit#DSTextField[data-status="success"] {{ border: 2px solid {COLORS.success}; box-shadow: 0 0 0 2px rgba(46,125,84,0.25); }}
 
 QComboBox#DSSelect {{
     background-color: rgba(255,255,255,0.94);
@@ -235,9 +374,30 @@ QComboBox#DSSelect {{
     border: 1px solid rgba(255,255,255,0.16);
     {typography_rule("body")}
 }}
-QComboBox#DSSelect:focus {{ border: 2px solid {accent}; }}
+QComboBox#DSSelect:focus {{ border: 2px solid {accent}; box-shadow: 0 0 0 3px rgba(212,160,94,0.25); }}
+QComboBox#DSSelect[data-status="error"] {{ border: 2px solid {COLORS.danger}; box-shadow: 0 0 0 3px rgba(178,70,70,0.28); }}
+QComboBox#DSSelect[data-status="success"] {{ border: 2px solid {COLORS.success}; box-shadow: 0 0 0 2px rgba(46,125,84,0.25); }}
 QComboBox#DSSelect::drop-down {{ border: none; width: 28px; }}
 QComboBox#DSSelect::down-arrow {{ width: 12px; height: 12px; margin: 6px; }}
+
+QFrame#DSFormField {{
+    border-radius: {RADII.md}px;
+    border: 1px solid {COLORS.border};
+    background-color: {COLORS.surface_alt};
+}}
+QFrame#DSFormField[data-focused="true"] {{ border-color: {accent}; box-shadow: 0 0 0 3px rgba(212,160,94,0.25); }}
+QFrame#DSFormField[data-status="error"] {{ border-color: {COLORS.danger}; box-shadow: 0 0 0 3px rgba(178,70,70,0.28); background-color: rgba(178,70,70,0.12); }}
+QFrame#DSFormField[data-status="success"] {{ border-color: {COLORS.success}; box-shadow: 0 0 0 2px rgba(46,125,84,0.25); background-color: rgba(46,125,84,0.1); }}
+QFrame#DSFormField QLabel[data-role="label"] {{ color: {COLORS.text}; {typography_rule("caption")} }}
+QFrame#DSFormField QLabel[data-role="helper"] {{ color: {COLORS.text_muted}; }}
+QFrame#DSFormField QLabel[data-role="helper"][data-status="error"] {{ color: {COLORS.danger}; font-weight: 700; }}
+QFrame#DSFormField QLabel[data-role="helper"][data-status="success"] {{ color: {COLORS.success}; font-weight: 700; }}
+
+QFrame#ProgressStepper {{ border-radius: {RADII.lg}px; border: 1px solid {COLORS.border}; background: {COLORS.surface_alt}; }}
+QFrame#ProgressStepper QLabel[data-role="badge"] {{ background: {COLORS.surface}; color: {COLORS.text}; border-radius: {RADII.pill}px; {typography_rule("body")}; }}
+QFrame#ProgressStepper QLabel[data-role="badge"][data-state="active"] {{ background: {accent}; color: {COLORS.on_primary}; box-shadow: 0 2px 10px rgba(0,0,0,0.35); }}
+QFrame#ProgressStepper QLabel[data-role="label"] {{ color: {COLORS.text_muted}; }}
+QFrame#ProgressStepper QLabel[data-role="label"][data-state="active"] {{ color: {COLORS.text}; font-weight: 800; }}
 
 QFrame#DSAlert {{
     border-radius: {RADII.md}px;

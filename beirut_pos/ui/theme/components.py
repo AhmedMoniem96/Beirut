@@ -53,6 +53,20 @@ class DSTextField(QLineEdit):
         if not self.accessibleName():
             self.setAccessibleName(placeholder or "حقل إدخال")
 
+        self._apply_directional_alignment()
+
+    def changeEvent(self, event):  # noqa: N802 (Qt override)
+        if event.type() == QEvent.Type.LayoutDirectionChange:
+            self._apply_directional_alignment()
+        super().changeEvent(event)
+
+    def _apply_directional_alignment(self) -> None:
+        """Keep text aligned according to the current layout direction."""
+        if self.layoutDirection() == Qt.LayoutDirection.RightToLeft:
+            self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        else:
+            self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
 
 class DSSelect(QComboBox):
     def __init__(self, parent: QWidget | None = None):

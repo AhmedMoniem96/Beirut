@@ -2073,6 +2073,89 @@ class AdminReportsDialog(BigDialog):
         button.clicked.connect(lambda _, t=table, n=default_name: self._export_table(t, n))
         return button
 
+    def _build_range_strip(self, *, kind: str = "day") -> QFrame:
+        """Lightweight range indicator used above the profit tables."""
+
+        palettes = {
+            "day": ("#FFF7E6", "#F0B46F"),
+            "month": ("#E6F4FF", "#8DC4F5"),
+            "detail": ("#F5F0FF", "#B7A1F5"),
+        }
+        bg, accent = palettes.get(kind, palettes["day"])
+
+        strip = QFrame()
+        strip.setObjectName("RangeStrip")
+        strip.setFrameShape(QFrame.Shape.StyledPanel)
+        strip.setStyleSheet(
+            f"#RangeStrip {{"
+            f"background: {bg};"
+            "border: 1px solid #e0e0e0;"
+            "border-radius: 10px;"
+            "padding: 8px 10px;"
+            "}"
+            "#RangeStrip QLabel {"
+            "font-weight: 600;"
+            "}"
+            "#RangeStrip .Accent {"
+            f"color: {accent};"
+            "}"
+        )
+
+        layout = QHBoxLayout(strip)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(6)
+
+        prefix = QLabel("الفترة:")
+        prefix.setProperty("class", "Accent")
+        layout.addWidget(prefix)
+
+        start_label = QLabel("—")
+        start_label.setObjectName("RangeStart")
+        layout.addWidget(start_label)
+
+        dash = QLabel("–")
+        dash.setProperty("class", "Accent")
+        layout.addWidget(dash)
+
+        end_label = QLabel("—")
+        end_label.setObjectName("RangeEnd")
+        layout.addWidget(end_label)
+
+        layout.addStretch(1)
+
+        strip.start_label = start_label  # type: ignore[attr-defined]
+        strip.end_label = end_label  # type: ignore[attr-defined]
+        return strip
+
+    def _update_range_strip(self, strip: QFrame, start_label: str, end_label: str, *, kind: str = "day") -> None:
+        """Refresh the displayed date range for the provided strip widget."""
+
+        if strip is None:
+            return
+
+        start_text = (start_label or "—").strip() or "—"
+        end_text = (end_label or start_text).strip() or start_text
+
+        start_widget = getattr(strip, "start_label", None)
+        end_widget = getattr(strip, "end_label", None)
+
+        if isinstance(start_widget, QLabel):
+            start_widget.setText(start_text)
+        if isinstance(end_widget, QLabel):
+            end_widget.setText(end_text)
+
+        # Update styling to keep the accent color aligned with the strip kind
+        palettes = {
+            "day": "#F0B46F",
+            "month": "#8DC4F5",
+            "detail": "#B7A1F5",
+        }
+        accent = palettes.get(kind)
+        if accent:
+            for widget in (start_widget, end_widget):
+                if isinstance(widget, QLabel):
+                    widget.setStyleSheet(f"color: {accent};")
+
     def _make_table(self, headers: list[str], *, include_thumbnail: bool = False) -> QTableWidget:
         labels = list(headers)
         thumbnail_column = -1

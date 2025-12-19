@@ -105,15 +105,29 @@ class LoginDialog(QDialog):
         self.msg.setWordWrap(True)
         form_layout.addWidget(self.msg)
 
-        self.u = DSTextField()
+        field_width = 460
+
+        self.u = DSTextField(width=field_width)
         self.u.setClearButtonEnabled(True)
-        self.u_field = DSFormField("اسم المستخدم", self.u, helper="أدخل اسم المستخدم الخاص بك.", required=True)
+        self.u_field = DSFormField(
+            "اسم المستخدم",
+            self.u,
+            helper="أدخل اسم المستخدم الخاص بك.",
+            required=True,
+            width=field_width,
+        )
         form_layout.addWidget(self.u_field)
 
-        self.p = DSTextField()
+        self.p = DSTextField(width=field_width)
         self.p.setEchoMode(self.p.EchoMode.Password)
         self.p.setClearButtonEnabled(True)
-        self.p_field = DSFormField("كلمة المرور", self.p, helper="اكتب كلمة المرور ثم اضغط دخول.", required=True)
+        self.p_field = DSFormField(
+            "كلمة المرور",
+            self.p,
+            helper="اكتب كلمة المرور ثم اضغط دخول.",
+            required=True,
+            width=field_width,
+        )
         form_layout.addWidget(self.p_field)
 
         row = QHBoxLayout()

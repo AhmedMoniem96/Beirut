@@ -32,6 +32,19 @@ from ..services.orders import order_manager
 from .common.big_dialog import BigDialog
 
 
+def _avatar_palette(seed: str) -> tuple[str, str]:
+    palettes = [
+        ("#2f80ed", "#e9f2ff"),
+        ("#9b51e0", "#f3e9ff"),
+        ("#f2994a", "#fff1e0"),
+        ("#56ccf2", "#e8f9ff"),
+        ("#27ae60", "#e8f7ef"),
+        ("#eb5757", "#ffecec"),
+    ]
+    idx = abs(hash(seed or "")) % len(palettes)
+    return palettes[idx]
+
+
 @dataclass(slots=True)
 class _ProductValues:
     name: str
@@ -213,24 +226,12 @@ class _ProductEditor(QDialog):
             if cleaned:
                 self.sugar_list.addItem(cleaned)
 
-    def _avatar_palette(self, seed: str) -> tuple[str, str]:
-        palettes = [
-            ("#2f80ed", "#e9f2ff"),
-            ("#9b51e0", "#f3e9ff"),
-            ("#f2994a", "#fff1e0"),
-            ("#56ccf2", "#e8f9ff"),
-            ("#27ae60", "#e8f7ef"),
-            ("#eb5757", "#ffecec"),
-        ]
-        idx = abs(hash(seed or "")) % len(palettes)
-        return palettes[idx]
-
     def _refresh_preview(self) -> None:
         name = self.name_edit.text().strip() or "المنتج الجديد"
         product_type = self.type_edit.text().strip()
         price = int(self.price_edit.value())
 
-        fg, bg = self._avatar_palette(name)
+        fg, bg = _avatar_palette(name)
         initials = (name[:2] if len(name) >= 2 else name or "? ").strip()
         self.avatar_label.setText(initials)
         self.avatar_label.setStyleSheet(
@@ -481,25 +482,24 @@ class CatalogManagerDialog(BigDialog):
         prod_header.addWidget(self.btn_prod_delete)
         prod_panel.addLayout(prod_header)
 
-        self.product_table = QTableWidget(0, 9)
+        self.product_table = QTableWidget(0, 6)
         self.product_table.setHorizontalHeaderLabels([
             "المنتج",
             "السعر (ج.م)",
-            "نوع المنتج",
-            "مستويات السكر",
-            "مخصص",
-            "تتبع",
+            "تفاصيل الطلب",
+            "الخيارات",
             "المخزون",
-            "حد أدنى",
-            "العبوة",
+            "التعبئة",
         ])
         self.product_table.horizontalHeader().setStretchLastSection(True)
         self.product_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for idx in range(1, 9):
+        for idx in range(1, 6):
             self.product_table.horizontalHeader().setSectionResizeMode(idx, QHeaderView.ResizeMode.ResizeToContents)
         self.product_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.product_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.product_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.product_table.setAlternatingRowColors(True)
+        self.product_table.verticalHeader().setVisible(False)
         prod_panel.addWidget(self.product_table, 1)
 
         prod_actions = QHBoxLayout()
@@ -562,6 +562,101 @@ class CatalogManagerDialog(BigDialog):
         self._load_categories()
 
     # ----------------- loading helpers -----------------
+    def _category_color(self, category_id: int) -> str:
+        for cat in self._categories:
+            if cat["id"] == category_id:
+                return cat.get("color") or ""
+        return ""
+
+    def _build_pill(self, text: str, *, bg: str = "#eef1f7", fg: str = "#1f2937") -> QLabel:
+        pill = QLabel(text)
+        pill.setStyleSheet(
+            f"padding: 4px 10px; border-radius: 10px; background-color: {bg}; color: {fg}; font-size: 11px;"
+        )
+        return pill
+
+    def _sugar_text(self, product: dict) -> str:
+        sugar_levels = product.get("sugar_levels") or []
+        return "، ".join(sugar_levels) if sugar_levels else "بدون مستويات سكر"
+
+    def _render_product_card(self, product: dict, category_color: str) -> QWidget:
+        card = QFrame()
+        card.setObjectName("productCard")
+        bg = category_color or "#f9fafc"
+        card.setStyleSheet(
+            f"#productCard {{ background-color: {bg}; border: 1px solid #e5e7eb; border-radius: 12px; }}"
+        )
+        card.setMinimumHeight(86)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(10)
+
+        fg, _ = _avatar_palette(product.get("name") or "")
+        avatar = QLabel((product.get("name") or "?")[:2])
+        avatar.setFixedSize(44, 44)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet(
+            f"border-radius: 12px; color: white; font-weight: 700; font-size: 16px; background-color: {fg};"
+        )
+
+        meta = QVBoxLayout()
+        meta.setSpacing(4)
+        name_label = QLabel(product.get("name") or "—")
+        name_label.setStyleSheet("font-weight: 700; font-size: 14px;")
+        meta.addWidget(name_label)
+
+        sugar_text = self._sugar_text(product)
+        product_type = product.get("product_type") or "بدون نوع محدد"
+        detail = QLabel(f"{product_type} • {sugar_text}")
+        detail.setStyleSheet("color: #475467; font-size: 12px;")
+        meta.addWidget(detail)
+
+        pill_row = QHBoxLayout()
+        pill_row.setSpacing(6)
+        if product.get("customizable"):
+            pill_row.addWidget(self._build_pill("خيارات مخصصة", bg="#e8f5e9", fg="#166534"))
+        if product.get("track_stock"):
+            stock_qty = product.get("stock_qty")
+            if stock_qty is None:
+                stock_label = ("مخزون يدوي", "#fff7ed", "#c2410c")
+            elif stock_qty <= 0:
+                stock_label = ("غير متوفر", "#fef2f2", "#b42318")
+            elif stock_qty <= 3:
+                stock_label = ("كمية محدودة", "#fff7ed", "#c2410c")
+            else:
+                stock_label = ("متوفر", "#ecfdf3", "#027a48")
+            pill_row.addWidget(self._build_pill(stock_label[0], bg=stock_label[1], fg=stock_label[2]))
+        pill_row.addStretch(1)
+        pill_widget = QWidget()
+        pill_widget.setLayout(pill_row)
+        meta.addWidget(pill_widget)
+
+        layout.addWidget(avatar)
+        layout.addLayout(meta, 1)
+        layout.addStretch(1)
+
+        return card
+
+    def _options_text(self, product: dict) -> str:
+        customizable = "✅" if product.get("customizable") else "—"
+        sugar_text = self._sugar_text(product)
+        return f"سعر إضافي: {customizable} | سكر: {sugar_text}"
+
+    def _stock_text(self, product: dict) -> str:
+        if not product.get("track_stock"):
+            return "لا يتم تتبعه"
+        stock_qty = product.get("stock_qty")
+        min_stock = product.get("min_stock")
+        stock_display = "—" if stock_qty is None else f"{float(stock_qty):g}"
+        min_display = "—" if min_stock is None else f"{float(min_stock):g}"
+        return f"كمية: {stock_display} | حد أدنى: {min_display}"
+
+    def _packaging_text(self, product: dict) -> str:
+        pkg_value = product.get("package_size")
+        if not pkg_value:
+            return "—"
+        return f"{float(pkg_value):g} وحدة"
+
     def _load_categories(self, *, select_id: int | None = None) -> None:
         self._categories = self._catalog.list_categories()
         self.category_list.clear()
@@ -588,29 +683,25 @@ class CatalogManagerDialog(BigDialog):
     def _load_products(self, category_id: int) -> None:
         self._products = self._catalog.list_products(category_id)
         self.product_table.setRowCount(len(self._products))
+        category_color = self._category_color(category_id)
         for row_idx, prod in enumerate(self._products):
-            self.product_table.setItem(row_idx, 0, QTableWidgetItem(prod["name"]))
-            self.product_table.setItem(row_idx, 1, QTableWidgetItem(str(prod["price_cents"])))
-            self.product_table.setItem(row_idx, 2, QTableWidgetItem(prod.get("product_type") or ""))
-            sugar_levels = prod.get("sugar_levels") or []
-            sugar_text = "، ".join(sugar_levels) if sugar_levels else "—"
-            self.product_table.setItem(row_idx, 3, QTableWidgetItem(sugar_text))
-            self.product_table.setItem(row_idx, 4, QTableWidgetItem("✅" if prod["customizable"] else "—"))
-            self.product_table.setItem(row_idx, 5, QTableWidgetItem("✅" if prod["track_stock"] else "—"))
-            stock_text = "" if prod["stock_qty"] is None else f"{prod['stock_qty']:.2f}"
-            min_text = "" if prod["min_stock"] is None else f"{prod['min_stock']:.2f}"
-            self.product_table.setItem(row_idx, 6, QTableWidgetItem(stock_text))
-            self.product_table.setItem(row_idx, 7, QTableWidgetItem(min_text))
-            pkg_value = prod.get("package_size")
-            if pkg_value:
-                package_text = f"{float(pkg_value):g}"
-            else:
-                package_text = ""
-            self.product_table.setItem(row_idx, 8, QTableWidgetItem(package_text))
-            for col in range(9):
-                item = self.product_table.item(row_idx, col)
-                if item:
-                    item.setData(Qt.ItemDataRole.UserRole, prod["id"])
+            card = self._render_product_card(prod, category_color)
+            self.product_table.setCellWidget(row_idx, 0, card)
+
+            price_item = QTableWidgetItem(f"{prod['price_cents']:,}")
+            details_item = QTableWidgetItem(
+                f"{prod.get('product_type') or '—'} • {self._sugar_text(prod)}"
+            )
+            options_item = QTableWidgetItem(self._options_text(prod))
+            stock_item = QTableWidgetItem(self._stock_text(prod))
+            package_item = QTableWidgetItem(self._packaging_text(prod))
+
+            cells = [price_item, details_item, options_item, stock_item, package_item]
+            for col_idx, cell in enumerate(cells, start=1):
+                self.product_table.setItem(row_idx, col_idx, cell)
+                cell.setData(Qt.ItemDataRole.UserRole, prod["id"])
+            card_height = card.sizeHint().height()
+            self.product_table.setRowHeight(row_idx, max(92, card_height + 6))
         current = self.product_table.currentRow()
         if self._products and current < 0:
             self.product_table.setCurrentCell(0, 0)

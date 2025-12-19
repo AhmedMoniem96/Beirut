@@ -32,6 +32,9 @@ class DSButton(QPushButton):
         self.setProperty("data-variant", variant)
         self.setProperty("data-size", size)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        if not self.accessibleName():
+            self.setAccessibleName(text or "زر")
 
 
 class DSLinkButton(DSButton):
@@ -46,6 +49,9 @@ class DSTextField(QLineEdit):
         self.setObjectName("DSTextField")
         self.setPlaceholderText(placeholder)
         self.setMinimumWidth(width or 320)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        if not self.accessibleName():
+            self.setAccessibleName(placeholder or "حقل إدخال")
 
 
 class DSSelect(QComboBox):
@@ -53,6 +59,9 @@ class DSSelect(QComboBox):
         super().__init__(parent)
         self.setObjectName("DSSelect")
         self.setEditable(False)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        if not self.accessibleName():
+            self.setAccessibleName("قائمة اختيار")
 
 
 class DSFormField(QFrame):
@@ -347,12 +356,19 @@ QPushButton#DSButton[data-size="sm"] {{ padding: {SPACING.xs}px {SPACING.md}px; 
 QPushButton#DSButton[data-size="lg"] {{ padding: {SPACING.md}px {SPACING.xl}px; {typography_rule("title")}; }}
 QPushButton#DSButton[data-variant="primary"] {{ background-color: {accent}; color: {COLORS.on_primary}; }}
 QPushButton#DSButton[data-variant="primary"]:hover {{ background-color: {accent_dark}; }}
-QPushButton#DSButton[data-variant="secondary"] {{ background-color: transparent; color: {COLORS.text}; border: 1px solid {COLORS.border}; }}
-QPushButton#DSButton[data-variant="secondary"]:hover {{ background-color: rgba(255,255,255,0.08); }}
+QPushButton#DSButton[data-variant="secondary"] {{ background-color: rgba(255,255,255,0.06); color: {COLORS.text}; border: 1px solid rgba(255,255,255,0.24); }}
+QPushButton#DSButton[data-variant="secondary"]:hover {{ background-color: rgba(255,255,255,0.14); }}
 QPushButton#DSButton[data-variant="link"] {{ background-color: transparent; color: {accent}; text-decoration: none; padding: {SPACING.xs}px {SPACING.sm}px; }}
 QPushButton#DSButton[data-variant="link"]:hover {{ color: {COLORS.text}; text-decoration: underline; }}
-QPushButton#DSButton:focus {{ outline: 3px solid rgba(212,160,94,0.55); outline-offset: 2px; }}
+QPushButton#DSButton:focus {{ outline: 3px solid rgba(212,160,94,0.72); outline-offset: 2px; box-shadow: 0 0 0 3px rgba(212,160,94,0.22); }}
 QPushButton#DSButton:disabled {{ background-color: rgba(110,96,80,0.55); color: rgba(27,15,8,0.45); }}
+
+QToolButton:focus, QAbstractButton:focus {{
+    outline: 3px solid rgba(212,160,94,0.72);
+    outline-offset: 2px;
+    background-color: rgba(212,160,94,0.16);
+    color: {COLORS.on_primary};
+}}
 
 QLineEdit#DSTextField {{
     background-color: rgba(255,255,255,0.94);
@@ -423,6 +439,10 @@ QTabBar::tab {{
     color: {COLORS.text_muted};
     margin: 2px;
 }}
+QTabBar::tab:focus {{
+    outline: 2px solid rgba(212,160,94,0.72);
+    outline-offset: 2px;
+}}
 QTabBar::tab:selected {{ background: {accent}; color: {COLORS.on_primary}; border-color: {accent}; }}
 QTabBar::tab:hover {{ background: rgba(255,255,255,0.06); color: {COLORS.text}; }}
 
@@ -431,6 +451,10 @@ QTableWidget#DSTable {{
     border-radius: {RADII.md}px;
     gridline-color: rgba(0,0,0,0.08);
     {typography_rule("body")}
+}}
+QTableWidget#DSTable:focus {{
+    border: 2px solid {accent};
+    box-shadow: 0 0 0 3px rgba(212,160,94,0.22);
 }}
 QTableWidget#DSTable::item {{
     padding: {SPACING.xs}px;

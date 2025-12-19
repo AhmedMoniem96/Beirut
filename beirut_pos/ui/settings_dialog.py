@@ -14,6 +14,7 @@ from ..core.db import setting_get, setting_set, get_synchronous_mode, set_synchr
 from ..core.simple_voucher import deactivate, is_activated, status as voucher_status
 from ..core.bus import bus
 from .common.big_dialog import BigDialog
+from .common.async_utils import Debouncer
 from .common import branding
 from ..services.orders import order_manager, get_category_order, set_category_order
 from ..services import texts
@@ -54,8 +55,9 @@ class VipTablesPickerDialog(BigDialog):
         controls = QHBoxLayout()
         self.vip_filter = QLineEdit()
         self.vip_filter.setPlaceholderText("ابحث عن طاولة…")
-        self.vip_filter.textChanged.connect(self._apply_filter)
         controls.addWidget(self.vip_filter, 1)
+        self._filter_debouncer = Debouncer(self._apply_filter, parent=self, delay_ms=200)
+        self.vip_filter.textChanged.connect(self._filter_debouncer.trigger)
 
         btn_select_all = QPushButton("تحديد الكل")
         btn_select_all.clicked.connect(lambda: self._set_all(True))

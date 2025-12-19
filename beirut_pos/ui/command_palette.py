@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 
+from .common.async_utils import Debouncer
+
 
 class CommandPaletteDialog(QDialog):
     """Lightweight command palette with fuzzy filtering."""
@@ -35,7 +37,8 @@ class CommandPaletteDialog(QDialog):
 
         self.input = QLineEdit(self)
         self.input.setPlaceholderText("Search settings, reports, shortcuts…")
-        self.input.textChanged.connect(self._filter)
+        self._filter_debouncer = Debouncer(lambda: self._filter(self.input.text()), delay_ms=160, parent=self)
+        self.input.textChanged.connect(lambda _text: self._filter_debouncer.trigger())
         self.input.returnPressed.connect(self._accept_selection)
         layout.addWidget(self.input)
 

@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 from ..services import texts
 from ..services import settings as settings_service
 from .common import branding
+from .common.async_utils import Debouncer
 
 
 class BrandingTextsPage(QWidget):
@@ -70,7 +71,6 @@ class BrandingTextsPage(QWidget):
 
         self.search = QLineEdit()
         self.search.setPlaceholderText(texts.get("settings.branding.search_placeholder"))
-        self.search.textChanged.connect(self._apply_search_filter)
         layout.addWidget(self.search)
 
         self.table = QTableWidget(0, 2)
@@ -109,6 +109,8 @@ class BrandingTextsPage(QWidget):
         layout.addLayout(btn_row)
 
         self._load_texts()
+        self._search_debouncer = Debouncer(self._apply_search_filter, delay_ms=220, parent=self)
+        self.search.textChanged.connect(self._search_debouncer.trigger)
 
         # Shortcuts for convenience
         act_add = QAction(self)

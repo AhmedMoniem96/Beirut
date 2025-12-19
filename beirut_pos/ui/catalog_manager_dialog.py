@@ -537,7 +537,13 @@ class CatalogManagerDialog(BigDialog):
 
         close_btn = QPushButton("إغلاق")
         close_btn.clicked.connect(self.accept)
-        root.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        footer = QHBoxLayout()
+        footer.setSpacing(12)
+        footer.addWidget(self.options_group, 1)
+        footer.addStretch(1)
+        footer.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        root.addLayout(footer)
 
         # Signal wiring
         self.category_list.currentRowChanged.connect(self._on_category_changed)

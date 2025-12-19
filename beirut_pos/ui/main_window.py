@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QToolButton,
     QStyle,
+    QBoxLayout,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
@@ -65,6 +66,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.user = current_user
         self._active_session_id = None
+        self._mobile_breakpoint = 860
+        self._tablet_breakpoint = 1280
+        self._current_breakpoint: str | None = None
         try:
             self._active_session_id = staff_service.start_session(self.user.username)
         except Exception:
@@ -181,6 +185,7 @@ class MainWindow(QMainWindow):
         root_layout = QHBoxLayout(container)
         root_layout.setContentsMargins(12, 12, 12, 12)
         root_layout.setSpacing(8)
+        self._root_layout = root_layout
 
         root_layout.addWidget(self._nav_panel, 0)
 
@@ -256,6 +261,7 @@ class MainWindow(QMainWindow):
         # Compact header with all buttons in ONE row
         head_row = QHBoxLayout()
         head_row.setSpacing(6)
+        self._head_row = head_row
         self.order_header = QLabel()
         self.order_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.order_header.setMinimumWidth(120)
@@ -325,6 +331,7 @@ class MainWindow(QMainWindow):
         # Main content: 2 columns (products + order details)
         main_row = QHBoxLayout()
         main_row.setSpacing(8)
+        self._main_row = main_row
 
         # LEFT: Products grid - MAXIMUM space (65% width)
         self.cat_grid = CategoryGrid(order_manager.categories, self._on_pick)
@@ -348,6 +355,9 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(tables_page)
         self.pages.addWidget(order_page)
         self.pages.setCurrentIndex(PAGE_TABLES)
+        self._apply_landmarks()
+        self._configure_keyboard_navigation()
+        self._apply_responsive_layout(self.width())
 
         # Bus listeners
         bus.subscribe("table_total_changed", self._on_table_total_changed)
@@ -423,6 +433,8 @@ class MainWindow(QMainWindow):
         self._nav_toggle.clicked.connect(
             lambda: self._update_nav_collapsed(not self._nav_collapsed)
         )
+        self._nav_toggle.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._nav_toggle.setAccessibleName("إظهار أو إخفاء القائمة الجانبية")
         layout.addWidget(self._nav_toggle, 0, alignment=Qt.AlignmentFlag.AlignLeft)
 
         nav_items = [
@@ -497,11 +509,92 @@ class MainWindow(QMainWindow):
             btn.setProperty("fullText", item["text"])
             btn.clicked.connect(item["handler"])
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            btn.setAccessibleName(item["text"])
             self._nav_buttons[item["key"]] = btn
             layout.addWidget(btn, 0)
 
         layout.addStretch(1)
         return panel
+
+    def _apply_landmarks(self) -> None:
+        container = self.centralWidget()
+        if container:
+            container.setAccessibleName("main")
+        self._nav_panel.setAccessibleName("navigation")
+        self._nav_panel.setAccessibleDescription("القائمة الرئيسية للتنقل بين الشاشات")
+        self._page_header.setAccessibleName("header")
+        self._page_header.setAccessibleDescription("عنوان الصفحة ومسار التصفح")
+        self.pages.setAccessibleName("main-content")
+        self.pages.setAccessibleDescription("المساحة الأساسية للمحتوى")
+        self.banner.setAccessibleName("status-banner")
+        self.banner_close.setAccessibleName("إغلاق التنبيه الحالي")
+        self._status.setAccessibleName("footer")
+
+    def _configure_keyboard_navigation(self) -> None:
+        nav_buttons = list(self._nav_buttons.values())
+        for btn in nav_buttons:
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            if not btn.accessibleName():
+                btn.setAccessibleName(btn.property("fullText") or btn.text())
+
+        action_buttons = [
+            self.command_palette_btn,
+            self.btn_print_bar,
+            self.btn_print_cashier,
+            self.btn_ps_p2,
+            self.btn_ps_p4,
+            self.btn_ps_stop,
+            self.btn_merge,
+            self.btn_table_history,
+            self.btn_clear_table,
+            self.back_big,
+        ]
+        for btn in action_buttons:
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            if not btn.accessibleName():
+                btn.setAccessibleName(btn.toolTip() or btn.text())
+
+        self.client_name_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.client_name_edit.setAccessibleName(self.client_name_edit.placeholderText() or "اسم العميل")
+        self.banner_close.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        if not self.banner_close.accessibleName():
+            self.banner_close.setAccessibleName(self.banner_close.toolTip() or "إغلاق التنبيه")
+
+    def _apply_responsive_layout(self, width: int) -> None:
+        if width < self._mobile_breakpoint:
+            mode = "mobile"
+        elif width < self._tablet_breakpoint:
+            mode = "tablet"
+        else:
+            mode = "desktop"
+
+        if mode == self._current_breakpoint:
+            self._update_nav_collapsed(mode != "desktop")
+            return
+
+        self._current_breakpoint = mode
+
+        if mode == "mobile":
+            self._root_layout.setContentsMargins(8, 8, 8, 8)
+            self._root_layout.setSpacing(6)
+            self._head_row.setSpacing(4)
+            self._main_row.setDirection(QBoxLayout.Direction.TopToBottom)
+            self._main_row.setSpacing(10)
+        elif mode == "tablet":
+            self._root_layout.setContentsMargins(10, 10, 10, 10)
+            self._root_layout.setSpacing(8)
+            self._head_row.setSpacing(6)
+            self._main_row.setDirection(QBoxLayout.Direction.LeftToRight)
+            self._main_row.setSpacing(10)
+        else:
+            self._root_layout.setContentsMargins(12, 12, 12, 12)
+            self._root_layout.setSpacing(8)
+            self._head_row.setSpacing(8)
+            self._main_row.setDirection(QBoxLayout.Direction.LeftToRight)
+            self._main_row.setSpacing(12)
+
+        self._update_nav_collapsed(mode != "desktop")
 
     def _apply_navigation_texts(self):
         labels = {
@@ -535,7 +628,7 @@ class MainWindow(QMainWindow):
 
     def _update_nav_collapsed(self, collapse: bool | None = None):
         if collapse is None:
-            collapse = self.width() < 1100
+            collapse = self._current_breakpoint in {"mobile", "tablet"}
         if collapse == self._nav_collapsed:
             self._nav_panel.setFixedWidth(68 if collapse else 220)
             self._sync_nav_collapse_state()
@@ -546,7 +639,7 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):  # noqa: D401 - Qt lifecycle hook
         super().resizeEvent(event)
-        self._update_nav_collapsed()
+        self._apply_responsive_layout(self.width())
 
     def _refresh_nav_selection(self, key: str):
         for nav_key, btn in self._nav_buttons.items():

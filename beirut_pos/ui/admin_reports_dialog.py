@@ -878,7 +878,7 @@ class AdminReportsDialog(BigDialog):
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ])
+        ], include_thumbnail=True)
         layout.addWidget(self.profit_daily_table, 1)
 
         controls = QHBoxLayout()
@@ -934,7 +934,7 @@ class AdminReportsDialog(BigDialog):
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ])
+        ], include_thumbnail=True)
         layout.addWidget(self.profit_monthly_table, 1)
 
         monthly_controls = QHBoxLayout()
@@ -979,7 +979,7 @@ class AdminReportsDialog(BigDialog):
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ])
+        ], include_thumbnail=True)
         layout.addWidget(self.monthly_detail_table, 1)
 
         self.monthly_detail_summary = QLabel("")

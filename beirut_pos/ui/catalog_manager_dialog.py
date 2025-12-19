@@ -427,6 +427,9 @@ class CatalogManagerDialog(BigDialog):
         self._products: list[dict] = []
         self._options: list[dict] = []
 
+        # Make the dialog generous so both tables are clearly visible even with many rows.
+        self.setMinimumSize(1100, 750)
+
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)

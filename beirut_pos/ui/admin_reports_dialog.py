@@ -870,12 +870,15 @@ class AdminReportsDialog(BigDialog):
         daily_title.setStyleSheet("font-weight:600;")
         layout.addWidget(daily_title)
 
+        self.profit_daily_strip = self._build_range_strip(kind="detail")
+        layout.addWidget(self.profit_daily_strip)
+
         self.profit_daily_table = self._make_table([
             "التاريخ",
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ], include_thumbnail=True)
+        ])
         layout.addWidget(self.profit_daily_table, 1)
 
         controls = QHBoxLayout()
@@ -923,12 +926,15 @@ class AdminReportsDialog(BigDialog):
         monthly_title.setStyleSheet("font-weight:600; margin-top:16px;")
         layout.addWidget(monthly_title)
 
+        self.profit_monthly_strip = self._build_range_strip(kind="month")
+        layout.addWidget(self.profit_monthly_strip)
+
         self.profit_monthly_table = self._make_table([
             "الشهر",
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ], include_thumbnail=True)
+        ])
         layout.addWidget(self.profit_monthly_table, 1)
 
         monthly_controls = QHBoxLayout()
@@ -946,6 +952,9 @@ class AdminReportsDialog(BigDialog):
         detail_title.setAlignment(Qt.AlignmentFlag.AlignRight)
         detail_title.setStyleSheet("font-weight:600; margin-top:16px;")
         layout.addWidget(detail_title)
+
+        self.monthly_detail_strip = self._build_range_strip(kind="day")
+        layout.addWidget(self.monthly_detail_strip)
 
         picker_layout = QHBoxLayout()
         picker_layout.setSpacing(12)
@@ -970,7 +979,7 @@ class AdminReportsDialog(BigDialog):
             "صافي المبيعات",
             "المشتريات",
             "صافي الربح",
-        ], include_thumbnail=True)
+        ])
         layout.addWidget(self.monthly_detail_table, 1)
 
         self.monthly_detail_summary = QLabel("")
@@ -1031,6 +1040,9 @@ class AdminReportsDialog(BigDialog):
         cur.execute(daily_query, (start, end, start, end))
         daily_rows = cur.fetchall()
         daily_payroll_net = staff_service.daily_payroll_expense()
+        start_label = (start or "").split("T")[0]
+        end_label = (end or "").split("T")[0]
+        self._update_range_strip(self.profit_daily_strip, start_label, end_label, kind="detail")
         month_day_counts: Counter[str] = Counter()
         for row in daily_rows:
             day_value = row["day"] or ""
@@ -1103,6 +1115,16 @@ class AdminReportsDialog(BigDialog):
 
         monthly_display = []
         monthly_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
+        range_months = [row["month"] for row in monthly_rows if row["month"]]
+        if range_months:
+            self._update_range_strip(
+                self.profit_monthly_strip,
+                range_months[-1],
+                range_months[0],
+                kind="month",
+            )
+        else:
+            self._update_range_strip(self.profit_monthly_strip, start_label[:7], end_label[:7], kind="month")
         for row in monthly_rows:
             month = row["month"] or ""
             sales_total = int(row["net_sales"] or 0)
@@ -1226,6 +1248,8 @@ class AdminReportsDialog(BigDialog):
 
         payroll_per_day = staff_service.daily_payroll_expense()
         payroll_days = len({row["day"] for row in daily_rows if row["day"]})
+        month_label = f"{year}-{month:02d}"
+        self._update_range_strip(self.monthly_detail_strip, month_label, month_label, kind="day")
 
         table_rows = []
         totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}

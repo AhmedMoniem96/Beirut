@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QSpinBox,
     QStackedLayout,
     QTableWidgetItem,
@@ -21,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .common.big_dialog import BigDialog
+from .common.async_utils import Debouncer, emit_task_status
 from .theme.components import DSTable, KpiCard, DSButton, DSSelect, DSTextField
 from ..services import purchases
 from ..utils.currency import format_pounds
@@ -106,7 +108,7 @@ class PurchasesDialog(BigDialog):
         self.empty_state = self._build_state(
             "لا توجد عمليات شراء بعد.", "أضف أول عملية", self._focus_form
         )
-        self.loading_state = self._build_state("يتم التحميل…", None, None)
+        self.loading_state = self._build_state("يتم التحميل…", None, None, busy=True)
         self.error_state = self._build_state(
             "تعذر تحميل المشتريات.", "إعادة المحاولة", self._refresh
         )
@@ -196,9 +198,13 @@ class PurchasesDialog(BigDialog):
         self._filtered_records: list[purchases.PurchaseRecord] = []
         self._page_size = 12
         self._page_index = 0
+        self._filters_debouncer = Debouncer(self._apply_filters, delay_ms=280, parent=self)
+        for field in (self.filter_supplier, self.filter_invoice, self.filter_min_amount):
+            field.textChanged.connect(self._filters_debouncer.trigger)
+        self.views.currentIndexChanged.connect(self._filters_debouncer.trigger)
         self._refresh()
 
-    def _build_state(self, message: str, cta: str | None, action) -> QWidget:
+    def _build_state(self, message: str, cta: str | None, action, *, busy: bool = False) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout(wrapper)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -210,6 +216,12 @@ class PurchasesDialog(BigDialog):
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)
 
+        if busy:
+            bar = QProgressBar()
+            bar.setRange(0, 0)
+            bar.setMaximumWidth(240)
+            layout.addWidget(bar)
+
         if cta:
             btn = DSButton(cta)
             btn.clicked.connect(action)
@@ -218,16 +230,19 @@ class PurchasesDialog(BigDialog):
 
     def _refresh(self) -> None:
         self._show_state(self.loading_state)
+        emit_task_status("يتم تحديث سجل المشتريات…", "info")
         try:
             records = purchases.list_purchases()
         except Exception as exc:  # pragma: no cover - UI feedback
             self._show_state(self.error_state)
+            emit_task_status("تعذر تحديث سجل المشتريات.", "error")
             QMessageBox.critical(self, "خطأ", f"تعذر تحميل المشتريات: {exc}")
             return
 
         self._all_records = records
         self._apply_filters()
         self._update_cards()
+        emit_task_status("تم تحديث سجل المشتريات.", "success")
 
     def _on_save(self) -> None:
         supplier = self.supplier.text().strip()

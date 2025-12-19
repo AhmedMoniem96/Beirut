@@ -1,7 +1,7 @@
 # beirut_pos/ui/inventory_dialog.py
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDoubleSpinBox,
@@ -10,12 +10,15 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QStackedLayout,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from .common.big_dialog import BigDialog
+from .common.async_utils import Debouncer, build_busy_placeholder, emit_task_status
 from ..services.orders import order_manager
 
 
@@ -38,7 +41,6 @@ class InventoryDialog(BigDialog):
         filters.addWidget(QLabel("بحث:"))
         self.search = QLineEdit()
         self.search.setPlaceholderText("ابحث باسم المنتج أو القسم…")
-        self.search.textChanged.connect(self._apply_filter)
         filters.addWidget(self.search)
         filters.addStretch(1)
         root.addLayout(filters)
@@ -57,7 +59,19 @@ class InventoryDialog(BigDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
         self.table.itemSelectionChanged.connect(self._apply_selected_package_size)
-        root.addWidget(self.table, 1)
+        self.loading_state = build_busy_placeholder("يتم تحميل المخزون…")
+        self._table_stack = QStackedLayout()
+        self._table_stack.setContentsMargins(0, 0, 0, 0)
+        self._table_stack.setSpacing(0)
+        self._table_stack.addWidget(self.table)
+        self._table_stack.addWidget(self.loading_state)
+
+        table_host = QWidget()
+        table_layout = QVBoxLayout(table_host)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(0)
+        table_layout.addLayout(self._table_stack)
+        root.addWidget(table_host, 1)
 
         controls = QHBoxLayout()
         controls.setSpacing(12)
@@ -100,13 +114,25 @@ class InventoryDialog(BigDialog):
         root.addLayout(controls)
 
         self._inventory_rows: list[dict] = []
+        self._filter_debouncer = Debouncer(self._apply_filter, parent=self, delay_ms=220)
+        self.search.textChanged.connect(self._filter_debouncer.trigger)
         self._load_inventory()
 
     # ------------------------------------------------------------------ data
+    def _set_loading(self, loading: bool) -> None:
+        self._table_stack.setCurrentWidget(self.loading_state if loading else self.table)
+
     def _load_inventory(self) -> None:
+        self._set_loading(True)
+        emit_task_status("يتم تحديث المخزون…", "info")
+        QTimer.singleShot(0, self._populate_inventory)
+
+    def _populate_inventory(self) -> None:
         try:
             self._inventory_rows = order_manager.catalog.inventory_overview()
         except Exception as exc:  # pragma: no cover - UI feedback
+            self._set_loading(False)
+            emit_task_status("تعذر تحميل المخزون.", "error")
             QMessageBox.critical(self, "خطأ", f"تعذر تحميل المخزون: {exc}")
             return
 
@@ -133,10 +159,12 @@ class InventoryDialog(BigDialog):
             min_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, 3, min_item)
 
-        self._apply_filter()
+        self._filter_debouncer.flush()
         if self.table.rowCount() > 0 and not self.table.selectedItems():
             self.table.selectRow(0)
         self._apply_selected_package_size()
+        self._set_loading(False)
+        emit_task_status("تم تحديث المخزون المعروض.", "success")
 
     def _apply_filter(self) -> None:
         term = (self.search.text() or "").strip().lower()

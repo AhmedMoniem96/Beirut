@@ -373,6 +373,7 @@ class MainWindow(QMainWindow):
         bus.subscribe("ui_texts_changed", self._apply_texts)
         bus.subscribe("client_branding_changed", self._apply_texts)
         bus.subscribe("table_client_name_changed", self._on_table_client_name_changed)
+        bus.subscribe("task_status", self._on_task_status)
 
         self.current_table = None
         self._edit_locked = False
@@ -1383,6 +1384,16 @@ class MainWindow(QMainWindow):
         self.table_map.set_client_name(table_code, name or "")
         if self.current_table and self.current_table == table_code:
             self._update_client_name_field()
+
+    def _on_task_status(self, message: str, level: str = "info") -> None:
+        kind = "info"
+        if level == "error":
+            kind = "error"
+        elif level in {"warn", "warning"}:
+            kind = "warn"
+        elif level == "success":
+            kind = "success"
+        self._show_banner(message, kind)
 
     def _apply_window_title(self):
         client_name = settings_service.get_client_name()

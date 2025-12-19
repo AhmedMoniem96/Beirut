@@ -16,6 +16,7 @@ from .ui.login_dialog import LoginDialog
 from .ui.main_window import MainWindow
 from .ui.recovery_center_dialog import RecoveryCenterDialog
 from .ui.voucher_dialog import VoucherDialog
+from .ui.theme import install_interaction_style
 from .utils.error_handling import (
     console_notifier,
     guarded_call,
@@ -52,6 +53,7 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+    install_interaction_style(app)
     icon = get_logo_icon(128)
     if icon:
         app.setWindowIcon(icon)

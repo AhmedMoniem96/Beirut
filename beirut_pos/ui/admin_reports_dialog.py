@@ -1,6 +1,6 @@
 import json
 import calendar
-from datetime import datetime
+from datetime import datetime, timezone
 
 from collections import Counter
 from dataclasses import dataclass
@@ -2210,9 +2210,18 @@ class AdminReportsDialog(BigDialog):
         if not value:
             return None
         try:
-            return datetime.fromisoformat(value)
+            dt = datetime.fromisoformat(value)
         except Exception:
             return None
+
+        # Stored timestamps are in UTC; normalize to local time for display so
+        # report rows match the table history dialog.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        try:
+            return dt.astimezone()
+        except Exception:
+            return dt
 
     def _date_bounds(self, start_widget: QDateEdit, end_widget: QDateEdit) -> tuple[str, str]:
         s = datetime.combine(start_widget.date().toPyDate(), datetime.min.time())

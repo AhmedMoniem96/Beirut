@@ -997,8 +997,6 @@ class AdminReportsDialog(BigDialog):
         scroll.setWidget(content)
         return scroll
 
-        return container
-
     def _load_profit_report(self):
         conn = None
         try:
@@ -1062,7 +1060,9 @@ class AdminReportsDialog(BigDialog):
                 purchase_total = int(row["purchases_total"] or 0)
                 payroll_deduction = daily_payroll_net if day else 0
                 profit = sales_total - purchase_total - payroll_deduction
+                day_thumb = self._make_date_thumbnail(day, kind="detail")
                 daily_display.append([
+                    self._thumbnail_cell(day, day_thumb),
                     day,
                     self._money(sales_total),
                     self._money(purchase_total),

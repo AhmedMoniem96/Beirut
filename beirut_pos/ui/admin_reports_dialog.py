@@ -862,22 +862,8 @@ class AdminReportsDialog(BigDialog):
 
     # --------------------------------------------------------------- profits
     def _build_profit_tab(self) -> QWidget:
-        container = QWidget()
-        outer_layout = QVBoxLayout(container)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        outer_layout.addWidget(scroll)
-
         content = QWidget()
-        scroll.setWidget(content)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(16)
 
         daily_title = QLabel("الربح اليومي")
         daily_title.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -1004,7 +990,12 @@ class AdminReportsDialog(BigDialog):
         self.month_picker.currentIndexChanged.connect(self._load_monthly_detail)
         self.year_picker.currentIndexChanged.connect(self._load_monthly_detail)
 
-        return container
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(content)
+        return scroll
 
     def _load_profit_report(self):
         start, end = self._datetime_bounds_from_date_time(
@@ -1101,7 +1092,9 @@ class AdminReportsDialog(BigDialog):
             purchase_total = int(row["purchases_total"] or 0)
             payroll_deduction = daily_payroll_net if day else 0
             profit = sales_total - purchase_total - payroll_deduction
+            day_thumb = self._make_date_thumbnail(day, kind="detail")
             daily_display.append([
+                self._thumbnail_cell(day, day_thumb),
                 day,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -1139,7 +1132,9 @@ class AdminReportsDialog(BigDialog):
             payroll_days = month_day_counts.get(month, 0)
             payroll_deduction = daily_payroll_net * payroll_days
             profit = sales_total - purchase_total - payroll_deduction
+            month_thumb = self._make_date_thumbnail(month, kind="month")
             monthly_display.append([
+                self._thumbnail_cell(month, month_thumb),
                 month,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -1263,7 +1258,9 @@ class AdminReportsDialog(BigDialog):
             sales_total = int(row["net_sales"] or 0)
             purchase_total = int(row["purchases_total"] or 0)
             profit = sales_total - purchase_total - payroll_per_day
+            day_thumb = self._make_date_thumbnail(day, kind="day")
             table_rows.append([
+                self._thumbnail_cell(day, day_thumb),
                 day,
                 self._money(sales_total),
                 self._money(purchase_total),
@@ -2216,84 +2213,6 @@ class AdminReportsDialog(BigDialog):
         painter.end()
 
         return pixmap
-
-    def _build_thumb_chip(self, *, kind: str) -> tuple[QFrame, QLabel, QLabel]:
-        chip = QFrame()
-        chip.setStyleSheet(
-            "background: #ffffff; border: 1px solid #e3e3e3; border-radius: 12px;"
-        )
-        layout = QHBoxLayout(chip)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(10)
-
-        icon = QLabel()
-        icon.setFixedSize(self._thumbnail_size(), self._thumbnail_size())
-        icon.setStyleSheet("border-radius: 10px; background: #f7f7f7;")
-        icon.setScaledContents(True)
-        text = QLabel("—")
-        text.setStyleSheet("font-weight:600;")
-
-        layout.addWidget(icon)
-        layout.addWidget(text)
-        layout.addStretch(1)
-
-        chip._thumb_icon = icon
-        chip._thumb_text = text
-        chip._thumb_kind = kind
-        return chip, icon, text
-
-    def _build_range_strip(self, *, kind: str) -> QFrame:
-        panel = QFrame()
-        panel.setStyleSheet(
-            "background: #f6f6f6; border: 1px solid #e6e6e6; border-radius: 14px;"
-        )
-        layout = QHBoxLayout(panel)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(12)
-
-        start_chip, _, _ = self._build_thumb_chip(kind=kind)
-        end_chip, _, _ = self._build_thumb_chip(kind=kind)
-
-        arrow = QLabel("↔")
-        arrow.setStyleSheet("color: #8a8a8a; font-size:16px; font-weight:600;")
-        arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        layout.addStretch(1)
-        layout.addWidget(start_chip)
-        layout.addWidget(arrow)
-        layout.addWidget(end_chip)
-
-        panel._start_chip = start_chip
-        panel._end_chip = end_chip
-        panel._range_kind = kind
-        return panel
-
-    def _update_range_strip(self, strip: QFrame | None, start_label: str, end_label: str, *, kind: str | None = None):
-        if strip is None:
-            return
-
-        chip_kind = kind or getattr(strip, "_range_kind", "day")
-        self._set_chip_content(getattr(strip, "_start_chip", None), start_label, chip_kind)
-        self._set_chip_content(getattr(strip, "_end_chip", None), end_label, chip_kind)
-
-    def _set_chip_content(self, chip: QFrame | None, label: str, kind: str):
-        if chip is None:
-            return
-
-        clean_label = (label or "—").strip() or "—"
-        icon = getattr(chip, "_thumb_icon", None)
-        text_label = getattr(chip, "_thumb_text", None)
-        if isinstance(icon, QLabel):
-            pix = self._make_date_thumbnail(clean_label, kind=kind)
-            if pix is not None and not pix.isNull():
-                icon.setPixmap(pix)
-                icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            else:
-                icon.clear()
-                icon.setText(clean_label[:3])
-                icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        if isinstance(text_label, QLabel):
-            text_label.setText(clean_label)
 
     def _normalize_cell(self, value):
         if isinstance(value, ReportCell):

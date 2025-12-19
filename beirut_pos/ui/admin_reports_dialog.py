@@ -1081,38 +1081,6 @@ class AdminReportsDialog(BigDialog):
                 f"صافي الربح بعد الرواتب: {self._money(daily_totals['profit'])}"
             )
 
-            cur.execute(monthly_query, (start, end, start, end))
-            monthly_rows = cur.fetchall()
-
-            daily_display = []
-            daily_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
-            for row in daily_rows:
-                day = row["day"] or ""
-                sales_total = int(row["net_sales"] or 0)
-                purchase_total = int(row["purchases_total"] or 0)
-                payroll_deduction = daily_payroll_net if day else 0
-                profit = sales_total - purchase_total - payroll_deduction
-                day_thumb = self._make_date_thumbnail(day, kind="detail")
-                daily_display.append([
-                    self._thumbnail_cell(day, day_thumb),
-                    day,
-                    self._money(sales_total),
-                    self._money(purchase_total),
-                    self._money(profit),
-                ])
-                daily_totals["sales"] += sales_total
-                daily_totals["purchases"] += purchase_total
-                daily_totals["profit"] += profit
-                daily_totals["payroll"] += payroll_deduction
-
-            self._populate_table(self.profit_daily_table, daily_display)
-            self.profit_daily_summary.setText(
-                f"صافي المبيعات: {self._money(daily_totals['sales'])} | "
-                f"إجمالي المشتريات: {self._money(daily_totals['purchases'])} | "
-                f"الرواتب اليومية المحتسبة: {self._money(daily_totals['payroll'])} | "
-                f"صافي الربح بعد الرواتب: {self._money(daily_totals['profit'])}"
-            )
-
             monthly_display = []
             monthly_totals = {"sales": 0, "purchases": 0, "profit": 0, "payroll": 0}
             range_months = [row["month"] for row in monthly_rows if row["month"]]

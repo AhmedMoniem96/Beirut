@@ -266,10 +266,17 @@ def build_login_stylesheet() -> str:
         f"    background-color: {_FALLBACK_BG};",
     ]
     if bg_path:
-        parts.append(f"    border-image: url(\"{bg_path}\") 0 0 0 0 stretch stretch;")
-        parts.append("    background-position: center;")
+        parts.extend(
+            [
+                f"    background-image: url(\"{bg_path}\");",
+                "    background-repeat: no-repeat;",
+                "    background-position: center;",
+                "    background-origin: content;",
+                "    background-clip: border;",
+                "    background-size: cover;",
+            ]
+        )
     else:
-        parts.append("    border-image: none;")
         parts.append("    background-image: none;")
 
     parts.extend([

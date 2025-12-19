@@ -2354,7 +2354,7 @@ class AdminReportsDialog(BigDialog):
         return start_dt.isoformat(), end_dt.isoformat()
 
     def _export_table(self, table: QTableWidget, default_name: str) -> None:
-        """Export table to Excel with timestamped filename."""
+        # Export table to Excel with timestamped filename.
         # Generate filename with current date and time
         timestamp = datetime.now().strftime("%Y-%m-%d_%I-%M-%S_%p")
         suggested_filename = f"{default_name}_{timestamp}.xlsx"

@@ -1666,8 +1666,11 @@ class MainWindow(QMainWindow):
 
             # Handle both string and datetime objects
             if isinstance(started_at, str):
+                raw_value = started_at
+                if raw_value.endswith("Z"):
+                    raw_value = raw_value[:-1] + "+00:00"
                 try:
-                    started_at = datetime.fromisoformat(started_at)
+                    started_at = datetime.fromisoformat(raw_value)
                 except Exception:
                     started_at = now
 

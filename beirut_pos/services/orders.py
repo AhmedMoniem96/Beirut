@@ -1384,10 +1384,7 @@ class OrderManager:
         conn.close()
         for row in rows:
             started_raw = row["started_at"] or ""
-            try:
-                started_at = datetime.fromisoformat(started_raw)
-            except Exception:
-                started_at = datetime.utcnow()
+            started_at = self._ensure_dt(started_raw) or datetime.now(timezone.utc)
             sess = PSSession(
                 mode=row["mode"],
                 started_at=started_at,
@@ -2394,12 +2391,15 @@ class OrderManager:
             dt = value
         else:
             # value may be an ISO string saved earlier
+            raw_value = str(value)
+            if raw_value.endswith("Z"):
+                raw_value = raw_value[:-1] + "+00:00"
             try:
-                dt = datetime.fromisoformat(str(value))
+                dt = datetime.fromisoformat(raw_value)
             except Exception:
                 # fallback: try naive parsing and assume UTC
                 try:
-                    dt = datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%S")
+                    dt = datetime.strptime(raw_value, "%Y-%m-%dT%H:%M:%S")
                 except Exception:
                     return None
         # If naive, treat as UTC (project writes utcnow() historically).
@@ -2447,17 +2447,7 @@ class OrderManager:
 
         try:
             now = datetime.utcnow().replace(tzinfo=timezone.utc)
-            started = sess.started_at
-            if isinstance(started, str):
-                try:
-                    started_dt = datetime.fromisoformat(started)
-                except Exception:
-                    started_dt = now
-            else:
-                started_dt = started
-
-            if started_dt.tzinfo is None:
-                started_dt = started_dt.replace(tzinfo=timezone.utc)
+            started_dt = self._ensure_dt(sess.started_at) or now
 
             elapsed = int(sess.total_seconds or 0) + max(0, int((now - started_dt).total_seconds()))
             minutes = max(1, math.ceil(elapsed / 60.0))
@@ -2754,10 +2744,7 @@ class OrderManager:
 
         # Convert database row to PSSession object
         started_raw = row["started_at"] or ""
-        try:
-            started_at = datetime.fromisoformat(started_raw)
-        except Exception:
-            started_at = datetime.utcnow()
+        started_at = self._ensure_dt(started_raw) or datetime.now(timezone.utc)
 
         return PSSession(
             mode=row["mode"],

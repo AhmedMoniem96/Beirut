@@ -294,7 +294,7 @@ def build_login_stylesheet() -> str:
         f"#LoginDialog QPushButton:disabled {{ background-color: rgba(110, 96, 80, 0.7); color: rgba(27, 15, 8, 0.4); }}",
         f"#LoginDialog QPushButton[class=\"link\"] {{ background-color: transparent; color: {accent}; border:none; padding: 4px 8px; font-weight: 600; text-decoration: none; }}",
         f"#LoginDialog QPushButton[class=\"link\"]:hover {{ color: {text}; text-decoration: underline; }}",
-        f"#LoginDialog QLineEdit {{ border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 14px 18px; background-color: rgba(255,255,255,0.96); color: #2A170C; font-size: 12.5pt; }}",
+        f"#LoginDialog QLineEdit {{ border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 16px 20px; min-height: 52px; background-color: rgba(255,255,255,0.96); color: #2A170C; font-size: 14pt; }}",
         f"#LoginDialog QLineEdit:focus {{ border: 2px solid {accent}; background-color: rgba(255,255,255,0.99); }}",
         f"#LoginDialog QLabel#LoginHero, #LoginDialog QLabel#HeroHint {{ max-width: 320px; }}",
         "#LoginDialog QPushButton[class=\"link\"] { border-radius: 12px; }",

@@ -76,7 +76,10 @@ class PSControls(QWidget):
             dt = value
         else:
             try:
-                dt = datetime.fromisoformat(str(value))
+                raw_value = str(value)
+                if raw_value.endswith("Z"):
+                    raw_value = raw_value[:-1] + "+00:00"
+                dt = datetime.fromisoformat(raw_value)
             except Exception:
                 # last resort: try naive parse fallback (very permissive)
                 try:
@@ -117,7 +120,10 @@ class PSControls(QWidget):
             # normalize started to datetime (tz-aware if possible)
             if isinstance(started, str):
                 try:
-                    started_dt = datetime.fromisoformat(started)
+                    raw_value = started
+                    if raw_value.endswith("Z"):
+                        raw_value = raw_value[:-1] + "+00:00"
+                    started_dt = datetime.fromisoformat(raw_value)
                 except Exception:
                     started_dt = datetime.now(timezone.utc)
             elif isinstance(started, datetime):

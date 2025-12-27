@@ -99,6 +99,7 @@ class DSFormField(QFrame):
         self.setObjectName("DSFormField")
         self.setProperty("data-status", "neutral")
         self.setProperty("data-focused", False)
+        self.setProperty("data-radius", RADII.md)
         self._field = field
         self._default_helper = helper
         self._required = required
@@ -170,6 +171,21 @@ class DSFormField(QFrame):
         self.style().polish(self)
         self._field.style().unpolish(self._field)
         self._field.style().polish(self._field)
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        radius = self.property("data-radius")
+        try:
+            radius_value = float(radius) if radius is not None else float(RADII.md)
+        except (TypeError, ValueError):
+            radius_value = float(RADII.md)
+        if radius_value <= 0:
+            self.clearMask()
+            return
+        rect = self.rect()
+        path = QPainterPath()
+        path.addRoundedRect(rect, radius_value, radius_value)
+        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
 
 class ProgressStepper(QFrame):

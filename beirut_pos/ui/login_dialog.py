@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QHBoxLayout,
     QFrame,
+    QLineEdit,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
@@ -18,7 +19,6 @@ from .theme import (
     DSButton,
     DSFormField,
     DSLinkButton,
-    DSTextField,
     SPACING,
     apply_typography,
 )
@@ -105,17 +105,20 @@ class LoginDialog(QDialog):
         self.msg.setWordWrap(True)
         form_layout.addWidget(self.msg)
 
-        self.u = DSTextField()
-        self.u.setClearButtonEnabled(False)
-        self.u_field = DSFormField("اسم المستخدم", self.u, helper="أدخل اسم المستخدم الخاص بك.", required=True)
+        self.u, self.u_field = self._build_login_input(
+            "اسم المستخدم",
+            helper="أدخل اسم المستخدم الخاص بك.",
+            required=True,
+        )
         self.u_field.setProperty("data-radius", 18)
         form_layout.addWidget(self.u_field)
 
-        self.p = DSTextField()
-        self.p.setProperty("data-radius", 18)
+        self.p, self.p_field = self._build_login_input(
+            "كلمة المرور",
+            helper="اكتب كلمة المرور ثم اضغط دخول.",
+            required=True,
+        )
         self.p.setEchoMode(self.p.EchoMode.Password)
-        self.p.setClearButtonEnabled(False)
-        self.p_field = DSFormField("كلمة المرور", self.p, helper="اكتب كلمة المرور ثم اضغط دخول.", required=True)
         self.p_field.setProperty("data-radius", 18)
         form_layout.addWidget(self.p_field)
 
@@ -145,6 +148,31 @@ class LoginDialog(QDialog):
         bus.subscribe("ui_texts_changed", self._apply_texts)
         bus.subscribe("client_branding_changed", self._apply_texts)
         bus.subscribe("client_branding_changed", self._apply_logo)
+
+    def _build_login_input(self, label: str, *, helper: str, required: bool):
+        frame = QFrame()
+        frame.setObjectName("fieldFrame")
+        frame.setFixedHeight(58)
+
+        line_edit = QLineEdit()
+        line_edit.setObjectName("fieldEdit")
+        line_edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        line_edit.setClearButtonEnabled(False)
+
+        inner = QHBoxLayout(frame)
+        inner.setContentsMargins(6, 6, 6, 6)
+        inner.setSpacing(0)
+        inner.addWidget(line_edit)
+
+        wrapper = QFrame()
+        wrapper.setFocusProxy(line_edit)
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setSpacing(0)
+        wrapper_layout.addWidget(frame)
+
+        field = DSFormField(label, wrapper, helper=helper, required=required)
+        return line_edit, field
 
     def _set_message_state(self, state: str = "info"):
         self.msg.setProperty("state", state)

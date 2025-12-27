@@ -49,6 +49,7 @@ class DSTextField(QLineEdit):
         self.setObjectName("DSTextField")
         self.setPlaceholderText(placeholder)
         self.setMinimumWidth(width or 320)
+        self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         if not self.accessibleName():
             self.setAccessibleName(placeholder or "حقل إدخال")

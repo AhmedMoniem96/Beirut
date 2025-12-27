@@ -101,6 +101,8 @@ class DSFormField(QFrame):
         self.setProperty("data-focused", False)
         self.setProperty("data-radius", RADII.md)
         self._field = field
+        focus_proxy = field.focusProxy()
+        self._focus_target = focus_proxy if focus_proxy is not None else field
         self._default_helper = helper
         self._required = required
         self.setMinimumWidth(width)
@@ -109,6 +111,8 @@ class DSFormField(QFrame):
         self._field.setMinimumWidth(width)
         self._field.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._field.installEventFilter(self)
+        if self._focus_target is not self._field:
+            self._focus_target.installEventFilter(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(SPACING.sm, SPACING.sm, SPACING.sm, SPACING.sm)
@@ -142,6 +146,8 @@ class DSFormField(QFrame):
     def set_status(self, status: str = "neutral", message: Optional[str] = None) -> None:
         self.setProperty("data-status", status)
         self._field.setProperty("data-status", status)
+        if self._focus_target is not self._field:
+            self._focus_target.setProperty("data-status", status)
         self.helper.setProperty("data-status", status)
         self.helper.setText(message if message is not None else self._default_helper)
         self._refresh_styles()
@@ -156,7 +162,7 @@ class DSFormField(QFrame):
         self.set_status("neutral", self._default_helper)
 
     def eventFilter(self, source, event):  # noqa: N802 (Qt override)
-        if source is self._field:
+        if source in (self._field, self._focus_target):
             if event.type() == QEvent.Type.FocusIn:
                 self.setProperty("data-focused", True)
                 self._refresh_styles()
@@ -171,6 +177,9 @@ class DSFormField(QFrame):
         self.style().polish(self)
         self._field.style().unpolish(self._field)
         self._field.style().polish(self._field)
+        if self._focus_target is not self._field:
+            self._focus_target.style().unpolish(self._focus_target)
+            self._focus_target.style().polish(self._focus_target)
 
     def resizeEvent(self, event):  # noqa: N802 (Qt override)
         super().resizeEvent(event)

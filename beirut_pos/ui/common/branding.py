@@ -294,8 +294,10 @@ def build_login_stylesheet() -> str:
         f"#LoginDialog QPushButton:disabled {{ background-color: rgba(110, 96, 80, 0.7); color: rgba(27, 15, 8, 0.4); }}",
         f"#LoginDialog QPushButton[class=\"link\"] {{ background-color: transparent; color: {accent}; border:none; padding: 4px 8px; font-weight: 600; text-decoration: none; }}",
         f"#LoginDialog QPushButton[class=\"link\"]:hover {{ color: {text}; text-decoration: underline; }}",
-        f"#LoginDialog QLineEdit {{ border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 16px 20px; min-height: 52px; background-color: rgba(255,255,255,0.96); color: #2A170C; font-size: 14pt; }}",
-        f"#LoginDialog QLineEdit:focus {{ border: 2px solid {accent}; background-color: rgba(255,255,255,0.99); }}",
+        f"#LoginDialog QLineEdit#DSTextField {{ border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 16px 20px; min-height: 52px; background-color: rgba(255,255,255,0.96); color: #2A170C; font-size: 14pt; }}",
+        f"#LoginDialog QLineEdit#DSTextField:focus {{ border: 2px solid {accent}; background-color: rgba(255,255,255,0.99); }}",
+        "#LoginDialog QLineEdit#DSTextField[data-status=\"error\"] { border: 2px solid #B24646; box-shadow: 0 0 0 3px rgba(178,70,70,0.28); }",
+        "#LoginDialog QLineEdit#DSTextField[data-status=\"success\"] { border: 2px solid #2E7D54; box-shadow: 0 0 0 2px rgba(46,125,84,0.25); }",
         f"#LoginDialog QLabel#LoginHero, #LoginDialog QLabel#HeroHint {{ max-width: 320px; }}",
         "#LoginDialog QPushButton[class=\"link\"] { border-radius: 12px; }",
     ])

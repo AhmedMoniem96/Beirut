@@ -18,10 +18,10 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
 )
-from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtCore import QEvent, Qt, QRectF
 from PyQt6.QtGui import QColor, QPalette, QPainterPath, QRegion
 
-from .tokens import COLORS, RADII, SPACING, SHADOWS, typography_rule
+from .tokens import COLORS, RADII, SPACING, typography_rule
 
 
 class DSButton(QPushButton):
@@ -66,7 +66,7 @@ class DSTextField(QLineEdit):
         if radius_value <= 0:
             self.clearMask()
             return
-        rect = self.rect()
+        rect = QRectF(self.rect())
         path = QPainterPath()
         path.addRoundedRect(rect, radius_value, radius_value)
         self.setMask(QRegion(path.toFillPolygon().toPolygon()))
@@ -396,7 +396,7 @@ QPushButton#DSButton[data-variant="secondary"] {{ background-color: rgba(255,255
 QPushButton#DSButton[data-variant="secondary"]:hover {{ background-color: rgba(255,255,255,0.14); }}
 QPushButton#DSButton[data-variant="link"] {{ background-color: transparent; color: {accent}; text-decoration: none; padding: {SPACING.xs}px {SPACING.sm}px; }}
 QPushButton#DSButton[data-variant="link"]:hover {{ color: {COLORS.text}; text-decoration: underline; }}
-QPushButton#DSButton:focus {{ outline: 3px solid rgba(212,160,94,0.72); outline-offset: 2px; box-shadow: 0 0 0 3px rgba(212,160,94,0.22); }}
+QPushButton#DSButton:focus {{ outline: 3px solid rgba(212,160,94,0.72); outline-offset: 2px; }}
 QPushButton#DSButton:disabled {{ background-color: rgba(110,96,80,0.55); color: rgba(27,15,8,0.45); }}
 
 QToolButton:focus, QAbstractButton:focus {{
@@ -414,9 +414,9 @@ QLineEdit#DSTextField {{
     border: 1px solid rgba(255,255,255,0.16);
     {typography_rule("body")}
 }}
-QLineEdit#DSTextField:focus {{ border: 2px solid {accent}; box-shadow: 0 0 0 3px rgba(212,160,94,0.25); }}
-QLineEdit#DSTextField[data-status="error"] {{ border: 2px solid {COLORS.danger}; box-shadow: 0 0 0 3px rgba(178,70,70,0.28); }}
-QLineEdit#DSTextField[data-status="success"] {{ border: 2px solid {COLORS.success}; box-shadow: 0 0 0 2px rgba(46,125,84,0.25); }}
+QLineEdit#DSTextField:focus {{ border: 2px solid {accent}; }}
+QLineEdit#DSTextField[data-status="error"] {{ border: 2px solid {COLORS.danger}; }}
+QLineEdit#DSTextField[data-status="success"] {{ border: 2px solid {COLORS.success}; }}
 
 QComboBox#DSSelect {{
     background-color: rgba(255,255,255,0.94);
@@ -426,9 +426,9 @@ QComboBox#DSSelect {{
     border: 1px solid rgba(255,255,255,0.16);
     {typography_rule("body")}
 }}
-QComboBox#DSSelect:focus {{ border: 2px solid {accent}; box-shadow: 0 0 0 3px rgba(212,160,94,0.25); }}
-QComboBox#DSSelect[data-status="error"] {{ border: 2px solid {COLORS.danger}; box-shadow: 0 0 0 3px rgba(178,70,70,0.28); }}
-QComboBox#DSSelect[data-status="success"] {{ border: 2px solid {COLORS.success}; box-shadow: 0 0 0 2px rgba(46,125,84,0.25); }}
+QComboBox#DSSelect:focus {{ border: 2px solid {accent}; }}
+QComboBox#DSSelect[data-status="error"] {{ border: 2px solid {COLORS.danger}; }}
+QComboBox#DSSelect[data-status="success"] {{ border: 2px solid {COLORS.success}; }}
 QComboBox#DSSelect::drop-down {{ border: none; width: 28px; }}
 QComboBox#DSSelect::down-arrow {{ width: 12px; height: 12px; margin: 6px; }}
 
@@ -437,9 +437,9 @@ QFrame#DSFormField {{
     border: 1px solid {COLORS.border};
     background-color: {COLORS.surface_alt};
 }}
-QFrame#DSFormField[data-focused="true"] {{ border-color: {accent}; box-shadow: 0 0 0 3px rgba(212,160,94,0.25); }}
-QFrame#DSFormField[data-status="error"] {{ border-color: {COLORS.danger}; box-shadow: 0 0 0 3px rgba(178,70,70,0.28); background-color: rgba(178,70,70,0.12); }}
-QFrame#DSFormField[data-status="success"] {{ border-color: {COLORS.success}; box-shadow: 0 0 0 2px rgba(46,125,84,0.25); background-color: rgba(46,125,84,0.1); }}
+QFrame#DSFormField[data-focused="true"] {{ border-color: {accent}; }}
+QFrame#DSFormField[data-status="error"] {{ border-color: {COLORS.danger}; background-color: rgba(178,70,70,0.12); }}
+QFrame#DSFormField[data-status="success"] {{ border-color: {COLORS.success}; background-color: rgba(46,125,84,0.1); }}
 QFrame#DSFormField QLabel[data-role="label"] {{ color: {COLORS.text}; {typography_rule("caption")} }}
 QFrame#DSFormField QLabel[data-role="helper"] {{ color: {COLORS.text_muted}; }}
 QFrame#DSFormField QLabel[data-role="helper"][data-status="error"] {{ color: {COLORS.danger}; font-weight: 700; }}
@@ -447,7 +447,7 @@ QFrame#DSFormField QLabel[data-role="helper"][data-status="success"] {{ color: {
 
 QFrame#ProgressStepper {{ border-radius: {RADII.lg}px; border: 1px solid {COLORS.border}; background: {COLORS.surface_alt}; }}
 QFrame#ProgressStepper QLabel[data-role="badge"] {{ background: {COLORS.surface}; color: {COLORS.text}; border-radius: {RADII.pill}px; {typography_rule("body")}; }}
-QFrame#ProgressStepper QLabel[data-role="badge"][data-state="active"] {{ background: {accent}; color: {COLORS.on_primary}; box-shadow: 0 2px 10px rgba(0,0,0,0.35); }}
+QFrame#ProgressStepper QLabel[data-role="badge"][data-state="active"] {{ background: {accent}; color: {COLORS.on_primary}; }}
 QFrame#ProgressStepper QLabel[data-role="label"] {{ color: {COLORS.text_muted}; }}
 QFrame#ProgressStepper QLabel[data-role="label"][data-state="active"] {{ color: {COLORS.text}; font-weight: 800; }}
 
@@ -490,7 +490,6 @@ QTableWidget#DSTable {{
 }}
 QTableWidget#DSTable:focus {{
     border: 2px solid {accent};
-    box-shadow: 0 0 0 3px rgba(212,160,94,0.22);
 }}
 QTableWidget#DSTable::item {{
     padding: {SPACING.xs}px;
@@ -534,7 +533,6 @@ QFrame#KpiCard {{
     border-radius: {RADII.lg}px;
     border: 1px solid rgba(255,255,255,0.14);
     background-color: rgba(255,255,255,0.06);
-    box-shadow: {SHADOWS.soft};
 }}
 QFrame#SectionCard {{
     border-radius: {RADII.lg}px;

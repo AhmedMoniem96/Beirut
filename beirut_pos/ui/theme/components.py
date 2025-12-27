@@ -52,8 +52,24 @@ class DSTextField(QLineEdit):
         self.setMinimumWidth(width or 320)
         self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setProperty("data-radius", RADII.md)
         if not self.accessibleName():
             self.setAccessibleName(placeholder or "حقل إدخال")
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        radius = self.property("data-radius")
+        try:
+            radius_value = float(radius) if radius is not None else float(RADII.md)
+        except (TypeError, ValueError):
+            radius_value = float(RADII.md)
+        if radius_value <= 0:
+            self.clearMask()
+            return
+        rect = self.rect()
+        path = QPainterPath()
+        path.addRoundedRect(rect, radius_value, radius_value)
+        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
 
 class DSSelect(QComboBox):

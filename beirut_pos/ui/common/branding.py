@@ -300,7 +300,7 @@ def build_login_stylesheet() -> str:
         f"#LoginDialog QFrame#DSFormField[data-status=\"success\"] {{ border-color: #2E7D54; background-color: rgba(46,125,84,0.12); }}",
         f"#LoginDialog QFrame#DSFormField QLabel[data-role=\"label\"] {{ color: {muted}; font-weight: 700; }}",
         f"#LoginDialog QFrame#DSFormField QLabel[data-role=\"helper\"] {{ color: {muted}; }}",
-        f"#LoginDialog QLineEdit#DSTextField {{ border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 16px; padding: 18px 22px; min-height: 56px; background-color: rgba(255,255,255,0.98); color: #1A0F08; font-size: 15pt; letter-spacing: 0.4px; selection-background-color: {accent}; selection-color: #1A0F08; }}",
+        f"#LoginDialog QLineEdit#DSTextField {{ border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 18px; padding: 18px 24px; min-height: 56px; background-color: rgba(255,255,255,0.98); color: #1A0F08; font-size: 15pt; letter-spacing: 0.4px; selection-background-color: {accent}; selection-color: #1A0F08; background-clip: padding; }}",
         f"#LoginDialog QLineEdit#DSTextField::placeholder {{ color: rgba(26, 15, 8, 0.45); }}",
         f"#LoginDialog QLineEdit#DSTextField:focus {{ border: 2px solid {accent}; background-color: rgba(255,255,255,1); }}",
         "#LoginDialog QLineEdit#DSTextField:disabled { background-color: rgba(255,255,255,0.6); color: rgba(26, 15, 8, 0.5); }",

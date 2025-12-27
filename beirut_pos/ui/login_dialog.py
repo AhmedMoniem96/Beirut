@@ -106,13 +106,15 @@ class LoginDialog(QDialog):
         form_layout.addWidget(self.msg)
 
         self.u = DSTextField()
-        self.u.setClearButtonEnabled(True)
+        self.u.setProperty("data-radius", 18)
+        self.u.setClearButtonEnabled(False)
         self.u_field = DSFormField("اسم المستخدم", self.u, helper="أدخل اسم المستخدم الخاص بك.", required=True)
         form_layout.addWidget(self.u_field)
 
         self.p = DSTextField()
+        self.p.setProperty("data-radius", 18)
         self.p.setEchoMode(self.p.EchoMode.Password)
-        self.p.setClearButtonEnabled(True)
+        self.p.setClearButtonEnabled(False)
         self.p_field = DSFormField("كلمة المرور", self.p, helper="اكتب كلمة المرور ثم اضغط دخول.", required=True)
         form_layout.addWidget(self.p_field)
 

@@ -106,7 +106,6 @@ class LoginDialog(QDialog):
         form_layout.addWidget(self.msg)
 
         self.u = DSTextField()
-        self.u.setProperty("data-radius", 18)
         self.u.setClearButtonEnabled(False)
         self.u_field = DSFormField("اسم المستخدم", self.u, helper="أدخل اسم المستخدم الخاص بك.", required=True)
         form_layout.addWidget(self.u_field)

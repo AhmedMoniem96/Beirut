@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QAbstractItemView,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -86,8 +87,10 @@ class DSFormField(QFrame):
         self._default_helper = helper
         self._required = required
         self.setMinimumWidth(width)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._field.setParent(self)
         self._field.setMinimumWidth(width)
+        self._field.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._field.installEventFilter(self)
 
         layout = QVBoxLayout(self)

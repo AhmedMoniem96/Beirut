@@ -182,7 +182,7 @@ class DSFormField(QFrame):
         if radius_value <= 0:
             self.clearMask()
             return
-        rect = self.rect()
+        rect = QRectF(self.rect())
         path = QPainterPath()
         path.addRoundedRect(rect, radius_value, radius_value)
         self.setMask(QRegion(path.toFillPolygon().toPolygon()))

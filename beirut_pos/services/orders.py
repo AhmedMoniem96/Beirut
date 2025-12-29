@@ -2587,7 +2587,7 @@ class OrderManager:
         self._close_session_and_bill(table_code, cashier=cashier)
 
     def snapshot_ps_sessions(self) -> None:
-        """Persist current sessions: update total_seconds and started_at (reset to now)."""
+        """Persist current sessions: update total_seconds and started_at without losing fractions."""
         if not self.ps_sessions:
             return
         with db_transaction() as conn:
@@ -2596,10 +2596,12 @@ class OrderManager:
                 started_at = self._ensure_dt(sess.started_at)
                 if started_at is None:
                     started_at = now
-                elapsed = max(0, int((now - started_at).total_seconds()))
-                sess.total_seconds = int(getattr(sess, "total_seconds", 0) or 0) + elapsed
-                # reset started_at to now (persisted)
-                sess.started_at = now
+                elapsed = max(0.0, (now - started_at).total_seconds())
+                elapsed_whole = int(elapsed)
+                sess.total_seconds = int(getattr(sess, "total_seconds", 0) or 0) + elapsed_whole
+                # keep fractional remainder by shifting started_at forward
+                remainder = elapsed - elapsed_whole
+                sess.started_at = now - timedelta(seconds=remainder)
                 conn.execute(
                     "INSERT OR REPLACE INTO ps_sessions(table_code, mode, started_at, total_seconds) VALUES(?,?,?,?)",
                     (table_code, sess.mode, self._isoutc(sess.started_at), sess.total_seconds),

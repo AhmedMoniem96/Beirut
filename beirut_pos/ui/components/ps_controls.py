@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import QTimer, Qt
 from datetime import datetime, timezone
+import re
 from typing import Optional, Callable, Dict, Any
 
 
@@ -78,7 +79,9 @@ class PSControls(QWidget):
             try:
                 raw_value = str(value)
                 if raw_value.endswith("Z"):
-                    raw_value = raw_value[:-1] + "+00:00"
+                    raw_value = raw_value[:-1]
+                    if not re.search(r"[+-]\d{2}:\d{2}$", raw_value):
+                        raw_value += "+00:00"
                 dt = datetime.fromisoformat(raw_value)
             except Exception:
                 # last resort: try naive parse fallback (very permissive)
@@ -122,7 +125,9 @@ class PSControls(QWidget):
                 try:
                     raw_value = started
                     if raw_value.endswith("Z"):
-                        raw_value = raw_value[:-1] + "+00:00"
+                        raw_value = raw_value[:-1]
+                        if not re.search(r"[+-]\d{2}:\d{2}$", raw_value):
+                            raw_value += "+00:00"
                     started_dt = datetime.fromisoformat(raw_value)
                 except Exception:
                     started_dt = datetime.now(timezone.utc)

@@ -5,6 +5,7 @@ import os
 import string
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Dict, List, Tuple, Optional
 import math
 
@@ -1201,7 +1202,8 @@ class OrderManager:
     @staticmethod
     def _isoutc(dt: datetime) -> str:
         """Convert datetime to ISO format string in UTC."""
-        return dt.isoformat() + 'Z'
+        dt_utc = dt.astimezone(timezone.utc)
+        return dt_utc.isoformat().replace("+00:00", "Z")
 
     def _load_open_orders(self):
         # Rehydrate open orders on startup
@@ -2393,7 +2395,9 @@ class OrderManager:
             # value may be an ISO string saved earlier
             raw_value = str(value)
             if raw_value.endswith("Z"):
-                raw_value = raw_value[:-1] + "+00:00"
+                raw_value = raw_value[:-1]
+                if not re.search(r"[+-]\d{2}:\d{2}$", raw_value):
+                    raw_value += "+00:00"
             try:
                 dt = datetime.fromisoformat(raw_value)
             except Exception:

@@ -1,5 +1,6 @@
 # beirut_pos/ui/main_window.py
 from datetime import datetime
+import re
 
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -1668,7 +1669,9 @@ class MainWindow(QMainWindow):
             if isinstance(started_at, str):
                 raw_value = started_at
                 if raw_value.endswith("Z"):
-                    raw_value = raw_value[:-1] + "+00:00"
+                    raw_value = raw_value[:-1]
+                    if not re.search(r"[+-]\d{2}:\d{2}$", raw_value):
+                        raw_value += "+00:00"
                 try:
                     started_at = datetime.fromisoformat(raw_value)
                 except Exception:

@@ -37,6 +37,8 @@ class CommandPaletteDialog(QDialog):
 
         self.input = QLineEdit(self)
         self.input.setPlaceholderText("Search settings, reports, shortcuts…")
+        self.input.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.input.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._filter_debouncer = Debouncer(lambda: self._filter(self.input.text()), delay_ms=160, parent=self)
         self.input.textChanged.connect(lambda _text: self._filter_debouncer.trigger())
         self.input.returnPressed.connect(self._accept_selection)

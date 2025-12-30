@@ -158,16 +158,20 @@ class LoginDialog(QDialog):
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(16, 0, 16, 0)
         layout.setSpacing(0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         line_edit = QLineEdit()
         line_edit.setObjectName("fieldEdit")
+        line_edit.setFixedHeight(46)
         line_edit.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
         line_edit.setClearButtonEnabled(False)
         line_edit.setFrame(False)
-        line_edit.setMinimumHeight(0)
-        line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        line_edit.setTextMargins(0, 0, 0, 0)
         line_edit.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        line_edit.setTextMargins(0, 0, 0, 0)
+        font = line_edit.font()
+        font.setPointSize(13)
+        line_edit.setFont(font)
         line_edit.setStyleSheet(
             """
             QLineEdit {
@@ -175,14 +179,15 @@ class LoginDialog(QDialog):
                 border: none;
                 padding: 0;
                 margin: 0;
+                color: rgba(240,232,214,0.95);
             }
             QLineEdit::placeholder {
-                color: rgba(237,230,214,0.55);
+                color: rgba(240,232,214,0.55);
             }
             """
         )
 
-        layout.addWidget(line_edit, 1, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(line_edit)
         frame.setFocusProxy(line_edit)
         frame.setStyleSheet(
             """
@@ -192,6 +197,12 @@ class LoginDialog(QDialog):
                 border-radius: 16px;
             }
             """
+        )
+        size_policy = line_edit.sizePolicy()
+        print(
+            f"Login input '{label}': frame height={frame.height()} "
+            f"line_edit height={line_edit.height()} "
+            f"sizePolicy=({size_policy.horizontalPolicy()}, {size_policy.verticalPolicy()})"
         )
 
         field = DSFormField(label, frame, helper=helper, required=required)

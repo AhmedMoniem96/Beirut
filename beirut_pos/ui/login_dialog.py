@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QPalette, QColor
 from ..core.auth import authenticate
 from .forgot_password_dialog import ForgotPasswordDialog
 from .create_user_dialog import CreateUserDialog
@@ -174,6 +174,12 @@ class LoginDialog(QDialog):
         font.setPointSize(13)
         font.setWeight(500)
         line_edit.setFont(font)
+        pal = line_edit.palette()
+        pal.setColor(QPalette.ColorRole.Text, QColor(240, 232, 214))
+        pal.setColor(QPalette.ColorRole.PlaceholderText, QColor(240, 232, 214, 120))
+        pal.setColor(QPalette.ColorRole.Highlight, QColor(214, 174, 110, 160))
+        pal.setColor(QPalette.ColorRole.HighlightedText, QColor(20, 15, 10))
+        line_edit.setPalette(pal)
 
         layout.addWidget(line_edit, 1, Qt.AlignmentFlag.AlignVCenter)
         frame.setFocusProxy(line_edit)
@@ -187,12 +193,16 @@ class LoginDialog(QDialog):
             """
         )
         size_policy = line_edit.sizePolicy()
+        text_color = pal.color(QPalette.ColorRole.Text)
+        placeholder_color = pal.color(QPalette.ColorRole.PlaceholderText)
         print(
             f"Login input '{label}': frame={frame.height()} "
             f"line_edit={line_edit.height()} "
             f"margins={line_edit.textMargins()} "
             f"alignment={line_edit.alignment()} "
             f"layoutDirection={line_edit.layoutDirection()} "
+            f"textColor={text_color.getRgb()} "
+            f"placeholderColor={placeholder_color.getRgb()} "
             f"sizePolicy=({size_policy.horizontalPolicy()}, {size_policy.verticalPolicy()})"
         )
 

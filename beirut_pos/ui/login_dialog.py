@@ -151,33 +151,50 @@ class LoginDialog(QDialog):
         bus.subscribe("client_branding_changed", self._apply_logo)
 
     def _build_login_input(self, label: str, *, helper: str, required: bool):
+        frame = QFrame()
+        frame.setObjectName("loginInputFrame")
+        frame.setFixedHeight(46)
+
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(16, 0, 16, 0)
+        layout.setSpacing(0)
+
         line_edit = QLineEdit()
         line_edit.setObjectName("fieldEdit")
-        line_edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        line_edit.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
         line_edit.setClearButtonEnabled(False)
-        line_edit.setFixedHeight(48)
-        line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        line_edit.setTextMargins(16, 0, 16, 0)
         line_edit.setFrame(False)
+        line_edit.setMinimumHeight(0)
+        line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        line_edit.setTextMargins(0, 0, 0, 0)
+        line_edit.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         line_edit.setStyleSheet(
             """
             QLineEdit {
-                background: rgba(255,255,255,0.08);
-                border: 1px solid rgba(255,255,255,0.22);
-                border-radius: 22px;
-                color: #EDE6D6;
-                font-size: 14px;
+                background: transparent;
+                border: none;
+                padding: 0;
+                margin: 0;
             }
             QLineEdit::placeholder {
                 color: rgba(237,230,214,0.55);
             }
-            QLineEdit:focus {
-                border: 1px solid rgba(220,180,110,0.9);
+            """
+        )
+
+        layout.addWidget(line_edit, 1, Qt.AlignmentFlag.AlignVCenter)
+        frame.setFocusProxy(line_edit)
+        frame.setStyleSheet(
+            """
+            #loginInputFrame {
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.16);
+                border-radius: 16px;
             }
             """
         )
 
-        field = DSFormField(label, line_edit, helper=helper, required=required)
+        field = DSFormField(label, frame, helper=helper, required=required)
         field.setStyleSheet(
             """
             QFrame#DSFormField {

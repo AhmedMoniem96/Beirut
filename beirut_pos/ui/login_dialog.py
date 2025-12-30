@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QFrame,
     QLineEdit,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
@@ -158,11 +159,12 @@ class LoginDialog(QDialog):
         line_edit.setObjectName("fieldEdit")
         line_edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         line_edit.setClearButtonEnabled(False)
+        line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         inner = QHBoxLayout(frame)
         inner.setContentsMargins(6, 6, 6, 6)
         inner.setSpacing(0)
-        inner.addWidget(line_edit)
+        inner.addWidget(line_edit, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         wrapper = QFrame()
         wrapper.setFocusProxy(line_edit)

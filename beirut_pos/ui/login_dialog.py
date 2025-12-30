@@ -162,11 +162,14 @@ class LoginDialog(QDialog):
         line_edit.setStyleSheet(
             """
             QLineEdit {
-                background: rgba(255,255,255,0.06);
-                border: 1px solid rgba(255,255,255,0.18);
-                border-radius: 16px;
+                background: rgba(255,255,255,0.08);
+                border: 1px solid rgba(255,255,255,0.22);
+                border-radius: 22px;
                 color: #EDE6D6;
                 font-size: 14px;
+            }
+            QLineEdit::placeholder {
+                color: rgba(237,230,214,0.55);
             }
             QLineEdit:focus {
                 border: 1px solid rgba(220,180,110,0.9);
@@ -175,6 +178,20 @@ class LoginDialog(QDialog):
         )
 
         field = DSFormField(label, line_edit, helper=helper, required=required)
+        field.setStyleSheet(
+            """
+            QFrame#DSFormField {
+                background: transparent;
+                border: none;
+            }
+            QFrame#DSFormField[data-focused="true"],
+            QFrame#DSFormField[data-status="error"],
+            QFrame#DSFormField[data-status="success"] {
+                background: transparent;
+                border: none;
+            }
+            """
+        )
         return line_edit, field
 
     def _set_message_state(self, state: str = "info"):

@@ -153,21 +153,29 @@ class LoginDialog(QDialog):
     def _build_login_input(self, label: str, *, helper: str, required: bool):
         frame = QFrame()
         frame.setObjectName("fieldFrame")
-        frame.setMinimumHeight(56)
+        frame.setFixedHeight(48)
         frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         line_edit = QLineEdit()
         line_edit.setObjectName("fieldEdit")
         line_edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         line_edit.setClearButtonEnabled(False)
-        line_edit.setMinimumHeight(40)
+        line_edit.setFixedHeight(48)
         line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        line_edit.setStyleSheet("padding: 8px 16px;")
+        line_edit.setTextMargins(16, 0, 16, 0)
+        line_edit.setStyleSheet("background: red;")
 
         inner = QHBoxLayout(frame)
-        inner.setContentsMargins(6, 6, 6, 6)
+        inner.setContentsMargins(0, 0, 0, 0)
         inner.setSpacing(0)
         inner.addWidget(line_edit, alignment=Qt.AlignmentFlag.AlignVCenter)
+        print(
+            "USER:",
+            line_edit.objectName(),
+            line_edit.size(),
+            line_edit.minimumHeight(),
+            line_edit.styleSheet(),
+        )
 
         wrapper = QFrame()
         wrapper.setFocusProxy(line_edit)

@@ -163,14 +163,15 @@ class LoginDialog(QDialog):
         line_edit = QLineEdit()
         line_edit.setObjectName("fieldEdit")
         line_edit.setFixedHeight(46)
-        line_edit.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        line_edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         line_edit.setClearButtonEnabled(False)
         line_edit.setFrame(False)
         line_edit.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        line_edit.setTextMargins(0, 0, 0, 0)
+        line_edit.setTextMargins(0, 1, 8, 1)
         font = line_edit.font()
         font.setPointSize(13)
+        font.setWeight(500)
         line_edit.setFont(font)
         line_edit.setStyleSheet(
             """

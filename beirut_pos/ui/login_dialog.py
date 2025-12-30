@@ -151,11 +151,6 @@ class LoginDialog(QDialog):
         bus.subscribe("client_branding_changed", self._apply_logo)
 
     def _build_login_input(self, label: str, *, helper: str, required: bool):
-        frame = QFrame()
-        frame.setObjectName("fieldFrame")
-        frame.setFixedHeight(48)
-        frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
         line_edit = QLineEdit()
         line_edit.setObjectName("fieldEdit")
         line_edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -163,28 +158,23 @@ class LoginDialog(QDialog):
         line_edit.setFixedHeight(48)
         line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         line_edit.setTextMargins(16, 0, 16, 0)
-        line_edit.setStyleSheet("background: red;")
-
-        inner = QHBoxLayout(frame)
-        inner.setContentsMargins(0, 0, 0, 0)
-        inner.setSpacing(0)
-        inner.addWidget(line_edit, alignment=Qt.AlignmentFlag.AlignVCenter)
-        print(
-            "USER:",
-            line_edit.objectName(),
-            line_edit.size(),
-            line_edit.minimumHeight(),
-            line_edit.styleSheet(),
+        line_edit.setFrame(False)
+        line_edit.setStyleSheet(
+            """
+            QLineEdit {
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.18);
+                border-radius: 16px;
+                color: #EDE6D6;
+                font-size: 14px;
+            }
+            QLineEdit:focus {
+                border: 1px solid rgba(220,180,110,0.9);
+            }
+            """
         )
 
-        wrapper = QFrame()
-        wrapper.setFocusProxy(line_edit)
-        wrapper_layout = QVBoxLayout(wrapper)
-        wrapper_layout.setContentsMargins(0, 0, 0, 0)
-        wrapper_layout.setSpacing(0)
-        wrapper_layout.addWidget(frame)
-
-        field = DSFormField(label, wrapper, helper=helper, required=required)
+        field = DSFormField(label, line_edit, helper=helper, required=required)
         return line_edit, field
 
     def _set_message_state(self, state: str = "info"):

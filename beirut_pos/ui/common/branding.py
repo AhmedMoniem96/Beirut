@@ -301,9 +301,9 @@ def build_login_stylesheet() -> str:
         f"#LoginDialog QFrame#DSFormField[data-status=\"success\"] {{ border-color: #2E7D54; background-color: rgba(46,125,84,0.12); }}",
         f"#LoginDialog QFrame#DSFormField QLabel[data-role=\"label\"] {{ color: {muted}; font-weight: 700; margin-bottom: 6px; }}",
         f"#LoginDialog QFrame#DSFormField QLabel[data-role=\"helper\"] {{ color: {muted}; margin-top: 4px; }}",
-        "#LoginDialog QFrame#fieldFrame { background: #c9a061; border-radius: 18px; }",
-        "#LoginDialog QLineEdit#fieldEdit { background: white; border: none; border-radius: 14px; padding: 0 16px; font-size: 16px; min-height: 0px; }",
-        "#LoginDialog QLineEdit#fieldEdit::placeholder { color: rgba(26, 15, 8, 0.42); }",
+        "#LoginDialog QFrame#fieldFrame { background: #ffffff; border-radius: 18px; border: 1px solid rgba(27, 15, 8, 0.2); }",
+        "#LoginDialog QLineEdit#fieldEdit { background: transparent; border: none; border-radius: 14px; padding: 6px 16px; font-size: 18px; min-height: 34px; color: #1B0F08; }",
+        "#LoginDialog QLineEdit#fieldEdit::placeholder { color: rgba(26, 15, 8, 0.55); }",
         f"#LoginDialog QLabel#LoginHero, #LoginDialog QLabel#HeroHint {{ max-width: 320px; }}",
         "#LoginDialog QPushButton[class=\"link\"] { border-radius: 12px; }",
     ])

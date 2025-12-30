@@ -159,6 +159,7 @@ class LoginDialog(QDialog):
         line_edit.setObjectName("fieldEdit")
         line_edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         line_edit.setClearButtonEnabled(False)
+        line_edit.setFixedHeight(38)
         line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         inner = QHBoxLayout(frame)

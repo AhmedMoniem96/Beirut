@@ -163,32 +163,19 @@ class LoginDialog(QDialog):
         line_edit = QLineEdit()
         line_edit.setObjectName("fieldEdit")
         line_edit.setFixedHeight(46)
+        line_edit.setFrame(False)
+        line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        line_edit.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         line_edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         line_edit.setClearButtonEnabled(False)
-        line_edit.setFrame(False)
-        line_edit.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
-        line_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        line_edit.setTextMargins(0, 1, 8, 1)
+        line_edit.setStyleSheet("background: transparent; border: none; padding: 0; margin: 0;")
+        line_edit.setTextMargins(0, 2, 10, 2)
         font = line_edit.font()
         font.setPointSize(13)
         font.setWeight(500)
         line_edit.setFont(font)
-        line_edit.setStyleSheet(
-            """
-            QLineEdit {
-                background: transparent;
-                border: none;
-                padding: 0;
-                margin: 0;
-                color: rgba(240,232,214,0.95);
-            }
-            QLineEdit::placeholder {
-                color: rgba(240,232,214,0.55);
-            }
-            """
-        )
 
-        layout.addWidget(line_edit)
+        layout.addWidget(line_edit, 1, Qt.AlignmentFlag.AlignVCenter)
         frame.setFocusProxy(line_edit)
         frame.setStyleSheet(
             """
@@ -201,8 +188,11 @@ class LoginDialog(QDialog):
         )
         size_policy = line_edit.sizePolicy()
         print(
-            f"Login input '{label}': frame height={frame.height()} "
-            f"line_edit height={line_edit.height()} "
+            f"Login input '{label}': frame={frame.height()} "
+            f"line_edit={line_edit.height()} "
+            f"margins={line_edit.textMargins()} "
+            f"alignment={line_edit.alignment()} "
+            f"layoutDirection={line_edit.layoutDirection()} "
             f"sizePolicy=({size_policy.horizontalPolicy()}, {size_policy.verticalPolicy()})"
         )
 

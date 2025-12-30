@@ -302,7 +302,7 @@ def build_login_stylesheet() -> str:
         f"#LoginDialog QFrame#DSFormField QLabel[data-role=\"label\"] {{ color: {muted}; font-weight: 700; margin-bottom: 6px; }}",
         f"#LoginDialog QFrame#DSFormField QLabel[data-role=\"helper\"] {{ color: {muted}; margin-top: 4px; }}",
         "#LoginDialog QFrame#fieldFrame { background: #ffffff; border-radius: 18px; border: 1px solid rgba(27, 15, 8, 0.2); }",
-        "#LoginDialog QLineEdit#fieldEdit { background: transparent; border: none; border-radius: 14px; padding: 6px 16px; font-size: 18px; min-height: 34px; color: #1B0F08; }",
+        "#LoginDialog QLineEdit#fieldEdit { background: transparent; border: none; border-radius: 14px; padding: 0 16px; font-size: 18px; min-height: 0; color: #1B0F08; }",
         "#LoginDialog QLineEdit#fieldEdit::placeholder { color: rgba(26, 15, 8, 0.55); }",
         f"#LoginDialog QLabel#LoginHero, #LoginDialog QLabel#HeroHint {{ max-width: 320px; }}",
         "#LoginDialog QPushButton[class=\"link\"] { border-radius: 12px; }",

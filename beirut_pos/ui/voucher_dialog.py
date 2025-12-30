@@ -43,6 +43,8 @@ class VoucherDialog(QDialog):
         self.input = QLineEdit()
         self.input.setPlaceholderText("مثال: BEIRUT-ABCD-EFGH-IJKL-M")
         self.input.setMaxLength(32)
+        self.input.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.input.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.input.returnPressed.connect(self._attempt_activate)
         form.addRow("رمز القسيمة:", self.input)
         root.addLayout(form)

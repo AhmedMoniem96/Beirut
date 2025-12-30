@@ -31,14 +31,14 @@ except Exception as e:
     raise
 
 try:
-    from beirut_pos.app import main
+    from beirut_pos.app_launcher import run
 except Exception as e:
     _write_crash("import-app", e)
     raise
 
 if __name__ == "__main__":
     try:
-        main()
+        run()
     except Exception as e:
         _write_crash("runtime", e)
         raise

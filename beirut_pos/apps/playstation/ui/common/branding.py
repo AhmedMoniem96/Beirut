@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt
 from beirut_pos.core.db import setting_get
 from beirut_pos.services.settings import get_client_logo_path
 from beirut_pos.utils.paths import resource_path
-from beirut_pos.ui.theme import design_system_stylesheet, typography_rule
+from beirut_pos.apps.playstation.ui.theme import design_system_stylesheet, typography_rule
 
 
 _FALLBACK_BG = "#160D08"

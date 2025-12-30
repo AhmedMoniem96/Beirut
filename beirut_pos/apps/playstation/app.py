@@ -7,16 +7,16 @@ import sys
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from .core.db import init_db, maybe_run_integrity_check
-from .core.simple_voucher import is_activated, status as voucher_status
-from .services.backup import ensure_daily_backup
-from .services.license import ensure_trial_allowed
-from .ui.common.branding import get_logo_icon
-from .ui.login_dialog import LoginDialog
-from .ui.main_window import MainWindow
-from .ui.recovery_center_dialog import RecoveryCenterDialog
-from .ui.voucher_dialog import VoucherDialog
-from .utils.error_handling import (
+from beirut_pos.core.db import init_db, maybe_run_integrity_check
+from beirut_pos.core.simple_voucher import is_activated, status as voucher_status
+from beirut_pos.services.backup import ensure_daily_backup
+from beirut_pos.services.license import ensure_trial_allowed
+from beirut_pos.apps.playstation.ui.common.branding import get_logo_icon
+from beirut_pos.apps.playstation.ui.login_dialog import LoginDialog
+from beirut_pos.apps.playstation.ui.main_window import MainWindow
+from beirut_pos.apps.playstation.ui.recovery_center_dialog import RecoveryCenterDialog
+from beirut_pos.apps.playstation.ui.voucher_dialog import VoucherDialog
+from beirut_pos.utils.error_handling import (
     console_notifier,
     guarded_call,
     install_global_exception_handlers,
@@ -39,7 +39,7 @@ def _make_qt_notifier(parent=None):
     return _notify
 
 
-def main() -> None:
+def run() -> None:
     ok, _ = guarded_call("تهيئة قاعدة البيانات", init_db, notifier=_console_notifier)
     if not ok:
         sys.exit(1)
@@ -100,3 +100,6 @@ def main() -> None:
     mw = MainWindow(current_user=login.get_user())
     mw.show()
     sys.exit(app.exec())
+
+
+__all__ = ["run"]

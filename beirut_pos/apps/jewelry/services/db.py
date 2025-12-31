@@ -123,6 +123,31 @@ def init_jewelry_db() -> None:
         )"""
     )
     cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )"""
+    )
+    _ensure_column(cur, "jw_users", "username", "TEXT")
+    _ensure_column(cur, "jw_users", "password_hash", "TEXT")
+    _ensure_column(cur, "jw_users", "full_name", "TEXT")
+    _ensure_column(cur, "jw_users", "role", "TEXT")
+    _ensure_column(cur, "jw_users", "is_active", "INTEGER")
+    _ensure_column(cur, "jw_users", "created_at", "TEXT")
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_login_audit(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            success INTEGER NOT NULL,
+            timestamp TEXT NOT NULL
+        )"""
+    )
+    cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_invoices(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             invoice_no TEXT NOT NULL UNIQUE,
@@ -232,6 +257,7 @@ def init_jewelry_db() -> None:
     conn.close()
 
     _ensure_default_payment_methods()
+    _ensure_default_user()
 
 
 def _ensure_default_payment_methods() -> None:
@@ -250,6 +276,16 @@ def _ensure_default_payment_methods() -> None:
         )
     conn.commit()
     conn.close()
+
+
+def _ensure_default_user() -> None:
+    from .auth import ensure_default_admin, get_default_admin_warning
+    from .session import set_bootstrap_warning
+
+    ensure_default_admin()
+    warning = get_default_admin_warning()
+    if warning:
+        set_bootstrap_warning(warning)
 
 
 def _ensure_column(cur, table: str, column: str, column_type: str) -> None:

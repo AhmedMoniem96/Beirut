@@ -64,6 +64,10 @@ class InvoiceTab(QWidget):
         self.txn_type_combo.addItems(["Sale (بيع)", "Return (مرتجع)"])
         self.payment_combo = QComboBox()
         self.payment_combo.currentTextChanged.connect(self._refresh_summary_labels)
+        self.discount_type_combo = QComboBox()
+        self.discount_type_combo.addItem("Amount (قيمة)", "amount")
+        self.discount_type_combo.addItem("Percent (%)", "percent")
+        self.discount_type_combo.currentIndexChanged.connect(self._handle_discount_type_change)
         self.discount_input = QDoubleSpinBox()
         self.discount_input.setRange(0, 999999)
         self.discount_input.setDecimals(2)
@@ -78,7 +82,8 @@ class InvoiceTab(QWidget):
         form_layout.addRow("Cashier (الكاشير):", self.cashier_input)
         form_layout.addRow("Transaction (العملية):", self.txn_type_combo)
         form_layout.addRow("Payment Method (طريقة الدفع):", self.payment_combo)
-        form_layout.addRow("Discount (خصم):", self.discount_input)
+        form_layout.addRow("Discount Type (نوع الخصم):", self.discount_type_combo)
+        form_layout.addRow("Discount Value (قيمة الخصم):", self.discount_input)
         form_layout.addRow("Notes (ملاحظات):", self.notes_input)
         form_layout.addRow("Return Reason (سبب المرتجع):", self.return_reason_input)
         left_layout.addWidget(form_box)
@@ -198,6 +203,24 @@ class InvoiceTab(QWidget):
         self.return_reason_input.setEnabled(is_return)
         self._refresh_summary_labels()
 
+    def _handle_discount_type_change(self) -> None:
+        if self._discount_type() == "percent":
+            self.discount_input.setRange(0, 100)
+            self.discount_input.setSuffix("%")
+        else:
+            self.discount_input.setRange(0, 999999)
+            self.discount_input.setSuffix("")
+        self._recalculate_totals()
+
+    def _discount_type(self) -> str:
+        return self.discount_type_combo.currentData() or "amount"
+
+    def _calculate_discount_amount(self, subtotal: float) -> float:
+        discount_value = float(self.discount_input.value())
+        if self._discount_type() == "percent":
+            return max(subtotal * (discount_value / 100.0), 0.0)
+        return max(discount_value, 0.0)
+
     def _add_selected_product(self) -> None:
         row = self.products_table.currentRow()
         if row < 0:
@@ -219,7 +242,7 @@ class InvoiceTab(QWidget):
         subtotal = 0.0
         for row in range(self.items_table.rowCount()):
             subtotal += float(self.items_table.item(row, 4).text())
-        discount = float(self.discount_input.value())
+        discount = self._calculate_discount_amount(subtotal)
         total = max(subtotal - discount, 0.0)
         self.subtotal_label.setText(f"Subtotal: {subtotal:.2f}")
         self.total_label.setText(f"Net Total: {total:.2f}")
@@ -259,7 +282,9 @@ class InvoiceTab(QWidget):
         cashier = self.cashier_input.text().strip() or "N/A"
         txn_type = "return" if self.txn_type_combo.currentIndex() == 1 else "sale"
         subtotal = self._calculate_subtotal()
-        discount = float(self.discount_input.value())
+        discount_type = self._discount_type()
+        discount_value = float(self.discount_input.value())
+        discount = self._calculate_discount_amount(subtotal)
         total = max(subtotal - discount, 0.0)
         payment_method = self.payment_combo.currentText()
         notes = self.notes_input.toPlainText().strip()
@@ -270,6 +295,8 @@ class InvoiceTab(QWidget):
             txn_type,
             subtotal,
             discount,
+            discount_type,
+            discount_value,
             total,
             payment_method,
             notes,
@@ -313,6 +340,8 @@ class InvoiceTab(QWidget):
             [(i.product_name, i.product_code, i.qty, i.unit_price, i.line_total) for i in items],
             invoice.subtotal,
             invoice.discount,
+            invoice.discount_type,
+            invoice.discount_value,
             invoice.total,
             invoice.payment_method,
             invoice.notes,
@@ -345,6 +374,8 @@ class InvoiceTab(QWidget):
             [(i.product_name, i.product_code, i.qty, i.unit_price, i.line_total) for i in items],
             invoice.subtotal,
             invoice.discount,
+            invoice.discount_type,
+            invoice.discount_value,
             invoice.total,
             invoice.payment_method,
             invoice.notes,
@@ -354,6 +385,7 @@ class InvoiceTab(QWidget):
 
     def _clear_invoice(self) -> None:
         self.items_table.setRowCount(0)
+        self.discount_type_combo.setCurrentIndex(0)
         self.discount_input.setValue(0.0)
         self.notes_input.clear()
         self.return_reason_input.clear()
@@ -390,5 +422,12 @@ class InvoiceTab(QWidget):
         return f"Added: {product.name_en}"
 
     def _refresh_summary_labels(self) -> None:
-        self.discount_summary_label.setText(f"Discount: {float(self.discount_input.value()):.2f}")
+        subtotal = self._calculate_subtotal()
+        discount_amount = self._calculate_discount_amount(subtotal)
+        if self._discount_type() == "percent":
+            discount_value = float(self.discount_input.value())
+            discount_text = f"{discount_value:.2f}% ({discount_amount:.2f})"
+        else:
+            discount_text = f"{discount_amount:.2f}"
+        self.discount_summary_label.setText(f"Discount: {discount_text}")
         self.payment_label.setText(f"Payment: {self.payment_combo.currentText() or '-'}")

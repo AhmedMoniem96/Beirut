@@ -36,6 +36,7 @@ from ...services.db import (
     list_products,
 )
 from ...services.pdf_exports import GalleryInfo, export_invoice_pdf
+from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 
 
@@ -58,6 +59,7 @@ class InvoiceTab(QWidget):
         form_box = QGroupBox("Invoice Info (بيانات الفاتورة)")
         form_layout = QFormLayout(form_box)
         self.cashier_input = QLineEdit()
+        self.cashier_input.setReadOnly(True)
         self.txn_type_combo = QComboBox()
         self.txn_type_combo.addItems(["Sale (بيع)", "Return (مرتجع)"])
         self.payment_combo = QComboBox()
@@ -161,6 +163,15 @@ class InvoiceTab(QWidget):
 
         self._refresh_payment_methods()
         self.refresh_products()
+        self._initialize_cashier()
+
+    def _initialize_cashier(self) -> None:
+        user = get_current_user()
+        if user:
+            self.set_cashier_name(user.full_name)
+
+    def set_cashier_name(self, name: str) -> None:
+        self.cashier_input.setText(name)
 
     def _refresh_payment_methods(self) -> None:
         self.payment_combo.clear()

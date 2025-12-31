@@ -31,6 +31,7 @@ from beirut_pos.utils.excel import write_protected_workbook
 from ...services.db import fetch_shift_session_for_date, save_shift_session
 from ...services.pdf_exports import GalleryInfo, export_daily_report_pdf
 from ...services.reports import lowest_products, payment_breakdown, returns_aggregate, sales_aggregate, stock_alerts, top_products
+from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 
 
@@ -80,6 +81,7 @@ class ReportsTab(QWidget):
         shift_box = QGroupBox("Shift Info (بيانات الوردية)")
         shift_layout = QFormLayout(shift_box)
         self.cashier_input = QLineEdit()
+        self.cashier_input.setReadOnly(True)
         self.open_time_input = QDateTimeEdit()
         self.open_time_input.setCalendarPopup(True)
         self.close_time_input = QDateTimeEdit()
@@ -153,6 +155,7 @@ class ReportsTab(QWidget):
         layout.addLayout(export_layout)
 
         self._initialize_shift_defaults()
+        self._initialize_cashier()
 
     def _initialize_shift_defaults(self) -> None:
         now = datetime.now()
@@ -160,10 +163,20 @@ class ReportsTab(QWidget):
         self.close_time_input.setDateTime(now)
         self._load_shift_from_db()
 
+    def _initialize_cashier(self) -> None:
+        user = get_current_user()
+        if user and not self.cashier_input.text().strip():
+            self.cashier_input.setText(user.full_name)
+
+    def set_cashier_name(self, name: str) -> None:
+        if not self.cashier_input.text().strip():
+            self.cashier_input.setText(name)
+
     def _load_shift_from_db(self) -> None:
         date_iso = self.date_filter.date().toString("yyyy-MM-dd")
         session = fetch_shift_session_for_date(date_iso)
         if not session:
+            self._initialize_cashier()
             return
         cashier, open_time, close_time, opening_cash, closing_cash_actual, notes = session
         self.cashier_input.setText(cashier)

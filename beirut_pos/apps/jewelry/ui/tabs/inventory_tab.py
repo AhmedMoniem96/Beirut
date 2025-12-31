@@ -30,6 +30,7 @@ class InventoryTab(QWidget):
         self._on_products_changed = on_products_changed
         self._selected_product_id = None
         self._products = []
+        self._allow_edit = True
 
         layout = QVBoxLayout(self)
         header = QLabel("Inventory (المخزون)")
@@ -130,6 +131,30 @@ class InventoryTab(QWidget):
 
         self.refresh()
 
+    def set_edit_permissions(self, allow_edit: bool) -> None:
+        self._allow_edit = allow_edit
+        form_widgets = [
+            self.name_ar_input,
+            self.name_en_input,
+            self.sku_input,
+            self.barcode_input,
+            self.barcode_type_input,
+            self.category_input,
+            self.stone_type_input,
+            self.color_input,
+        ]
+        for widget in form_widgets:
+            widget.setReadOnly(not allow_edit)
+        for widget in [
+            self.price_input,
+            self.qty_input,
+            self.min_qty_input,
+            self.handmade_check,
+        ]:
+            widget.setEnabled(allow_edit)
+        for button in [self.save_btn, self.delete_btn, self.clear_btn]:
+            button.setEnabled(True)
+
     def refresh(self, _text: str | None = None) -> None:
         search = self.search_input.text().strip()
         products = list_products(search=search if search else None)
@@ -187,6 +212,9 @@ class InventoryTab(QWidget):
         self.color_input.setText(self.table.item(row, 11).text())
 
     def _save_product(self) -> None:
+        if not self._allow_edit:
+            QMessageBox.information(self, "Access Restricted", "Inventory adjustments are admin-only.")
+            return
         if not self.name_ar_input.text().strip() or not self.name_en_input.text().strip():
             QMessageBox.warning(self, "Missing", "Arabic & English names are required.")
             return
@@ -218,6 +246,9 @@ class InventoryTab(QWidget):
             self._on_products_changed()
 
     def _delete_product(self) -> None:
+        if not self._allow_edit:
+            QMessageBox.information(self, "Access Restricted", "Inventory adjustments are admin-only.")
+            return
         if not self._selected_product_id:
             return
         confirm = QMessageBox.question(self, "Delete", "Delete this product?")
@@ -230,6 +261,9 @@ class InventoryTab(QWidget):
             self._on_products_changed()
 
     def _clear_form(self) -> None:
+        if not self._allow_edit:
+            QMessageBox.information(self, "Access Restricted", "Inventory adjustments are admin-only.")
+            return
         self._selected_product_id = None
         self.name_ar_input.clear()
         self.name_en_input.clear()

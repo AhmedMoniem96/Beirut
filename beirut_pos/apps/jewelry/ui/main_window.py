@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QElapsedTimer, QEvent, Qt
-from PyQt6.QtWidgets import QApplication, QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtCore import QElapsedTimer, QEvent, QSignalBlocker, Qt
+from PyQt6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox, QTabWidget, QVBoxLayout, QWidget
 
 from ..services.settings import load_gallery_settings
+from ..services.session import get_current_user
 from .tabs.inventory_tab import InventoryTab
 from .tabs.invoice_tab import InvoiceTab
 from .tabs.manufacturing_tab import ManufacturingTab
@@ -48,9 +49,13 @@ class JewelryMainWindow(QMainWindow):
         self.tabs.addTab(self.manufacturing_tab, "Manufacturing (التصنيع)")
         self.tabs.addTab(self.reports_tab, "Reports (التقارير)")
         self.tabs.addTab(self.settings_tab, "Settings (الإعدادات)")
+        self.tabs.currentChanged.connect(self._handle_tab_change)
+
+        self._last_allowed_tab = 0
 
         self.setStyleSheet(gallery_stylesheet())
         self._apply_settings()
+        self._apply_user_context()
 
         self._scan_buffer = ""
         self._scan_timer = QElapsedTimer()
@@ -66,6 +71,35 @@ class JewelryMainWindow(QMainWindow):
         else:
             self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
             self.title_label.setText(title)
+
+    def _apply_user_context(self) -> None:
+        user = get_current_user()
+        if not user:
+            return
+        self.invoice_tab.set_cashier_name(user.full_name)
+        self.reports_tab.set_cashier_name(user.full_name)
+        is_admin = user.role == "Admin"
+        self.inventory_tab.set_edit_permissions(is_admin)
+
+    def _handle_tab_change(self, index: int) -> None:
+        user = get_current_user()
+        if not user:
+            self._last_allowed_tab = index
+            return
+        if user.role != "Admin" and self.tabs.widget(index) in (
+            self.settings_tab,
+            self.manufacturing_tab,
+        ):
+            QMessageBox.information(
+                self,
+                "Access Restricted",
+                "This section is available for Admin users only.",
+            )
+            blocker = QSignalBlocker(self.tabs)
+            self.tabs.setCurrentIndex(self._last_allowed_tab)
+            del blocker
+            return
+        self._last_allowed_tab = index
 
     def eventFilter(self, source, event):  # noqa: N802 - Qt naming convention
         if event.type() == QEvent.Type.KeyPress:

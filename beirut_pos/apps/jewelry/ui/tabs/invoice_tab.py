@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
@@ -46,6 +46,10 @@ class InvoiceTab(QWidget):
         super().__init__()
         self._last_invoice_no: Optional[str] = None
         self._products = []
+        self._scan_buffer = ""
+        self._scan_timer = QElapsedTimer()
+        self._scan_timer.start()
+        QApplication.instance().installEventFilter(self)
 
         layout = QHBoxLayout(self)
         left_layout = QVBoxLayout()
@@ -499,9 +503,10 @@ class InvoiceTab(QWidget):
         self._recalculate_totals()
 
     def handle_scan(self, code: str) -> str:
-        product = find_product_by_code(code)
+        normalized_code = self._normalize_scan_text(code)
+        product = find_product_by_code(normalized_code)
         if not product:
-            return f"Unknown barcode: {code}"
+            return f"Unknown barcode: {normalized_code}"
         self._add_product_to_invoice(product, 1.0)
         return f"Added: {product.name_en}"
 
@@ -515,3 +520,33 @@ class InvoiceTab(QWidget):
             discount_text = f"{discount_amount:.2f}"
         self.discount_summary_label.setText(f"Discount: {discount_text}")
         self.payment_label.setText(f"Payment: {self.payment_combo.currentText() or '-'}")
+
+    def _normalize_scan_text(self, code: str) -> str:
+        return code.rstrip("\r\n")
+
+    def _dispatch_scan(self, code: str) -> None:
+        message = self.handle_scan(code)
+        if message and hasattr(self.window(), "statusBar"):
+            status_bar = self.window().statusBar()
+            if status_bar:
+                status_bar.showMessage(message, 3000)
+
+    def eventFilter(self, source, event):  # noqa: N802 - Qt naming convention
+        if not self.isVisible():
+            return super().eventFilter(source, event)
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if self._scan_timer.elapsed() < 500 and len(self._scan_buffer) >= 2:
+                    self._dispatch_scan(self._scan_buffer)
+                    self._scan_buffer = ""
+                    return True
+                self._scan_buffer = ""
+            else:
+                if self._scan_timer.elapsed() > 400:
+                    self._scan_buffer = ""
+                text = event.text()
+                if text:
+                    self._scan_buffer += text
+                    self._scan_timer.restart()
+        return super().eventFilter(source, event)

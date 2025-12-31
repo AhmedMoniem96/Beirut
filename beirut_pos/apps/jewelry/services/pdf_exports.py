@@ -55,6 +55,8 @@ def export_invoice_pdf(
     items: Iterable[Tuple[str, str, float, float, float]],
     subtotal: float,
     discount: float,
+    discount_type: str,
+    discount_value: float,
     total: float,
     payment_method: str,
     notes: str,
@@ -126,7 +128,10 @@ def export_invoice_pdf(
     y -= 20
     c.drawString(40, y, f"Subtotal: {subtotal:.2f}")
     y -= 16
-    c.drawString(40, y, f"Discount: {discount:.2f}")
+    if discount_type == "percent":
+        c.drawString(40, y, f"Discount: {discount_value:.2f}% ({discount:.2f})")
+    else:
+        c.drawString(40, y, f"Discount: {discount:.2f}")
     y -= 16
     c.drawString(40, y, f"Net Total: {total:.2f}")
     y -= 16

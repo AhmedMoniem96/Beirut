@@ -44,6 +44,8 @@ class JewelryInvoice:
     txn_type: str
     subtotal: float
     discount: float
+    discount_type: str
+    discount_value: float
     total: float
     payment_method: str
     notes: str
@@ -156,12 +158,16 @@ def init_jewelry_db() -> None:
             txn_type TEXT NOT NULL CHECK(txn_type in ('sale','return')),
             subtotal REAL NOT NULL,
             discount REAL NOT NULL,
+            discount_type TEXT NOT NULL DEFAULT 'amount',
+            discount_value REAL NOT NULL DEFAULT 0,
             total REAL NOT NULL,
             payment_method TEXT NOT NULL,
             notes TEXT DEFAULT '',
             return_reason TEXT DEFAULT ''
         )"""
     )
+    _ensure_column(cur, "jw_invoices", "discount_type", "TEXT DEFAULT 'amount'")
+    _ensure_column(cur, "jw_invoices", "discount_value", "REAL DEFAULT 0")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_invoice_items(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -885,6 +891,8 @@ def create_invoice(
     txn_type: str,
     subtotal: float,
     discount: float,
+    discount_type: str,
+    discount_value: float,
     total: float,
     payment_method: str,
     notes: str,
@@ -898,8 +906,8 @@ def create_invoice(
     cur.execute(
         """INSERT INTO jw_invoices
            (invoice_no, datetime, cashier_name, txn_type, subtotal, discount,
-            total, payment_method, notes, return_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            discount_type, discount_value, total, payment_method, notes, return_reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             invoice_no,
             invoice_datetime,
@@ -907,6 +915,8 @@ def create_invoice(
             txn_type,
             subtotal,
             discount,
+            discount_type,
+            discount_value,
             total,
             payment_method,
             notes,
@@ -955,7 +965,8 @@ def list_return_invoices(date_iso: Optional[str] = None) -> List[JewelryInvoice]
     cur = conn.cursor()
     params: Tuple[str, ...] = ()
     query = """SELECT invoice_no, datetime, cashier_name, txn_type, subtotal,
-                      discount, total, payment_method, notes, return_reason
+                      discount, COALESCE(discount_type, 'amount'),
+                      COALESCE(discount_value, 0), total, payment_method, notes, return_reason
                FROM jw_invoices WHERE txn_type = 'return'"""
     if date_iso:
         query += " AND date(datetime) = date(?)"
@@ -972,10 +983,12 @@ def list_return_invoices(date_iso: Optional[str] = None) -> List[JewelryInvoice]
             txn_type=row[3],
             subtotal=row[4],
             discount=row[5],
-            total=row[6],
-            payment_method=row[7],
-            notes=row[8],
-            return_reason=row[9],
+            discount_type=row[6],
+            discount_value=row[7],
+            total=row[8],
+            payment_method=row[9],
+            notes=row[10],
+            return_reason=row[11],
         )
         for row in rows
     ]
@@ -986,7 +999,8 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
     cur = conn.cursor()
     cur.execute(
         """SELECT invoice_no, datetime, cashier_name, txn_type, subtotal,
-                  discount, total, payment_method, notes, return_reason
+                  discount, COALESCE(discount_type, 'amount'),
+                  COALESCE(discount_value, 0), total, payment_method, notes, return_reason
            FROM jw_invoices WHERE invoice_no = ?""",
         (invoice_no,),
     )
@@ -1001,10 +1015,12 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
         txn_type=row[3],
         subtotal=row[4],
         discount=row[5],
-        total=row[6],
-        payment_method=row[7],
-        notes=row[8],
-        return_reason=row[9],
+        discount_type=row[6],
+        discount_value=row[7],
+        total=row[8],
+        payment_method=row[9],
+        notes=row[10],
+        return_reason=row[11],
     )
     cur.execute(
         """SELECT product_id, product_name, product_code, qty, unit_price, line_total

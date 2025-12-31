@@ -8,6 +8,7 @@ from typing import List, Optional
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -143,6 +144,48 @@ class InvoiceTab(QWidget):
         totals_layout.addWidget(self.payment_label)
         right_layout.addWidget(totals_box)
 
+        calculator_box = QGroupBox("Calculator (آلة حاسبة)")
+        calculator_layout = QVBoxLayout(calculator_box)
+        self.calculator_display = QLineEdit("0")
+        self.calculator_display.setReadOnly(True)
+        self.calculator_display.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.calculator_display.setFixedHeight(32)
+        calculator_layout.addWidget(self.calculator_display)
+        keypad_layout = QGridLayout()
+        buttons = [
+            ("7", 0, 0),
+            ("8", 0, 1),
+            ("9", 0, 2),
+            ("÷", 0, 3),
+            ("4", 1, 0),
+            ("5", 1, 1),
+            ("6", 1, 2),
+            ("×", 1, 3),
+            ("1", 2, 0),
+            ("2", 2, 1),
+            ("3", 2, 2),
+            ("-", 2, 3),
+            ("0", 3, 0),
+            (".", 3, 1),
+            ("C", 3, 2),
+            ("+", 3, 3),
+        ]
+        for label, row, col in buttons:
+            button = QPushButton(label)
+            button.clicked.connect(lambda _checked, value=label: self._calculator_button_pressed(value))
+            keypad_layout.addWidget(button, row, col)
+        equal_button = QPushButton("=")
+        equal_button.clicked.connect(self._evaluate_calculator)
+        keypad_layout.addWidget(equal_button, 4, 0, 1, 2)
+        backspace_button = QPushButton("⌫")
+        backspace_button.clicked.connect(self._calculator_backspace)
+        keypad_layout.addWidget(backspace_button, 4, 2, 1, 1)
+        copy_button = QPushButton("Copy Result")
+        copy_button.clicked.connect(self._copy_calculator_result)
+        keypad_layout.addWidget(copy_button, 4, 3, 1, 1)
+        calculator_layout.addLayout(keypad_layout)
+        right_layout.addWidget(calculator_box)
+
         actions_layout = QVBoxLayout()
         self.save_btn = QPushButton("Save Invoice (حفظ الفاتورة)")
         self.save_btn.setObjectName("primaryButton")
@@ -169,6 +212,47 @@ class InvoiceTab(QWidget):
         user = get_current_user()
         if user:
             self.set_cashier_name(user.full_name)
+
+    def _calculator_button_pressed(self, value: str) -> None:
+        if value == "C":
+            self.calculator_display.setText("0")
+            return
+        current = self.calculator_display.text()
+        if current in {"0", "Error"} and value not in {"+", "-", "×", "÷", "."}:
+            self.calculator_display.setText(value)
+            return
+        if current in {"0", "Error"} and value == ".":
+            self.calculator_display.setText("0.")
+            return
+        self.calculator_display.setText(f"{current}{value}")
+
+    def _calculator_backspace(self) -> None:
+        current = self.calculator_display.text()
+        if len(current) <= 1:
+            self.calculator_display.setText("0")
+        else:
+            self.calculator_display.setText(current[:-1])
+
+    def _evaluate_calculator(self) -> None:
+        expression = self.calculator_display.text().strip()
+        if not expression:
+            return
+        normalized = expression.replace("×", "*").replace("÷", "/")
+        if not all(char in "0123456789.+-*/() " for char in normalized):
+            self.calculator_display.setText("Error")
+            return
+        try:
+            result = eval(normalized, {"__builtins__": {}}, {})
+        except (SyntaxError, ZeroDivisionError, TypeError, ValueError):
+            self.calculator_display.setText("Error")
+            return
+        self.calculator_display.setText(f"{result:.2f}".rstrip("0").rstrip("."))
+
+    def _copy_calculator_result(self) -> None:
+        result = self.calculator_display.text().strip()
+        if not result or result == "Error":
+            return
+        QApplication.clipboard().setText(result)
 
     def set_cashier_name(self, name: str) -> None:
         self.cashier_input.setText(name)

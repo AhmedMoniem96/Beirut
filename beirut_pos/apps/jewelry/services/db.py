@@ -15,6 +15,8 @@ class JewelryProduct:
     name_ar: str
     name_en: str
     sku: str
+    barcode: str
+    barcode_type: str
     price: float
     qty_on_hand: float
     min_qty: float
@@ -48,6 +50,49 @@ class JewelryInvoice:
     return_reason: str
 
 
+@dataclass
+class JewelryMaterial:
+    id: int
+    name_ar: str
+    name_en: str
+    code: str
+    qty_on_hand: float
+    unit: str
+    min_qty: float
+    cost_per_unit: float
+
+
+@dataclass
+class JewelryBom:
+    id: int
+    product_id: int
+    name: str
+    active: bool
+
+
+@dataclass
+class JewelryBomLine:
+    id: int
+    bom_id: int
+    material_id: int
+    qty_required: float
+
+
+@dataclass
+class JewelryProductionOrder:
+    id: int
+    order_no: str
+    datetime: str
+    status: str
+    product_id: int
+    qty_to_produce: float
+    qty_produced: float
+    labor_cost: float
+    overhead_cost: float
+    notes: str
+    bom_id: Optional[int]
+
+
 def init_jewelry_db() -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -66,6 +111,8 @@ def init_jewelry_db() -> None:
             color TEXT DEFAULT ''
         )"""
     )
+    _ensure_column(cur, "jw_products", "barcode", "TEXT")
+    _ensure_column(cur, "jw_products", "barcode_type", "TEXT")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_payment_methods(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,6 +161,73 @@ def init_jewelry_db() -> None:
             notes TEXT DEFAULT ''
         )"""
     )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_materials(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name_ar TEXT NOT NULL,
+            name_en TEXT NOT NULL,
+            code TEXT NOT NULL UNIQUE,
+            qty_on_hand REAL NOT NULL DEFAULT 0,
+            unit TEXT DEFAULT '',
+            min_qty REAL NOT NULL DEFAULT 0,
+            cost_per_unit REAL NOT NULL DEFAULT 0
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_boms(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY(product_id) REFERENCES jw_products(id)
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_bom_lines(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bom_id INTEGER NOT NULL,
+            material_id INTEGER NOT NULL,
+            qty_required REAL NOT NULL,
+            FOREIGN KEY(bom_id) REFERENCES jw_boms(id),
+            FOREIGN KEY(material_id) REFERENCES jw_materials(id)
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_production_orders(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_no TEXT NOT NULL UNIQUE,
+            datetime TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status in ('draft','confirmed','done','cancelled')),
+            product_id INTEGER NOT NULL,
+            qty_to_produce REAL NOT NULL,
+            qty_produced REAL NOT NULL DEFAULT 0,
+            labor_cost REAL NOT NULL DEFAULT 0,
+            overhead_cost REAL NOT NULL DEFAULT 0,
+            notes TEXT DEFAULT '',
+            bom_id INTEGER,
+            FOREIGN KEY(product_id) REFERENCES jw_products(id)
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_production_consumption(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            production_order_id INTEGER NOT NULL,
+            material_id INTEGER NOT NULL,
+            qty_consumed REAL NOT NULL,
+            cost_at_time REAL NOT NULL,
+            FOREIGN KEY(production_order_id) REFERENCES jw_production_orders(id),
+            FOREIGN KEY(material_id) REFERENCES jw_materials(id)
+        )"""
+    )
+    _ensure_column(cur, "jw_production_orders", "bom_id", "INTEGER")
+    try:
+        cur.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS jw_products_barcode_unique
+               ON jw_products(barcode)
+               WHERE barcode IS NOT NULL AND barcode != ''"""
+        )
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -136,6 +250,13 @@ def _ensure_default_payment_methods() -> None:
         )
     conn.commit()
     conn.close()
+
+
+def _ensure_column(cur, table: str, column: str, column_type: str) -> None:
+    cur.execute(f"PRAGMA table_info({table})")
+    columns = {row[1] for row in cur.fetchall()}
+    if column not in columns:
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
 
 def list_payment_methods() -> List[Tuple[int, str, str]]:
@@ -161,14 +282,19 @@ def add_payment_method(name_ar: str, name_en: str) -> None:
     conn.close()
 
 
-def list_products() -> List[JewelryProduct]:
+def list_products(search: Optional[str] = None) -> List[JewelryProduct]:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """SELECT id, name_ar, name_en, sku, price, qty_on_hand, min_qty, category,
-                  handmade_flag, stone_type, color
-           FROM jw_products ORDER BY id DESC"""
-    )
+    params: Tuple[str, ...] = ()
+    query = """SELECT id, name_ar, name_en, sku, COALESCE(barcode, ''), COALESCE(barcode_type, ''),
+                      price, qty_on_hand, min_qty, category, handmade_flag, stone_type, color
+               FROM jw_products"""
+    if search:
+        query += " WHERE name_ar LIKE ? OR name_en LIKE ? OR sku LIKE ? OR barcode LIKE ?"
+        like = f"%{search}%"
+        params = (like, like, like, like)
+    query += " ORDER BY id DESC"
+    cur.execute(query, params)
     rows = cur.fetchall()
     conn.close()
     return [
@@ -177,13 +303,15 @@ def list_products() -> List[JewelryProduct]:
             name_ar=row[1],
             name_en=row[2],
             sku=row[3],
-            price=row[4],
-            qty_on_hand=row[5],
-            min_qty=row[6],
-            category=row[7],
-            handmade_flag=bool(row[8]),
-            stone_type=row[9],
-            color=row[10],
+            barcode=row[4] or "",
+            barcode_type=row[5] or "",
+            price=row[6],
+            qty_on_hand=row[7],
+            min_qty=row[8],
+            category=row[9],
+            handmade_flag=bool(row[10]),
+            stone_type=row[11],
+            color=row[12],
         )
         for row in rows
     ]
@@ -194,6 +322,8 @@ def save_product(
     name_ar: str,
     name_en: str,
     sku: str,
+    barcode: str,
+    barcode_type: str,
     price: float,
     qty_on_hand: float,
     min_qty: float,
@@ -207,13 +337,16 @@ def save_product(
     if product_id:
         cur.execute(
             """UPDATE jw_products
-               SET name_ar=?, name_en=?, sku=?, price=?, qty_on_hand=?, min_qty=?,
-                   category=?, handmade_flag=?, stone_type=?, color=?
+               SET name_ar=?, name_en=?, sku=?, barcode=?, barcode_type=?, price=?,
+                   qty_on_hand=?, min_qty=?, category=?, handmade_flag=?,
+                   stone_type=?, color=?
                WHERE id=?""",
             (
                 name_ar,
                 name_en,
                 sku,
+                barcode,
+                barcode_type,
                 price,
                 qty_on_hand,
                 min_qty,
@@ -227,13 +360,15 @@ def save_product(
     else:
         cur.execute(
             """INSERT INTO jw_products
-               (name_ar, name_en, sku, price, qty_on_hand, min_qty, category,
-                handmade_flag, stone_type, color)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (name_ar, name_en, sku, barcode, barcode_type, price, qty_on_hand,
+                min_qty, category, handmade_flag, stone_type, color)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 name_ar,
                 name_en,
                 sku,
+                barcode,
+                barcode_type,
                 price,
                 qty_on_hand,
                 min_qty,
@@ -247,10 +382,458 @@ def save_product(
     conn.close()
 
 
+def barcode_exists(barcode: str, *, exclude_product_id: Optional[int] = None) -> bool:
+    if not barcode:
+        return False
+    conn = get_conn()
+    cur = conn.cursor()
+    if exclude_product_id:
+        cur.execute(
+            "SELECT 1 FROM jw_products WHERE barcode = ? AND id != ? LIMIT 1",
+            (barcode, exclude_product_id),
+        )
+    else:
+        cur.execute("SELECT 1 FROM jw_products WHERE barcode = ? LIMIT 1", (barcode,))
+    exists = cur.fetchone() is not None
+    conn.close()
+    return exists
+
+
+def find_product_by_code(code: str) -> Optional[JewelryProduct]:
+    if not code:
+        return None
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, name_ar, name_en, sku, COALESCE(barcode, ''), COALESCE(barcode_type, ''),
+                  price, qty_on_hand, min_qty, category, handmade_flag, stone_type, color
+           FROM jw_products
+           WHERE sku = ? OR barcode = ?
+           LIMIT 1""",
+        (code, code),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return JewelryProduct(
+        id=row[0],
+        name_ar=row[1],
+        name_en=row[2],
+        sku=row[3],
+        barcode=row[4] or "",
+        barcode_type=row[5] or "",
+        price=row[6],
+        qty_on_hand=row[7],
+        min_qty=row[8],
+        category=row[9],
+        handmade_flag=bool(row[10]),
+        stone_type=row[11],
+        color=row[12],
+    )
+
+
 def delete_product(product_id: int) -> None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("DELETE FROM jw_products WHERE id = ?", (product_id,))
+    conn.commit()
+    conn.close()
+
+
+def list_materials() -> List[JewelryMaterial]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, name_ar, name_en, code, qty_on_hand, unit, min_qty, cost_per_unit
+           FROM jw_materials ORDER BY id DESC"""
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryMaterial(
+            id=row[0],
+            name_ar=row[1],
+            name_en=row[2],
+            code=row[3],
+            qty_on_hand=row[4],
+            unit=row[5],
+            min_qty=row[6],
+            cost_per_unit=row[7],
+        )
+        for row in rows
+    ]
+
+
+def save_material(
+    material_id: Optional[int],
+    name_ar: str,
+    name_en: str,
+    code: str,
+    qty_on_hand: float,
+    unit: str,
+    min_qty: float,
+    cost_per_unit: float,
+) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    if material_id:
+        cur.execute(
+            """UPDATE jw_materials
+               SET name_ar=?, name_en=?, code=?, qty_on_hand=?, unit=?, min_qty=?, cost_per_unit=?
+               WHERE id=?""",
+            (
+                name_ar,
+                name_en,
+                code,
+                qty_on_hand,
+                unit,
+                min_qty,
+                cost_per_unit,
+                material_id,
+            ),
+        )
+    else:
+        cur.execute(
+            """INSERT INTO jw_materials
+               (name_ar, name_en, code, qty_on_hand, unit, min_qty, cost_per_unit)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                name_ar,
+                name_en,
+                code,
+                qty_on_hand,
+                unit,
+                min_qty,
+                cost_per_unit,
+            ),
+        )
+    conn.commit()
+    conn.close()
+
+
+def delete_material(material_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM jw_materials WHERE id = ?", (material_id,))
+    conn.commit()
+    conn.close()
+
+
+def list_boms() -> List[JewelryBom]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, product_id, name, active
+           FROM jw_boms ORDER BY id DESC"""
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryBom(
+            id=row[0],
+            product_id=row[1],
+            name=row[2],
+            active=bool(row[3]),
+        )
+        for row in rows
+    ]
+
+
+def list_bom_lines(bom_id: int) -> List[JewelryBomLine]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, bom_id, material_id, qty_required
+           FROM jw_bom_lines WHERE bom_id = ? ORDER BY id""",
+        (bom_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryBomLine(
+            id=row[0],
+            bom_id=row[1],
+            material_id=row[2],
+            qty_required=row[3],
+        )
+        for row in rows
+    ]
+
+
+def save_bom(
+    bom_id: Optional[int],
+    product_id: int,
+    name: str,
+    active: bool,
+    lines: Iterable[Tuple[int, float]],
+) -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    if bom_id:
+        cur.execute(
+            """UPDATE jw_boms
+               SET product_id=?, name=?, active=?
+               WHERE id=?""",
+            (product_id, name, 1 if active else 0, bom_id),
+        )
+        cur.execute("DELETE FROM jw_bom_lines WHERE bom_id = ?", (bom_id,))
+        bom_row_id = bom_id
+    else:
+        cur.execute(
+            """INSERT INTO jw_boms(product_id, name, active)
+               VALUES (?, ?, ?)""",
+            (product_id, name, 1 if active else 0),
+        )
+        bom_row_id = cur.lastrowid
+    for material_id, qty_required in lines:
+        cur.execute(
+            """INSERT INTO jw_bom_lines(bom_id, material_id, qty_required)
+               VALUES (?, ?, ?)""",
+            (bom_row_id, material_id, qty_required),
+        )
+    conn.commit()
+    conn.close()
+    return int(bom_row_id)
+
+
+def delete_bom(bom_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM jw_bom_lines WHERE bom_id = ?", (bom_id,))
+    cur.execute("DELETE FROM jw_boms WHERE id = ?", (bom_id,))
+    conn.commit()
+    conn.close()
+
+
+def _next_production_order_no(cur) -> str:
+    cur.execute("SELECT MAX(id) FROM jw_production_orders")
+    max_id = cur.fetchone()[0] or 0
+    return f"JWO-{max_id + 1:05d}"
+
+
+def create_production_order(
+    product_id: int,
+    qty_to_produce: float,
+    labor_cost: float,
+    overhead_cost: float,
+    notes: str,
+    bom_id: Optional[int],
+) -> JewelryProductionOrder:
+    conn = get_conn()
+    cur = conn.cursor()
+    order_no = _next_production_order_no(cur)
+    order_datetime = datetime.now().isoformat(timespec="seconds")
+    cur.execute(
+        """INSERT INTO jw_production_orders
+           (order_no, datetime, status, product_id, qty_to_produce, qty_produced,
+            labor_cost, overhead_cost, notes, bom_id)
+           VALUES (?, ?, 'draft', ?, ?, 0, ?, ?, ?, ?)""",
+        (
+            order_no,
+            order_datetime,
+            product_id,
+            qty_to_produce,
+            labor_cost,
+            overhead_cost,
+            notes,
+            bom_id,
+        ),
+    )
+    order_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return JewelryProductionOrder(
+        id=order_id,
+        order_no=order_no,
+        datetime=order_datetime,
+        status="draft",
+        product_id=product_id,
+        qty_to_produce=qty_to_produce,
+        qty_produced=0.0,
+        labor_cost=labor_cost,
+        overhead_cost=overhead_cost,
+        notes=notes,
+        bom_id=bom_id,
+    )
+
+
+def list_production_orders(
+    start_iso: Optional[str] = None,
+    end_iso: Optional[str] = None,
+    status: Optional[str] = None,
+    product_id: Optional[int] = None,
+) -> List[JewelryProductionOrder]:
+    conn = get_conn()
+    cur = conn.cursor()
+    query = """SELECT id, order_no, datetime, status, product_id, qty_to_produce,
+                      qty_produced, labor_cost, overhead_cost, notes, bom_id
+               FROM jw_production_orders"""
+    params: List = []
+    conditions = []
+    if start_iso and end_iso:
+        conditions.append("datetime BETWEEN ? AND ?")
+        params.extend([start_iso, end_iso])
+    if status and status != "all":
+        conditions.append("status = ?")
+        params.append(status)
+    if product_id:
+        conditions.append("product_id = ?")
+        params.append(product_id)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY datetime DESC"
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryProductionOrder(
+            id=row[0],
+            order_no=row[1],
+            datetime=row[2],
+            status=row[3],
+            product_id=row[4],
+            qty_to_produce=row[5],
+            qty_produced=row[6],
+            labor_cost=row[7],
+            overhead_cost=row[8],
+            notes=row[9],
+            bom_id=row[10],
+        )
+        for row in rows
+    ]
+
+
+def fetch_production_order(order_id: int) -> Optional[JewelryProductionOrder]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, order_no, datetime, status, product_id, qty_to_produce,
+                  qty_produced, labor_cost, overhead_cost, notes, bom_id
+           FROM jw_production_orders WHERE id = ?""",
+        (order_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return JewelryProductionOrder(
+        id=row[0],
+        order_no=row[1],
+        datetime=row[2],
+        status=row[3],
+        product_id=row[4],
+        qty_to_produce=row[5],
+        qty_produced=row[6],
+        labor_cost=row[7],
+        overhead_cost=row[8],
+        notes=row[9],
+        bom_id=row[10],
+    )
+
+
+def check_material_availability(bom_id: int, qty_multiplier: float) -> List[Tuple[str, float, float]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT m.name_en, m.qty_on_hand, l.qty_required
+           FROM jw_bom_lines l
+           JOIN jw_materials m ON m.id = l.material_id
+           WHERE l.bom_id = ?""",
+        (bom_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    shortages = []
+    for name_en, qty_on_hand, qty_required in rows:
+        required_total = qty_required * qty_multiplier
+        if qty_on_hand < required_total:
+            shortages.append((name_en, qty_on_hand, required_total))
+    return shortages
+
+
+def confirm_production_order(order_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT status, bom_id, qty_to_produce FROM jw_production_orders WHERE id = ?", (order_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise ValueError("Order not found")
+    status, bom_id, qty_to_produce = row
+    if status != "draft":
+        conn.close()
+        return
+    if bom_id:
+        shortages = check_material_availability(bom_id, qty_to_produce)
+        if shortages:
+            conn.close()
+            raise ValueError("Insufficient materials")
+    cur.execute(
+        "UPDATE jw_production_orders SET status = 'confirmed' WHERE id = ?",
+        (order_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_production_done(order_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT status, product_id, qty_to_produce, bom_id, labor_cost, overhead_cost
+           FROM jw_production_orders WHERE id = ?""",
+        (order_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise ValueError("Order not found")
+    status, product_id, qty_to_produce, bom_id, labor_cost, overhead_cost = row
+    if status == "done":
+        conn.close()
+        return
+    if bom_id:
+        cur.execute(
+            """SELECT material_id, qty_required
+               FROM jw_bom_lines WHERE bom_id = ?""",
+            (bom_id,),
+        )
+        lines = cur.fetchall()
+        for material_id, qty_required in lines:
+            cur.execute(
+                "SELECT qty_on_hand, cost_per_unit FROM jw_materials WHERE id = ?",
+                (material_id,),
+            )
+            material_row = cur.fetchone()
+            if not material_row:
+                conn.close()
+                raise ValueError("Material missing")
+            qty_on_hand, cost_per_unit = material_row
+            total_required = qty_required * qty_to_produce
+            if qty_on_hand < total_required:
+                conn.close()
+                raise ValueError("Insufficient materials")
+            cur.execute(
+                "UPDATE jw_materials SET qty_on_hand = qty_on_hand - ? WHERE id = ?",
+                (total_required, material_id),
+            )
+            cur.execute(
+                """INSERT INTO jw_production_consumption
+                   (production_order_id, material_id, qty_consumed, cost_at_time)
+                   VALUES (?, ?, ?, ?)""",
+                (order_id, material_id, total_required, cost_per_unit),
+            )
+    cur.execute(
+        "UPDATE jw_products SET qty_on_hand = qty_on_hand + ? WHERE id = ?",
+        (qty_to_produce, product_id),
+    )
+    cur.execute(
+        """UPDATE jw_production_orders
+           SET status = 'done', qty_produced = ?, labor_cost = ?, overhead_cost = ?
+           WHERE id = ?""",
+        (qty_to_produce, labor_cost, overhead_cost, order_id),
+    )
     conn.commit()
     conn.close()
 

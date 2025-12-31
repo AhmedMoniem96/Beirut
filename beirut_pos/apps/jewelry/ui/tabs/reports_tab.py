@@ -123,6 +123,14 @@ class ReportsTab(QWidget):
         self.low_table.setHorizontalHeaderLabels(["Product", "Code", "Qty"])
         self.stock_table = QTableWidget(0, 5)
         self.stock_table.setHorizontalHeaderLabels(["Product", "SKU", "Qty", "Min", "Status"])
+        for table in [
+            self.payment_table,
+            self.returns_table,
+            self.top_table,
+            self.low_table,
+            self.stock_table,
+        ]:
+            table.setAlternatingRowColors(True)
 
         layout.addWidget(QLabel("Payment Breakdown (تفاصيل الدفع)"))
         layout.addWidget(self.payment_table)

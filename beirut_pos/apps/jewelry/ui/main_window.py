@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QElapsedTimer, QEvent, QSignalBlocker, Qt
-from PyQt6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtCore import QSignalBlocker, Qt
+from PyQt6.QtWidgets import QLabel, QMainWindow, QMessageBox, QTabWidget, QVBoxLayout, QWidget
 
 from ..services.settings import load_gallery_settings
 from ..services.session import get_current_user
@@ -57,11 +57,6 @@ class JewelryMainWindow(QMainWindow):
         self._apply_settings()
         self._apply_user_context()
 
-        self._scan_buffer = ""
-        self._scan_timer = QElapsedTimer()
-        self._scan_timer.start()
-        QApplication.instance().installEventFilter(self)
-
     def _apply_settings(self) -> None:
         settings = load_gallery_settings()
         title = "Crystal Gallery - POS"
@@ -100,31 +95,3 @@ class JewelryMainWindow(QMainWindow):
             del blocker
             return
         self._last_allowed_tab = index
-
-    def eventFilter(self, source, event):  # noqa: N802 - Qt naming convention
-        if event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                if self._scan_timer.elapsed() < 500 and len(self._scan_buffer) >= 2:
-                    self._handle_scan(self._scan_buffer.strip())
-                    self._scan_buffer = ""
-                    return True
-                self._scan_buffer = ""
-            else:
-                if self._scan_timer.elapsed() > 400:
-                    self._scan_buffer = ""
-                text = event.text()
-                if text:
-                    self._scan_buffer += text
-                    self._scan_timer.restart()
-        return super().eventFilter(source, event)
-
-    def _handle_scan(self, code: str) -> None:
-        current = self.tabs.currentWidget()
-        message = ""
-        if isinstance(current, InvoiceTab):
-            message = current.handle_scan(code)
-        elif isinstance(current, InventoryTab):
-            message = current.handle_scan(code)
-        if message:
-            self.statusBar().showMessage(message, 3000)

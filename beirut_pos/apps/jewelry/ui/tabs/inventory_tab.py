@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QElapsedTimer, QEvent, Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -31,6 +32,10 @@ class InventoryTab(QWidget):
         self._selected_product_id = None
         self._products = []
         self._allow_edit = True
+        self._scan_buffer = ""
+        self._scan_timer = QElapsedTimer()
+        self._scan_timer.start()
+        QApplication.instance().installEventFilter(self)
 
         layout = QVBoxLayout(self)
         header = QLabel("Inventory (المخزون)")
@@ -306,5 +311,37 @@ class InventoryTab(QWidget):
         QMessageBox.information(self, "Export", "Barcode labels exported.")
 
     def handle_scan(self, code: str) -> str:
-        self.search_input.setText(code)
-        return f"Search: {code}"
+        normalized_code = self._normalize_scan_text(code)
+        self.search_input.setText(normalized_code)
+        self.refresh()
+        return f"Search: {normalized_code}"
+
+    def _normalize_scan_text(self, code: str) -> str:
+        return code.rstrip("\r\n")
+
+    def _dispatch_scan(self, code: str) -> None:
+        message = self.handle_scan(code)
+        if message and hasattr(self.window(), "statusBar"):
+            status_bar = self.window().statusBar()
+            if status_bar:
+                status_bar.showMessage(message, 3000)
+
+    def eventFilter(self, source, event):  # noqa: N802 - Qt naming convention
+        if not self.isVisible():
+            return super().eventFilter(source, event)
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if self._scan_timer.elapsed() < 500 and len(self._scan_buffer) >= 2:
+                    self._dispatch_scan(self._scan_buffer)
+                    self._scan_buffer = ""
+                    return True
+                self._scan_buffer = ""
+            else:
+                if self._scan_timer.elapsed() > 400:
+                    self._scan_buffer = ""
+                text = event.text()
+                if text:
+                    self._scan_buffer += text
+                    self._scan_timer.restart()
+        return super().eventFilter(source, event)

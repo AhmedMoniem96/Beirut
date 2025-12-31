@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtCore import QElapsedTimer, QEvent, Qt
+from PyQt6.QtWidgets import QApplication, QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
 from ..services.settings import load_gallery_settings
 from .tabs.inventory_tab import InventoryTab
 from .tabs.invoice_tab import InvoiceTab
+from .tabs.manufacturing_tab import ManufacturingTab
 from .tabs.reports_tab import ReportsTab
 from .tabs.returns_tab import ReturnsTab
 from .tabs.settings_tab import SettingsTab
+from .theme import gallery_stylesheet
 
 
 class JewelryMainWindow(QMainWindow):
@@ -38,14 +40,22 @@ class JewelryMainWindow(QMainWindow):
             on_settings_changed=self._apply_settings,
             on_payment_methods_changed=self.invoice_tab._refresh_payment_methods,
         )
+        self.manufacturing_tab = ManufacturingTab()
 
         self.tabs.addTab(self.invoice_tab, "New Invoice (فاتورة جديدة)")
         self.tabs.addTab(self.returns_tab, "Returns (مرتجع)")
         self.tabs.addTab(self.inventory_tab, "Inventory (المخزون)")
+        self.tabs.addTab(self.manufacturing_tab, "Manufacturing (التصنيع)")
         self.tabs.addTab(self.reports_tab, "Reports (التقارير)")
         self.tabs.addTab(self.settings_tab, "Settings (الإعدادات)")
 
+        self.setStyleSheet(gallery_stylesheet())
         self._apply_settings()
+
+        self._scan_buffer = ""
+        self._scan_timer = QElapsedTimer()
+        self._scan_timer.start()
+        QApplication.instance().installEventFilter(self)
 
     def _apply_settings(self) -> None:
         settings = load_gallery_settings()
@@ -56,3 +66,31 @@ class JewelryMainWindow(QMainWindow):
         else:
             self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
             self.title_label.setText(title)
+
+    def eventFilter(self, source, event):  # noqa: N802 - Qt naming convention
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if self._scan_timer.elapsed() < 500 and len(self._scan_buffer) >= 2:
+                    self._handle_scan(self._scan_buffer.strip())
+                    self._scan_buffer = ""
+                    return True
+                self._scan_buffer = ""
+            else:
+                if self._scan_timer.elapsed() > 400:
+                    self._scan_buffer = ""
+                text = event.text()
+                if text:
+                    self._scan_buffer += text
+                    self._scan_timer.restart()
+        return super().eventFilter(source, event)
+
+    def _handle_scan(self, code: str) -> None:
+        current = self.tabs.currentWidget()
+        message = ""
+        if isinstance(current, InvoiceTab):
+            message = current.handle_scan(code)
+        elif isinstance(current, InventoryTab):
+            message = current.handle_scan(code)
+        if message:
+            self.statusBar().showMessage(message, 3000)

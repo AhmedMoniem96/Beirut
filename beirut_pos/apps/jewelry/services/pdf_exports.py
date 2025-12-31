@@ -10,6 +10,7 @@ from typing import Iterable, List, Tuple
 import arabic_reshaper
 from bidi.algorithm import get_display
 from reportlab.lib.pagesizes import A4
+from reportlab.graphics.barcode import code128
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
@@ -277,5 +278,43 @@ def export_daily_report_pdf(
     if notes:
         c.drawString(40, y, f"Notes: {notes}")
 
+    c.showPage()
+    c.save()
+
+
+def export_barcode_labels_pdf(
+    path: str,
+    product_name: str,
+    sku: str,
+    barcode_value: str,
+    barcode_type: str,
+) -> None:
+    c = canvas.Canvas(path, pagesize=A4)
+    width, height = A4
+    columns = 3
+    rows = 8
+    margin_x = 30
+    margin_y = 30
+    gap_x = 10
+    gap_y = 8
+    label_width = (width - (2 * margin_x) - (gap_x * (columns - 1))) / columns
+    label_height = (height - (2 * margin_y) - (gap_y * (rows - 1))) / rows
+
+    label_text = f"{product_name}\n{sku}"
+    for row in range(rows):
+        for col in range(columns):
+            x = margin_x + col * (label_width + gap_x)
+            y = height - margin_y - (row + 1) * label_height - row * gap_y
+            c.roundRect(x, y, label_width, label_height, 6, stroke=1, fill=0)
+            c.setFont("Helvetica", 7)
+            text_y = y + label_height - 12
+            for line in label_text.splitlines():
+                c.drawString(x + 6, text_y, line[:40])
+                text_y -= 10
+            if barcode_value:
+                barcode_obj = code128.Code128(barcode_value, barHeight=22, barWidth=0.6)
+                barcode_obj.drawOn(c, x + 6, y + 8)
+                c.setFont("Helvetica", 6)
+                c.drawString(x + 6, y + 4, f"{barcode_type or 'Barcode'}: {barcode_value}")
     c.showPage()
     c.save()

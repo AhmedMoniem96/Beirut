@@ -17,9 +17,11 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QFileDialog,
 )
 
-from ...services.db import delete_product, list_products, save_product
+from ...services.db import barcode_exists, delete_product, list_products, save_product
+from ...services.pdf_exports import export_barcode_labels_pdf
 
 
 class InventoryTab(QWidget):
@@ -27,17 +29,28 @@ class InventoryTab(QWidget):
         super().__init__()
         self._on_products_changed = on_products_changed
         self._selected_product_id = None
+        self._products = []
 
         layout = QVBoxLayout(self)
         header = QLabel("Inventory (المخزون)")
         header.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(header)
 
+        search_layout = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Scan to search / ابحث بالاسم أو الكود أو الباركود")
+        self.search_input.textChanged.connect(self.refresh)
+        search_layout.addWidget(QLabel("Search (بحث):"))
+        search_layout.addWidget(self.search_input)
+        layout.addLayout(search_layout)
+
         form_box = QGroupBox("Product Details (تفاصيل المنتج)")
         form_layout = QFormLayout(form_box)
         self.name_ar_input = QLineEdit()
         self.name_en_input = QLineEdit()
         self.sku_input = QLineEdit()
+        self.barcode_input = QLineEdit()
+        self.barcode_type_input = QLineEdit()
         self.price_input = QDoubleSpinBox()
         self.price_input.setRange(0, 999999)
         self.price_input.setDecimals(2)
@@ -55,6 +68,8 @@ class InventoryTab(QWidget):
         form_layout.addRow("Name Arabic (الاسم عربي):", self.name_ar_input)
         form_layout.addRow("Name English (الاسم EN):", self.name_en_input)
         form_layout.addRow("SKU/Code (الكود):", self.sku_input)
+        form_layout.addRow("Barcode (باركود):", self.barcode_input)
+        form_layout.addRow("Barcode Type (نوع الباركود):", self.barcode_type_input)
         form_layout.addRow("Price (السعر):", self.price_input)
         form_layout.addRow("Qty On Hand (الكمية):", self.qty_input)
         form_layout.addRow("Min Qty (الحد الأدنى):", self.min_qty_input)
@@ -70,19 +85,24 @@ class InventoryTab(QWidget):
         self.delete_btn.clicked.connect(self._delete_product)
         self.clear_btn = QPushButton("Clear (مسح)")
         self.clear_btn.clicked.connect(self._clear_form)
+        self.print_barcode_btn = QPushButton("Print Barcode Label (طباعة باركود)")
+        self.print_barcode_btn.clicked.connect(self._print_barcode_label)
         buttons.addWidget(self.save_btn)
         buttons.addWidget(self.delete_btn)
         buttons.addWidget(self.clear_btn)
+        buttons.addWidget(self.print_barcode_btn)
 
         layout.addWidget(form_box)
         layout.addLayout(buttons)
 
-        self.table = QTableWidget(0, 10)
+        self.table = QTableWidget(0, 12)
         self.table.setHorizontalHeaderLabels(
             [
                 "Arabic",
                 "English",
                 "SKU",
+                "Barcode",
+                "Type",
                 "Price",
                 "Qty",
                 "Min",
@@ -94,6 +114,7 @@ class InventoryTab(QWidget):
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
         self.table.cellClicked.connect(self._load_selected_product)
         layout.addWidget(self.table)
 
@@ -103,13 +124,16 @@ class InventoryTab(QWidget):
         self.alerts_table.setHorizontalHeaderLabels(
             ["Name", "SKU", "Qty", "Min", "Status"]
         )
+        self.alerts_table.setAlternatingRowColors(True)
         alerts_layout.addWidget(self.alerts_table)
         layout.addWidget(self.alerts_box)
 
         self.refresh()
 
-    def refresh(self) -> None:
-        products = list_products()
+    def refresh(self, _text: str | None = None) -> None:
+        search = self.search_input.text().strip()
+        products = list_products(search=search if search else None)
+        self._products = products
         self.table.setRowCount(0)
         self.alerts_table.setRowCount(0)
         for product in products:
@@ -118,13 +142,15 @@ class InventoryTab(QWidget):
             self.table.setItem(row, 0, QTableWidgetItem(product.name_ar))
             self.table.setItem(row, 1, QTableWidgetItem(product.name_en))
             self.table.setItem(row, 2, QTableWidgetItem(product.sku))
-            self.table.setItem(row, 3, QTableWidgetItem(f"{product.price:.2f}"))
-            self.table.setItem(row, 4, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
-            self.table.setItem(row, 5, QTableWidgetItem(f"{product.min_qty:.2f}"))
-            self.table.setItem(row, 6, QTableWidgetItem(product.category))
-            self.table.setItem(row, 7, QTableWidgetItem("Yes" if product.handmade_flag else "No"))
-            self.table.setItem(row, 8, QTableWidgetItem(product.stone_type))
-            self.table.setItem(row, 9, QTableWidgetItem(product.color))
+            self.table.setItem(row, 3, QTableWidgetItem(product.barcode))
+            self.table.setItem(row, 4, QTableWidgetItem(product.barcode_type))
+            self.table.setItem(row, 5, QTableWidgetItem(f"{product.price:.2f}"))
+            self.table.setItem(row, 6, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
+            self.table.setItem(row, 7, QTableWidgetItem(f"{product.min_qty:.2f}"))
+            self.table.setItem(row, 8, QTableWidgetItem(product.category))
+            self.table.setItem(row, 9, QTableWidgetItem("Yes" if product.handmade_flag else "No"))
+            self.table.setItem(row, 10, QTableWidgetItem(product.stone_type))
+            self.table.setItem(row, 11, QTableWidgetItem(product.color))
             self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
 
             if product.qty_on_hand <= 0 or product.qty_on_hand <= product.min_qty:
@@ -150,13 +176,15 @@ class InventoryTab(QWidget):
         self.name_ar_input.setText(self.table.item(row, 0).text())
         self.name_en_input.setText(self.table.item(row, 1).text())
         self.sku_input.setText(self.table.item(row, 2).text())
-        self.price_input.setValue(float(self.table.item(row, 3).text()))
-        self.qty_input.setValue(float(self.table.item(row, 4).text()))
-        self.min_qty_input.setValue(float(self.table.item(row, 5).text()))
-        self.category_input.setText(self.table.item(row, 6).text())
-        self.handmade_check.setChecked(self.table.item(row, 7).text() == "Yes")
-        self.stone_type_input.setText(self.table.item(row, 8).text())
-        self.color_input.setText(self.table.item(row, 9).text())
+        self.barcode_input.setText(self.table.item(row, 3).text())
+        self.barcode_type_input.setText(self.table.item(row, 4).text())
+        self.price_input.setValue(float(self.table.item(row, 5).text()))
+        self.qty_input.setValue(float(self.table.item(row, 6).text()))
+        self.min_qty_input.setValue(float(self.table.item(row, 7).text()))
+        self.category_input.setText(self.table.item(row, 8).text())
+        self.handmade_check.setChecked(self.table.item(row, 9).text() == "Yes")
+        self.stone_type_input.setText(self.table.item(row, 10).text())
+        self.color_input.setText(self.table.item(row, 11).text())
 
     def _save_product(self) -> None:
         if not self.name_ar_input.text().strip() or not self.name_en_input.text().strip():
@@ -165,11 +193,17 @@ class InventoryTab(QWidget):
         if not self.sku_input.text().strip():
             QMessageBox.warning(self, "Missing", "SKU is required.")
             return
+        barcode_value = self.barcode_input.text().strip()
+        if barcode_value and barcode_exists(barcode_value, exclude_product_id=self._selected_product_id):
+            QMessageBox.warning(self, "Duplicate", "Barcode already exists on another product.")
+            return
         save_product(
             self._selected_product_id,
             self.name_ar_input.text().strip(),
             self.name_en_input.text().strip(),
             self.sku_input.text().strip(),
+            barcode_value,
+            self.barcode_type_input.text().strip(),
             float(self.price_input.value()),
             float(self.qty_input.value()),
             float(self.min_qty_input.value()),
@@ -200,6 +234,8 @@ class InventoryTab(QWidget):
         self.name_ar_input.clear()
         self.name_en_input.clear()
         self.sku_input.clear()
+        self.barcode_input.clear()
+        self.barcode_type_input.clear()
         self.price_input.setValue(0)
         self.qty_input.setValue(0)
         self.min_qty_input.setValue(0)
@@ -207,3 +243,34 @@ class InventoryTab(QWidget):
         self.handmade_check.setChecked(False)
         self.stone_type_input.clear()
         self.color_input.clear()
+
+    def _print_barcode_label(self) -> None:
+        if not self._selected_product_id:
+            QMessageBox.warning(self, "Select", "Select a product first.")
+            return
+        product = next((p for p in self._products if p.id == self._selected_product_id), None)
+        if not product:
+            return
+        if not product.barcode:
+            QMessageBox.warning(self, "Missing", "Set a barcode before printing.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Barcode Labels",
+            f"{product.sku}_barcode_labels.pdf",
+            "PDF Files (*.pdf)",
+        )
+        if not path:
+            return
+        export_barcode_labels_pdf(
+            path,
+            f"{product.name_en} / {product.name_ar}",
+            product.sku,
+            product.barcode,
+            product.barcode_type,
+        )
+        QMessageBox.information(self, "Export", "Barcode labels exported.")
+
+    def handle_scan(self, code: str) -> str:
+        self.search_input.setText(code)
+        return f"Search: {code}"

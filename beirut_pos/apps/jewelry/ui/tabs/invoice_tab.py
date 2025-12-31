@@ -27,7 +27,14 @@ from PyQt6.QtWidgets import (
     QFileDialog,
 )
 
-from ...services.db import JewelryInvoiceItem, create_invoice, fetch_invoice_details, list_payment_methods, list_products
+from ...services.db import (
+    JewelryInvoiceItem,
+    create_invoice,
+    fetch_invoice_details,
+    find_product_by_code,
+    list_payment_methods,
+    list_products,
+)
 from ...services.pdf_exports import GalleryInfo, export_invoice_pdf
 from ...services.settings import load_gallery_settings
 
@@ -38,13 +45,15 @@ class InvoiceTab(QWidget):
         self._last_invoice_no: Optional[str] = None
         self._products = []
 
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
+        left_layout = QVBoxLayout()
+        right_layout = QVBoxLayout()
         header = QLabel("New Invoice (فاتورة جديدة)")
         header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(header)
+        left_layout.addWidget(header)
 
         self.invoice_info_label = QLabel("Invoice No: Auto | رقم الفاتورة: تلقائي")
-        layout.addWidget(self.invoice_info_label)
+        left_layout.addWidget(self.invoice_info_label)
 
         form_box = QGroupBox("Invoice Info (بيانات الفاتورة)")
         form_layout = QFormLayout(form_box)
@@ -52,6 +61,7 @@ class InvoiceTab(QWidget):
         self.txn_type_combo = QComboBox()
         self.txn_type_combo.addItems(["Sale (بيع)", "Return (مرتجع)"])
         self.payment_combo = QComboBox()
+        self.payment_combo.currentTextChanged.connect(self._refresh_summary_labels)
         self.discount_input = QDoubleSpinBox()
         self.discount_input.setRange(0, 999999)
         self.discount_input.setDecimals(2)
@@ -69,16 +79,23 @@ class InvoiceTab(QWidget):
         form_layout.addRow("Discount (خصم):", self.discount_input)
         form_layout.addRow("Notes (ملاحظات):", self.notes_input)
         form_layout.addRow("Return Reason (سبب المرتجع):", self.return_reason_input)
-        layout.addWidget(form_box)
+        left_layout.addWidget(form_box)
 
         product_box = QGroupBox("Products (المنتجات)")
         product_layout = QGridLayout(product_box)
-        self.products_table = QTableWidget(0, 4)
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search by name, SKU, barcode...")
+        self.search_input.textChanged.connect(self.refresh_products)
+        product_layout.addWidget(QLabel("Search (بحث):"), 0, 0)
+        product_layout.addWidget(self.search_input, 0, 1, 1, 2)
+
+        self.products_table = QTableWidget(0, 5)
         self.products_table.setHorizontalHeaderLabels(
-            ["Name (الاسم)", "SKU (الكود)", "Price (السعر)", "Stock (المخزون)"]
+            ["Name (الاسم)", "SKU (الكود)", "Barcode", "Price (السعر)", "Stock (المخزون)"]
         )
         self.products_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.products_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.products_table.setAlternatingRowColors(True)
         self.products_table.cellDoubleClicked.connect(self._add_selected_product)
 
         self.qty_input = QSpinBox()
@@ -86,11 +103,11 @@ class InvoiceTab(QWidget):
         self.add_btn = QPushButton("Add Item (إضافة)")
         self.add_btn.clicked.connect(self._add_selected_product)
 
-        product_layout.addWidget(self.products_table, 0, 0, 1, 3)
-        product_layout.addWidget(QLabel("Qty (الكمية):"), 1, 0)
-        product_layout.addWidget(self.qty_input, 1, 1)
-        product_layout.addWidget(self.add_btn, 1, 2)
-        layout.addWidget(product_box)
+        product_layout.addWidget(self.products_table, 1, 0, 1, 3)
+        product_layout.addWidget(QLabel("Qty (الكمية):"), 2, 0)
+        product_layout.addWidget(self.qty_input, 2, 1)
+        product_layout.addWidget(self.add_btn, 2, 2)
+        left_layout.addWidget(product_box)
 
         items_box = QGroupBox("Invoice Items (عناصر الفاتورة)")
         items_layout = QVBoxLayout(items_box)
@@ -100,6 +117,7 @@ class InvoiceTab(QWidget):
         )
         self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.items_table.setAlternatingRowColors(True)
         items_layout.addWidget(self.items_table)
 
         btn_row = QHBoxLayout()
@@ -107,18 +125,25 @@ class InvoiceTab(QWidget):
         self.remove_btn.clicked.connect(self._remove_selected_item)
         btn_row.addWidget(self.remove_btn)
         items_layout.addLayout(btn_row)
-        layout.addWidget(items_box)
+        left_layout.addWidget(items_box)
 
-        totals_box = QGroupBox("Totals (الإجماليات)")
-        totals_layout = QHBoxLayout(totals_box)
+        layout.addLayout(left_layout, stretch=3)
+
+        totals_box = QGroupBox("Summary (ملخص)")
+        totals_layout = QVBoxLayout(totals_box)
         self.subtotal_label = QLabel("Subtotal: 0.00")
+        self.discount_summary_label = QLabel("Discount: 0.00")
         self.total_label = QLabel("Net Total: 0.00")
+        self.payment_label = QLabel("Payment: -")
         totals_layout.addWidget(self.subtotal_label)
+        totals_layout.addWidget(self.discount_summary_label)
         totals_layout.addWidget(self.total_label)
-        layout.addWidget(totals_box)
+        totals_layout.addWidget(self.payment_label)
+        right_layout.addWidget(totals_box)
 
-        actions_layout = QHBoxLayout()
+        actions_layout = QVBoxLayout()
         self.save_btn = QPushButton("Save Invoice (حفظ الفاتورة)")
+        self.save_btn.setObjectName("primaryButton")
         self.save_btn.clicked.connect(self._save_invoice)
         self.export_btn = QPushButton("Export PDF (تصدير PDF)")
         self.export_btn.clicked.connect(self._export_invoice_pdf)
@@ -130,7 +155,9 @@ class InvoiceTab(QWidget):
         actions_layout.addWidget(self.export_btn)
         actions_layout.addWidget(self.print_btn)
         actions_layout.addWidget(self.clear_btn)
-        layout.addLayout(actions_layout)
+        right_layout.addLayout(actions_layout)
+        right_layout.addStretch()
+        layout.addLayout(right_layout, stretch=1)
 
         self._refresh_payment_methods()
         self.refresh_products()
@@ -139,22 +166,26 @@ class InvoiceTab(QWidget):
         self.payment_combo.clear()
         for _id, name_ar, name_en in list_payment_methods():
             self.payment_combo.addItem(f"{name_en} ({name_ar})", _id)
+        self._refresh_summary_labels()
 
-    def refresh_products(self) -> None:
-        self._products = list_products()
+    def refresh_products(self, _text: str | None = None) -> None:
+        search = self.search_input.text().strip()
+        self._products = list_products(search=search if search else None)
         self.products_table.setRowCount(0)
         for product in self._products:
             row = self.products_table.rowCount()
             self.products_table.insertRow(row)
             self.products_table.setItem(row, 0, QTableWidgetItem(f"{product.name_en} / {product.name_ar}"))
             self.products_table.setItem(row, 1, QTableWidgetItem(product.sku))
-            self.products_table.setItem(row, 2, QTableWidgetItem(f"{product.price:.2f}"))
-            self.products_table.setItem(row, 3, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
+            self.products_table.setItem(row, 2, QTableWidgetItem(product.barcode))
+            self.products_table.setItem(row, 3, QTableWidgetItem(f"{product.price:.2f}"))
+            self.products_table.setItem(row, 4, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
             self.products_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
 
     def _handle_txn_type_change(self) -> None:
         is_return = self.txn_type_combo.currentIndex() == 1
         self.return_reason_input.setEnabled(is_return)
+        self._refresh_summary_labels()
 
     def _add_selected_product(self) -> None:
         row = self.products_table.currentRow()
@@ -165,17 +196,7 @@ class InvoiceTab(QWidget):
         product = next((p for p in self._products if p.id == product_id), None)
         if not product:
             return
-        qty = float(self.qty_input.value())
-        line_total = qty * product.price
-        item_row = self.items_table.rowCount()
-        self.items_table.insertRow(item_row)
-        self.items_table.setItem(item_row, 0, QTableWidgetItem(f"{product.name_en} / {product.name_ar}"))
-        self.items_table.setItem(item_row, 1, QTableWidgetItem(product.sku))
-        self.items_table.setItem(item_row, 2, QTableWidgetItem(f"{qty:.2f}"))
-        self.items_table.setItem(item_row, 3, QTableWidgetItem(f"{product.price:.2f}"))
-        self.items_table.setItem(item_row, 4, QTableWidgetItem(f"{line_total:.2f}"))
-        self.items_table.item(item_row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
-        self._recalculate_totals()
+        self._add_product_to_invoice(product, float(self.qty_input.value()))
 
     def _remove_selected_item(self) -> None:
         row = self.items_table.currentRow()
@@ -191,6 +212,7 @@ class InvoiceTab(QWidget):
         total = max(subtotal - discount, 0.0)
         self.subtotal_label.setText(f"Subtotal: {subtotal:.2f}")
         self.total_label.setText(f"Net Total: {total:.2f}")
+        self._refresh_summary_labels()
 
     def _calculate_subtotal(self) -> float:
         subtotal = 0.0
@@ -327,3 +349,35 @@ class InvoiceTab(QWidget):
         self._last_invoice_no = None
         self.invoice_info_label.setText("Invoice No: Auto | رقم الفاتورة: تلقائي")
         self._recalculate_totals()
+
+    def _add_product_to_invoice(self, product, qty: float) -> None:
+        for row in range(self.items_table.rowCount()):
+            if self.items_table.item(row, 0).data(Qt.ItemDataRole.UserRole) == product.id:
+                existing_qty = float(self.items_table.item(row, 2).text())
+                new_qty = existing_qty + qty
+                self.items_table.setItem(row, 2, QTableWidgetItem(f"{new_qty:.2f}"))
+                line_total = new_qty * product.price
+                self.items_table.setItem(row, 4, QTableWidgetItem(f"{line_total:.2f}"))
+                self._recalculate_totals()
+                return
+        line_total = qty * product.price
+        item_row = self.items_table.rowCount()
+        self.items_table.insertRow(item_row)
+        self.items_table.setItem(item_row, 0, QTableWidgetItem(f"{product.name_en} / {product.name_ar}"))
+        self.items_table.setItem(item_row, 1, QTableWidgetItem(product.sku))
+        self.items_table.setItem(item_row, 2, QTableWidgetItem(f"{qty:.2f}"))
+        self.items_table.setItem(item_row, 3, QTableWidgetItem(f"{product.price:.2f}"))
+        self.items_table.setItem(item_row, 4, QTableWidgetItem(f"{line_total:.2f}"))
+        self.items_table.item(item_row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
+        self._recalculate_totals()
+
+    def handle_scan(self, code: str) -> str:
+        product = find_product_by_code(code)
+        if not product:
+            return f"Unknown barcode: {code}"
+        self._add_product_to_invoice(product, 1.0)
+        return f"Added: {product.name_en}"
+
+    def _refresh_summary_labels(self) -> None:
+        self.discount_summary_label.setText(f"Discount: {float(self.discount_input.value()):.2f}")
+        self.payment_label.setText(f"Payment: {self.payment_combo.currentText() or '-'}")

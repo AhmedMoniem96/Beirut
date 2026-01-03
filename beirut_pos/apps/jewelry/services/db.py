@@ -42,6 +42,7 @@ class JewelryInvoice:
     datetime: str
     cashier_name: str
     txn_type: str
+    customer_id: Optional[int] = None
     customer_name: str = ""
     customer_phone: str = ""
     subtotal: float
@@ -1174,7 +1175,7 @@ def list_return_invoices(date_iso: Optional[str] = None) -> List[JewelryInvoice]
     conn = get_conn()
     cur = conn.cursor()
     params: Tuple[str, ...] = ()
-    query = """SELECT invoice_no, datetime, cashier_name, txn_type, COALESCE(customer_name, ''),
+    query = """SELECT invoice_no, datetime, cashier_name, txn_type, customer_id, COALESCE(customer_name, ''),
                       COALESCE(customer_phone, ''), subtotal, discount, COALESCE(discount_type, 'amount'),
                       COALESCE(discount_value, 0), COALESCE(loyalty_earned, 0),
                       COALESCE(loyalty_redeemed, 0), total, payment_method,
@@ -1194,20 +1195,21 @@ def list_return_invoices(date_iso: Optional[str] = None) -> List[JewelryInvoice]
             datetime=row[1],
             cashier_name=row[2],
             txn_type=row[3],
-            customer_name=row[4],
-            customer_phone=row[5],
-            subtotal=row[6],
-            discount=row[7],
-            discount_type=row[8],
-            discount_value=row[9],
-            loyalty_earned=row[10],
-            loyalty_redeemed=row[11],
-            total=row[12],
-            payment_method=row[13],
-            order_source=row[14],
-            website_order_ref=row[15],
-            notes=row[16],
-            return_reason=row[17],
+            customer_id=row[4],
+            customer_name=row[5],
+            customer_phone=row[6],
+            subtotal=row[7],
+            discount=row[8],
+            discount_type=row[9],
+            discount_value=row[10],
+            loyalty_earned=row[11],
+            loyalty_redeemed=row[12],
+            total=row[13],
+            payment_method=row[14],
+            order_source=row[15],
+            website_order_ref=row[16],
+            notes=row[17],
+            return_reason=row[18],
         )
         for row in rows
     ]
@@ -1217,7 +1219,7 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT invoice_no, datetime, cashier_name, txn_type, COALESCE(customer_name, ''),
+        """SELECT invoice_no, datetime, cashier_name, txn_type, customer_id, COALESCE(customer_name, ''),
                   COALESCE(customer_phone, ''), subtotal, discount, COALESCE(discount_type, 'amount'),
                   COALESCE(discount_value, 0), COALESCE(loyalty_earned, 0),
                   COALESCE(loyalty_redeemed, 0), total, payment_method,
@@ -1234,20 +1236,21 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
         datetime=row[1],
         cashier_name=row[2],
         txn_type=row[3],
-        customer_name=row[4],
-        customer_phone=row[5],
-        subtotal=row[6],
-        discount=row[7],
-        discount_type=row[8],
-        discount_value=row[9],
-        loyalty_earned=row[10],
-        loyalty_redeemed=row[11],
-        total=row[12],
-        payment_method=row[13],
-        order_source=row[14],
-        website_order_ref=row[15],
-        notes=row[16],
-        return_reason=row[17],
+        customer_id=row[4],
+        customer_name=row[5],
+        customer_phone=row[6],
+        subtotal=row[7],
+        discount=row[8],
+        discount_type=row[9],
+        discount_value=row[10],
+        loyalty_earned=row[11],
+        loyalty_redeemed=row[12],
+        total=row[13],
+        payment_method=row[14],
+        order_source=row[15],
+        website_order_ref=row[16],
+        notes=row[17],
+        return_reason=row[18],
     )
     cur.execute(
         """SELECT product_id, product_name, product_code, qty, unit_price, line_total

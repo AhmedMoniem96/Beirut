@@ -55,6 +55,7 @@ from .recovery_center_dialog import RecoveryCenterDialog
 from .shift_summary_dialog import ShiftSummaryDialog
 from .inventory_dialog import InventoryDialog
 from .style_guide_dialog import StyleGuideDialog
+from .customer_dialog import CustomerDialog
 from ..services import staff as staff_service
 from .command_palette import CommandPaletteDialog, build_command
 
@@ -262,6 +263,24 @@ class MainWindow(QMainWindow):
         self.client_name_edit.setEnabled(False)
         self.client_name_edit.editingFinished.connect(self._commit_client_name)
         head_row.addWidget(self.client_name_edit, 0)
+
+        self.btn_customer = QPushButton()
+        self.btn_customer.setToolTip("اختيار عميل")
+        self.btn_customer.clicked.connect(self._open_customer_dialog)
+        self.btn_customer.setEnabled(False)
+        head_row.addWidget(self.btn_customer, 0)
+
+        self.btn_clear_customer = QPushButton("✕")
+        self.btn_clear_customer.setToolTip("إزالة العميل")
+        self.btn_clear_customer.setFixedWidth(36)
+        self.btn_clear_customer.clicked.connect(self._clear_customer_selection)
+        self.btn_clear_customer.setEnabled(False)
+        head_row.addWidget(self.btn_clear_customer, 0)
+
+        self.loyalty_label = QLabel()
+        self.loyalty_label.setObjectName("loyaltyBalance")
+        self.loyalty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        head_row.addWidget(self.loyalty_label, 0)
 
         # All action buttons together
         self.btn_print_bar = QPushButton()
@@ -781,21 +800,77 @@ class MainWindow(QMainWindow):
             self.client_name_edit.clear()
             self.client_name_edit.setEnabled(False)
             self.order_list.set_table("", None)
+            self.btn_customer.setEnabled(False)
+            self.btn_clear_customer.setEnabled(False)
+            self.loyalty_label.setText("")
         else:
-            name = order_manager.get_client_name(self.current_table)
-            self.client_name_edit.setText(name)
-            self.client_name_edit.setEnabled(True)
-            self.order_list.set_table(self.current_table, name)
+            display_name = self._update_customer_display()
+            self.order_list.set_table(self.current_table, display_name)
         self.client_name_edit.blockSignals(False)
         self._apply_order_header()
         self._update_breadcrumbs()
+
+    def _update_customer_display(self) -> str:
+        customer = order_manager.get_customer_profile(self.current_table) if self.current_table else None
+        if not self.current_table:
+            self.client_name_edit.clear()
+            self.client_name_edit.setEnabled(False)
+            self.btn_customer.setEnabled(False)
+            self.btn_clear_customer.setEnabled(False)
+            self.loyalty_label.setText("")
+            return ""
+        self.btn_customer.setEnabled(True)
+        if customer:
+            name = customer.get("name") or ""
+            self.client_name_edit.setText(name)
+            self.client_name_edit.setEnabled(False)
+            balance = order_manager.get_loyalty_balance(self.current_table)
+            balance_text = str(balance) if balance is not None else "—"
+            self.loyalty_label.setText(f"نقاط: {balance_text}")
+            self.btn_clear_customer.setEnabled(True)
+            return name
+        name = order_manager.get_client_name(self.current_table)
+        self.client_name_edit.setText(name)
+        self.client_name_edit.setEnabled(True)
+        self.loyalty_label.setText("نقاط: —")
+        self.btn_clear_customer.setEnabled(False)
+        return name
 
     def _commit_client_name(self):
         if not self.current_table:
             self._update_client_name_field()
             return
+        if order_manager.get_customer_id(self.current_table):
+            self._update_client_name_field()
+            return
         name = (self.client_name_edit.text() or "").strip()
         order_manager.set_client_name(self.current_table, name, actor=self.user.username)
+        self._update_client_name_field()
+
+    def _open_customer_dialog(self):
+        if not self.current_table:
+            self._show_banner("اختر طاولة أولاً.", "warn")
+            return
+        current_customer = order_manager.get_customer_id(self.current_table)
+        dlg = CustomerDialog(self, customer_id=current_customer)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        if not dlg.customer_id:
+            return
+        ok = order_manager.set_customer(
+            self.current_table,
+            dlg.customer_id,
+            actor=self.user.username,
+        )
+        if not ok:
+            self._show_banner("تعذر ربط العميل بهذا الطلب.", "error")
+            return
+        self._update_client_name_field()
+
+    def _clear_customer_selection(self):
+        if not self.current_table:
+            return
+        order_manager.set_customer(self.current_table, None, actor=self.user.username)
         self._update_client_name_field()
 
     def _refresh_history_button(self):
@@ -891,6 +966,7 @@ class MainWindow(QMainWindow):
             self._show_banner("لا توجد عناصر في الطلب الحالي.", "warn")
             return
         sub, disc, tot, label_key = self._update_totals(self.current_table)
+        loyalty_info = order_manager.get_loyalty_receipt_info(self.current_table)
         try:
             printer.print_cashier_receipt(
                 self.current_table,
@@ -901,6 +977,9 @@ class MainWindow(QMainWindow):
                 method="manual",
                 cashier=self.user.username,
                 discount_label=texts.get(label_key),
+                customer_name=loyalty_info.get("customer_name"),
+                loyalty_balance=loyalty_info.get("loyalty_balance"),
+                loyalty_delta=loyalty_info.get("loyalty_delta"),
             )
         except Exception as exc:
             self._handle_printer_error(exc, context="إيصال الكاشير")
@@ -1334,6 +1413,9 @@ class MainWindow(QMainWindow):
                     method,
                     self.user.username,
                     discount_label=texts.get(receipt.get("label_key")),
+                    customer_name=receipt.get("customer_name"),
+                    loyalty_balance=receipt.get("loyalty_balance"),
+                    loyalty_delta=receipt.get("loyalty_delta"),
                 )
             except Exception as exc:
                 self._handle_printer_error(exc, context="إيصال الدفع")
@@ -1446,6 +1528,7 @@ class MainWindow(QMainWindow):
         self.act_style_guide.setText(texts.get("main.toolbar.style_guide", "دليل النمط"))
         self.banner_close.setText(texts.get("main.banner.close"))
         self.tables_title.setText(texts.get("main.tables.title"))
+        self.btn_customer.setText(texts.get("main.order.customer", "العميل"))
         self.btn_print_bar.setText(texts.get("main.order.print_bar"))
         self.btn_print_cashier.setText(texts.get("main.order.print_cashier"))
         self.btn_table_history.setText(texts.get("tables.history.button"))

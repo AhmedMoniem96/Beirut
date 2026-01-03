@@ -139,6 +139,17 @@ def safe_migrations() -> None:
             )"""
     )
     cur.execute(
+        """CREATE TABLE IF NOT EXISTS customers(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                phone TEXT UNIQUE,
+                email TEXT,
+                birthday TEXT,
+                notes TEXT,
+                created_at TEXT NOT NULL
+            )"""
+    )
+    cur.execute(
         """CREATE TABLE IF NOT EXISTS categories(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
@@ -183,7 +194,9 @@ def safe_migrations() -> None:
                 closed_at TEXT,
                 status TEXT NOT NULL CHECK(status in ('open','paid','void')),
                 opened_by TEXT NOT NULL,
-                closed_by TEXT
+                closed_by TEXT,
+                customer_id INTEGER,
+                FOREIGN KEY(customer_id) REFERENCES customers(id)
             )"""
     )
     cur.execute(
@@ -205,6 +218,18 @@ def safe_migrations() -> None:
                 amount_cents INTEGER NOT NULL,
                 paid_at TEXT NOT NULL,
                 cashier TEXT NOT NULL,
+                FOREIGN KEY(order_id) REFERENCES orders(id)
+            )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS loyalty_ledger(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                delta_points INTEGER NOT NULL,
+                reason TEXT,
+                order_id INTEGER,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(customer_id) REFERENCES customers(id),
                 FOREIGN KEY(order_id) REFERENCES orders(id)
             )"""
     )
@@ -309,6 +334,7 @@ def safe_migrations() -> None:
     _ensure_orders_discount_columns(cur)        # add missing discount columns
     _ensure_orders_payment_window_columns(cur)  # add paid_at/editable_until columns
     _ensure_orders_client_name(cur)             # add client_name column for history
+    _ensure_orders_customer_id(cur)             # add customer_id column for loyalty
     _ensure_currency_unit(cur)
     _ensure_ui_texts_table(cur)
     _ensure_default_settings(cur)
@@ -465,6 +491,14 @@ def _ensure_orders_client_name(cur) -> None:
     if "client_name" not in cols:
         _ensure_schema_backup()
         cur.execute("ALTER TABLE orders ADD COLUMN client_name TEXT NOT NULL DEFAULT ''")
+
+
+def _ensure_orders_customer_id(cur) -> None:
+    cur.execute("PRAGMA table_info(orders)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "customer_id" not in cols:
+        _ensure_schema_backup()
+        cur.execute("ALTER TABLE orders ADD COLUMN customer_id INTEGER REFERENCES customers(id)")
 
 
 def _ensure_currency_unit(cur) -> None:

@@ -385,8 +385,12 @@ def _migrate_customer_tables(cur) -> None:
         cur.execute("DROP TABLE jw_customers")
         cur.execute("ALTER TABLE jw_customers_new RENAME TO jw_customers")
 
-    _migrate_invoice_customer_keys(cur, has_id)
-    _migrate_loyalty_customer_keys(cur, has_id)
+    cur.execute("PRAGMA foreign_keys=OFF")
+    try:
+        _migrate_invoice_customer_keys(cur, has_id)
+        _migrate_loyalty_customer_keys(cur, has_id)
+    finally:
+        cur.execute("PRAGMA foreign_keys=ON")
 
 
 def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:

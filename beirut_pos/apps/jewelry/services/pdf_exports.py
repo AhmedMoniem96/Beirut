@@ -210,9 +210,6 @@ def export_invoice_pdf(
     if order_source == "website":
         c.drawString(40, y, f"Order Source: Website")
         y -= 16
-        if website_order_ref:
-            c.drawString(40, y, f"Website Order No: {website_order_ref}")
-            y -= 16
     if loyalty_earned:
         c.drawString(40, y, f"Points Earned: {loyalty_earned:.0f}")
         y -= 16

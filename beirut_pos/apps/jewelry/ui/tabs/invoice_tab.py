@@ -64,6 +64,8 @@ class InvoiceTab(QWidget):
         self._scan_buffer = ""
         self._scan_timer = QElapsedTimer()
         self._scan_timer.start()
+        self._gallery_settings = load_gallery_settings()
+        self._website_orders_enabled = self._gallery_settings.website_orders_enabled
         QApplication.instance().installEventFilter(self)
 
         layout = QHBoxLayout(self)
@@ -95,8 +97,9 @@ class InvoiceTab(QWidget):
         self.order_source_combo.addItem("In-Store (داخل المعرض)", "in_store")
         self.order_source_combo.addItem("Website (طلب أونلاين)", "website")
         self.order_source_combo.currentIndexChanged.connect(self._handle_order_source_change)
+        self.website_order_label = QLabel("Website Order No (رقم طلب الموقع - اختياري)")
         self.website_order_input = QLineEdit()
-        self.website_order_input.setPlaceholderText("Website Order No (رقم طلب الموقع)")
+        self.website_order_input.setPlaceholderText("Website Order No (optional)")
         self.website_order_input.setEnabled(False)
         self.discount_type_combo = QComboBox()
         self.discount_type_combo.addItem("Amount (قيمة)", "amount")
@@ -135,7 +138,7 @@ class InvoiceTab(QWidget):
         form_layout.addRow("Transaction (العملية):", self.txn_type_combo)
         form_layout.addRow("Payment Method (طريقة الدفع):", self.payment_combo)
         form_layout.addRow("Order Source (مصدر الطلب):", self.order_source_combo)
-        form_layout.addRow("Website Order No (رقم طلب الموقع):", self.website_order_input)
+        form_layout.addRow(self.website_order_label, self.website_order_input)
         form_layout.addRow("Discount Type (نوع الخصم):", self.discount_type_combo)
         form_layout.addRow("Discount Value (قيمة الخصم):", self.discount_input)
         form_layout.addRow("Customer Name (العميل):", self.customer_name_input)
@@ -289,6 +292,7 @@ class InvoiceTab(QWidget):
         self._refresh_payment_methods()
         self.refresh_products()
         self._initialize_cashier()
+        self._apply_website_order_settings()
         self._customer_id: Optional[int] = None
         self._customer_points: float = 0.0
         self._apply_invoice_styles()
@@ -371,10 +375,29 @@ class InvoiceTab(QWidget):
         self._refresh_summary_labels()
 
     def _handle_order_source_change(self) -> None:
+        if self._website_orders_enabled:
+            self.order_source_combo.setCurrentIndex(self.order_source_combo.findData("website"))
+            return
         is_website = self.order_source_combo.currentData() == "website"
         self.website_order_input.setEnabled(is_website)
         if not is_website:
             self.website_order_input.clear()
+
+    def _apply_website_order_settings(self) -> None:
+        if self._website_orders_enabled:
+            website_index = self.order_source_combo.findData("website")
+            if website_index >= 0:
+                self.order_source_combo.setCurrentIndex(website_index)
+            self.order_source_combo.setEnabled(False)
+            self.website_order_input.clear()
+            self.website_order_input.setEnabled(False)
+            self.website_order_input.setVisible(False)
+            self.website_order_label.setVisible(False)
+        else:
+            self.order_source_combo.setEnabled(True)
+            self.website_order_input.setVisible(True)
+            self.website_order_label.setVisible(True)
+            self._handle_order_source_change()
 
     def _handle_discount_type_change(self) -> None:
         if self._discount_type() == "percent":
@@ -517,8 +540,12 @@ class InvoiceTab(QWidget):
         total = max(subtotal - discount - loyalty_redeem, 0.0)
         loyalty_earned = 0 if txn_type == "return" else int(total)
         payment_method = self.payment_combo.currentText()
-        order_source = self.order_source_combo.currentData() or "in_store"
-        website_order_ref = self.website_order_input.text().strip()
+        order_source = "website" if self._website_orders_enabled else (self.order_source_combo.currentData() or "in_store")
+        website_order_ref = ""
+        if order_source == "website" and self.website_order_input.isVisible():
+            website_order_ref = self.website_order_input.text().strip()
+        if order_source != "website":
+            website_order_ref = ""
         notes = self.notes_input.toPlainText().strip()
         return_reason = self.return_reason_input.text().strip() if txn_type == "return" else ""
         items = self._collect_items()
@@ -657,6 +684,7 @@ class InvoiceTab(QWidget):
         self.website_order_input.clear()
         self._last_invoice_no = None
         self.invoice_info_label.setText("Invoice No: Auto | رقم الفاتورة: تلقائي")
+        self._apply_website_order_settings()
         self._recalculate_totals()
 
     def _add_product_to_invoice(self, product, qty: float) -> None:

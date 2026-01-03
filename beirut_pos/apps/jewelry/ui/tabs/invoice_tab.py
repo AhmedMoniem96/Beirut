@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QTimer, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -178,8 +178,8 @@ class InvoiceTab(QWidget):
         form_layout.addRow("Order Source (مصدر الطلب):", self.order_source_combo)
         form_layout.addRow(self.website_order_label, self.website_order_input)
         form_layout.addRow("Discount Type (نوع الخصم):", self.discount_type_combo)
-        form_layout.addRow("Discount Value (قيمة الخصم):", self.discount_input)
-        form_layout.addRow("Customer Search (بحث العميل):", customer_search_container)
+        form_layout.addRow("Discount Value (قيمة الخصم) [F4]:", self.discount_input)
+        form_layout.addRow("Customer Search (بحث العميل) [F2]:", customer_search_container)
         form_layout.addRow("Customer Name (العميل):", self.customer_name_input)
         form_layout.addRow("Customer Phone (الهاتف):", self.customer_phone_input)
         form_layout.addRow("Customer Email:", self.customer_email_input)
@@ -196,11 +196,16 @@ class InvoiceTab(QWidget):
 
         product_box = QGroupBox("Products (المنتجات)")
         product_layout = QGridLayout(product_box)
+        self.barcode_input = QLineEdit()
+        self.barcode_input.setPlaceholderText("Scan barcode... (باركود)")
+        self.barcode_input.returnPressed.connect(self._submit_barcode_input)
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search by name, SKU, barcode...")
+        self.search_input.setPlaceholderText("Search by name, SKU, barcode... (/) ")
         self.search_input.textChanged.connect(self.refresh_products)
-        product_layout.addWidget(QLabel("Search (بحث):"), 0, 0)
-        product_layout.addWidget(self.search_input, 0, 1, 1, 2)
+        product_layout.addWidget(QLabel("Barcode (باركود):"), 0, 0)
+        product_layout.addWidget(self.barcode_input, 0, 1, 1, 2)
+        product_layout.addWidget(QLabel("Search (بحث) [/]:"), 1, 0)
+        product_layout.addWidget(self.search_input, 1, 1, 1, 2)
 
         self.products_table = QTableWidget(0, 5)
         self.products_table.setHorizontalHeaderLabels(
@@ -216,10 +221,10 @@ class InvoiceTab(QWidget):
         self.add_btn = QPushButton("Add Item (إضافة)")
         self.add_btn.clicked.connect(self._add_selected_product)
 
-        product_layout.addWidget(self.products_table, 1, 0, 1, 3)
-        product_layout.addWidget(QLabel("Qty (الكمية):"), 2, 0)
-        product_layout.addWidget(self.qty_input, 2, 1)
-        product_layout.addWidget(self.add_btn, 2, 2)
+        product_layout.addWidget(self.products_table, 2, 0, 1, 3)
+        product_layout.addWidget(QLabel("Qty (الكمية):"), 3, 0)
+        product_layout.addWidget(self.qty_input, 3, 1)
+        product_layout.addWidget(self.add_btn, 3, 2)
         left_layout.addWidget(product_box)
 
         items_box = QGroupBox("Invoice Items (عناصر الفاتورة)")
@@ -306,7 +311,7 @@ class InvoiceTab(QWidget):
         right_layout.addWidget(calculator_box)
 
         actions_layout = QVBoxLayout()
-        self.save_btn = QPushButton("Save Invoice (حفظ الفاتورة)")
+        self.save_btn = QPushButton("Save Invoice (حفظ الفاتورة) [F8]")
         self.save_btn.setObjectName("primaryButton")
         self.save_btn.clicked.connect(self._save_invoice)
         self.export_btn = QPushButton("Export PDF (تصدير PDF)")
@@ -332,6 +337,8 @@ class InvoiceTab(QWidget):
         self._initialize_cashier()
         self._customer_id: Optional[str] = None
         self._customer_points: float = 0.0
+        self._configure_shortcuts()
+        self._configure_focus_order()
         self._apply_invoice_styles()
 
     def _initialize_cashier(self) -> None:
@@ -590,6 +597,65 @@ class InvoiceTab(QWidget):
         self.customer_search_input.setText(f"{name} ({phone})")
         self.customer_search_input.blockSignals(False)
         QMessageBox.information(self, "Saved", "Customer profile saved.")
+
+    def _configure_shortcuts(self) -> None:
+        search_shortcut = QShortcut(QKeySequence("/"), self)
+        search_shortcut.activated.connect(self._focus_product_search)
+
+        new_customer_shortcut = QShortcut(QKeySequence("F2"), self)
+        new_customer_shortcut.activated.connect(self._start_new_customer_entry)
+
+        discount_shortcut = QShortcut(QKeySequence("F4"), self)
+        discount_shortcut.activated.connect(self._focus_discount)
+
+        save_shortcut = QShortcut(QKeySequence("F8"), self)
+        save_shortcut.activated.connect(self._save_invoice)
+
+    def _configure_focus_order(self) -> None:
+        self.barcode_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.search_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.customer_search_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setTabOrder(self.barcode_input, self.search_input)
+        self.setTabOrder(self.search_input, self.products_table)
+        self.setTabOrder(self.products_table, self.qty_input)
+        self.setTabOrder(self.qty_input, self.add_btn)
+        self.setTabOrder(self.add_btn, self.customer_search_input)
+        self.setTabOrder(self.customer_search_input, self.customer_name_input)
+        self.setTabOrder(self.customer_name_input, self.customer_phone_input)
+        self.setTabOrder(self.customer_phone_input, self.discount_input)
+        self.setTabOrder(self.discount_input, self.save_btn)
+        self.barcode_input.setFocus()
+
+    def _focus_product_search(self) -> None:
+        self.search_input.setFocus()
+        self.search_input.selectAll()
+
+    def _submit_barcode_input(self) -> None:
+        code = self.barcode_input.text().strip()
+        if not code:
+            return
+        self.barcode_input.clear()
+        self._dispatch_scan(code)
+        self.barcode_input.setFocus()
+
+    def _focus_discount(self) -> None:
+        self.discount_input.setFocus()
+        self.discount_input.selectAll()
+
+    def _start_new_customer_entry(self) -> None:
+        term = self.customer_search_input.text().strip()
+        if term:
+            self._create_new_customer_from_search()
+            return
+        self._customer_id = None
+        self._customer_points = 0.0
+        self.customer_points_label.setText("0")
+        self.customer_name_input.clear()
+        self.customer_phone_input.clear()
+        self.customer_email_input.clear()
+        self.customer_notes_input.clear()
+        self.customer_search_input.clear()
+        self.customer_name_input.setFocus()
 
     def _loyalty_redeem_amount(self, subtotal: float, discount: float) -> float:
         max_redeem = max(subtotal - discount, 0.0)

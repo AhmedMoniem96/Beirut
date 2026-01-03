@@ -29,21 +29,30 @@ def log_exception(
     *,
     tb=None,
     extra: Optional[str] = None,
-) -> Path:
+) -> Optional[Path]:
     """Persist the traceback to the log directory and return the log path."""
 
-    _ensure_log_dir()
     timestamp = datetime.utcnow().strftime("%Y%m%d-%I%M%S%p")
     safe_context = context.replace("/", "-").replace(" ", "_")
     path = LOG_DIR / f"{timestamp}-{safe_context}.log"
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(f"Timestamp: {timestamp}\n")
-        fh.write(f"Context: {context}\n")
-        if extra:
-            fh.write(f"Details: {extra}\n")
-        fh.write("\n")
-        fh.write(_format_trace(exc, tb))
-    return path
+    try:
+        _ensure_log_dir()
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(f"Timestamp: {timestamp}\n")
+            fh.write(f"Context: {context}\n")
+            if extra:
+                fh.write(f"Details: {extra}\n")
+            fh.write("\n")
+            fh.write(_format_trace(exc, tb))
+        return path
+    except OSError as err:
+        details = (
+            "Context: error_handling.log_exception\n"
+            f"Target: {path}\n"
+            f"{_format_trace(err, err.__traceback__)}"
+        )
+        console_notifier("تعذر حفظ سجل الخطأ", str(err), details, stream=sys.stderr)
+        return None
 
 
 def console_notifier(title: str, message: str, details: str, *, stream=None) -> None:
@@ -61,12 +70,15 @@ def report_exception(
     tb=None,
     extra: Optional[str] = None,
     heading: str = "حدث خطأ غير متوقع",
-) -> Path:
+) -> Optional[Path]:
     """Record the exception and surface a user-friendly message."""
 
     log_path = log_exception(context, exc, tb=tb, extra=extra)
     message = f"حدث خطأ غير متوقع أثناء {context}."
-    details = f"تم حفظ تفاصيل الخطأ في:\n{log_path}"
+    if log_path:
+        details = f"تم حفظ تفاصيل الخطأ في:\n{log_path}"
+    else:
+        details = "تعذر حفظ تفاصيل الخطأ في ملف سجل."
     if notifier:
         notifier(heading, message, details)
     else:

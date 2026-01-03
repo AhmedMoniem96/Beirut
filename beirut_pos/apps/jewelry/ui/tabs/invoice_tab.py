@@ -292,8 +292,7 @@ class InvoiceTab(QWidget):
         self._refresh_payment_methods()
         self.refresh_products()
         self._initialize_cashier()
-        self._apply_website_order_settings()
-        self._customer_id: Optional[int] = None
+        self._customer_phone: Optional[str] = None
         self._customer_points: float = 0.0
         self._apply_invoice_styles()
 
@@ -418,28 +417,30 @@ class InvoiceTab(QWidget):
         return max(discount_value, 0.0)
 
     def _lookup_customer(self) -> None:
-        customer = find_customer_by_phone(self.customer_phone_input.text())
+        phone = self.customer_phone_input.text().strip()
+        if not phone:
+            QMessageBox.warning(self, "Missing", "Customer phone is required.")
+            return
+        customer = find_customer_by_phone(phone)
         if not customer:
             QMessageBox.information(self, "Customer", "No customer found with this phone.")
             return
-        self._customer_id = customer.id
+        self._customer_phone = customer.phone
         self.customer_name_input.setText(customer.name)
-        self.customer_email_input.setText(customer.email)
-        self.customer_notes_input.setText(customer.notes)
-        self._customer_points = get_loyalty_balance(customer.id)
+        self.customer_email_input.clear()
+        self.customer_notes_input.clear()
+        self._customer_points = get_loyalty_balance(customer.phone)
         self.customer_points_label.setText(f"{self._customer_points:.2f}")
         self._recalculate_totals()
 
     def _save_customer_profile(self) -> None:
         name = self.customer_name_input.text().strip()
         phone = self.customer_phone_input.text().strip()
-        email = self.customer_email_input.text().strip()
-        notes = self.customer_notes_input.text().strip()
-        if not name and not phone:
-            QMessageBox.warning(self, "Missing", "Provide at least a name or phone.")
+        if not name or not phone:
+            QMessageBox.warning(self, "Missing", "Customer name and phone are required.")
             return
-        self._customer_id = save_customer(self._customer_id, name, phone, email, notes)
-        self._customer_points = get_loyalty_balance(self._customer_id)
+        self._customer_phone = save_customer(name, phone)
+        self._customer_points = get_loyalty_balance(self._customer_phone)
         self.customer_points_label.setText(f"{self._customer_points:.2f}")
         QMessageBox.information(self, "Saved", "Customer profile saved.")
 
@@ -518,18 +519,13 @@ class InvoiceTab(QWidget):
         txn_type = "return" if self.txn_type_combo.currentIndex() == 1 else "sale"
         customer_name = self.customer_name_input.text().strip()
         customer_phone = self.customer_phone_input.text().strip()
-        customer_email = self.customer_email_input.text().strip()
-        customer_notes = self.customer_notes_input.text().strip()
         customer_id = None
         if customer_name or customer_phone:
-            customer_id = save_customer(
-                self._customer_id,
-                customer_name,
-                customer_phone,
-                customer_email,
-                customer_notes,
-            )
-            self._customer_id = customer_id
+            if not customer_name or not customer_phone:
+                QMessageBox.warning(self, "Missing", "Customer name and phone are required.")
+                return
+            customer_id = save_customer(customer_name, customer_phone)
+            self._customer_phone = customer_id
             self._customer_points = get_loyalty_balance(customer_id)
             self.customer_points_label.setText(f"{self._customer_points:.2f}")
         subtotal = self._calculate_subtotal()
@@ -676,7 +672,7 @@ class InvoiceTab(QWidget):
         self.customer_notes_input.clear()
         self.customer_points_label.setText("0")
         self.loyalty_earned_label.setText("0")
-        self._customer_id = None
+        self._customer_phone = None
         self._customer_points = 0.0
         self.notes_input.clear()
         self.return_reason_input.clear()

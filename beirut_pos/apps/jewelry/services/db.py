@@ -42,14 +42,30 @@ class JewelryInvoice:
     datetime: str
     cashier_name: str
     txn_type: str
+    customer_name: str = ""
+    customer_phone: str = ""
     subtotal: float
     discount: float
     discount_type: str
     discount_value: float
+    loyalty_earned: float = 0.0
+    loyalty_redeemed: float = 0.0
     total: float
     payment_method: str
+    order_source: str = "in_store"
+    website_order_ref: str = ""
     notes: str
     return_reason: str
+
+
+@dataclass
+class JewelryCustomer:
+    id: int
+    name: str
+    phone: str
+    email: str
+    notes: str
+    created_at: str
 
 
 @dataclass
@@ -156,18 +172,54 @@ def init_jewelry_db() -> None:
             datetime TEXT NOT NULL,
             cashier_name TEXT NOT NULL,
             txn_type TEXT NOT NULL CHECK(txn_type in ('sale','return')),
+            customer_id INTEGER,
+            customer_name TEXT DEFAULT '',
+            customer_phone TEXT DEFAULT '',
             subtotal REAL NOT NULL,
             discount REAL NOT NULL,
             discount_type TEXT NOT NULL DEFAULT 'amount',
             discount_value REAL NOT NULL DEFAULT 0,
+            loyalty_earned REAL NOT NULL DEFAULT 0,
+            loyalty_redeemed REAL NOT NULL DEFAULT 0,
             total REAL NOT NULL,
             payment_method TEXT NOT NULL,
+            order_source TEXT NOT NULL DEFAULT 'in_store',
+            website_order_ref TEXT DEFAULT '',
             notes TEXT DEFAULT '',
             return_reason TEXT DEFAULT ''
         )"""
     )
     _ensure_column(cur, "jw_invoices", "discount_type", "TEXT DEFAULT 'amount'")
     _ensure_column(cur, "jw_invoices", "discount_value", "REAL DEFAULT 0")
+    _ensure_column(cur, "jw_invoices", "customer_id", "INTEGER")
+    _ensure_column(cur, "jw_invoices", "customer_name", "TEXT DEFAULT ''")
+    _ensure_column(cur, "jw_invoices", "customer_phone", "TEXT DEFAULT ''")
+    _ensure_column(cur, "jw_invoices", "loyalty_earned", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_invoices", "loyalty_redeemed", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_invoices", "order_source", "TEXT NOT NULL DEFAULT 'in_store'")
+    _ensure_column(cur, "jw_invoices", "website_order_ref", "TEXT DEFAULT ''")
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_customers(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            phone TEXT UNIQUE,
+            email TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_loyalty_ledger(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            invoice_id INTEGER,
+            points_delta REAL NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(customer_id) REFERENCES jw_customers(id),
+            FOREIGN KEY(invoice_id) REFERENCES jw_invoices(id)
+        )"""
+    )
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_invoice_items(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -310,6 +362,143 @@ def list_payment_methods() -> List[Tuple[int, str, str]]:
     rows = cur.fetchall()
     conn.close()
     return [(row[0], row[1], row[2]) for row in rows]
+
+
+def list_customers(search: Optional[str] = None) -> List[JewelryCustomer]:
+    conn = get_conn()
+    cur = conn.cursor()
+    params: Tuple[str, ...] = ()
+    query = """SELECT id, name, COALESCE(phone, ''), COALESCE(email, ''), COALESCE(notes, ''), created_at
+               FROM jw_customers"""
+    if search:
+        like = f"%{search}%"
+        query += " WHERE name LIKE ? OR phone LIKE ? OR email LIKE ?"
+        params = (like, like, like)
+    query += " ORDER BY id DESC"
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryCustomer(
+            id=row[0],
+            name=row[1],
+            phone=row[2] or "",
+            email=row[3] or "",
+            notes=row[4] or "",
+            created_at=row[5],
+        )
+        for row in rows
+    ]
+
+
+def find_customer_by_phone(phone: str) -> Optional[JewelryCustomer]:
+    normalized = (phone or "").strip()
+    if not normalized:
+        return None
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, name, COALESCE(phone, ''), COALESCE(email, ''), COALESCE(notes, ''), created_at
+           FROM jw_customers WHERE phone = ? LIMIT 1""",
+        (normalized,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return JewelryCustomer(
+        id=row[0],
+        name=row[1],
+        phone=row[2] or "",
+        email=row[3] or "",
+        notes=row[4] or "",
+        created_at=row[5],
+    )
+
+
+def save_customer(
+    customer_id: Optional[int],
+    name: str,
+    phone: str,
+    email: str,
+    notes: str,
+) -> int:
+    normalized_phone = (phone or "").strip()
+    phone_value = normalized_phone or None
+    conn = get_conn()
+    cur = conn.cursor()
+    if customer_id:
+        cur.execute(
+            """UPDATE jw_customers
+               SET name = ?, phone = ?, email = ?, notes = ?
+               WHERE id = ?""",
+            (name.strip(), phone_value, email.strip(), notes.strip(), customer_id),
+        )
+        conn.commit()
+        conn.close()
+        return customer_id
+
+    if phone_value:
+        cur.execute(
+            """SELECT id FROM jw_customers WHERE phone = ?""",
+            (phone_value,),
+        )
+        row = cur.fetchone()
+        if row:
+            customer_id = int(row[0])
+            cur.execute(
+                """UPDATE jw_customers
+                   SET name = ?, email = ?, notes = ?
+                   WHERE id = ?""",
+                (name.strip(), email.strip(), notes.strip(), customer_id),
+            )
+            conn.commit()
+            conn.close()
+            return customer_id
+
+    created_at = datetime.now().isoformat(timespec="seconds")
+    cur.execute(
+        """INSERT INTO jw_customers(name, phone, email, notes, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (name.strip(), phone_value, email.strip(), notes.strip(), created_at),
+    )
+    customer_id = int(cur.lastrowid)
+    conn.commit()
+    conn.close()
+    return customer_id
+
+
+def get_loyalty_balance(customer_id: int) -> float:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COALESCE(SUM(points_delta), 0) FROM jw_loyalty_ledger WHERE customer_id = ?",
+        (customer_id,),
+    )
+    balance = float(cur.fetchone()[0] or 0)
+    conn.close()
+    return balance
+
+
+def record_loyalty_entry(customer_id: int, invoice_id: Optional[int], points_delta: float, reason: str) -> None:
+    if not customer_id or not points_delta:
+        return
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO jw_loyalty_ledger
+           (customer_id, invoice_id, points_delta, reason, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (
+            customer_id,
+            invoice_id,
+            float(points_delta),
+            reason.strip() or "invoice",
+            datetime.now().isoformat(timespec="seconds"),
+        ),
+    )
+    conn.commit()
+    conn.close()
 
 
 def add_payment_method(name_ar: str, name_en: str) -> None:
@@ -889,12 +1078,19 @@ def _next_invoice_no(cur) -> str:
 def create_invoice(
     cashier_name: str,
     txn_type: str,
+    customer_id: Optional[int],
+    customer_name: str,
+    customer_phone: str,
     subtotal: float,
     discount: float,
     discount_type: str,
     discount_value: float,
+    loyalty_earned: float,
+    loyalty_redeemed: float,
     total: float,
     payment_method: str,
+    order_source: str,
+    website_order_ref: str,
     notes: str,
     return_reason: str,
     items: Iterable[JewelryInvoiceItem],
@@ -905,20 +1101,28 @@ def create_invoice(
     invoice_no = _next_invoice_no(cur)
     cur.execute(
         """INSERT INTO jw_invoices
-           (invoice_no, datetime, cashier_name, txn_type, subtotal, discount,
-            discount_type, discount_value, total, payment_method, notes, return_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (invoice_no, datetime, cashier_name, txn_type, customer_id, customer_name, customer_phone,
+            subtotal, discount, discount_type, discount_value, loyalty_earned, loyalty_redeemed,
+            total, payment_method, order_source, website_order_ref, notes, return_reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             invoice_no,
             invoice_datetime,
             cashier_name,
             txn_type,
+            customer_id,
+            customer_name,
+            customer_phone,
             subtotal,
             discount,
             discount_type,
             discount_value,
+            loyalty_earned,
+            loyalty_redeemed,
             total,
             payment_method,
+            order_source,
+            website_order_ref,
             notes,
             return_reason,
         ),
@@ -942,6 +1146,12 @@ def create_invoice(
         _apply_stock_adjustment(cur, item.product_id, item.qty, txn_type)
     conn.commit()
     conn.close()
+    if customer_id:
+        if txn_type == "return":
+            points_delta = -abs(loyalty_earned)
+        else:
+            points_delta = float(loyalty_earned) - float(loyalty_redeemed)
+        record_loyalty_entry(customer_id, invoice_id, points_delta, reason=f"invoice:{invoice_no}")
     return invoice_no
 
 
@@ -964,9 +1174,12 @@ def list_return_invoices(date_iso: Optional[str] = None) -> List[JewelryInvoice]
     conn = get_conn()
     cur = conn.cursor()
     params: Tuple[str, ...] = ()
-    query = """SELECT invoice_no, datetime, cashier_name, txn_type, subtotal,
-                      discount, COALESCE(discount_type, 'amount'),
-                      COALESCE(discount_value, 0), total, payment_method, notes, return_reason
+    query = """SELECT invoice_no, datetime, cashier_name, txn_type, COALESCE(customer_name, ''),
+                      COALESCE(customer_phone, ''), subtotal, discount, COALESCE(discount_type, 'amount'),
+                      COALESCE(discount_value, 0), COALESCE(loyalty_earned, 0),
+                      COALESCE(loyalty_redeemed, 0), total, payment_method,
+                      COALESCE(order_source, 'in_store'), COALESCE(website_order_ref, ''),
+                      notes, return_reason
                FROM jw_invoices WHERE txn_type = 'return'"""
     if date_iso:
         query += " AND date(datetime) = date(?)"
@@ -981,14 +1194,20 @@ def list_return_invoices(date_iso: Optional[str] = None) -> List[JewelryInvoice]
             datetime=row[1],
             cashier_name=row[2],
             txn_type=row[3],
-            subtotal=row[4],
-            discount=row[5],
-            discount_type=row[6],
-            discount_value=row[7],
-            total=row[8],
-            payment_method=row[9],
-            notes=row[10],
-            return_reason=row[11],
+            customer_name=row[4],
+            customer_phone=row[5],
+            subtotal=row[6],
+            discount=row[7],
+            discount_type=row[8],
+            discount_value=row[9],
+            loyalty_earned=row[10],
+            loyalty_redeemed=row[11],
+            total=row[12],
+            payment_method=row[13],
+            order_source=row[14],
+            website_order_ref=row[15],
+            notes=row[16],
+            return_reason=row[17],
         )
         for row in rows
     ]
@@ -998,9 +1217,11 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT invoice_no, datetime, cashier_name, txn_type, subtotal,
-                  discount, COALESCE(discount_type, 'amount'),
-                  COALESCE(discount_value, 0), total, payment_method, notes, return_reason
+        """SELECT invoice_no, datetime, cashier_name, txn_type, COALESCE(customer_name, ''),
+                  COALESCE(customer_phone, ''), subtotal, discount, COALESCE(discount_type, 'amount'),
+                  COALESCE(discount_value, 0), COALESCE(loyalty_earned, 0),
+                  COALESCE(loyalty_redeemed, 0), total, payment_method,
+                  COALESCE(order_source, 'in_store'), COALESCE(website_order_ref, ''), notes, return_reason
            FROM jw_invoices WHERE invoice_no = ?""",
         (invoice_no,),
     )
@@ -1013,14 +1234,20 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
         datetime=row[1],
         cashier_name=row[2],
         txn_type=row[3],
-        subtotal=row[4],
-        discount=row[5],
-        discount_type=row[6],
-        discount_value=row[7],
-        total=row[8],
-        payment_method=row[9],
-        notes=row[10],
-        return_reason=row[11],
+        customer_name=row[4],
+        customer_phone=row[5],
+        subtotal=row[6],
+        discount=row[7],
+        discount_type=row[8],
+        discount_value=row[9],
+        loyalty_earned=row[10],
+        loyalty_redeemed=row[11],
+        total=row[12],
+        payment_method=row[13],
+        order_source=row[14],
+        website_order_ref=row[15],
+        notes=row[16],
+        return_reason=row[17],
     )
     cur.execute(
         """SELECT product_id, product_name, product_code, qty, unit_price, line_total

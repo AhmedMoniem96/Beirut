@@ -63,6 +63,7 @@ class JewelryInvoice:
 class JewelryCustomer:
     phone: str
     name: str
+    email: str
     created_at: str
 
 
@@ -201,9 +202,11 @@ def init_jewelry_db() -> None:
         """CREATE TABLE IF NOT EXISTS jw_customers(
             phone TEXT NOT NULL PRIMARY KEY,
             name TEXT NOT NULL,
+            email TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL
         )"""
     )
+    _ensure_column(cur, "jw_customers", "email", "TEXT NOT NULL DEFAULT ''")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_loyalty_ledger(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -375,12 +378,13 @@ def _migrate_customer_tables(cur) -> None:
             """CREATE TABLE jw_customers_new(
                 phone TEXT NOT NULL PRIMARY KEY,
                 name TEXT NOT NULL,
+                email TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             )"""
         )
         cur.execute(
-            """INSERT OR IGNORE INTO jw_customers_new(phone, name, created_at)
-               SELECT TRIM(phone), name, created_at
+            """INSERT OR IGNORE INTO jw_customers_new(phone, name, email, created_at)
+               SELECT TRIM(phone), name, COALESCE(email, ''), created_at
                FROM jw_customers
                WHERE phone IS NOT NULL AND TRIM(phone) != ''"""
         )
@@ -507,12 +511,12 @@ def list_customers(search: Optional[str] = None) -> List[JewelryCustomer]:
     conn = get_conn()
     cur = conn.cursor()
     params: Tuple[str, ...] = ()
-    query = """SELECT phone, name, created_at
+    query = """SELECT phone, name, COALESCE(email, ''), created_at
                FROM jw_customers"""
     if search:
         like = f"%{search}%"
-        query += " WHERE name LIKE ? OR phone LIKE ?"
-        params = (like, like)
+        query += " WHERE name LIKE ? OR phone LIKE ? OR email LIKE ?"
+        params = (like, like, like)
     query += " ORDER BY created_at DESC"
     cur.execute(query, params)
     rows = cur.fetchall()
@@ -521,7 +525,8 @@ def list_customers(search: Optional[str] = None) -> List[JewelryCustomer]:
         JewelryCustomer(
             phone=row[0] or "",
             name=row[1],
-            created_at=row[2],
+            email=row[2] or "",
+            created_at=row[3],
         )
         for row in rows
     ]
@@ -534,7 +539,7 @@ def find_customer_by_phone(phone: str) -> Optional[JewelryCustomer]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT phone, name, created_at
+        """SELECT phone, name, COALESCE(email, ''), created_at
            FROM jw_customers WHERE phone = ? LIMIT 1""",
         (normalized,),
     )
@@ -545,30 +550,61 @@ def find_customer_by_phone(phone: str) -> Optional[JewelryCustomer]:
     return JewelryCustomer(
         phone=row[0] or "",
         name=row[1],
-        created_at=row[2],
+        email=row[2] or "",
+        created_at=row[3],
     )
 
 
 def save_customer(
     name: str,
     phone: str,
+    email: str = "",
 ) -> str:
     normalized_phone = (phone or "").strip()
     normalized_name = name.strip()
+    normalized_email = (email or "").strip()
     if not normalized_phone or not normalized_name:
         return ""
     conn = get_conn()
     cur = conn.cursor()
     created_at = datetime.now().isoformat(timespec="seconds")
     cur.execute(
-        """INSERT INTO jw_customers(phone, name, created_at)
-           VALUES (?, ?, ?)
-           ON CONFLICT(phone) DO UPDATE SET name = excluded.name""",
-        (normalized_phone, normalized_name, created_at),
+        """INSERT INTO jw_customers(phone, name, email, created_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(phone) DO UPDATE SET name = excluded.name, email = excluded.email""",
+        (normalized_phone, normalized_name, normalized_email, created_at),
     )
     conn.commit()
     conn.close()
     return normalized_phone
+
+
+def search_customers(term: str, limit: int = 8) -> List[JewelryCustomer]:
+    normalized = (term or "").strip()
+    if not normalized:
+        return []
+    like_term = f"%{normalized}%"
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT phone, name, COALESCE(email, ''), created_at
+           FROM jw_customers
+           WHERE phone LIKE ? OR name LIKE ? OR email LIKE ?
+           ORDER BY name
+           LIMIT ?""",
+        (like_term, like_term, like_term, int(limit)),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryCustomer(
+            phone=row[0] or "",
+            name=row[1],
+            email=row[2] or "",
+            created_at=row[3],
+        )
+        for row in rows
+    ]
 
 
 def get_loyalty_balance(customer_phone: str) -> float:

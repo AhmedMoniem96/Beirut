@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QUrl
+from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -29,17 +31,18 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QFileDialog,
+    QFrame,
 )
 
 from ...services.db import (
     JewelryInvoiceItem,
     create_invoice,
     fetch_invoice_details,
-    find_customer_by_phone,
     find_product_by_code,
     get_loyalty_balance,
     list_payment_methods,
     list_products,
+    search_customers,
     save_customer,
 )
 from ...services.pdf_exports import GalleryInfo, export_invoice_pdf
@@ -109,6 +112,38 @@ class InvoiceTab(QWidget):
         self.discount_input.setRange(0, 999999)
         self.discount_input.setDecimals(2)
         self.discount_input.valueChanged.connect(self._recalculate_totals)
+        self.customer_search_input = QLineEdit()
+        self.customer_search_input.setPlaceholderText("Search by phone or name...")
+        self.customer_search_input.textChanged.connect(self._queue_customer_search)
+        self.customer_search_timer = QTimer(self)
+        self.customer_search_timer.setSingleShot(True)
+        self.customer_search_timer.setInterval(250)
+        self.customer_search_timer.timeout.connect(self._perform_customer_search)
+        self.customer_dropdown_frame = QFrame()
+        self.customer_dropdown_frame.setObjectName("customerDropdown")
+        self.customer_dropdown_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        self.customer_dropdown_frame.setVisible(False)
+        dropdown_layout = QVBoxLayout(self.customer_dropdown_frame)
+        dropdown_layout.setContentsMargins(6, 6, 6, 6)
+        dropdown_layout.setSpacing(4)
+        self.customer_dropdown = QListWidget()
+        self.customer_dropdown.setMaximumHeight(160)
+        self.customer_dropdown.itemClicked.connect(self._select_customer_from_dropdown)
+        self.customer_dropdown.itemActivated.connect(self._select_customer_from_dropdown)
+        self.customer_no_results_label = QLabel("No matches found.")
+        self.customer_create_btn = QPushButton("Create new customer")
+        self.customer_create_btn.clicked.connect(self._create_new_customer_from_search)
+        dropdown_layout.addWidget(self.customer_dropdown)
+        dropdown_layout.addWidget(self.customer_no_results_label)
+        dropdown_layout.addWidget(self.customer_create_btn)
+        self.customer_no_results_label.setVisible(False)
+        self.customer_create_btn.setVisible(False)
+        customer_search_container = QWidget()
+        customer_search_layout = QVBoxLayout(customer_search_container)
+        customer_search_layout.setContentsMargins(0, 0, 0, 0)
+        customer_search_layout.setSpacing(4)
+        customer_search_layout.addWidget(self.customer_search_input)
+        customer_search_layout.addWidget(self.customer_dropdown_frame)
         self.customer_name_input = QLineEdit()
         self.customer_phone_input = QLineEdit()
         self.customer_phone_input.setPlaceholderText("Phone (هاتف)")
@@ -117,13 +152,16 @@ class InvoiceTab(QWidget):
         self.customer_notes_input = QLineEdit()
         self.customer_notes_input.setPlaceholderText("Notes (ملاحظات)")
         self.customer_points_label = QLabel("0")
+        self.customer_search_input.installEventFilter(self)
+        self.customer_dropdown.installEventFilter(self)
+        self.customer_name_input.textChanged.connect(self._clear_customer_selection)
+        self.customer_phone_input.textChanged.connect(self._clear_customer_selection)
+        self.customer_email_input.textChanged.connect(self._clear_customer_selection)
         self.loyalty_redeem_input = QDoubleSpinBox()
         self.loyalty_redeem_input.setDecimals(2)
         self.loyalty_redeem_input.setRange(0, 999999)
         self.loyalty_redeem_input.valueChanged.connect(self._recalculate_totals)
         self.loyalty_earned_label = QLabel("0")
-        self.customer_lookup_btn = QPushButton("Lookup (بحث)")
-        self.customer_lookup_btn.clicked.connect(self._lookup_customer)
         self.customer_save_btn = QPushButton("Save Profile (حفظ الملف)")
         self.customer_save_btn.clicked.connect(self._save_customer_profile)
         self.notes_input = QTextEdit()
@@ -141,12 +179,12 @@ class InvoiceTab(QWidget):
         form_layout.addRow(self.website_order_label, self.website_order_input)
         form_layout.addRow("Discount Type (نوع الخصم):", self.discount_type_combo)
         form_layout.addRow("Discount Value (قيمة الخصم):", self.discount_input)
+        form_layout.addRow("Customer Search (بحث العميل):", customer_search_container)
         form_layout.addRow("Customer Name (العميل):", self.customer_name_input)
         form_layout.addRow("Customer Phone (الهاتف):", self.customer_phone_input)
         form_layout.addRow("Customer Email:", self.customer_email_input)
         form_layout.addRow("Customer Notes:", self.customer_notes_input)
         customer_actions = QHBoxLayout()
-        customer_actions.addWidget(self.customer_lookup_btn)
         customer_actions.addWidget(self.customer_save_btn)
         form_layout.addRow("", customer_actions)
         form_layout.addRow("Loyalty Balance (نقاط):", self.customer_points_label)
@@ -292,7 +330,7 @@ class InvoiceTab(QWidget):
         self._refresh_payment_methods()
         self.refresh_products()
         self._initialize_cashier()
-        self._customer_phone: Optional[str] = None
+        self._customer_id: Optional[str] = None
         self._customer_points: float = 0.0
         self._apply_invoice_styles()
 
@@ -416,32 +454,141 @@ class InvoiceTab(QWidget):
             return max(subtotal * (discount_value / 100.0), 0.0)
         return max(discount_value, 0.0)
 
-    def _lookup_customer(self) -> None:
-        phone = self.customer_phone_input.text().strip()
-        if not phone:
-            QMessageBox.warning(self, "Missing", "Customer phone is required.")
+    def _queue_customer_search(self, _text: str) -> None:
+        if self.customer_search_timer.isActive():
+            self.customer_search_timer.stop()
+        term = self.customer_search_input.text().strip()
+        if len(term) < 2:
+            self._hide_customer_dropdown()
+            self.customer_dropdown.clear()
+            self.customer_no_results_label.setVisible(False)
+            self.customer_create_btn.setVisible(False)
             return
-        customer = find_customer_by_phone(phone)
-        if not customer:
-            QMessageBox.information(self, "Customer", "No customer found with this phone.")
+        self.customer_search_timer.start()
+
+    def _perform_customer_search(self) -> None:
+        term = self.customer_search_input.text().strip()
+        if len(term) < 2:
+            self._hide_customer_dropdown()
             return
-        self._customer_phone = customer.phone
-        self.customer_name_input.setText(customer.name)
-        self.customer_email_input.clear()
-        self.customer_notes_input.clear()
-        self._customer_points = get_loyalty_balance(customer.phone)
+        results = search_customers(term, limit=8)
+        self.customer_dropdown.clear()
+        if results:
+            for customer in results:
+                points = get_loyalty_balance(customer.phone)
+                item = QListWidgetItem(self._format_customer_option(customer, points))
+                item.setData(Qt.ItemDataRole.UserRole, customer)
+                item.setData(Qt.ItemDataRole.UserRole + 1, points)
+                self.customer_dropdown.addItem(item)
+            self.customer_dropdown.setCurrentRow(0)
+            self.customer_no_results_label.setVisible(False)
+            self.customer_create_btn.setVisible(False)
+        else:
+            self.customer_no_results_label.setVisible(True)
+            self.customer_create_btn.setVisible(True)
+        self._show_customer_dropdown()
+
+    def _format_customer_option(self, customer, points: float) -> str:
+        base = f"{customer.name} • {customer.phone} • نقاط {points:.0f}"
+        if customer.email:
+            return f"{base} • {customer.email}"
+        return base
+
+    def _select_customer_from_dropdown(self, item: QListWidgetItem) -> None:
+        customer = item.data(Qt.ItemDataRole.UserRole)
+        points = item.data(Qt.ItemDataRole.UserRole + 1)
+        if customer is None:
+            return
+        self._apply_customer_selection(customer, float(points or 0.0))
+        self._hide_customer_dropdown()
+
+    def _apply_customer_selection(self, customer, points: float) -> None:
+        self._customer_id = customer.phone
+        self._customer_points = points
         self.customer_points_label.setText(f"{self._customer_points:.2f}")
+        self.customer_search_input.blockSignals(True)
+        self.customer_search_input.setText(f"{customer.name} ({customer.phone})")
+        self.customer_search_input.blockSignals(False)
+        for field, value in (
+            (self.customer_name_input, customer.name),
+            (self.customer_phone_input, customer.phone),
+            (self.customer_email_input, customer.email),
+        ):
+            field.blockSignals(True)
+            field.setText(value)
+            field.blockSignals(False)
         self._recalculate_totals()
+
+    def _create_new_customer_from_search(self) -> None:
+        term = self.customer_search_input.text().strip()
+        if not term:
+            return
+        normalized = term.replace(" ", "")
+        is_phone = normalized.lstrip("+").isdigit()
+        self._customer_id = None
+        self._customer_points = 0.0
+        self.customer_points_label.setText("0")
+        if is_phone:
+            self.customer_phone_input.setText(term)
+            self.customer_name_input.setFocus()
+        else:
+            self.customer_name_input.setText(term)
+            self.customer_phone_input.setFocus()
+        self.customer_email_input.clear()
+        self._hide_customer_dropdown()
+
+    def _clear_customer_selection(self, _text: str) -> None:
+        if self._customer_id is None:
+            return
+        self._customer_id = None
+        self._customer_points = 0.0
+        self.customer_points_label.setText("0")
+        self._recalculate_totals()
+
+    def _show_customer_dropdown(self) -> None:
+        if self.customer_dropdown.count() == 0 and not self.customer_create_btn.isVisible():
+            return
+        self.customer_dropdown_frame.setVisible(True)
+
+    def _hide_customer_dropdown(self) -> None:
+        self.customer_dropdown_frame.setVisible(False)
+
+    def _handle_customer_dropdown_key(self, event) -> bool:
+        if event.key() == Qt.Key.Key_Escape:
+            self._hide_customer_dropdown()
+            return True
+        if not self.customer_dropdown_frame.isVisible():
+            return False
+        if event.key() == Qt.Key.Key_Down:
+            row = self.customer_dropdown.currentRow()
+            next_row = 0 if row < 0 else min(row + 1, self.customer_dropdown.count() - 1)
+            self.customer_dropdown.setCurrentRow(next_row)
+            return True
+        if event.key() == Qt.Key.Key_Up:
+            row = self.customer_dropdown.currentRow()
+            next_row = 0 if row <= 0 else row - 1
+            self.customer_dropdown.setCurrentRow(next_row)
+            return True
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            item = self.customer_dropdown.currentItem()
+            if item:
+                self._select_customer_from_dropdown(item)
+                return True
+        return False
 
     def _save_customer_profile(self) -> None:
         name = self.customer_name_input.text().strip()
         phone = self.customer_phone_input.text().strip()
+        email = self.customer_email_input.text().strip()
         if not name or not phone:
             QMessageBox.warning(self, "Missing", "Customer name and phone are required.")
             return
-        self._customer_phone = save_customer(name, phone)
-        self._customer_points = get_loyalty_balance(self._customer_phone)
+        self._customer_id = save_customer(name, phone, email)
+        self._customer_points = get_loyalty_balance(self._customer_id)
         self.customer_points_label.setText(f"{self._customer_points:.2f}")
+        self.customer_search_input.blockSignals(True)
+        self.customer_search_input.setText(f"{name} ({phone})")
+        self.customer_search_input.blockSignals(False)
         QMessageBox.information(self, "Saved", "Customer profile saved.")
 
     def _loyalty_redeem_amount(self, subtotal: float, discount: float) -> float:
@@ -519,13 +666,14 @@ class InvoiceTab(QWidget):
         txn_type = "return" if self.txn_type_combo.currentIndex() == 1 else "sale"
         customer_name = self.customer_name_input.text().strip()
         customer_phone = self.customer_phone_input.text().strip()
+        customer_email = self.customer_email_input.text().strip()
         customer_id = None
         if customer_name or customer_phone:
             if not customer_name or not customer_phone:
                 QMessageBox.warning(self, "Missing", "Customer name and phone are required.")
                 return
-            customer_id = save_customer(customer_name, customer_phone)
-            self._customer_phone = customer_id
+            customer_id = save_customer(customer_name, customer_phone, customer_email)
+            self._customer_id = customer_id
             self._customer_points = get_loyalty_balance(customer_id)
             self.customer_points_label.setText(f"{self._customer_points:.2f}")
         subtotal = self._calculate_subtotal()
@@ -671,8 +819,10 @@ class InvoiceTab(QWidget):
         self.customer_email_input.clear()
         self.customer_notes_input.clear()
         self.customer_points_label.setText("0")
+        self.customer_search_input.clear()
+        self._hide_customer_dropdown()
         self.loyalty_earned_label.setText("0")
-        self._customer_phone = None
+        self._customer_id = None
         self._customer_points = 0.0
         self.notes_input.clear()
         self.return_reason_input.clear()
@@ -779,11 +929,19 @@ class InvoiceTab(QWidget):
                 left: 10px;
                 padding: 0 4px;
             }
+            #jewelryInvoiceTab QFrame#customerDropdown {
+                background: #ffffff;
+                border: 1px solid #e0d7cf;
+                border-radius: 6px;
+            }
             #jewelryInvoiceTab QTableWidget {
                 background: #ffffff;
                 border: 1px solid #e0d7cf;
                 border-radius: 8px;
                 gridline-color: #efe7df;
+            }
+            #jewelryInvoiceTab QListWidget {
+                border: none;
             }
             #jewelryInvoiceTab QHeaderView::section {
                 background: #f3eee9;
@@ -845,6 +1003,10 @@ class InvoiceTab(QWidget):
         if not self.isVisible():
             return super().eventFilter(source, event)
         if event.type() == QEvent.Type.KeyPress:
+            if source in {self.customer_search_input, self.customer_dropdown}:
+                if self._handle_customer_dropdown_key(event):
+                    return True
+                return super().eventFilter(source, event)
             key = event.key()
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if self._scan_timer.elapsed() < 500 and len(self._scan_buffer) >= 2:

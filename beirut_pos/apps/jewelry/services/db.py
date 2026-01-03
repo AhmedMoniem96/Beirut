@@ -351,6 +351,7 @@ def _ensure_column(cur, table: str, column: str, column_type: str) -> None:
 
 
 def _migrate_customer_tables(cur) -> None:
+    conn = cur.connection
     cur.execute("PRAGMA table_info(jw_customers)")
     customer_rows = cur.fetchall()
     if not customer_rows:
@@ -386,16 +387,17 @@ def _migrate_customer_tables(cur) -> None:
         cur.execute("DROP TABLE jw_customers")
         cur.execute("ALTER TABLE jw_customers_new RENAME TO jw_customers")
 
-    cur.execute("PRAGMA foreign_keys=OFF")
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
     try:
         _migrate_invoice_customer_keys(cur, has_id)
         _migrate_loyalty_customer_keys(cur, has_id)
     finally:
-        cur.execute("PRAGMA foreign_keys=ON")
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys=ON")
 
 
 def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
-    cur.execute("PRAGMA foreign_keys=OFF")
     cur.execute("PRAGMA table_info(jw_invoices)")
     rows = cur.fetchall()
     if not rows:
@@ -454,7 +456,6 @@ def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
 
 
 def _migrate_loyalty_customer_keys(cur, use_id_map: bool) -> None:
-    cur.execute("PRAGMA foreign_keys=OFF")
     cur.execute("PRAGMA table_info(jw_loyalty_ledger)")
     rows = cur.fetchall()
     if not rows:

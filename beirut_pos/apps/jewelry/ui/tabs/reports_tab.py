@@ -18,6 +18,9 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -61,7 +64,13 @@ class ReportsTab(QWidget):
         super().__init__()
         self._last_report: Optional[ReportData] = None
 
-        layout = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        main_layout.addWidget(scroll_area)
+        content = QWidget()
+        scroll_area.setWidget(content)
+        layout = QVBoxLayout(content)
         header = QLabel("Reports (التقارير)")
         header.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(header)
@@ -76,7 +85,6 @@ class ReportsTab(QWidget):
         filters.addWidget(QLabel("Date (التاريخ):"))
         filters.addWidget(self.date_filter)
         filters.addWidget(self.refresh_btn)
-        layout.addLayout(filters)
 
         shift_box = QGroupBox("Shift Info (بيانات الوردية)")
         shift_layout = QFormLayout(shift_box)
@@ -97,7 +105,8 @@ class ReportsTab(QWidget):
         self.expected_cash_label = QLabel("Expected: 0.00")
         self.diff_label = QLabel("Over/Short: 0.00")
         self.notes_input = QTextEdit()
-        self.notes_input.setFixedHeight(60)
+        self.notes_input.setMinimumHeight(90)
+        self.notes_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         shift_layout.addRow("Cashier (الكاشير):", self.cashier_input)
         shift_layout.addRow("Open Time (فتح):", self.open_time_input)
         shift_layout.addRow("Close Time (إغلاق):", self.close_time_input)
@@ -106,14 +115,11 @@ class ReportsTab(QWidget):
         shift_layout.addRow("Expected (متوقع):", self.expected_cash_label)
         shift_layout.addRow("Over/Short (فرق):", self.diff_label)
         shift_layout.addRow("Notes (ملاحظات):", self.notes_input)
-        layout.addWidget(shift_box)
 
         save_shift_btn = QPushButton("Save Shift Session (حفظ الوردية)")
         save_shift_btn.clicked.connect(self._save_shift_session)
-        layout.addWidget(save_shift_btn)
 
         self.summary_label = QLabel("Daily report summary will appear here.")
-        layout.addWidget(self.summary_label)
 
         self.payment_table = QTableWidget(0, 2)
         self.payment_table.setHorizontalHeaderLabels(["Payment Method", "Total"])
@@ -134,17 +140,6 @@ class ReportsTab(QWidget):
         ]:
             table.setAlternatingRowColors(True)
 
-        layout.addWidget(QLabel("Payment Breakdown (تفاصيل الدفع)"))
-        layout.addWidget(self.payment_table)
-        layout.addWidget(QLabel("Return Reasons (أسباب المرتجع)"))
-        layout.addWidget(self.returns_table)
-        layout.addWidget(QLabel("Top 5 Sold Products (الأكثر مبيعًا)"))
-        layout.addWidget(self.top_table)
-        layout.addWidget(QLabel("Lowest Sold Products (الأقل مبيعًا)"))
-        layout.addWidget(self.low_table)
-        layout.addWidget(QLabel("Stock Alerts (تنبيهات المخزون)"))
-        layout.addWidget(self.stock_table)
-
         export_layout = QHBoxLayout()
         self.export_pdf_btn = QPushButton("Export PDF (تصدير PDF)")
         self.export_pdf_btn.clicked.connect(self._export_pdf)
@@ -152,7 +147,35 @@ class ReportsTab(QWidget):
         self.export_excel_btn.clicked.connect(self._export_excel)
         export_layout.addWidget(self.export_pdf_btn)
         export_layout.addWidget(self.export_excel_btn)
-        layout.addLayout(export_layout)
+
+        top_section = QWidget()
+        top_layout = QVBoxLayout(top_section)
+        top_layout.addLayout(filters)
+        top_layout.addWidget(shift_box)
+        top_layout.addWidget(save_shift_btn)
+        top_layout.addWidget(self.summary_label)
+
+        tables_section = QWidget()
+        tables_layout = QVBoxLayout(tables_section)
+        tables_layout.addWidget(QLabel("Payment Breakdown (تفاصيل الدفع)"))
+        tables_layout.addWidget(self.payment_table)
+        tables_layout.addWidget(QLabel("Return Reasons (أسباب المرتجع)"))
+        tables_layout.addWidget(self.returns_table)
+        tables_layout.addWidget(QLabel("Top 5 Sold Products (الأكثر مبيعًا)"))
+        tables_layout.addWidget(self.top_table)
+        tables_layout.addWidget(QLabel("Lowest Sold Products (الأقل مبيعًا)"))
+        tables_layout.addWidget(self.low_table)
+        tables_layout.addWidget(QLabel("Stock Alerts (تنبيهات المخزون)"))
+        tables_layout.addWidget(self.stock_table)
+        tables_layout.addLayout(export_layout)
+        tables_layout.addStretch()
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(top_section)
+        splitter.addWidget(tables_section)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        layout.addWidget(splitter)
 
         self._initialize_shift_defaults()
         self._initialize_cashier()

@@ -6,13 +6,59 @@ from typing import Sequence
 
 from PIL import Image
 from reportlab.graphics import renderPM
-from reportlab.graphics.barcode import createBarcodeDrawing
+from reportlab.graphics.barcode import createBarcodeDrawing, qr
+from reportlab.graphics.shapes import Drawing
 
 from beirut_pos.services import printer as printer_service
 from beirut_pos.services.arabic_bitmap import pil_image_to_escpos_raster
 
 
 _LABEL_WIDTH_PX = printer_service.PAPER_PX
+
+_SUPPORTED_BARCODE_TYPES = {
+    "code128": "Code128",
+    "code39": "Code39",
+    "qr": "QR",
+}
+
+
+def _normalize_barcode_type(barcode_type: str) -> str:
+    normalized = barcode_type.strip().lower()
+    normalized = normalized.replace(" ", "").replace("-", "")
+    if normalized == "qrcode":
+        normalized = "qr"
+    return normalized
+
+
+def _qr_drawing(value: str, size: int = 120) -> Drawing:
+    widget = qr.QrCodeWidget(value)
+    bounds = widget.getBounds()
+    width = bounds[2] - bounds[0]
+    height = bounds[3] - bounds[1]
+    drawing = Drawing(size, size, transform=[size / width, 0, 0, size / height, 0, 0])
+    drawing.add(widget)
+    return drawing
+
+
+def _barcode_drawing(barcode_value: str, barcode_type: str) -> Drawing:
+    normalized = _normalize_barcode_type(barcode_type)
+    if normalized == "code39":
+        return createBarcodeDrawing(
+            "Code39",
+            value=barcode_value,
+            barHeight=70,
+            barWidth=1.2,
+            humanReadable=False,
+        )
+    if normalized == "qr":
+        return _qr_drawing(barcode_value)
+    return createBarcodeDrawing(
+        "Code128",
+        value=barcode_value,
+        barHeight=70,
+        barWidth=1.2,
+        humanReadable=False,
+    )
 
 
 def _center_on_label(img: Image.Image, *, width: int, pad_y: int = 6) -> Image.Image:
@@ -37,19 +83,14 @@ def render_barcode_label_image(
 ) -> Image.Image:
     title = product_name.strip() or "Item"
     sku_line = f"SKU: {sku}".strip()
-    type_label = barcode_type.strip() or "Barcode"
+    normalized_type = _normalize_barcode_type(barcode_type)
+    type_label = _SUPPORTED_BARCODE_TYPES.get(normalized_type, barcode_type.strip() or "Barcode")
     barcode_line = f"{type_label}: {barcode_value}".strip()
 
     header_img = _render_label_lines([">>C " + title, ">>L " + sku_line, ">>L " + barcode_line])
 
     try:
-        barcode_drawing = createBarcodeDrawing(
-            "Code128",
-            value=barcode_value,
-            barHeight=70,
-            barWidth=1.2,
-            humanReadable=False,
-        )
+        barcode_drawing = _barcode_drawing(barcode_value, barcode_type)
         barcode_img = renderPM.drawToPIL(barcode_drawing).convert("1")
     except Exception:
         barcode_img = printer_service._render_lines_to_bitmap([">>C [BARCODE]"])

@@ -28,6 +28,12 @@ from ...services.settings import load_gallery_settings
 
 
 class InventoryTab(QWidget):
+    _SUPPORTED_BARCODE_TYPES = {
+        "code128": "Code128",
+        "code39": "Code39",
+        "qr": "QR",
+    }
+
     def __init__(self, on_products_changed=None) -> None:
         super().__init__()
         self._on_products_changed = on_products_changed
@@ -138,6 +144,27 @@ class InventoryTab(QWidget):
 
         self.refresh()
 
+    def _normalize_barcode_type(self, barcode_type: str) -> str:
+        normalized = barcode_type.strip().lower()
+        normalized = normalized.replace(" ", "").replace("-", "")
+        if normalized == "qrcode":
+            normalized = "qr"
+        return normalized
+
+    def _validated_barcode_type(self, barcode_type: str) -> str | None:
+        if not barcode_type:
+            return ""
+        normalized = self._normalize_barcode_type(barcode_type)
+        if normalized not in self._SUPPORTED_BARCODE_TYPES:
+            supported = ", ".join(self._SUPPORTED_BARCODE_TYPES.values())
+            QMessageBox.warning(
+                self,
+                "Invalid Barcode Type",
+                f"Supported barcode types: {supported}.",
+            )
+            return None
+        return self._SUPPORTED_BARCODE_TYPES[normalized]
+
     def set_edit_permissions(self, allow_edit: bool) -> None:
         self._allow_edit = allow_edit
         form_widgets = [
@@ -232,13 +259,16 @@ class InventoryTab(QWidget):
         if barcode_value and barcode_exists(barcode_value, exclude_product_id=self._selected_product_id):
             QMessageBox.warning(self, "Duplicate", "Barcode already exists on another product.")
             return
+        barcode_type_value = self._validated_barcode_type(self.barcode_type_input.text().strip())
+        if barcode_type_value is None:
+            return
         save_product(
             self._selected_product_id,
             self.name_ar_input.text().strip(),
             self.name_en_input.text().strip(),
             self.sku_input.text().strip(),
             barcode_value,
-            self.barcode_type_input.text().strip(),
+            barcode_type_value,
             float(self.price_input.value()),
             float(self.qty_input.value()),
             float(self.min_qty_input.value()),
@@ -295,6 +325,9 @@ class InventoryTab(QWidget):
         if not product.barcode:
             QMessageBox.warning(self, "Missing", "Set a barcode before printing.")
             return
+        barcode_type_value = self._validated_barcode_type(product.barcode_type)
+        if barcode_type_value is None:
+            return
         settings = load_gallery_settings()
         if settings.barcode_print_mode == "direct":
             try:
@@ -302,7 +335,7 @@ class InventoryTab(QWidget):
                     product_name=f"{product.name_en} / {product.name_ar}",
                     sku=product.sku,
                     barcode_value=product.barcode,
-                    barcode_type=product.barcode_type,
+                    barcode_type=barcode_type_value,
                 )
                 print_barcode_label_image(
                     label_img,
@@ -331,7 +364,7 @@ class InventoryTab(QWidget):
             f"{product.name_en} / {product.name_ar}",
             product.sku,
             product.barcode,
-            product.barcode_type,
+            barcode_type_value,
         )
         QMessageBox.information(self, "Export", "Barcode labels exported.")
 

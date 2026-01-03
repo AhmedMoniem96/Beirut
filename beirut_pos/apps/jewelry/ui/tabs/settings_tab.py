@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -19,6 +20,7 @@ from PyQt6.QtWidgets import (
 from ...services.db import add_payment_method
 from ...services.settings import GallerySettings, load_gallery_settings, save_gallery_settings
 from ...services.demo_seed import seed_demo_data
+from beirut_pos.services import printer as printer_service
 
 
 class SettingsTab(QWidget):
@@ -62,6 +64,21 @@ class SettingsTab(QWidget):
         gallery_layout.addRow("", self.rtl_check)
         layout.addWidget(gallery_box)
 
+        printer_box = QGroupBox("Barcode Printing (طباعة الباركود)")
+        printer_layout = QFormLayout(printer_box)
+        self.barcode_mode = QComboBox()
+        self.barcode_mode.addItem("Export PDF (تصدير PDF)", "pdf")
+        self.barcode_mode.addItem("Direct Print (طباعة مباشرة)", "direct")
+
+        self.barcode_printer = QComboBox()
+        self.barcode_printer.addItem("Auto (USB/ESC/POS)", "auto")
+        for name in printer_service.win_list_printers():
+            self.barcode_printer.addItem(name, name)
+
+        printer_layout.addRow("Default Mode:", self.barcode_mode)
+        printer_layout.addRow("Printer:", self.barcode_printer)
+        layout.addWidget(printer_box)
+
         save_btn = QPushButton("Save Settings (حفظ)")
         save_btn.clicked.connect(self._save_settings)
         layout.addWidget(save_btn)
@@ -95,6 +112,8 @@ class SettingsTab(QWidget):
         self.logo_input.setText(settings.logo_path)
         self.font_input.setText(settings.font_path)
         self.rtl_check.setChecked(settings.rtl_enabled)
+        self._set_combo_value(self.barcode_mode, settings.barcode_print_mode)
+        self._set_combo_value(self.barcode_printer, settings.barcode_printer_name)
 
     def _save_settings(self) -> None:
         settings = GallerySettings(
@@ -105,6 +124,8 @@ class SettingsTab(QWidget):
             logo_path=self.logo_input.text().strip(),
             font_path=self.font_input.text().strip(),
             rtl_enabled=self.rtl_check.isChecked(),
+            barcode_print_mode=self.barcode_mode.currentData() or "pdf",
+            barcode_printer_name=self.barcode_printer.currentData() or "auto",
         )
         save_gallery_settings(settings)
         QMessageBox.information(self, "Saved", "Settings saved.")
@@ -149,3 +170,10 @@ class SettingsTab(QWidget):
         QMessageBox.information(self, "Seeded", "Demo data created.")
         if self._on_payment_methods_changed:
             self._on_payment_methods_changed()
+
+    @staticmethod
+    def _set_combo_value(combo: QComboBox, value: str) -> None:
+        for idx in range(combo.count()):
+            if combo.itemData(idx) == value or combo.itemText(idx) == value:
+                combo.setCurrentIndex(idx)
+                return

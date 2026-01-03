@@ -22,7 +22,9 @@ from PyQt6.QtWidgets import (
 )
 
 from ...services.db import barcode_exists, delete_product, list_products, save_product
+from ...services.barcode_printer import render_barcode_label_image, print_barcode_label_image
 from ...services.pdf_exports import export_barcode_labels_pdf
+from ...services.settings import load_gallery_settings
 
 
 class InventoryTab(QWidget):
@@ -293,6 +295,29 @@ class InventoryTab(QWidget):
         if not product.barcode:
             QMessageBox.warning(self, "Missing", "Set a barcode before printing.")
             return
+        settings = load_gallery_settings()
+        if settings.barcode_print_mode == "direct":
+            try:
+                label_img = render_barcode_label_image(
+                    product_name=f"{product.name_en} / {product.name_ar}",
+                    sku=product.sku,
+                    barcode_value=product.barcode,
+                    barcode_type=product.barcode_type,
+                )
+                print_barcode_label_image(
+                    label_img,
+                    printer_name=settings.barcode_printer_name,
+                )
+            except Exception as exc:
+                QMessageBox.critical(
+                    self,
+                    "Print Failed",
+                    f"Direct print failed: {exc}",
+                )
+                return
+            QMessageBox.information(self, "Printed", "Barcode label sent to printer.")
+            return
+
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Barcode Labels",

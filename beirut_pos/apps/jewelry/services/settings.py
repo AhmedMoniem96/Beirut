@@ -16,6 +16,8 @@ class GallerySettings:
     logo_path: str
     font_path: str
     rtl_enabled: bool
+    barcode_print_mode: str
+    barcode_printer_name: str
 
 
 def load_gallery_settings() -> GallerySettings:
@@ -27,6 +29,8 @@ def load_gallery_settings() -> GallerySettings:
         logo_path=get_config_value("jw_gallery_logo", ""),
         font_path=get_config_value("jw_gallery_font", ""),
         rtl_enabled=bool(get_config_value("jw_rtl_enabled", False)),
+        barcode_print_mode=get_config_value("jw_barcode_print_mode", "pdf"),
+        barcode_printer_name=get_config_value("jw_barcode_printer_name", "auto"),
     )
 
 
@@ -38,3 +42,5 @@ def save_gallery_settings(settings: GallerySettings) -> None:
     set_config_value("jw_gallery_logo", settings.logo_path)
     set_config_value("jw_gallery_font", settings.font_path)
     set_config_value("jw_rtl_enabled", settings.rtl_enabled)
+    set_config_value("jw_barcode_print_mode", settings.barcode_print_mode)
+    set_config_value("jw_barcode_printer_name", settings.barcode_printer_name)

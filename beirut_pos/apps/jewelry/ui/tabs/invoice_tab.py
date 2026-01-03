@@ -35,9 +35,12 @@ from ...services.db import (
     JewelryInvoiceItem,
     create_invoice,
     fetch_invoice_details,
+    find_customer_by_phone,
     find_product_by_code,
+    get_loyalty_balance,
     list_payment_methods,
     list_products,
+    save_customer,
 )
 from ...services.pdf_exports import GalleryInfo, export_invoice_pdf
 from ...services.session import get_current_user
@@ -74,6 +77,13 @@ class InvoiceTab(QWidget):
         self.txn_type_combo.addItems(["Sale (بيع)", "Return (مرتجع)"])
         self.payment_combo = QComboBox()
         self.payment_combo.currentTextChanged.connect(self._refresh_summary_labels)
+        self.order_source_combo = QComboBox()
+        self.order_source_combo.addItem("In-Store (داخل المعرض)", "in_store")
+        self.order_source_combo.addItem("Website (طلب أونلاين)", "website")
+        self.order_source_combo.currentIndexChanged.connect(self._handle_order_source_change)
+        self.website_order_input = QLineEdit()
+        self.website_order_input.setPlaceholderText("Website Order No (رقم طلب الموقع)")
+        self.website_order_input.setEnabled(False)
         self.discount_type_combo = QComboBox()
         self.discount_type_combo.addItem("Amount (قيمة)", "amount")
         self.discount_type_combo.addItem("Percent (%)", "percent")
@@ -82,6 +92,23 @@ class InvoiceTab(QWidget):
         self.discount_input.setRange(0, 999999)
         self.discount_input.setDecimals(2)
         self.discount_input.valueChanged.connect(self._recalculate_totals)
+        self.customer_name_input = QLineEdit()
+        self.customer_phone_input = QLineEdit()
+        self.customer_phone_input.setPlaceholderText("Phone (هاتف)")
+        self.customer_email_input = QLineEdit()
+        self.customer_email_input.setPlaceholderText("Email (بريد إلكتروني)")
+        self.customer_notes_input = QLineEdit()
+        self.customer_notes_input.setPlaceholderText("Notes (ملاحظات)")
+        self.customer_points_label = QLabel("0")
+        self.loyalty_redeem_input = QDoubleSpinBox()
+        self.loyalty_redeem_input.setDecimals(2)
+        self.loyalty_redeem_input.setRange(0, 999999)
+        self.loyalty_redeem_input.valueChanged.connect(self._recalculate_totals)
+        self.loyalty_earned_label = QLabel("0")
+        self.customer_lookup_btn = QPushButton("Lookup (بحث)")
+        self.customer_lookup_btn.clicked.connect(self._lookup_customer)
+        self.customer_save_btn = QPushButton("Save Profile (حفظ الملف)")
+        self.customer_save_btn.clicked.connect(self._save_customer_profile)
         self.notes_input = QTextEdit()
         self.notes_input.setMinimumHeight(80)
         self.notes_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -93,8 +120,21 @@ class InvoiceTab(QWidget):
         form_layout.addRow("Cashier (الكاشير):", self.cashier_input)
         form_layout.addRow("Transaction (العملية):", self.txn_type_combo)
         form_layout.addRow("Payment Method (طريقة الدفع):", self.payment_combo)
+        form_layout.addRow("Order Source (مصدر الطلب):", self.order_source_combo)
+        form_layout.addRow("Website Order No (رقم طلب الموقع):", self.website_order_input)
         form_layout.addRow("Discount Type (نوع الخصم):", self.discount_type_combo)
         form_layout.addRow("Discount Value (قيمة الخصم):", self.discount_input)
+        form_layout.addRow("Customer Name (العميل):", self.customer_name_input)
+        form_layout.addRow("Customer Phone (الهاتف):", self.customer_phone_input)
+        form_layout.addRow("Customer Email:", self.customer_email_input)
+        form_layout.addRow("Customer Notes:", self.customer_notes_input)
+        customer_actions = QHBoxLayout()
+        customer_actions.addWidget(self.customer_lookup_btn)
+        customer_actions.addWidget(self.customer_save_btn)
+        form_layout.addRow("", customer_actions)
+        form_layout.addRow("Loyalty Balance (نقاط):", self.customer_points_label)
+        form_layout.addRow("Redeem Points (خصم نقاط):", self.loyalty_redeem_input)
+        form_layout.addRow("Points Earned (نقاط مكتسبة):", self.loyalty_earned_label)
         form_layout.addRow("Notes (ملاحظات):", self.notes_input)
         form_layout.addRow("Return Reason (سبب المرتجع):", self.return_reason_input)
         left_layout.addWidget(form_box)
@@ -129,9 +169,9 @@ class InvoiceTab(QWidget):
 
         items_box = QGroupBox("Invoice Items (عناصر الفاتورة)")
         items_layout = QVBoxLayout(items_box)
-        self.items_table = QTableWidget(0, 5)
+        self.items_table = QTableWidget(0, 7)
         self.items_table.setHorizontalHeaderLabels(
-            ["Product", "Code", "Qty", "Unit Price", "Line Total"]
+            ["Product", "Code", "Qty", "Unit Price", "Line Total", "-", "+"]
         )
         self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -157,10 +197,12 @@ class InvoiceTab(QWidget):
         totals_layout = QVBoxLayout(totals_box)
         self.subtotal_label = QLabel("Subtotal: 0.00")
         self.discount_summary_label = QLabel("Discount: 0.00")
+        self.loyalty_summary_label = QLabel("Loyalty Redeem: 0.00")
         self.total_label = QLabel("Net Total: 0.00")
         self.payment_label = QLabel("Payment: -")
         totals_layout.addWidget(self.subtotal_label)
         totals_layout.addWidget(self.discount_summary_label)
+        totals_layout.addWidget(self.loyalty_summary_label)
         totals_layout.addWidget(self.total_label)
         totals_layout.addWidget(self.payment_label)
         right_layout.addWidget(totals_box)
@@ -233,6 +275,9 @@ class InvoiceTab(QWidget):
         self._refresh_payment_methods()
         self.refresh_products()
         self._initialize_cashier()
+        self._customer_id: Optional[int] = None
+        self._customer_points: float = 0.0
+        self._apply_invoice_styles()
 
     def _initialize_cashier(self) -> None:
         user = get_current_user()
@@ -306,7 +351,16 @@ class InvoiceTab(QWidget):
     def _handle_txn_type_change(self) -> None:
         is_return = self.txn_type_combo.currentIndex() == 1
         self.return_reason_input.setEnabled(is_return)
+        self.loyalty_redeem_input.setEnabled(not is_return)
+        if is_return:
+            self.loyalty_redeem_input.setValue(0.0)
         self._refresh_summary_labels()
+
+    def _handle_order_source_change(self) -> None:
+        is_website = self.order_source_combo.currentData() == "website"
+        self.website_order_input.setEnabled(is_website)
+        if not is_website:
+            self.website_order_input.clear()
 
     def _handle_discount_type_change(self) -> None:
         if self._discount_type() == "percent":
@@ -325,6 +379,41 @@ class InvoiceTab(QWidget):
         if self._discount_type() == "percent":
             return max(subtotal * (discount_value / 100.0), 0.0)
         return max(discount_value, 0.0)
+
+    def _lookup_customer(self) -> None:
+        customer = find_customer_by_phone(self.customer_phone_input.text())
+        if not customer:
+            QMessageBox.information(self, "Customer", "No customer found with this phone.")
+            return
+        self._customer_id = customer.id
+        self.customer_name_input.setText(customer.name)
+        self.customer_email_input.setText(customer.email)
+        self.customer_notes_input.setText(customer.notes)
+        self._customer_points = get_loyalty_balance(customer.id)
+        self.customer_points_label.setText(f"{self._customer_points:.2f}")
+        self._recalculate_totals()
+
+    def _save_customer_profile(self) -> None:
+        name = self.customer_name_input.text().strip()
+        phone = self.customer_phone_input.text().strip()
+        email = self.customer_email_input.text().strip()
+        notes = self.customer_notes_input.text().strip()
+        if not name and not phone:
+            QMessageBox.warning(self, "Missing", "Provide at least a name or phone.")
+            return
+        self._customer_id = save_customer(self._customer_id, name, phone, email, notes)
+        self._customer_points = get_loyalty_balance(self._customer_id)
+        self.customer_points_label.setText(f"{self._customer_points:.2f}")
+        QMessageBox.information(self, "Saved", "Customer profile saved.")
+
+    def _loyalty_redeem_amount(self, subtotal: float, discount: float) -> float:
+        max_redeem = max(subtotal - discount, 0.0)
+        max_redeem = min(max_redeem, float(self._customer_points))
+        if self.loyalty_redeem_input.value() > max_redeem:
+            self.loyalty_redeem_input.blockSignals(True)
+            self.loyalty_redeem_input.setValue(max_redeem)
+            self.loyalty_redeem_input.blockSignals(False)
+        return float(self.loyalty_redeem_input.value())
 
     def _add_selected_product(self) -> None:
         row = self.products_table.currentRow()
@@ -348,9 +437,13 @@ class InvoiceTab(QWidget):
         for row in range(self.items_table.rowCount()):
             subtotal += float(self.items_table.item(row, 4).text())
         discount = self._calculate_discount_amount(subtotal)
-        total = max(subtotal - discount, 0.0)
+        loyalty_redeem = self._loyalty_redeem_amount(subtotal, discount)
+        total = max(subtotal - discount - loyalty_redeem, 0.0)
         self.subtotal_label.setText(f"Subtotal: {subtotal:.2f}")
         self.total_label.setText(f"Net Total: {total:.2f}")
+        self.loyalty_summary_label.setText(f"Loyalty Redeem: {loyalty_redeem:.2f}")
+        earned = 0 if self.txn_type_combo.currentIndex() == 1 else int(total)
+        self.loyalty_earned_label.setText(f"{earned}")
         self._refresh_summary_labels()
 
     def _calculate_subtotal(self) -> float:
@@ -386,24 +479,51 @@ class InvoiceTab(QWidget):
             return
         cashier = self.cashier_input.text().strip() or "N/A"
         txn_type = "return" if self.txn_type_combo.currentIndex() == 1 else "sale"
+        customer_name = self.customer_name_input.text().strip()
+        customer_phone = self.customer_phone_input.text().strip()
+        customer_email = self.customer_email_input.text().strip()
+        customer_notes = self.customer_notes_input.text().strip()
+        customer_id = None
+        if customer_name or customer_phone:
+            customer_id = save_customer(
+                self._customer_id,
+                customer_name,
+                customer_phone,
+                customer_email,
+                customer_notes,
+            )
+            self._customer_id = customer_id
+            self._customer_points = get_loyalty_balance(customer_id)
+            self.customer_points_label.setText(f"{self._customer_points:.2f}")
         subtotal = self._calculate_subtotal()
         discount_type = self._discount_type()
         discount_value = float(self.discount_input.value())
         discount = self._calculate_discount_amount(subtotal)
-        total = max(subtotal - discount, 0.0)
+        loyalty_redeem = 0.0 if txn_type == "return" else float(self.loyalty_redeem_input.value())
+        total = max(subtotal - discount - loyalty_redeem, 0.0)
+        loyalty_earned = 0 if txn_type == "return" else int(total)
         payment_method = self.payment_combo.currentText()
+        order_source = self.order_source_combo.currentData() or "in_store"
+        website_order_ref = self.website_order_input.text().strip()
         notes = self.notes_input.toPlainText().strip()
         return_reason = self.return_reason_input.text().strip() if txn_type == "return" else ""
         items = self._collect_items()
         invoice_no = create_invoice(
             cashier,
             txn_type,
+            customer_id,
+            customer_name,
+            customer_phone,
             subtotal,
             discount,
             discount_type,
             discount_value,
+            loyalty_earned,
+            loyalty_redeem,
             total,
             payment_method,
+            order_source,
+            website_order_ref,
             notes,
             return_reason,
             items,
@@ -442,13 +562,19 @@ class InvoiceTab(QWidget):
             invoice.datetime,
             invoice.cashier_name,
             invoice.txn_type,
+            invoice.customer_name,
+            invoice.customer_phone,
             [(i.product_name, i.product_code, i.qty, i.unit_price, i.line_total) for i in items],
             invoice.subtotal,
             invoice.discount,
             invoice.discount_type,
             invoice.discount_value,
+            invoice.loyalty_earned,
+            invoice.loyalty_redeemed,
             invoice.total,
             invoice.payment_method,
+            invoice.order_source,
+            invoice.website_order_ref,
             invoice.notes,
             invoice.return_reason,
         )
@@ -476,13 +602,19 @@ class InvoiceTab(QWidget):
             invoice.datetime,
             invoice.cashier_name,
             invoice.txn_type,
+            invoice.customer_name,
+            invoice.customer_phone,
             [(i.product_name, i.product_code, i.qty, i.unit_price, i.line_total) for i in items],
             invoice.subtotal,
             invoice.discount,
             invoice.discount_type,
             invoice.discount_value,
+            invoice.loyalty_earned,
+            invoice.loyalty_redeemed,
             invoice.total,
             invoice.payment_method,
+            invoice.order_source,
+            invoice.website_order_ref,
             invoice.notes,
             invoice.return_reason,
         )
@@ -492,8 +624,19 @@ class InvoiceTab(QWidget):
         self.items_table.setRowCount(0)
         self.discount_type_combo.setCurrentIndex(0)
         self.discount_input.setValue(0.0)
+        self.loyalty_redeem_input.setValue(0.0)
+        self.customer_name_input.clear()
+        self.customer_phone_input.clear()
+        self.customer_email_input.clear()
+        self.customer_notes_input.clear()
+        self.customer_points_label.setText("0")
+        self.loyalty_earned_label.setText("0")
+        self._customer_id = None
+        self._customer_points = 0.0
         self.notes_input.clear()
         self.return_reason_input.clear()
+        self.order_source_combo.setCurrentIndex(0)
+        self.website_order_input.clear()
         self._last_invoice_no = None
         self.invoice_info_label.setText("Invoice No: Auto | رقم الفاتورة: تلقائي")
         self._recalculate_totals()
@@ -517,7 +660,87 @@ class InvoiceTab(QWidget):
         self.items_table.setItem(item_row, 3, QTableWidgetItem(f"{product.price:.2f}"))
         self.items_table.setItem(item_row, 4, QTableWidgetItem(f"{line_total:.2f}"))
         self.items_table.item(item_row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
+        self._attach_qty_buttons(item_row, product.id)
         self._recalculate_totals()
+
+    def _attach_qty_buttons(self, row: int, product_id: int) -> None:
+        minus_btn = QPushButton("−")
+        minus_btn.setProperty("product_id", product_id)
+        minus_btn.clicked.connect(lambda _checked=False, delta=-1.0: self._adjust_item_qty(product_id, delta))
+        plus_btn = QPushButton("+")
+        plus_btn.setProperty("product_id", product_id)
+        plus_btn.clicked.connect(lambda _checked=False, delta=1.0: self._adjust_item_qty(product_id, delta))
+        minus_btn.setFixedWidth(32)
+        plus_btn.setFixedWidth(32)
+        self.items_table.setCellWidget(row, 5, minus_btn)
+        self.items_table.setCellWidget(row, 6, plus_btn)
+
+    def _adjust_item_qty(self, product_id: int, delta: float) -> None:
+        row = self._find_item_row(product_id)
+        if row < 0:
+            return
+        try:
+            current_qty = float(self.items_table.item(row, 2).text())
+        except Exception:
+            current_qty = 0.0
+        new_qty = current_qty + delta
+        if new_qty <= 0:
+            self.items_table.removeRow(row)
+            self._recalculate_totals()
+            return
+        unit_price = float(self.items_table.item(row, 3).text())
+        self.items_table.setItem(row, 2, QTableWidgetItem(f"{new_qty:.2f}"))
+        self.items_table.setItem(row, 4, QTableWidgetItem(f"{new_qty * unit_price:.2f}"))
+        self._recalculate_totals()
+
+    def _find_item_row(self, product_id: int) -> int:
+        for row in range(self.items_table.rowCount()):
+            item = self.items_table.item(row, 0)
+            if item and item.data(Qt.ItemDataRole.UserRole) == product_id:
+                return row
+        return -1
+
+    def _apply_invoice_styles(self) -> None:
+        self.setStyleSheet(
+            """
+            QGroupBox {
+                font-weight: 600;
+                border: 1px solid #d6ccc2;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding: 10px;
+                background: #fdfbf8;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 4px;
+            }
+            QTableWidget {
+                background: #ffffff;
+                border: 1px solid #e0d7cf;
+                border-radius: 8px;
+                gridline-color: #efe7df;
+            }
+            QHeaderView::section {
+                background: #f3eee9;
+                padding: 6px;
+                border: none;
+                font-weight: 600;
+            }
+            QPushButton#primaryButton {
+                background: #c89a5b;
+                color: white;
+                padding: 8px 12px;
+                border-radius: 8px;
+                font-weight: 600;
+            }
+            QPushButton {
+                padding: 6px 10px;
+                border-radius: 6px;
+            }
+            """
+        )
 
     def handle_scan(self, code: str) -> str:
         normalized_code = self._normalize_scan_text(code)

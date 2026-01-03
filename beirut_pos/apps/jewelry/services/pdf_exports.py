@@ -98,13 +98,19 @@ def export_invoice_pdf(
     invoice_datetime: str,
     cashier_name: str,
     txn_type: str,
+    customer_name: str,
+    customer_phone: str,
     items: Iterable[Tuple[str, str, float, float, float]],
     subtotal: float,
     discount: float,
     discount_type: str,
     discount_value: float,
+    loyalty_earned: float,
+    loyalty_redeemed: float,
     total: float,
     payment_method: str,
+    order_source: str,
+    website_order_ref: str,
     notes: str,
     return_reason: str,
 ) -> None:
@@ -140,6 +146,11 @@ def export_invoice_pdf(
     y -= 18
     c.drawString(40, y, f"Cashier: {cashier_name}")
     y -= 18
+    if customer_name or customer_phone:
+        c.drawString(40, y, f"Customer: {customer_name or '-'}")
+        if customer_phone:
+            c.drawString(300, y, f"Phone: {customer_phone}")
+        y -= 18
     txn_label = "Sale" if txn_type == "sale" else "Return"
     c.drawString(40, y, f"Transaction: {txn_label}")
     c.drawString(300, y, _shape_arabic(f"العملية: {'بيع' if txn_type == 'sale' else 'مرتجع'}"))
@@ -179,10 +190,22 @@ def export_invoice_pdf(
     else:
         c.drawString(40, y, f"Discount: {discount:.2f}")
     y -= 16
+    if loyalty_redeemed:
+        c.drawString(40, y, f"Loyalty Redeem: {loyalty_redeemed:.2f}")
+        y -= 16
     c.drawString(40, y, f"Net Total: {total:.2f}")
     y -= 16
     c.drawString(40, y, f"Payment Method: {payment_method}")
     y -= 16
+    if order_source == "website":
+        c.drawString(40, y, f"Order Source: Website")
+        y -= 16
+        if website_order_ref:
+            c.drawString(40, y, f"Website Order No: {website_order_ref}")
+            y -= 16
+    if loyalty_earned:
+        c.drawString(40, y, f"Points Earned: {loyalty_earned:.0f}")
+        y -= 16
     if txn_type == "return":
         c.drawString(40, y, f"Return Reason: {return_reason}")
         y -= 16

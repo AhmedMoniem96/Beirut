@@ -43,6 +43,9 @@ class SettingsTab(QWidget):
         self.logo_input = QLineEdit()
         self.font_input = QLineEdit()
         self.rtl_check = QCheckBox("Enable RTL Layout (تفعيل الاتجاه العربي)")
+        self.website_name_input = QLineEdit()
+        self.website_url_input = QLineEdit()
+        self.website_orders_check = QCheckBox("Website orders go through POS (طلبات الموقع تمر عبر الكاشير)")
         logo_btn = QPushButton("Browse Logo (اختيار شعار)")
         logo_btn.clicked.connect(self._pick_logo)
         font_btn = QPushButton("Browse Arabic Font (خط عربي)")
@@ -63,6 +66,13 @@ class SettingsTab(QWidget):
         gallery_layout.addRow("Arabic Font Path:", font_row)
         gallery_layout.addRow("", self.rtl_check)
         layout.addWidget(gallery_box)
+
+        website_box = QGroupBox("Website Info (بيانات الموقع)")
+        website_layout = QFormLayout(website_box)
+        website_layout.addRow("Website Name:", self.website_name_input)
+        website_layout.addRow("Website URL:", self.website_url_input)
+        website_layout.addRow("", self.website_orders_check)
+        layout.addWidget(website_box)
 
         printer_box = QGroupBox("Barcode Printing (طباعة الباركود)")
         printer_layout = QFormLayout(printer_box)
@@ -114,6 +124,9 @@ class SettingsTab(QWidget):
         self.rtl_check.setChecked(settings.rtl_enabled)
         self._set_combo_value(self.barcode_mode, settings.barcode_print_mode)
         self._set_combo_value(self.barcode_printer, settings.barcode_printer_name)
+        self.website_name_input.setText(settings.website_name)
+        self.website_url_input.setText(settings.website_url)
+        self.website_orders_check.setChecked(settings.website_orders_enabled)
 
     def _save_settings(self) -> None:
         settings = GallerySettings(
@@ -126,6 +139,9 @@ class SettingsTab(QWidget):
             rtl_enabled=self.rtl_check.isChecked(),
             barcode_print_mode=self.barcode_mode.currentData() or "pdf",
             barcode_printer_name=self.barcode_printer.currentData() or "auto",
+            website_name=self.website_name_input.text().strip(),
+            website_url=self.website_url_input.text().strip(),
+            website_orders_enabled=self.website_orders_check.isChecked(),
         )
         save_gallery_settings(settings)
         QMessageBox.information(self, "Saved", "Settings saved.")

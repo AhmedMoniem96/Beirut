@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QTimer, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -196,15 +196,20 @@ class InvoiceTab(QWidget):
 
         product_box = QGroupBox("Products (المنتجات)")
         product_layout = QGridLayout(product_box)
+        self.barcode_input = QLineEdit()
+        self.barcode_input.setPlaceholderText("Scan barcode...")
+        self.barcode_input.returnPressed.connect(self._handle_barcode_submit)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search by name, SKU, barcode...")
         self.search_input.textChanged.connect(self.refresh_products)
         product_layout.addWidget(QLabel("Search (بحث):"), 0, 0)
         product_layout.addWidget(self.search_input, 0, 1, 1, 2)
+        product_layout.addWidget(QLabel("Barcode (باركود):"), 1, 0)
+        product_layout.addWidget(self.barcode_input, 1, 1, 1, 2)
 
-        self.products_table = QTableWidget(0, 5)
+        self.products_table = QTableWidget(0, 6)
         self.products_table.setHorizontalHeaderLabels(
-            ["Name (الاسم)", "SKU (الكود)", "Barcode", "Price (السعر)", "Stock (المخزون)"]
+            ["Name (الاسم)", "SKU (الكود)", "Barcode", "Price (السعر)", "Stock (المخزون)", ""]
         )
         self.products_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.products_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -215,11 +220,12 @@ class InvoiceTab(QWidget):
         self.qty_input.setRange(1, 1000)
         self.add_btn = QPushButton("Add Item (إضافة)")
         self.add_btn.clicked.connect(self._add_selected_product)
+        QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._add_selected_product)
 
-        product_layout.addWidget(self.products_table, 1, 0, 1, 3)
-        product_layout.addWidget(QLabel("Qty (الكمية):"), 2, 0)
-        product_layout.addWidget(self.qty_input, 2, 1)
-        product_layout.addWidget(self.add_btn, 2, 2)
+        product_layout.addWidget(self.products_table, 2, 0, 1, 3)
+        product_layout.addWidget(QLabel("Qty (الكمية):"), 3, 0)
+        product_layout.addWidget(self.qty_input, 3, 1)
+        product_layout.addWidget(self.add_btn, 3, 2)
         left_layout.addWidget(product_box)
 
         items_box = QGroupBox("Invoice Items (عناصر الفاتورة)")
@@ -333,6 +339,7 @@ class InvoiceTab(QWidget):
         self._customer_id: Optional[str] = None
         self._customer_points: float = 0.0
         self._apply_invoice_styles()
+        QTimer.singleShot(0, self._focus_barcode_input)
 
     def _initialize_cashier(self) -> None:
         user = get_current_user()
@@ -402,6 +409,13 @@ class InvoiceTab(QWidget):
             self.products_table.setItem(row, 3, QTableWidgetItem(f"{product.price:.2f}"))
             self.products_table.setItem(row, 4, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
             self.products_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
+            add_button = QPushButton("+ Add")
+            add_button.clicked.connect(
+                lambda _checked=False, item=product: self._add_product_to_invoice(
+                    item, float(self.qty_input.value())
+                )
+            )
+            self.products_table.setCellWidget(row, 5, add_button)
 
     def _handle_txn_type_change(self) -> None:
         is_return = self.txn_type_combo.currentIndex() == 1
@@ -847,6 +861,7 @@ class InvoiceTab(QWidget):
                 )
                 self._attach_qty_buttons(row, product.id)
                 self._recalculate_totals()
+                self._focus_barcode_input()
                 return
         line_total = qty * product.price
         item_row = self.items_table.rowCount()
@@ -871,6 +886,7 @@ class InvoiceTab(QWidget):
         self.items_table.item(item_row, self.ITEM_COL_PRODUCT).setData(Qt.ItemDataRole.UserRole, product.id)
         self._attach_qty_buttons(item_row, product.id)
         self._recalculate_totals()
+        self._focus_barcode_input()
 
     def _attach_qty_buttons(self, row: int, product_id: int) -> None:
         minus_btn = QPushButton("−")
@@ -905,6 +921,25 @@ class InvoiceTab(QWidget):
             QTableWidgetItem(f"{new_qty * unit_price:.2f}"),
         )
         self._recalculate_totals()
+        self._focus_barcode_input()
+
+    def _focus_barcode_input(self) -> None:
+        if not self.barcode_input.isVisible():
+            return
+        self.barcode_input.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.barcode_input.selectAll()
+
+    def _handle_barcode_submit(self) -> None:
+        code = self.barcode_input.text().strip()
+        if not code:
+            return
+        self.barcode_input.clear()
+        product = find_product_by_code(code)
+        if not product:
+            self._dispatch_scan(code)
+            self._focus_barcode_input()
+            return
+        self._add_product_to_invoice(product, float(self.qty_input.value()))
 
     def _find_item_row(self, product_id: int) -> int:
         for row in range(self.items_table.rowCount()):
@@ -1003,11 +1038,16 @@ class InvoiceTab(QWidget):
         if not self.isVisible():
             return super().eventFilter(source, event)
         if event.type() == QEvent.Type.KeyPress:
+            if source is self.barcode_input:
+                return super().eventFilter(source, event)
             if source in {self.customer_search_input, self.customer_dropdown}:
                 if self._handle_customer_dropdown_key(event):
                     return True
                 return super().eventFilter(source, event)
             key = event.key()
+            if source is self.products_table and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._add_selected_product()
+                return True
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if self._scan_timer.elapsed() < 500 and len(self._scan_buffer) >= 2:
                     self._dispatch_scan(self._scan_buffer)

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QTimer, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -210,6 +210,7 @@ class InvoiceTab(QWidget):
         self.products_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.products_table.setAlternatingRowColors(True)
         self.products_table.cellDoubleClicked.connect(self._add_selected_product)
+        self.products_table.itemSelectionChanged.connect(self._update_add_state)
 
         self.qty_input = QSpinBox()
         self.qty_input.setRange(1, 1000)
@@ -393,15 +394,50 @@ class InvoiceTab(QWidget):
         search = self.search_input.text().strip()
         self._products = list_products(search=search if search else None)
         self.products_table.setRowCount(0)
+        name_font = QFont(self.products_table.font())
+        name_font.setPointSize(name_font.pointSize() + 2)
+        name_font.setBold(True)
+        price_font = QFont(name_font)
+        meta_font = QFont(self.products_table.font())
+        meta_font.setPointSize(max(1, meta_font.pointSize() - 1))
         for product in self._products:
             row = self.products_table.rowCount()
             self.products_table.insertRow(row)
-            self.products_table.setItem(row, 0, QTableWidgetItem(f"{product.name_en} / {product.name_ar}"))
-            self.products_table.setItem(row, 1, QTableWidgetItem(product.sku))
-            self.products_table.setItem(row, 2, QTableWidgetItem(product.barcode))
-            self.products_table.setItem(row, 3, QTableWidgetItem(f"{product.price:.2f}"))
-            self.products_table.setItem(row, 4, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
-            self.products_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
+            out_of_stock = product.qty_on_hand <= 0
+            low_stock = 0 < product.qty_on_hand <= product.min_qty
+            name_item = QTableWidgetItem(f"{product.name_en} / {product.name_ar}")
+            name_item.setFont(name_font)
+            name_item.setData(Qt.ItemDataRole.UserRole, product.id)
+            name_item.setData(Qt.ItemDataRole.UserRole + 1, out_of_stock)
+            sku_item = QTableWidgetItem(product.sku)
+            barcode_item = QTableWidgetItem(product.barcode)
+            price_item = QTableWidgetItem(f"{product.price:.2f}")
+            price_item.setFont(price_font)
+            price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            stock_text = f"{product.qty_on_hand:.2f}"
+            if out_of_stock:
+                stock_text = f"{stock_text}  • Out"
+            elif low_stock:
+                stock_text = f"{stock_text}  ⚠ Low"
+            stock_item = QTableWidgetItem(stock_text)
+            for meta_item in (sku_item, barcode_item, stock_item):
+                meta_item.setFont(meta_font)
+                meta_item.setForeground(QColor("#6b7280"))
+            if low_stock:
+                stock_item.setBackground(QBrush(QColor("#fff7ed")))
+                stock_item.setForeground(QColor("#b45309"))
+            if out_of_stock:
+                tooltip = "Out of stock — cannot add to invoice."
+                for item in (name_item, sku_item, barcode_item, price_item, stock_item):
+                    item.setToolTip(tooltip)
+                    item.setBackground(QBrush(QColor("#f3f4f6")))
+                    item.setForeground(QColor("#9ca3af"))
+            self.products_table.setItem(row, 0, name_item)
+            self.products_table.setItem(row, 1, sku_item)
+            self.products_table.setItem(row, 2, barcode_item)
+            self.products_table.setItem(row, 3, price_item)
+            self.products_table.setItem(row, 4, stock_item)
+        self._update_add_state()
 
     def _handle_txn_type_change(self) -> None:
         is_return = self.txn_type_combo.currentIndex() == 1
@@ -604,6 +640,8 @@ class InvoiceTab(QWidget):
         row = self.products_table.currentRow()
         if row < 0:
             QMessageBox.warning(self, "Select", "Please select a product.")
+            return
+        if self._is_out_of_stock_row(row):
             return
         product_id = self.products_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         product = next((p for p in self._products if p.id == product_id), None)
@@ -912,6 +950,25 @@ class InvoiceTab(QWidget):
             if item and item.data(Qt.ItemDataRole.UserRole) == product_id:
                 return row
         return -1
+
+    def _is_out_of_stock_row(self, row: int) -> bool:
+        item = self.products_table.item(row, 0)
+        if not item:
+            return False
+        return bool(item.data(Qt.ItemDataRole.UserRole + 1))
+
+    def _update_add_state(self) -> None:
+        row = self.products_table.currentRow()
+        if row < 0:
+            self.add_btn.setEnabled(False)
+            self.add_btn.setToolTip("")
+            return
+        if self._is_out_of_stock_row(row):
+            self.add_btn.setEnabled(False)
+            self.add_btn.setToolTip("Out of stock items cannot be added.")
+        else:
+            self.add_btn.setEnabled(True)
+            self.add_btn.setToolTip("")
 
     def _apply_invoice_styles(self) -> None:
         self.setStyleSheet(

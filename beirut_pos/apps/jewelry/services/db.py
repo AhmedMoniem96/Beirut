@@ -42,21 +42,21 @@ class JewelryInvoice:
     datetime: str
     cashier_name: str
     txn_type: str
-    customer_id: Optional[str] = None
-    customer_name: str = ""
-    customer_phone: str = ""
     subtotal: float
     discount: float
     discount_type: str
     discount_value: float
-    loyalty_earned: float = 0.0
-    loyalty_redeemed: float = 0.0
     total: float
     payment_method: str
-    order_source: str = "in_store"
-    website_order_ref: str = ""
     notes: str
     return_reason: str
+    loyalty_earned: float = 0.0
+    loyalty_redeemed: float = 0.0
+    order_source: str = "in_store"
+    website_order_ref: str = ""
+    customer_id: Optional[int] = None
+    customer_name: str = ""
+    customer_phone: str = ""
 
 
 @dataclass

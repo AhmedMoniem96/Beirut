@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -21,6 +22,7 @@ from ...services.db import add_payment_method
 from ...services.settings import GallerySettings, load_gallery_settings, save_gallery_settings
 from ...services.demo_seed import seed_demo_data
 from beirut_pos.services import printer as printer_service
+from beirut_pos.services.texts import get as get_text
 
 
 class SettingsTab(QWidget):
@@ -36,16 +38,17 @@ class SettingsTab(QWidget):
 
         gallery_box = QGroupBox("Gallery Info (بيانات المعرض)")
         gallery_layout = QFormLayout(gallery_box)
+        self._form_layouts = [gallery_layout]
         self.name_en_input = QLineEdit()
         self.name_ar_input = QLineEdit()
         self.address_input = QLineEdit()
         self.phone_input = QLineEdit()
         self.logo_input = QLineEdit()
         self.font_input = QLineEdit()
-        self.rtl_check = QCheckBox("Enable RTL Layout (تفعيل الاتجاه العربي)")
+        self.rtl_check = QCheckBox(get_text("jewelry.settings.rtl_toggle"))
         self.website_name_input = QLineEdit()
         self.website_url_input = QLineEdit()
-        self.website_orders_check = QCheckBox("Website orders go through POS (طلبات الموقع تمر عبر الكاشير)")
+        self.website_orders_check = QCheckBox(get_text("jewelry.settings.website_orders_toggle"))
         logo_btn = QPushButton("Browse Logo (اختيار شعار)")
         logo_btn.clicked.connect(self._pick_logo)
         font_btn = QPushButton("Browse Arabic Font (خط عربي)")
@@ -69,6 +72,7 @@ class SettingsTab(QWidget):
 
         website_box = QGroupBox("Website Info (بيانات الموقع)")
         website_layout = QFormLayout(website_box)
+        self._form_layouts.append(website_layout)
         website_layout.addRow("Website Name:", self.website_name_input)
         website_layout.addRow("Website URL:", self.website_url_input)
         website_layout.addRow("", self.website_orders_check)
@@ -76,6 +80,7 @@ class SettingsTab(QWidget):
 
         printer_box = QGroupBox("Barcode Printing (طباعة الباركود)")
         printer_layout = QFormLayout(printer_box)
+        self._form_layouts.append(printer_layout)
         self.barcode_mode = QComboBox()
         self.barcode_mode.addItem("Export PDF (تصدير PDF)", "pdf")
         self.barcode_mode.addItem("Direct Print (طباعة مباشرة)", "direct")
@@ -95,6 +100,7 @@ class SettingsTab(QWidget):
 
         payment_box = QGroupBox("Payment Methods (طرق الدفع)")
         payment_layout = QFormLayout(payment_box)
+        self._form_layouts.append(payment_layout)
         self.payment_ar_input = QLineEdit()
         self.payment_en_input = QLineEdit()
         add_payment_btn = QPushButton("Add Method (إضافة)")
@@ -112,6 +118,19 @@ class SettingsTab(QWidget):
         layout.addWidget(demo_box)
 
         self._load_settings()
+        self._apply_rtl_layout()
+
+    def apply_rtl_layout(self, rtl_enabled: bool) -> None:
+        for form_layout in self._form_layouts:
+            form_layout.setLabelAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                if rtl_enabled
+                else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+
+    def _apply_rtl_layout(self) -> None:
+        settings = load_gallery_settings()
+        self.apply_rtl_layout(settings.rtl_enabled)
 
     def _load_settings(self) -> None:
         settings = load_gallery_settings()

@@ -48,6 +48,7 @@ from ...services.db import (
 from ...services.pdf_exports import GalleryInfo, export_invoice_pdf
 from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
+from beirut_pos.services.texts import get as get_text
 
 
 class InvoiceTab(QWidget):
@@ -84,12 +85,12 @@ class InvoiceTab(QWidget):
         left_layout.addWidget(self.invoice_info_label)
 
         form_box = QGroupBox("Invoice Info (بيانات الفاتورة)")
-        form_layout = QFormLayout(form_box)
-        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        form_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
-        form_layout.setHorizontalSpacing(12)
-        form_layout.setVerticalSpacing(8)
-        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self._form_layout = QFormLayout(form_box)
+        self._form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._form_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        self._form_layout.setHorizontalSpacing(12)
+        self._form_layout.setVerticalSpacing(8)
+        self._form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.cashier_input = QLineEdit()
         self.cashier_input.setReadOnly(True)
         self.txn_type_combo = QComboBox()
@@ -113,7 +114,7 @@ class InvoiceTab(QWidget):
         self.discount_input.setDecimals(2)
         self.discount_input.valueChanged.connect(self._recalculate_totals)
         self.customer_search_input = QLineEdit()
-        self.customer_search_input.setPlaceholderText("Search by phone or name...")
+        self.customer_search_input.setPlaceholderText(get_text("jewelry.customer.search_placeholder"))
         self.customer_search_input.textChanged.connect(self._queue_customer_search)
         self.customer_search_timer = QTimer(self)
         self.customer_search_timer.setSingleShot(True)
@@ -130,8 +131,8 @@ class InvoiceTab(QWidget):
         self.customer_dropdown.setMaximumHeight(160)
         self.customer_dropdown.itemClicked.connect(self._select_customer_from_dropdown)
         self.customer_dropdown.itemActivated.connect(self._select_customer_from_dropdown)
-        self.customer_no_results_label = QLabel("No matches found.")
-        self.customer_create_btn = QPushButton("Create new customer")
+        self.customer_no_results_label = QLabel(get_text("jewelry.customer.no_results"))
+        self.customer_create_btn = QPushButton(get_text("jewelry.customer.create_button"))
         self.customer_create_btn.clicked.connect(self._create_new_customer_from_search)
         dropdown_layout.addWidget(self.customer_dropdown)
         dropdown_layout.addWidget(self.customer_no_results_label)
@@ -172,26 +173,26 @@ class InvoiceTab(QWidget):
         self.return_reason_input.setEnabled(False)
         self.txn_type_combo.currentIndexChanged.connect(self._handle_txn_type_change)
 
-        form_layout.addRow("Cashier (الكاشير):", self.cashier_input)
-        form_layout.addRow("Transaction (العملية):", self.txn_type_combo)
-        form_layout.addRow("Payment Method (طريقة الدفع):", self.payment_combo)
-        form_layout.addRow("Order Source (مصدر الطلب):", self.order_source_combo)
-        form_layout.addRow(self.website_order_label, self.website_order_input)
-        form_layout.addRow("Discount Type (نوع الخصم):", self.discount_type_combo)
-        form_layout.addRow("Discount Value (قيمة الخصم):", self.discount_input)
-        form_layout.addRow("Customer Search (بحث العميل):", customer_search_container)
-        form_layout.addRow("Customer Name (العميل):", self.customer_name_input)
-        form_layout.addRow("Customer Phone (الهاتف):", self.customer_phone_input)
-        form_layout.addRow("Customer Email:", self.customer_email_input)
-        form_layout.addRow("Customer Notes:", self.customer_notes_input)
+        self._form_layout.addRow("Cashier (الكاشير):", self.cashier_input)
+        self._form_layout.addRow("Transaction (العملية):", self.txn_type_combo)
+        self._form_layout.addRow("Payment Method (طريقة الدفع):", self.payment_combo)
+        self._form_layout.addRow("Order Source (مصدر الطلب):", self.order_source_combo)
+        self._form_layout.addRow(self.website_order_label, self.website_order_input)
+        self._form_layout.addRow("Discount Type (نوع الخصم):", self.discount_type_combo)
+        self._form_layout.addRow("Discount Value (قيمة الخصم):", self.discount_input)
+        self._form_layout.addRow("Customer Search (بحث العميل):", customer_search_container)
+        self._form_layout.addRow("Customer Name (العميل):", self.customer_name_input)
+        self._form_layout.addRow("Customer Phone (الهاتف):", self.customer_phone_input)
+        self._form_layout.addRow("Customer Email:", self.customer_email_input)
+        self._form_layout.addRow("Customer Notes:", self.customer_notes_input)
         customer_actions = QHBoxLayout()
         customer_actions.addWidget(self.customer_save_btn)
-        form_layout.addRow("", customer_actions)
-        form_layout.addRow("Loyalty Balance (نقاط):", self.customer_points_label)
-        form_layout.addRow("Redeem Points (خصم نقاط):", self.loyalty_redeem_input)
-        form_layout.addRow("Points Earned (نقاط مكتسبة):", self.loyalty_earned_label)
-        form_layout.addRow("Notes (ملاحظات):", self.notes_input)
-        form_layout.addRow("Return Reason (سبب المرتجع):", self.return_reason_input)
+        self._form_layout.addRow("", customer_actions)
+        self._form_layout.addRow("Loyalty Balance (نقاط):", self.customer_points_label)
+        self._form_layout.addRow("Redeem Points (خصم نقاط):", self.loyalty_redeem_input)
+        self._form_layout.addRow("Points Earned (نقاط مكتسبة):", self.loyalty_earned_label)
+        self._form_layout.addRow("Notes (ملاحظات):", self.notes_input)
+        self._form_layout.addRow("Return Reason (سبب المرتجع):", self.return_reason_input)
         left_layout.addWidget(form_box)
 
         product_box = QGroupBox("Products (المنتجات)")
@@ -333,6 +334,8 @@ class InvoiceTab(QWidget):
         self._customer_id: Optional[str] = None
         self._customer_points: float = 0.0
         self._apply_invoice_styles()
+        self._customer_item_alignment = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        self.apply_rtl_layout(self._gallery_settings.rtl_enabled)
 
     def _initialize_cashier(self) -> None:
         user = get_current_user()
@@ -436,6 +439,20 @@ class InvoiceTab(QWidget):
             self.website_order_label.setVisible(True)
             self._handle_order_source_change()
 
+    def apply_rtl_layout(self, rtl_enabled: bool) -> None:
+        direction = Qt.LayoutDirection.RightToLeft if rtl_enabled else Qt.LayoutDirection.LeftToRight
+        alignment = (
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            if rtl_enabled
+            else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._form_layout.setLabelAlignment(alignment)
+        self.customer_search_input.setAlignment(alignment)
+        self.customer_dropdown_frame.setLayoutDirection(direction)
+        self.customer_dropdown.setLayoutDirection(direction)
+        self.customer_no_results_label.setAlignment(alignment)
+        self._customer_item_alignment = alignment
+
     def _handle_discount_type_change(self) -> None:
         if self._discount_type() == "percent":
             self.discount_input.setRange(0, 100)
@@ -477,6 +494,7 @@ class InvoiceTab(QWidget):
             for customer in results:
                 points = get_loyalty_balance(customer.phone)
                 item = QListWidgetItem(self._format_customer_option(customer, points))
+                item.setTextAlignment(self._customer_item_alignment)
                 item.setData(Qt.ItemDataRole.UserRole, customer)
                 item.setData(Qt.ItemDataRole.UserRole + 1, points)
                 self.customer_dropdown.addItem(item)
@@ -489,10 +507,21 @@ class InvoiceTab(QWidget):
         self._show_customer_dropdown()
 
     def _format_customer_option(self, customer, points: float) -> str:
-        base = f"{customer.name} • {customer.phone} • نقاط {points:.0f}"
+        points_label = get_text("jewelry.customer.points_label")
+        base = (
+            f"{self._isolate(customer.name)} • "
+            f"{self._isolate(customer.phone)} • "
+            f"{self._isolate(points_label)} {points:.0f}"
+        )
         if customer.email:
-            return f"{base} • {customer.email}"
+            return f"{base} • {self._isolate(customer.email)}"
         return base
+
+    @staticmethod
+    def _isolate(text: str) -> str:
+        if not text:
+            return ""
+        return f"\u2068{text}\u2069"
 
     def _select_customer_from_dropdown(self, item: QListWidgetItem) -> None:
         customer = item.data(Qt.ItemDataRole.UserRole)

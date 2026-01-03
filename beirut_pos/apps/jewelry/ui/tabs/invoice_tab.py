@@ -50,6 +50,7 @@ from ...services.settings import load_gallery_settings
 class InvoiceTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
+        self.setObjectName("jewelryInvoiceTab")
         self._last_invoice_no: Optional[str] = None
         self._products = []
         self._scan_buffer = ""
@@ -71,6 +72,11 @@ class InvoiceTab(QWidget):
 
         form_box = QGroupBox("Invoice Info (بيانات الفاتورة)")
         form_layout = QFormLayout(form_box)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        form_layout.setHorizontalSpacing(12)
+        form_layout.setVerticalSpacing(8)
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.cashier_input = QLineEdit()
         self.cashier_input.setReadOnly(True)
         self.txn_type_combo = QComboBox()
@@ -703,7 +709,7 @@ class InvoiceTab(QWidget):
     def _apply_invoice_styles(self) -> None:
         self.setStyleSheet(
             """
-            QGroupBox {
+            #jewelryInvoiceTab QGroupBox {
                 font-weight: 600;
                 border: 1px solid #d6ccc2;
                 border-radius: 10px;
@@ -711,33 +717,40 @@ class InvoiceTab(QWidget):
                 padding: 10px;
                 background: #fdfbf8;
             }
-            QGroupBox::title {
+            #jewelryInvoiceTab QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 4px;
             }
-            QTableWidget {
+            #jewelryInvoiceTab QTableWidget {
                 background: #ffffff;
                 border: 1px solid #e0d7cf;
                 border-radius: 8px;
                 gridline-color: #efe7df;
             }
-            QHeaderView::section {
+            #jewelryInvoiceTab QHeaderView::section {
                 background: #f3eee9;
                 padding: 6px;
                 border: none;
                 font-weight: 600;
             }
-            QPushButton#primaryButton {
+            #jewelryInvoiceTab QPushButton#primaryButton {
                 background: #c89a5b;
                 color: white;
                 padding: 8px 12px;
                 border-radius: 8px;
                 font-weight: 600;
             }
-            QPushButton {
-                padding: 6px 10px;
+            #jewelryInvoiceTab QPushButton {
+                padding: 6px 12px;
                 border-radius: 6px;
+                min-height: 30px;
+            }
+            #jewelryInvoiceTab QLabel {
+                padding: 2px 0;
+            }
+            #jewelryInvoiceTab QTableWidget::item {
+                padding: 4px;
             }
             """
         )

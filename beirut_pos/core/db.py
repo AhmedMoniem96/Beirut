@@ -115,6 +115,49 @@ def init_db() -> None:
     safe_migrations()
 
 
+def _ensure_customer_search_indexes(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customers_phone_nocase ON customers(phone COLLATE NOCASE)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customers_name_nocase ON customers(name COLLATE NOCASE)"
+    )
+    try:
+        cur.execute(
+            """CREATE VIRTUAL TABLE IF NOT EXISTS customers_fts
+               USING fts5(name, phone, email, content='customers', content_rowid='id')"""
+        )
+    except sqlite3.OperationalError:
+        return
+    cur.execute(
+        """CREATE TRIGGER IF NOT EXISTS customers_ai
+           AFTER INSERT ON customers
+           BEGIN
+             INSERT INTO customers_fts(rowid, name, phone, email)
+             VALUES (new.id, new.name, new.phone, new.email);
+           END"""
+    )
+    cur.execute(
+        """CREATE TRIGGER IF NOT EXISTS customers_ad
+           AFTER DELETE ON customers
+           BEGIN
+             INSERT INTO customers_fts(customers_fts, rowid, name, phone, email)
+             VALUES('delete', old.id, old.name, old.phone, old.email);
+           END"""
+    )
+    cur.execute(
+        """CREATE TRIGGER IF NOT EXISTS customers_au
+           AFTER UPDATE ON customers
+           BEGIN
+             INSERT INTO customers_fts(customers_fts, rowid, name, phone, email)
+             VALUES('delete', old.id, old.name, old.phone, old.email);
+             INSERT INTO customers_fts(rowid, name, phone, email)
+             VALUES (new.id, new.name, new.phone, new.email);
+           END"""
+    )
+    cur.execute("INSERT INTO customers_fts(customers_fts) VALUES('rebuild')")
+
+
 def safe_migrations() -> None:
     ensure_storage_dirs()
     first_time = not DB_PATH.exists()
@@ -149,6 +192,7 @@ def safe_migrations() -> None:
                 created_at TEXT NOT NULL
             )"""
     )
+    _ensure_customer_search_indexes(cur)
     cur.execute(
         """CREATE TABLE IF NOT EXISTS categories(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

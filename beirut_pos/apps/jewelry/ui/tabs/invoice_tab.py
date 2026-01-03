@@ -19,7 +19,10 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -52,6 +55,8 @@ class InvoiceTab(QWidget):
         QApplication.instance().installEventFilter(self)
 
         layout = QHBoxLayout(self)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(splitter)
         left_layout = QVBoxLayout()
         right_layout = QVBoxLayout()
         header = QLabel("New Invoice (فاتورة جديدة)")
@@ -78,7 +83,8 @@ class InvoiceTab(QWidget):
         self.discount_input.setDecimals(2)
         self.discount_input.valueChanged.connect(self._recalculate_totals)
         self.notes_input = QTextEdit()
-        self.notes_input.setFixedHeight(50)
+        self.notes_input.setMinimumHeight(80)
+        self.notes_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.return_reason_input = QLineEdit()
         self.return_reason_input.setPlaceholderText("Reason (سبب المرتجع)")
         self.return_reason_input.setEnabled(False)
@@ -138,8 +144,14 @@ class InvoiceTab(QWidget):
         btn_row.addWidget(self.remove_btn)
         items_layout.addLayout(btn_row)
         left_layout.addWidget(items_box)
+        left_layout.addStretch()
 
-        layout.addLayout(left_layout, stretch=3)
+        left_container = QWidget()
+        left_container.setLayout(left_layout)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setWidget(left_container)
+        splitter.addWidget(left_scroll)
 
         totals_box = QGroupBox("Summary (ملخص)")
         totals_layout = QVBoxLayout(totals_box)
@@ -158,7 +170,8 @@ class InvoiceTab(QWidget):
         self.calculator_display = QLineEdit("0")
         self.calculator_display.setReadOnly(True)
         self.calculator_display.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.calculator_display.setFixedHeight(32)
+        self.calculator_display.setMinimumHeight(32)
+        self.calculator_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         calculator_layout.addWidget(self.calculator_display)
         keypad_layout = QGridLayout()
         buttons = [
@@ -211,7 +224,11 @@ class InvoiceTab(QWidget):
         actions_layout.addWidget(self.clear_btn)
         right_layout.addLayout(actions_layout)
         right_layout.addStretch()
-        layout.addLayout(right_layout, stretch=1)
+        right_container = QWidget()
+        right_container.setLayout(right_layout)
+        splitter.addWidget(right_container)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 1)
 
         self._refresh_payment_methods()
         self.refresh_products()

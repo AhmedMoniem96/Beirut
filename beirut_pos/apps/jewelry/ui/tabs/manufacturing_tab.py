@@ -18,7 +18,10 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -73,7 +76,7 @@ class ManufacturingTab(QWidget):
 
     def _build_materials_tab(self) -> None:
         self.materials_tab = QWidget()
-        layout = QVBoxLayout(self.materials_tab)
+        tab_layout = QVBoxLayout(self.materials_tab)
 
         form_box = QGroupBox("Materials (الخامات)")
         form_layout = QFormLayout(form_box)
@@ -109,7 +112,6 @@ class ManufacturingTab(QWidget):
         button_row.addWidget(self.material_save_btn)
         button_row.addWidget(self.material_delete_btn)
         button_row.addWidget(self.material_clear_btn)
-        layout.addLayout(button_row)
 
         self.materials_table = QTableWidget(0, 7)
         self.materials_table.setHorizontalHeaderLabels(
@@ -119,7 +121,22 @@ class ManufacturingTab(QWidget):
         self.materials_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.materials_table.setAlternatingRowColors(True)
         self.materials_table.cellClicked.connect(self._load_material)
-        layout.addWidget(self.materials_table)
+        form_widget = QWidget()
+        form_layout_container = QVBoxLayout(form_widget)
+        form_layout_container.addWidget(form_box)
+        form_layout_container.addLayout(button_row)
+        form_layout_container.addStretch()
+
+        form_scroll = QScrollArea()
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setWidget(form_widget)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(form_scroll)
+        splitter.addWidget(self.materials_table)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        tab_layout.addWidget(splitter)
 
         self.tabs.addTab(self.materials_tab, "Materials (الخامات)")
 
@@ -127,7 +144,7 @@ class ManufacturingTab(QWidget):
 
     def _build_boms_tab(self) -> None:
         self.boms_tab = QWidget()
-        layout = QVBoxLayout(self.boms_tab)
+        tab_layout = QVBoxLayout(self.boms_tab)
 
         form_box = QGroupBox("BOM / Recipe (وصفة الإنتاج)")
         form_layout = QFormLayout(form_box)
@@ -177,7 +194,6 @@ class ManufacturingTab(QWidget):
         action_row.addWidget(self.bom_save_btn)
         action_row.addWidget(self.bom_delete_btn)
         action_row.addWidget(self.bom_clear_btn)
-        layout.addLayout(action_row)
 
         self.boms_table = QTableWidget(0, 3)
         self.boms_table.setHorizontalHeaderLabels(["Product", "Name", "Active"])
@@ -185,7 +201,23 @@ class ManufacturingTab(QWidget):
         self.boms_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.boms_table.setAlternatingRowColors(True)
         self.boms_table.cellClicked.connect(self._load_bom)
-        layout.addWidget(self.boms_table)
+        form_widget = QWidget()
+        form_layout_container = QVBoxLayout(form_widget)
+        form_layout_container.addWidget(form_box)
+        form_layout_container.addWidget(lines_box)
+        form_layout_container.addLayout(action_row)
+        form_layout_container.addStretch()
+
+        form_scroll = QScrollArea()
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setWidget(form_widget)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(form_scroll)
+        splitter.addWidget(self.boms_table)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        tab_layout.addWidget(splitter)
 
         self.tabs.addTab(self.boms_tab, "BOMs (الوصفات)")
 
@@ -193,7 +225,7 @@ class ManufacturingTab(QWidget):
 
     def _build_orders_tab(self) -> None:
         self.orders_tab = QWidget()
-        layout = QVBoxLayout(self.orders_tab)
+        tab_layout = QVBoxLayout(self.orders_tab)
 
         form_box = QGroupBox("Production Order (أمر إنتاج)")
         form_layout = QFormLayout(form_box)
@@ -211,7 +243,8 @@ class ManufacturingTab(QWidget):
         self.order_overhead_input.setRange(0, 999999)
         self.order_overhead_input.setDecimals(2)
         self.order_notes_input = QTextEdit()
-        self.order_notes_input.setFixedHeight(60)
+        self.order_notes_input.setMinimumHeight(90)
+        self.order_notes_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.order_bom_combo.currentIndexChanged.connect(self._refresh_shortages)
         self.order_product_combo.currentIndexChanged.connect(self._refresh_bom_combo)
         form_layout.addRow("Order No (رقم الأمر):", self.order_no_label)
@@ -221,10 +254,6 @@ class ManufacturingTab(QWidget):
         form_layout.addRow("Labor Cost (تكلفة العمالة):", self.order_labor_input)
         form_layout.addRow("Overhead Cost (تكلفة إضافية):", self.order_overhead_input)
         form_layout.addRow("Notes (ملاحظات):", self.order_notes_input)
-        layout.addWidget(form_box)
-
-        self.shortage_label = QLabel("")
-        layout.addWidget(self.shortage_label)
 
         action_row = QHBoxLayout()
         self.order_create_btn = QPushButton("Create Draft (إنشاء مسودة)")
@@ -236,7 +265,6 @@ class ManufacturingTab(QWidget):
         action_row.addWidget(self.order_create_btn)
         action_row.addWidget(self.order_confirm_btn)
         action_row.addWidget(self.order_done_btn)
-        layout.addLayout(action_row)
 
         self.orders_table = QTableWidget(0, 7)
         self.orders_table.setHorizontalHeaderLabels(
@@ -246,7 +274,24 @@ class ManufacturingTab(QWidget):
         self.orders_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.orders_table.setAlternatingRowColors(True)
         self.orders_table.cellClicked.connect(self._load_order)
-        layout.addWidget(self.orders_table)
+        self.shortage_label = QLabel("")
+        form_widget = QWidget()
+        form_layout_container = QVBoxLayout(form_widget)
+        form_layout_container.addWidget(form_box)
+        form_layout_container.addWidget(self.shortage_label)
+        form_layout_container.addLayout(action_row)
+        form_layout_container.addStretch()
+
+        form_scroll = QScrollArea()
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setWidget(form_widget)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(form_scroll)
+        splitter.addWidget(self.orders_table)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        tab_layout.addWidget(splitter)
 
         self.tabs.addTab(self.orders_tab, "Production Orders (أوامر الإنتاج)")
 
@@ -254,7 +299,13 @@ class ManufacturingTab(QWidget):
 
     def _build_reports_tab(self) -> None:
         self.reports_tab = QWidget()
-        layout = QVBoxLayout(self.reports_tab)
+        tab_layout = QVBoxLayout(self.reports_tab)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        tab_layout.addWidget(scroll_area)
+        content = QWidget()
+        scroll_area.setWidget(content)
+        layout = QVBoxLayout(content)
 
         history_box = QGroupBox("Production History (سجل الإنتاج)")
         history_layout = QVBoxLayout(history_box)
@@ -290,7 +341,6 @@ class ManufacturingTab(QWidget):
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.history_table.setAlternatingRowColors(True)
         history_layout.addWidget(self.history_table)
-        layout.addWidget(history_box)
 
         usage_box = QGroupBox("Material Usage (استهلاك الخامات)")
         usage_layout = QVBoxLayout(usage_box)
@@ -316,7 +366,13 @@ class ManufacturingTab(QWidget):
         self.usage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.usage_table.setAlternatingRowColors(True)
         usage_layout.addWidget(self.usage_table)
-        layout.addWidget(usage_box)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(history_box)
+        splitter.addWidget(usage_box)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        layout.addWidget(splitter)
 
         self.tabs.addTab(self.reports_tab, "Manufacturing Reports (تقارير)")
 

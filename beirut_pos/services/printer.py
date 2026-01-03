@@ -213,7 +213,15 @@ def _fit_line_for_col(text: str, col_px: int) -> str:
 
 
 # ===================================================== header/meta (receipt)
-def _build_receipt_header_meta(table_code: str, cashier: str, method: str | None = None) -> List[str]:
+def _build_receipt_header_meta(
+    table_code: str,
+    cashier: str,
+    method: str | None = None,
+    *,
+    customer_name: str | None = None,
+    loyalty_balance: int | None = None,
+    loyalty_delta: int | None = None,
+) -> List[str]:
     ts = datetime.now().strftime("%Y/%m/%d %I:%M %p")
     client_name = settings_service.get_client_name()
     box_width = 30
@@ -259,6 +267,16 @@ def _build_receipt_header_meta(table_code: str, cashier: str, method: str | None
         method_line = texts_service.get("receipt.cashier.method", method=method_clean).strip()
         if method_line:
             lines.append(">>R " + method_line)
+
+    customer_clean = (customer_name or "").strip()
+    if customer_clean:
+        lines.append(f">>R العميل: {customer_clean}")
+    if loyalty_balance is not None:
+        delta_segment = ""
+        if loyalty_delta not in (None, 0):
+            sign = "+" if loyalty_delta > 0 else ""
+            delta_segment = f" ({sign}{int(loyalty_delta)})"
+        lines.append(f">>R نقاط الولاء: {int(loyalty_balance)}{delta_segment}")
 
     lines.append(_draw_line("═"))
     return lines
@@ -669,8 +687,18 @@ def _print_escpos_receipt(
     service: int | float | None = None,
     tax: int | float | None = None,
     discount_label: str | None = None,
+    customer_name: str | None = None,
+    loyalty_balance: int | None = None,
+    loyalty_delta: int | None = None,
 ) -> None:
-    head = _build_receipt_header_meta(table_code, cashier, method)
+    head = _build_receipt_header_meta(
+        table_code,
+        cashier,
+        method,
+        customer_name=customer_name,
+        loyalty_balance=loyalty_balance,
+        loyalty_delta=loyalty_delta,
+    )
     _emit_lines_to_printer(printer, head)
 
     headers, rows, calc_sub, total_qty = _build_items_table(items)
@@ -893,9 +921,19 @@ class PrinterService:
         tax: int | None = None,
         *,
         discount_label: str | None = None,
+        customer_name: str | None = None,
+        loyalty_balance: int | None = None,
+        loyalty_delta: int | None = None,
     ) -> bool:
         data = _collapse_items(items)
-        head = _build_receipt_header_meta(table_code, cashier, method)
+        head = _build_receipt_header_meta(
+            table_code,
+            cashier,
+            method,
+            customer_name=customer_name,
+            loyalty_balance=loyalty_balance,
+            loyalty_delta=loyalty_delta,
+        )
         headers, rows, calc_sub, total_qty = _build_items_table(data)
         tail_lines = _build_receipt_footer_lines(
             subtotal,
@@ -938,6 +976,9 @@ class PrinterService:
                 service=service,
                 tax=tax,
                 discount_label=discount_label,
+                customer_name=customer_name,
+                loyalty_balance=loyalty_balance,
+                loyalty_delta=loyalty_delta,
             )
         return True
 

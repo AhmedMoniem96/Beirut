@@ -19,6 +19,7 @@ from ..core.db import (
     setting_get,
     setting_set,
 )
+from . import customers as customers_service
 from ..texts import texts
 import logging
 
@@ -1132,6 +1133,7 @@ class Order:
     status: str = "open"  # open/paid/void
     opened_by: str = ""
     client_name: str = ""
+    customer_id: int | None = None
     discount_type: str = "amount"
     discount_value: float = 0.0
     discount_reason: str = ""
@@ -1186,7 +1188,14 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
 
 
 class OrderManager:
-    __slots__ = ("catalog", "orders", "ps_sessions", "table_codes", "table_clients")
+    __slots__ = (
+        "catalog",
+        "orders",
+        "ps_sessions",
+        "table_codes",
+        "table_clients",
+        "table_customers",
+    )
 
     def __init__(self):
         self.catalog = ProductCatalog()
@@ -1194,6 +1203,7 @@ class OrderManager:
         self.ps_sessions: Dict[str, PSSession] = {}  # table_code -> session
         self.table_codes: List[str] = _load_table_codes()
         self.table_clients: Dict[str, str] = {}
+        self.table_customers: Dict[str, int] = {}
         self._load_open_orders()
         self._load_ps_sessions()
         self._load_table_clients()
@@ -1212,6 +1222,7 @@ class OrderManager:
         cur.execute(
             """SELECT id, table_code, status, opened_by,
                       COALESCE(client_name, '')        AS client_name,
+                      customer_id,
                       COALESCE(discount_type, 'amount') AS discount_type,
                       COALESCE(discount_value, 0)      AS discount_value,
                       COALESCE(discount_reason, '')    AS discount_reason,
@@ -1226,6 +1237,7 @@ class OrderManager:
                 status=o["status"],
                 opened_by=o["opened_by"],
                 client_name=o["client_name"] or "",
+                customer_id=o["customer_id"],
                 discount_type=(o["discount_type"] or "amount"),
                 discount_value=float(o["discount_value"] or 0),
                 discount_reason=o["discount_reason"] or "",
@@ -1234,6 +1246,8 @@ class OrderManager:
                     o["editable_until"] if "editable_until" in o.keys() else None
                 ),
             )
+            if o["customer_id"] is not None:
+                self.table_customers[order.table_code] = int(o["customer_id"])
             cur.execute(
                 """
                 SELECT
@@ -1342,6 +1356,7 @@ class OrderManager:
                 status="open",
                 opened_by=order_row.get("opened_by", "") if order_row else "",
                 client_name=(order_row.get("client_name", "") if order_row else ""),
+                customer_id=(order_row.get("customer_id") if order_row else None),
                 discount_type="amount",
                 discount_value=0.0,
                 discount_reason="",
@@ -1351,6 +1366,8 @@ class OrderManager:
 
             # put in-memory map & emit events so UI updates immediately
             self.orders[table_code] = order
+            if order.customer_id:
+                self.table_customers[table_code] = int(order.customer_id)
             try:
                 bus.emit("table_state_changed", table_code, "occupied")
                 # emit total in cents computed from items (UI expects numeric cents)
@@ -1451,11 +1468,58 @@ class OrderManager:
         except Exception:
             pass
 
+    def _apply_customer(self, code: str, customer_id: int | None) -> None:
+        normalized = (code or "").strip().upper()
+        if not normalized:
+            return
+        if customer_id is not None:
+            self.table_customers[normalized] = int(customer_id)
+        else:
+            self.table_customers.pop(normalized, None)
+        order = self.orders.get(normalized)
+        if order:
+            order.customer_id = customer_id
+
     def get_client_name(self, table_code: str) -> str:
         return self.table_clients.get((table_code or "").strip().upper(), "")
 
     def list_client_names(self) -> Dict[str, str]:
         return dict(self.table_clients)
+
+    def get_customer_id(self, table_code: str) -> int | None:
+        code = (table_code or "").strip().upper()
+        if not code:
+            return None
+        order = self.orders.get(code)
+        if order and order.customer_id is not None:
+            return order.customer_id
+        return self.table_customers.get(code)
+
+    def get_customer_profile(self, table_code: str) -> dict | None:
+        customer_id = self.get_customer_id(table_code)
+        if not customer_id:
+            return None
+        return customers_service.get_customer(customer_id)
+
+    def get_loyalty_balance(self, table_code: str) -> int | None:
+        customer_id = self.get_customer_id(table_code)
+        if not customer_id:
+            return None
+        return customers_service.get_loyalty_balance(customer_id)
+
+    def get_loyalty_receipt_info(self, table_code: str) -> dict:
+        order = self.orders.get((table_code or "").strip().upper())
+        if not order or not order.customer_id:
+            return {}
+        customer = customers_service.get_customer(order.customer_id)
+        customer_name = (customer or {}).get("name") or ""
+        loyalty_balance = customers_service.get_loyalty_balance(order.customer_id)
+        loyalty_delta = customers_service.compute_accrual_points(order.total_cents)
+        return {
+            "customer_name": customer_name,
+            "loyalty_balance": loyalty_balance,
+            "loyalty_delta": loyalty_delta,
+        }
 
     def set_client_name(self, table_code: str, client_name: str, *, actor: str = "system") -> str:
         code = (table_code or "").strip().upper()
@@ -1475,6 +1539,37 @@ class OrderManager:
             except Exception:
                 pass
         return name
+
+    def set_customer(self, table_code: str, customer_id: int | None, *, actor: str = "system") -> bool:
+        code = (table_code or "").strip().upper()
+        if not code:
+            return False
+        customer_name = ""
+        if customer_id is not None:
+            customer = customers_service.get_customer(int(customer_id))
+            if not customer:
+                return False
+            customer_name = customer.get("name") or ""
+        with db_transaction() as conn:
+            self._write_client_name(conn, code, customer_name)
+            if customer_id is not None:
+                conn.execute(
+                    "UPDATE orders SET customer_id=?, client_name=? WHERE table_code=? AND status='open'",
+                    (int(customer_id), customer_name, code),
+                )
+            else:
+                conn.execute(
+                    "UPDATE orders SET customer_id=NULL, client_name=? WHERE table_code=? AND status='open'",
+                    (customer_name, code),
+                )
+        self._apply_client_name(code, customer_name)
+        self._apply_customer(code, customer_id)
+        if customer_id is not None:
+            try:
+                log_action(actor, "order_customer_set", "order", code, None, str(customer_id))
+            except Exception:
+                pass
+        return True
 
     def _sync_open_tables(self) -> None:
         missing = [code for code in self.orders.keys() if code not in self.table_codes]
@@ -1550,15 +1645,17 @@ class OrderManager:
             if isinstance(opened_at, datetime)
             else datetime.utcnow().isoformat()
         )
+        customer_id = self.table_customers.get(table_code)
         cur.execute(
-            """INSERT INTO orders(table_code, opened_at, status, opened_by, client_name)
-               VALUES(?,?,?,?,?)""",
+            """INSERT INTO orders(table_code, opened_at, status, opened_by, client_name, customer_id)
+               VALUES(?,?,?,?,?,?)""",
             (
                 table_code,
                 opened_iso,
                 "open",
                 opened_by,
                 self.table_clients.get(table_code, ""),
+                customer_id,
             ),
         )
         order = Order(
@@ -1566,6 +1663,7 @@ class OrderManager:
             table_code=table_code,
             opened_by=opened_by,
             client_name=self.table_clients.get(table_code, ""),
+            customer_id=customer_id,
         )
         self.orders[table_code] = order
         return order, True
@@ -1951,6 +2049,7 @@ class OrderManager:
                     cur.execute("UPDATE ps_sessions SET table_code=? WHERE table_code=?", (dst, src))
                     self.ps_sessions[dst] = ps_sess
                 client_name = self.table_clients.get(src, "")
+                customer_id = self.table_customers.get(src)
                 self._write_client_name(conn, src, "")
                 self._write_client_name(conn, dst, client_name)
 
@@ -1961,6 +2060,8 @@ class OrderManager:
             client_name = self.table_clients.get(src, "")
             self._apply_client_name(src, "")
             self._apply_client_name(dst, client_name)
+            self._apply_customer(src, None)
+            self._apply_customer(dst, customer_id)
 
             # Ensure dest in table_codes
             if dst not in self.table_codes:
@@ -2042,6 +2143,14 @@ class OrderManager:
             # Perform merge in database transaction
             target_name = self.table_clients.get(target, "")
             source_name = self.table_clients.get(source, "")
+            target_customer_id = primary.customer_id
+            source_customer_id = secondary.customer_id
+            chosen_customer_id = target_customer_id or source_customer_id
+            chosen_name = target_name or source_name
+            if chosen_customer_id:
+                customer = customers_service.get_customer(chosen_customer_id)
+                if customer and customer.get("name"):
+                    chosen_name = customer["name"]
             try:
                 with db_transaction() as conn:
                     cur = conn.cursor()
@@ -2083,9 +2192,18 @@ class OrderManager:
                         "UPDATE orders SET status='void', closed_at=?, closed_by=? WHERE id=?",
                         (datetime.utcnow().isoformat(), username, secondary.id),
                     )
-                    chosen_name = target_name or source_name
                     self._write_client_name(conn, source, "")
                     self._write_client_name(conn, target, chosen_name)
+                    if chosen_customer_id:
+                        cur.execute(
+                            "UPDATE orders SET customer_id=?, client_name=? WHERE id=?",
+                            (chosen_customer_id, chosen_name, primary.id),
+                        )
+                    else:
+                        cur.execute(
+                            "UPDATE orders SET customer_id=NULL, client_name=? WHERE id=?",
+                            (chosen_name, primary.id),
+                        )
 
             except Exception as e:
                 logger.error(f"Database error during merge {source}->{target}: {e}")
@@ -2097,13 +2215,15 @@ class OrderManager:
                 primary.discount_type = "amount"
                 primary.discount_value = float(merged_disc)
                 primary.discount_reason = ""
+                primary.customer_id = chosen_customer_id
 
                 secondary.items = []
                 secondary.status = "void"
                 self.orders.pop(source, None)
-                chosen_name = target_name or source_name
                 self._apply_client_name(source, "")
                 self._apply_client_name(target, chosen_name)
+                self._apply_customer(source, None)
+                self._apply_customer(target, chosen_customer_id)
             except Exception as e:
                 logger.error(f"Error updating in-memory state: {e}")
                 # Database is already updated, so continue
@@ -2252,6 +2372,7 @@ class OrderManager:
 
         self.orders.pop(table_code, None)
         self._apply_client_name(table_code, "")
+        self._apply_customer(table_code, None)
 
         if emit_events:
             bus.emit("table_state_changed", table_code, "free")
@@ -2337,6 +2458,7 @@ class OrderManager:
         self.orders.pop(code, None)
         self.ps_sessions.pop(code, None)
         self._apply_client_name(code, "")
+        self._apply_customer(code, None)
 
         if refresh_catalog:
             bus.emit("catalog_changed")
@@ -2697,12 +2819,22 @@ class OrderManager:
 
         # Capture receipt data after PS billing and before the order is cleared
         subtotal, discount, total, label_key = self.get_totals(table_code)
+        customer_name = ""
+        loyalty_balance: int | None = None
+        loyalty_delta = 0
+        if o.customer_id:
+            customer = customers_service.get_customer(o.customer_id)
+            customer_name = (customer or {}).get("name") or ""
+            loyalty_delta = customers_service.compute_accrual_points(o.total_cents)
         receipt_data = {
             "items": list(o.items),
             "subtotal": subtotal,
             "discount": discount,
             "total": total,
             "label_key": label_key,
+            "customer_name": customer_name,
+            "loyalty_balance": loyalty_balance,
+            "loyalty_delta": loyalty_delta,
         }
 
         amount = o.total_cents
@@ -2723,12 +2855,24 @@ class OrderManager:
                    WHERE id=?""",
                 (paid_at, cashier, paid_at, editable_until, o.id),
             )
+            if o.customer_id:
+                if loyalty_delta:
+                    customers_service.record_loyalty_entry(
+                        o.customer_id,
+                        loyalty_delta,
+                        reason=f"Order #{o.id}",
+                        order_id=o.id,
+                        conn=conn,
+                    )
+                loyalty_balance = customers_service.get_loyalty_balance(o.customer_id, conn=conn)
             self._write_client_name(conn, table_code, "")
 
         # Clear in-memory + update UI
         o.status = "paid"
         self.orders.pop(table_code, None)
         self._apply_client_name(table_code, "")
+        self._apply_customer(table_code, None)
+        receipt_data["loyalty_balance"] = loyalty_balance
         bus.emit("table_state_changed", table_code, "free")
         bus.emit("table_total_changed", table_code, 0)
         bus.emit("ps_state_changed", table_code, False)

@@ -170,6 +170,8 @@ class InvoiceTab(QWidget):
         self.customer_name_input.textChanged.connect(self._clear_customer_selection)
         self.customer_phone_input.textChanged.connect(self._clear_customer_selection)
         self.customer_email_input.textChanged.connect(self._clear_customer_selection)
+        self.customer_name_input.textChanged.connect(self._update_validation_state)
+        self.customer_phone_input.textChanged.connect(self._update_validation_state)
         self.loyalty_redeem_input = QDoubleSpinBox()
         self.loyalty_redeem_input.setDecimals(2)
         self.loyalty_redeem_input.setRange(0, 999999)
@@ -298,15 +300,24 @@ class InvoiceTab(QWidget):
 
         totals_box = QGroupBox("Summary (ملخص)")
         totals_layout = QVBoxLayout(totals_box)
+        self.total_label = QLabel("Net Total: 0.00")
+        self.total_label.setObjectName("netTotalLabel")
+        totals_layout.addWidget(self.total_label)
+        breakdown_title = QLabel("Breakdown")
+        breakdown_title.setObjectName("summarySectionTitle")
+        totals_layout.addWidget(breakdown_title)
+        breakdown_frame = QFrame()
+        breakdown_layout = QVBoxLayout(breakdown_frame)
+        breakdown_layout.setContentsMargins(12, 0, 0, 0)
+        breakdown_layout.setSpacing(4)
         self.subtotal_label = QLabel("Subtotal: 0.00")
         self.discount_summary_label = QLabel("Discount: 0.00")
         self.loyalty_summary_label = QLabel("Loyalty Redeem: 0.00")
-        self.total_label = QLabel("Net Total: 0.00")
+        breakdown_layout.addWidget(self.subtotal_label)
+        breakdown_layout.addWidget(self.discount_summary_label)
+        breakdown_layout.addWidget(self.loyalty_summary_label)
+        totals_layout.addWidget(breakdown_frame)
         self.payment_label = QLabel("Payment: -")
-        totals_layout.addWidget(self.subtotal_label)
-        totals_layout.addWidget(self.discount_summary_label)
-        totals_layout.addWidget(self.loyalty_summary_label)
-        totals_layout.addWidget(self.total_label)
         totals_layout.addWidget(self.payment_label)
         right_layout.addWidget(totals_box)
 
@@ -357,6 +368,10 @@ class InvoiceTab(QWidget):
         self.save_btn = QPushButton("Save Invoice (حفظ الفاتورة)")
         self.save_btn.setObjectName("primaryButton")
         self.save_btn.clicked.connect(self._save_invoice)
+        self.validation_label = QLabel("")
+        self.validation_label.setObjectName("validationLabel")
+        self.validation_label.setWordWrap(True)
+        self.validation_label.setVisible(False)
         self.export_btn = QPushButton("Export PDF (تصدير PDF)")
         self.export_btn.clicked.connect(self._export_invoice_pdf)
         self.print_btn = QPushButton("Print (طباعة)")
@@ -364,6 +379,7 @@ class InvoiceTab(QWidget):
         self.clear_btn = QPushButton("New Invoice (فاتورة جديدة)")
         self.clear_btn.clicked.connect(self._clear_invoice)
         actions_layout.addWidget(self.save_btn)
+        actions_layout.addWidget(self.validation_label)
         actions_layout.addWidget(self.export_btn)
         actions_layout.addWidget(self.print_btn)
         actions_layout.addWidget(self.clear_btn)
@@ -472,6 +488,7 @@ class InvoiceTab(QWidget):
         if is_return:
             self.loyalty_redeem_input.setValue(0.0)
         self._refresh_summary_labels()
+        self._update_validation_state()
 
     def _handle_order_source_change(self) -> None:
         if self._website_orders_enabled:
@@ -706,12 +723,29 @@ class InvoiceTab(QWidget):
         earned = 0 if self.txn_type_combo.currentIndex() == 1 else int(total)
         self.loyalty_earned_label.setText(f"{earned}")
         self._refresh_summary_labels()
+        self._update_validation_state()
 
     def _calculate_subtotal(self) -> float:
         subtotal = 0.0
         for row in range(self.items_table.rowCount()):
             subtotal += float(self.items_table.item(row, self.ITEM_COL_LINE_TOTAL).text())
         return subtotal
+
+    def _validation_message(self) -> str:
+        if self.items_table.rowCount() == 0:
+            return "Add at least 1 product."
+        customer_name = self.customer_name_input.text().strip()
+        customer_phone = self.customer_phone_input.text().strip()
+        if (customer_name or customer_phone) and not (customer_name and customer_phone):
+            return "Enter customer name and phone."
+        return ""
+
+    def _update_validation_state(self) -> None:
+        message = self._validation_message()
+        has_error = bool(message)
+        self.save_btn.setEnabled(not has_error)
+        self.validation_label.setVisible(has_error)
+        self.validation_label.setText(message)
 
     def _collect_items(self) -> List[JewelryInvoiceItem]:
         items = []
@@ -911,6 +945,7 @@ class InvoiceTab(QWidget):
         self.invoice_info_label.setText("Invoice No: Auto | رقم الفاتورة: تلقائي")
         self._apply_website_order_settings()
         self._recalculate_totals()
+        self._update_validation_state()
 
     def _add_product_to_invoice(self, product, qty: float) -> None:
         for row in range(self.items_table.rowCount()):
@@ -1079,6 +1114,21 @@ class InvoiceTab(QWidget):
                 padding: 6px 12px;
                 border-radius: 6px;
                 min-height: 30px;
+            }
+            #jewelryInvoiceTab QLabel#netTotalLabel {
+                font-size: 22px;
+                font-weight: 700;
+                color: #4b3a2a;
+            }
+            #jewelryInvoiceTab QLabel#summarySectionTitle {
+                font-size: 12px;
+                font-weight: 600;
+                color: #7a6a58;
+            }
+            #jewelryInvoiceTab QLabel#validationLabel {
+                color: #b42318;
+                font-weight: 600;
+                padding: 4px 0;
             }
             #jewelryInvoiceTab QLabel {
                 padding: 2px 0;

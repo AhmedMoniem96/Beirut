@@ -369,6 +369,7 @@ def _migrate_customer_tables(cur) -> None:
                WHERE phone IS NOT NULL AND TRIM(phone) != ''"""
         )
     if needs_customer_migration:
+        cur.execute("DROP TABLE IF EXISTS jw_customers_new")
         cur.execute(
             """CREATE TABLE jw_customers_new(
                 phone TEXT NOT NULL PRIMARY KEY,

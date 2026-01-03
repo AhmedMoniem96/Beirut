@@ -9,12 +9,18 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Tuple
 
+from beirut_pos.core.config_store import get_config_value
 from beirut_pos.core.db import get_conn
 
 from .session import SessionUser
 
 
 PBKDF2_ITERATIONS = 120_000
+ADMIN_ROLE = "Admin"
+
+
+class UsernameExistsError(Exception):
+    """Raised when attempting to create a user with an existing username."""
 
 
 @dataclass(frozen=True)
@@ -101,6 +107,103 @@ def authenticate_user(username: str, password: str) -> AuthResult:
         ),
         "",
     )
+
+
+def create_user(
+    username: str,
+    password: str,
+    *,
+    full_name: str,
+    role: str = "Cashier",
+    is_active: bool = True,
+) -> SessionUser:
+    username = username.strip()
+    if not username:
+        raise ValueError("Username is required.")
+
+    password = password.strip()
+    if not password:
+        raise ValueError("Password is required.")
+
+    full_name = full_name.strip()
+    if not full_name:
+        raise ValueError("Full name is required.")
+
+    role = role.strip() if role else "Cashier"
+    if role not in {"Admin", "Cashier"}:
+        raise ValueError("Role must be Admin or Cashier.")
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM jw_users WHERE username = ?", (username,))
+    if cur.fetchone():
+        conn.close()
+        raise UsernameExistsError(f"Username '{username}' already exists.")
+
+    now = datetime.now().isoformat(timespec="seconds")
+    password_hash = hash_password(password)
+    cur.execute(
+        """INSERT INTO jw_users
+           (username, password_hash, full_name, role, is_active, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (username, password_hash, full_name, role, 1 if is_active else 0, now),
+    )
+    user_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return SessionUser(
+        id=user_id,
+        username=username,
+        full_name=full_name,
+        role=role,
+    )
+
+
+def reset_password(
+    username: str,
+    new_password: str,
+    *,
+    admin_username: str = "",
+    admin_password: str = "",
+    secret_key: str = "",
+) -> Tuple[bool, str]:
+    username = username.strip()
+    if not username:
+        return False, "Enter the username to reset."
+
+    new_password = new_password.strip()
+    if not new_password:
+        return False, "Enter a new password."
+
+    secret_key = secret_key.strip()
+    if secret_key:
+        expected = str(get_config_value("jw_admin_secret_key", "")).strip()
+        if not expected or secret_key != expected:
+            return False, "Secret key is invalid."
+    else:
+        admin_username = admin_username.strip()
+        admin_password = admin_password.strip()
+        if not admin_username or not admin_password:
+            return False, "Admin credentials or a secret key are required."
+        admin_result = authenticate_user(admin_username, admin_password)
+        if not admin_result.user or admin_result.user.role != ADMIN_ROLE:
+            return False, "Admin credentials are invalid."
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM jw_users WHERE username = ?", (username,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return False, "User not found."
+    password_hash = hash_password(new_password)
+    cur.execute(
+        "UPDATE jw_users SET password_hash = ? WHERE username = ?",
+        (password_hash, username),
+    )
+    conn.commit()
+    conn.close()
+    return True, "Password updated successfully."
 
 
 def hash_password(password: str, *, salt: Optional[bytes] = None) -> str:

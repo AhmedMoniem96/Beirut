@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, time
 from typing import Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import QDate
+from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtWidgets import (
     QDateEdit,
     QDateTimeEdit,

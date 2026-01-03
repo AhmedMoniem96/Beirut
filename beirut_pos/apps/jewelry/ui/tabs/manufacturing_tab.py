@@ -100,8 +100,6 @@ class ManufacturingTab(QWidget):
         form_layout.addRow("Unit (الوحدة):", self.material_unit)
         form_layout.addRow("Min Qty (الحد الأدنى):", self.material_min_qty)
         form_layout.addRow("Cost/Unit (تكلفة الوحدة):", self.material_cost)
-        layout.addWidget(form_box)
-
         button_row = QHBoxLayout()
         self.material_save_btn = QPushButton("Save Material (حفظ خامة)")
         self.material_delete_btn = QPushButton("Delete (حذف)")
@@ -154,8 +152,6 @@ class ManufacturingTab(QWidget):
         form_layout.addRow("Product (المنتج):", self.bom_product_combo)
         form_layout.addRow("BOM Name (اسم الوصفة):", self.bom_name_input)
         form_layout.addRow("", self.bom_active_check)
-        layout.addWidget(form_box)
-
         lines_box = QGroupBox("Materials Lines (مكونات الخامة)")
         lines_layout = QVBoxLayout(lines_box)
         add_line_layout = QHBoxLayout()
@@ -182,8 +178,6 @@ class ManufacturingTab(QWidget):
         remove_line_btn = QPushButton("Remove Line (حذف السطر)")
         remove_line_btn.clicked.connect(self._remove_bom_line)
         lines_layout.addWidget(remove_line_btn)
-        layout.addWidget(lines_box)
-
         action_row = QHBoxLayout()
         self.bom_save_btn = QPushButton("Save BOM (حفظ الوصفة)")
         self.bom_delete_btn = QPushButton("Delete BOM (حذف الوصفة)")

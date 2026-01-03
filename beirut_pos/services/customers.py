@@ -167,3 +167,75 @@ def get_loyalty_balance(customer_id: int, *, conn=None) -> int:
 
 def compute_accrual_points(total_cents: int) -> int:
     return max(int(total_cents) // 100, 0)
+
+
+def _fts_enabled(cur) -> bool:
+    cur.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='customers_fts' LIMIT 1"
+    )
+    return cur.fetchone() is not None
+
+
+def _fts_query(term: str) -> str:
+    sanitized = re.sub(r"[\"']", " ", term).strip()
+    tokens = [token for token in re.split(r"\s+", sanitized) if token]
+    if not tokens:
+        return ""
+    return " ".join(f"{token}*" for token in tokens)
+
+
+def search_customers(term: str, limit: int = 8) -> list[dict[str, Any]]:
+    cleaned = (term or "").strip()
+    if not cleaned:
+        return []
+    limit = max(int(limit or 0), 1)
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        if _fts_enabled(cur):
+            match = _fts_query(cleaned)
+            if not match:
+                return []
+            cur.execute(
+                """
+                SELECT c.id,
+                       c.name,
+                       c.phone,
+                       c.email,
+                       COALESCE(
+                           (SELECT SUM(delta_points) FROM loyalty_ledger WHERE customer_id=c.id),
+                           0
+                       ) AS loyalty_points
+                  FROM customers_fts f
+                  JOIN customers c ON c.id = f.rowid
+                 WHERE customers_fts MATCH ?
+                 ORDER BY bm25(customers_fts)
+                 LIMIT ?
+                """,
+                (match, limit),
+            )
+        else:
+            like = f"%{cleaned}%"
+            cur.execute(
+                """
+                SELECT c.id,
+                       c.name,
+                       c.phone,
+                       c.email,
+                       COALESCE(
+                           (SELECT SUM(delta_points) FROM loyalty_ledger WHERE customer_id=c.id),
+                           0
+                       ) AS loyalty_points
+                  FROM customers c
+                 WHERE c.name LIKE ? COLLATE NOCASE
+                    OR c.phone LIKE ? COLLATE NOCASE
+                    OR c.email LIKE ? COLLATE NOCASE
+                 ORDER BY c.name COLLATE NOCASE
+                 LIMIT ?
+                """,
+                (like, like, like, limit),
+            )
+        rows = cur.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()

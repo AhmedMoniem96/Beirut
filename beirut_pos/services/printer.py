@@ -475,21 +475,31 @@ def _post_feed_and_cut(printer) -> None:
         _log_printer_error("Post-feed/cut failed", e)
 
 
-def _emit_lines_to_printer(printer, lines: Sequence[str]) -> None:
-    if hasattr(printer, "print_lines"):
-        printer.print_lines(list(lines))
-        return
-    for ln in lines:
-        printer.text(ln + "\n")
+def _emit_lines_to_printer(printer, lines: Sequence[str]) -> bool:
+    try:
+        if hasattr(printer, "print_lines"):
+            printer.print_lines(list(lines))
+            return True
+        for ln in lines:
+            printer.text(ln + "\n")
+        return True
+    except Exception as exc:
+        _log_printer_error("Print failed", exc)
+        return False
 
 
-def _print_escpos_lines(printer, lines: Sequence[str]) -> None:
+def _print_escpos_lines(printer, lines: Sequence[str]) -> bool:
+    ok = True
     try:
         _setup_printer_arabic(printer)
     except Exception as e:
         _log_printer_error("Init wrapper failed", e)
-    _emit_lines_to_printer(printer, lines)
-    _post_feed_and_cut(printer)
+        ok = False
+    if not _emit_lines_to_printer(printer, lines):
+        ok = False
+    if ok:
+        _post_feed_and_cut(printer)
+    return ok
 
 
 # =================================== RENDER HELPERS (Windows raster path)

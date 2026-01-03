@@ -113,6 +113,7 @@ USB_PRINTER_IDS = [
     (0x04B8, 0x0202),
     (0x04B8, 0x0E15),
     (0x067B, 0x2305),
+    (0x0FE6, 0x811E),  # Rongta RP310
 ]
 
 # Keep in sync with bitmap renderer

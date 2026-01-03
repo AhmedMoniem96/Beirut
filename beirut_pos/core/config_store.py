@@ -8,6 +8,7 @@ from threading import RLock
 from typing import Any, Dict
 
 from .paths import SETTINGS_FILE, ensure_storage_dirs
+from ..utils.error_handling import report_exception
 
 _LOCK = RLock()
 _DEFAULT_CONFIG: Dict[str, Any] = {
@@ -26,9 +27,17 @@ def _ensure_file_exists() -> None:
 def _atomic_write_json(payload: Dict[str, Any]) -> None:
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = SETTINGS_FILE.with_suffix(".tmp")
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False, indent=2, sort_keys=True)
-    os.replace(tmp_path, SETTINGS_FILE)
+    try:
+        with tmp_path.open("w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2, sort_keys=True)
+    except (OSError, IOError) as exc:
+        report_exception("config_store.write", exc)
+        return
+    try:
+        os.replace(tmp_path, SETTINGS_FILE)
+    except (OSError, IOError) as exc:
+        report_exception("config_store.write", exc)
+        return
 
 
 def load_config() -> Dict[str, Any]:
@@ -37,6 +46,9 @@ def load_config() -> Dict[str, Any]:
         try:
             with SETTINGS_FILE.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
+        except (OSError, IOError) as exc:
+            report_exception("config_store.read", exc)
+            return dict(_DEFAULT_CONFIG)
         except json.JSONDecodeError:
             data = {}
         if not isinstance(data, dict):

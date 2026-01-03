@@ -104,6 +104,12 @@ class InvoiceTab(QWidget):
         self.website_order_input = QLineEdit()
         self.website_order_input.setPlaceholderText("Website Order No (optional)")
         self.website_order_input.setEnabled(False)
+        self.website_order_panel = QWidget()
+        website_layout = QFormLayout(self.website_order_panel)
+        website_layout.setContentsMargins(0, 0, 0, 0)
+        website_layout.setHorizontalSpacing(12)
+        website_layout.setVerticalSpacing(8)
+        website_layout.addRow(self.website_order_label, self.website_order_input)
         self.discount_type_combo = QComboBox()
         self.discount_type_combo.addItem("Amount (قيمة)", "amount")
         self.discount_type_combo.addItem("Percent (%)", "percent")
@@ -112,6 +118,13 @@ class InvoiceTab(QWidget):
         self.discount_input.setRange(0, 999999)
         self.discount_input.setDecimals(2)
         self.discount_input.valueChanged.connect(self._recalculate_totals)
+        self.discount_panel = QWidget()
+        discount_layout = QFormLayout(self.discount_panel)
+        discount_layout.setContentsMargins(0, 0, 0, 0)
+        discount_layout.setHorizontalSpacing(12)
+        discount_layout.setVerticalSpacing(8)
+        discount_layout.addRow("Discount Type (نوع الخصم):", self.discount_type_combo)
+        discount_layout.addRow("Discount Value (قيمة الخصم):", self.discount_input)
         self.customer_search_input = QLineEdit()
         self.customer_search_input.setPlaceholderText("Search by phone or name...")
         self.customer_search_input.textChanged.connect(self._queue_customer_search)
@@ -157,6 +170,8 @@ class InvoiceTab(QWidget):
         self.customer_name_input.textChanged.connect(self._clear_customer_selection)
         self.customer_phone_input.textChanged.connect(self._clear_customer_selection)
         self.customer_email_input.textChanged.connect(self._clear_customer_selection)
+        self.customer_name_input.textChanged.connect(self._update_validation_state)
+        self.customer_phone_input.textChanged.connect(self._update_validation_state)
         self.loyalty_redeem_input = QDoubleSpinBox()
         self.loyalty_redeem_input.setDecimals(2)
         self.loyalty_redeem_input.setRange(0, 999999)
@@ -167,19 +182,35 @@ class InvoiceTab(QWidget):
         self.notes_input = QTextEdit()
         self.notes_input.setMinimumHeight(80)
         self.notes_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.notes_panel = QWidget()
+        notes_layout = QFormLayout(self.notes_panel)
+        notes_layout.setContentsMargins(0, 0, 0, 0)
+        notes_layout.setHorizontalSpacing(12)
+        notes_layout.setVerticalSpacing(8)
+        notes_layout.addRow("Notes (ملاحظات):", self.notes_input)
         self.return_reason_input = QLineEdit()
         self.return_reason_input.setPlaceholderText("Reason (سبب المرتجع)")
         self.return_reason_input.setEnabled(False)
+        self.return_panel = QWidget()
+        return_layout = QFormLayout(self.return_panel)
+        return_layout.setContentsMargins(0, 0, 0, 0)
+        return_layout.setHorizontalSpacing(12)
+        return_layout.setVerticalSpacing(8)
+        return_layout.addRow("Return Reason (سبب المرتجع):", self.return_reason_input)
+        self.discount_toggle = QPushButton("Discount")
+        self.notes_toggle = QPushButton("Notes")
+        self.return_toggle = QPushButton("Return Reason")
+        self.website_toggle = QPushButton("Website Order")
+        for toggle in (self.discount_toggle, self.notes_toggle, self.return_toggle, self.website_toggle):
+            toggle.setCheckable(True)
+            toggle.toggled.connect(self._update_advanced_panels)
         self.txn_type_combo.currentIndexChanged.connect(self._handle_txn_type_change)
 
         form_layout.addRow("Cashier (الكاشير):", self.cashier_input)
         form_layout.addRow("Transaction (العملية):", self.txn_type_combo)
         form_layout.addRow("Payment Method (طريقة الدفع):", self.payment_combo)
         form_layout.addRow("Order Source (مصدر الطلب):", self.order_source_combo)
-        form_layout.addRow(self.website_order_label, self.website_order_input)
-        form_layout.addRow("Discount Type (نوع الخصم):", self.discount_type_combo)
-        form_layout.addRow("Discount Value (قيمة الخصم) [F4]:", self.discount_input)
-        form_layout.addRow("Customer Search (بحث العميل) [F2]:", customer_search_container)
+        form_layout.addRow("Customer Search (بحث العميل):", customer_search_container)
         form_layout.addRow("Customer Name (العميل):", self.customer_name_input)
         form_layout.addRow("Customer Phone (الهاتف):", self.customer_phone_input)
         form_layout.addRow("Customer Email:", self.customer_email_input)
@@ -190,36 +221,50 @@ class InvoiceTab(QWidget):
         form_layout.addRow("Loyalty Balance (نقاط):", self.customer_points_label)
         form_layout.addRow("Redeem Points (خصم نقاط):", self.loyalty_redeem_input)
         form_layout.addRow("Points Earned (نقاط مكتسبة):", self.loyalty_earned_label)
-        form_layout.addRow("Notes (ملاحظات):", self.notes_input)
-        form_layout.addRow("Return Reason (سبب المرتجع):", self.return_reason_input)
+        advanced_controls = QWidget()
+        advanced_controls_layout = QHBoxLayout(advanced_controls)
+        advanced_controls_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_controls_layout.setSpacing(8)
+        advanced_controls_layout.addWidget(self.discount_toggle)
+        advanced_controls_layout.addWidget(self.notes_toggle)
+        advanced_controls_layout.addWidget(self.return_toggle)
+        advanced_controls_layout.addWidget(self.website_toggle)
+        advanced_controls_layout.addStretch()
+        form_layout.addRow("Advanced Options:", advanced_controls)
+        form_layout.addRow(self.discount_panel)
+        form_layout.addRow(self.notes_panel)
+        form_layout.addRow(self.return_panel)
+        form_layout.addRow(self.website_order_panel)
         left_layout.addWidget(form_box)
 
         product_box = QGroupBox("Products (المنتجات)")
         product_layout = QGridLayout(product_box)
         self.barcode_input = QLineEdit()
-        self.barcode_input.setPlaceholderText("Scan barcode... (باركود)")
-        self.barcode_input.returnPressed.connect(self._submit_barcode_input)
+        self.barcode_input.setPlaceholderText("Scan barcode...")
+        self.barcode_input.returnPressed.connect(self._handle_barcode_submit)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search by name, SKU, barcode... (/) ")
         self.search_input.textChanged.connect(self.refresh_products)
-        product_layout.addWidget(QLabel("Barcode (باركود):"), 0, 0)
-        product_layout.addWidget(self.barcode_input, 0, 1, 1, 2)
-        product_layout.addWidget(QLabel("Search (بحث) [/]:"), 1, 0)
-        product_layout.addWidget(self.search_input, 1, 1, 1, 2)
+        product_layout.addWidget(QLabel("Search (بحث):"), 0, 0)
+        product_layout.addWidget(self.search_input, 0, 1, 1, 2)
+        product_layout.addWidget(QLabel("Barcode (باركود):"), 1, 0)
+        product_layout.addWidget(self.barcode_input, 1, 1, 1, 2)
 
-        self.products_table = QTableWidget(0, 5)
+        self.products_table = QTableWidget(0, 6)
         self.products_table.setHorizontalHeaderLabels(
-            ["Name (الاسم)", "SKU (الكود)", "Barcode", "Price (السعر)", "Stock (المخزون)"]
+            ["Name (الاسم)", "SKU (الكود)", "Barcode", "Price (السعر)", "Stock (المخزون)", ""]
         )
         self.products_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.products_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.products_table.setAlternatingRowColors(True)
         self.products_table.cellDoubleClicked.connect(self._add_selected_product)
+        self.products_table.itemSelectionChanged.connect(self._update_add_state)
 
         self.qty_input = QSpinBox()
         self.qty_input.setRange(1, 1000)
         self.add_btn = QPushButton("Add Item (إضافة)")
         self.add_btn.clicked.connect(self._add_selected_product)
+        QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._add_selected_product)
 
         product_layout.addWidget(self.products_table, 2, 0, 1, 3)
         product_layout.addWidget(QLabel("Qty (الكمية):"), 3, 0)
@@ -255,15 +300,24 @@ class InvoiceTab(QWidget):
 
         totals_box = QGroupBox("Summary (ملخص)")
         totals_layout = QVBoxLayout(totals_box)
+        self.total_label = QLabel("Net Total: 0.00")
+        self.total_label.setObjectName("netTotalLabel")
+        totals_layout.addWidget(self.total_label)
+        breakdown_title = QLabel("Breakdown")
+        breakdown_title.setObjectName("summarySectionTitle")
+        totals_layout.addWidget(breakdown_title)
+        breakdown_frame = QFrame()
+        breakdown_layout = QVBoxLayout(breakdown_frame)
+        breakdown_layout.setContentsMargins(12, 0, 0, 0)
+        breakdown_layout.setSpacing(4)
         self.subtotal_label = QLabel("Subtotal: 0.00")
         self.discount_summary_label = QLabel("Discount: 0.00")
         self.loyalty_summary_label = QLabel("Loyalty Redeem: 0.00")
-        self.total_label = QLabel("Net Total: 0.00")
+        breakdown_layout.addWidget(self.subtotal_label)
+        breakdown_layout.addWidget(self.discount_summary_label)
+        breakdown_layout.addWidget(self.loyalty_summary_label)
+        totals_layout.addWidget(breakdown_frame)
         self.payment_label = QLabel("Payment: -")
-        totals_layout.addWidget(self.subtotal_label)
-        totals_layout.addWidget(self.discount_summary_label)
-        totals_layout.addWidget(self.loyalty_summary_label)
-        totals_layout.addWidget(self.total_label)
         totals_layout.addWidget(self.payment_label)
         right_layout.addWidget(totals_box)
 
@@ -314,6 +368,10 @@ class InvoiceTab(QWidget):
         self.save_btn = QPushButton("Save Invoice (حفظ الفاتورة) [F8]")
         self.save_btn.setObjectName("primaryButton")
         self.save_btn.clicked.connect(self._save_invoice)
+        self.validation_label = QLabel("")
+        self.validation_label.setObjectName("validationLabel")
+        self.validation_label.setWordWrap(True)
+        self.validation_label.setVisible(False)
         self.export_btn = QPushButton("Export PDF (تصدير PDF)")
         self.export_btn.clicked.connect(self._export_invoice_pdf)
         self.print_btn = QPushButton("Print (طباعة)")
@@ -321,6 +379,7 @@ class InvoiceTab(QWidget):
         self.clear_btn = QPushButton("New Invoice (فاتورة جديدة)")
         self.clear_btn.clicked.connect(self._clear_invoice)
         actions_layout.addWidget(self.save_btn)
+        actions_layout.addWidget(self.validation_label)
         actions_layout.addWidget(self.export_btn)
         actions_layout.addWidget(self.print_btn)
         actions_layout.addWidget(self.clear_btn)
@@ -340,6 +399,7 @@ class InvoiceTab(QWidget):
         self._configure_shortcuts()
         self._configure_focus_order()
         self._apply_invoice_styles()
+        self._update_advanced_panels()
 
     def _initialize_cashier(self) -> None:
         user = get_current_user()
@@ -400,6 +460,12 @@ class InvoiceTab(QWidget):
         search = self.search_input.text().strip()
         self._products = list_products(search=search if search else None)
         self.products_table.setRowCount(0)
+        name_font = QFont(self.products_table.font())
+        name_font.setPointSize(name_font.pointSize() + 2)
+        name_font.setBold(True)
+        price_font = QFont(name_font)
+        meta_font = QFont(self.products_table.font())
+        meta_font.setPointSize(max(1, meta_font.pointSize() - 1))
         for product in self._products:
             row = self.products_table.rowCount()
             self.products_table.insertRow(row)
@@ -409,23 +475,27 @@ class InvoiceTab(QWidget):
             self.products_table.setItem(row, 3, QTableWidgetItem(f"{product.price:.2f}"))
             self.products_table.setItem(row, 4, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
             self.products_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
+            add_button = QPushButton("+ Add")
+            add_button.clicked.connect(
+                lambda _checked=False, item=product: self._add_product_to_invoice(
+                    item, float(self.qty_input.value())
+                )
+            )
+            self.products_table.setCellWidget(row, 5, add_button)
 
     def _handle_txn_type_change(self) -> None:
         is_return = self.txn_type_combo.currentIndex() == 1
-        self.return_reason_input.setEnabled(is_return)
+        self._update_return_reason_state()
         self.loyalty_redeem_input.setEnabled(not is_return)
         if is_return:
             self.loyalty_redeem_input.setValue(0.0)
         self._refresh_summary_labels()
+        self._update_validation_state()
 
     def _handle_order_source_change(self) -> None:
         if self._website_orders_enabled:
             self.order_source_combo.setCurrentIndex(self.order_source_combo.findData("website"))
-            return
-        is_website = self.order_source_combo.currentData() == "website"
-        self.website_order_input.setEnabled(is_website)
-        if not is_website:
-            self.website_order_input.clear()
+        self._update_website_order_state()
 
     def _apply_website_order_settings(self) -> None:
         if self._website_orders_enabled:
@@ -433,15 +503,31 @@ class InvoiceTab(QWidget):
             if website_index >= 0:
                 self.order_source_combo.setCurrentIndex(website_index)
             self.order_source_combo.setEnabled(False)
-            self.website_order_input.clear()
-            self.website_order_input.setEnabled(False)
-            self.website_order_input.setVisible(False)
-            self.website_order_label.setVisible(False)
         else:
             self.order_source_combo.setEnabled(True)
-            self.website_order_input.setVisible(True)
-            self.website_order_label.setVisible(True)
-            self._handle_order_source_change()
+        self._update_website_order_state()
+
+    def _update_advanced_panels(self) -> None:
+        self.discount_panel.setVisible(self.discount_toggle.isChecked())
+        self.notes_panel.setVisible(self.notes_toggle.isChecked())
+        self.return_panel.setVisible(self.return_toggle.isChecked())
+        self.website_order_panel.setVisible(self.website_toggle.isChecked())
+        self._update_return_reason_state()
+        self._update_website_order_state()
+
+    def _update_return_reason_state(self) -> None:
+        is_return = self.txn_type_combo.currentIndex() == 1
+        self.return_reason_input.setEnabled(is_return and self.return_toggle.isChecked())
+
+    def _update_website_order_state(self) -> None:
+        if not self.website_toggle.isChecked():
+            self.website_order_input.setEnabled(False)
+            return
+        if self._website_orders_enabled:
+            self.website_order_input.setEnabled(True)
+            return
+        is_website = self.order_source_combo.currentData() == "website"
+        self.website_order_input.setEnabled(is_website)
 
     def _handle_discount_type_change(self) -> None:
         if self._discount_type() == "percent":
@@ -671,6 +757,8 @@ class InvoiceTab(QWidget):
         if row < 0:
             QMessageBox.warning(self, "Select", "Please select a product.")
             return
+        if self._is_out_of_stock_row(row):
+            return
         product_id = self.products_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         product = next((p for p in self._products if p.id == product_id), None)
         if not product:
@@ -696,12 +784,29 @@ class InvoiceTab(QWidget):
         earned = 0 if self.txn_type_combo.currentIndex() == 1 else int(total)
         self.loyalty_earned_label.setText(f"{earned}")
         self._refresh_summary_labels()
+        self._update_validation_state()
 
     def _calculate_subtotal(self) -> float:
         subtotal = 0.0
         for row in range(self.items_table.rowCount()):
             subtotal += float(self.items_table.item(row, self.ITEM_COL_LINE_TOTAL).text())
         return subtotal
+
+    def _validation_message(self) -> str:
+        if self.items_table.rowCount() == 0:
+            return "Add at least 1 product."
+        customer_name = self.customer_name_input.text().strip()
+        customer_phone = self.customer_phone_input.text().strip()
+        if (customer_name or customer_phone) and not (customer_name and customer_phone):
+            return "Enter customer name and phone."
+        return ""
+
+    def _update_validation_state(self) -> None:
+        message = self._validation_message()
+        has_error = bool(message)
+        self.save_btn.setEnabled(not has_error)
+        self.validation_label.setVisible(has_error)
+        self.validation_label.setText(message)
 
     def _collect_items(self) -> List[JewelryInvoiceItem]:
         items = []
@@ -752,7 +857,7 @@ class InvoiceTab(QWidget):
         payment_method = self.payment_combo.currentText()
         order_source = "website" if self._website_orders_enabled else (self.order_source_combo.currentData() or "in_store")
         website_order_ref = ""
-        if order_source == "website" and self.website_order_input.isVisible():
+        if order_source == "website":
             website_order_ref = self.website_order_input.text().strip()
         if order_source != "website":
             website_order_ref = ""
@@ -894,10 +999,14 @@ class InvoiceTab(QWidget):
         self.return_reason_input.clear()
         self.order_source_combo.setCurrentIndex(0)
         self.website_order_input.clear()
+        for toggle in (self.discount_toggle, self.notes_toggle, self.return_toggle, self.website_toggle):
+            toggle.setChecked(False)
+        self._update_advanced_panels()
         self._last_invoice_no = None
         self.invoice_info_label.setText("Invoice No: Auto | رقم الفاتورة: تلقائي")
         self._apply_website_order_settings()
         self._recalculate_totals()
+        self._update_validation_state()
 
     def _add_product_to_invoice(self, product, qty: float) -> None:
         for row in range(self.items_table.rowCount()):
@@ -913,6 +1022,7 @@ class InvoiceTab(QWidget):
                 )
                 self._attach_qty_buttons(row, product.id)
                 self._recalculate_totals()
+                self._focus_barcode_input()
                 return
         line_total = qty * product.price
         item_row = self.items_table.rowCount()
@@ -937,6 +1047,7 @@ class InvoiceTab(QWidget):
         self.items_table.item(item_row, self.ITEM_COL_PRODUCT).setData(Qt.ItemDataRole.UserRole, product.id)
         self._attach_qty_buttons(item_row, product.id)
         self._recalculate_totals()
+        self._focus_barcode_input()
 
     def _attach_qty_buttons(self, row: int, product_id: int) -> None:
         minus_btn = QPushButton("−")
@@ -971,6 +1082,25 @@ class InvoiceTab(QWidget):
             QTableWidgetItem(f"{new_qty * unit_price:.2f}"),
         )
         self._recalculate_totals()
+        self._focus_barcode_input()
+
+    def _focus_barcode_input(self) -> None:
+        if not self.barcode_input.isVisible():
+            return
+        self.barcode_input.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.barcode_input.selectAll()
+
+    def _handle_barcode_submit(self) -> None:
+        code = self.barcode_input.text().strip()
+        if not code:
+            return
+        self.barcode_input.clear()
+        product = find_product_by_code(code)
+        if not product:
+            self._dispatch_scan(code)
+            self._focus_barcode_input()
+            return
+        self._add_product_to_invoice(product, float(self.qty_input.value()))
 
     def _find_item_row(self, product_id: int) -> int:
         for row in range(self.items_table.rowCount()):
@@ -978,6 +1108,25 @@ class InvoiceTab(QWidget):
             if item and item.data(Qt.ItemDataRole.UserRole) == product_id:
                 return row
         return -1
+
+    def _is_out_of_stock_row(self, row: int) -> bool:
+        item = self.products_table.item(row, 0)
+        if not item:
+            return False
+        return bool(item.data(Qt.ItemDataRole.UserRole + 1))
+
+    def _update_add_state(self) -> None:
+        row = self.products_table.currentRow()
+        if row < 0:
+            self.add_btn.setEnabled(False)
+            self.add_btn.setToolTip("")
+            return
+        if self._is_out_of_stock_row(row):
+            self.add_btn.setEnabled(False)
+            self.add_btn.setToolTip("Out of stock items cannot be added.")
+        else:
+            self.add_btn.setEnabled(True)
+            self.add_btn.setToolTip("")
 
     def _apply_invoice_styles(self) -> None:
         self.setStyleSheet(
@@ -1027,6 +1176,21 @@ class InvoiceTab(QWidget):
                 border-radius: 6px;
                 min-height: 30px;
             }
+            #jewelryInvoiceTab QLabel#netTotalLabel {
+                font-size: 22px;
+                font-weight: 700;
+                color: #4b3a2a;
+            }
+            #jewelryInvoiceTab QLabel#summarySectionTitle {
+                font-size: 12px;
+                font-weight: 600;
+                color: #7a6a58;
+            }
+            #jewelryInvoiceTab QLabel#validationLabel {
+                color: #b42318;
+                font-weight: 600;
+                padding: 4px 0;
+            }
             #jewelryInvoiceTab QLabel {
                 padding: 2px 0;
             }
@@ -1069,11 +1233,16 @@ class InvoiceTab(QWidget):
         if not self.isVisible():
             return super().eventFilter(source, event)
         if event.type() == QEvent.Type.KeyPress:
+            if source is self.barcode_input:
+                return super().eventFilter(source, event)
             if source in {self.customer_search_input, self.customer_dropdown}:
                 if self._handle_customer_dropdown_key(event):
                     return True
                 return super().eventFilter(source, event)
             key = event.key()
+            if source is self.products_table and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._add_selected_product()
+                return True
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if self._scan_timer.elapsed() < 500 and len(self._scan_buffer) >= 2:
                     self._dispatch_scan(self._scan_buffer)

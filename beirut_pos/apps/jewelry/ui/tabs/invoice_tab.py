@@ -552,6 +552,8 @@ class InvoiceTab(QWidget):
             name_ar=gallery_settings.name_ar,
             address=gallery_settings.address,
             phone=gallery_settings.phone,
+            website_name=gallery_settings.website_name,
+            website_url=gallery_settings.website_url,
             logo_path=gallery_settings.logo_path or None,
             font_path=gallery_settings.font_path or None,
         )
@@ -592,6 +594,8 @@ class InvoiceTab(QWidget):
             name_ar=gallery_settings.name_ar,
             address=gallery_settings.address,
             phone=gallery_settings.phone,
+            website_name=gallery_settings.website_name,
+            website_url=gallery_settings.website_url,
             logo_path=gallery_settings.logo_path or None,
             font_path=gallery_settings.font_path or None,
         )

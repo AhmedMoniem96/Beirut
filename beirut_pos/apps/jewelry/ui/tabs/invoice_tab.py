@@ -48,6 +48,14 @@ from ...services.settings import load_gallery_settings
 
 
 class InvoiceTab(QWidget):
+    ITEM_COL_PRODUCT = 0
+    ITEM_COL_CODE = 1
+    ITEM_COL_QTY = 2
+    ITEM_COL_UNIT_PRICE = 3
+    ITEM_COL_LINE_TOTAL = 4
+    ITEM_COL_DECREMENT = 5
+    ITEM_COL_INCREMENT = 6
+
     def __init__(self) -> None:
         super().__init__()
         self._last_invoice_no: Optional[str] = None
@@ -435,7 +443,7 @@ class InvoiceTab(QWidget):
     def _recalculate_totals(self) -> None:
         subtotal = 0.0
         for row in range(self.items_table.rowCount()):
-            subtotal += float(self.items_table.item(row, 4).text())
+            subtotal += float(self.items_table.item(row, self.ITEM_COL_LINE_TOTAL).text())
         discount = self._calculate_discount_amount(subtotal)
         loyalty_redeem = self._loyalty_redeem_amount(subtotal, discount)
         total = max(subtotal - discount - loyalty_redeem, 0.0)
@@ -449,18 +457,18 @@ class InvoiceTab(QWidget):
     def _calculate_subtotal(self) -> float:
         subtotal = 0.0
         for row in range(self.items_table.rowCount()):
-            subtotal += float(self.items_table.item(row, 4).text())
+            subtotal += float(self.items_table.item(row, self.ITEM_COL_LINE_TOTAL).text())
         return subtotal
 
     def _collect_items(self) -> List[JewelryInvoiceItem]:
         items = []
         for row in range(self.items_table.rowCount()):
-            product_id = self.items_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            name = self.items_table.item(row, 0).text()
-            code = self.items_table.item(row, 1).text()
-            qty = float(self.items_table.item(row, 2).text())
-            unit_price = float(self.items_table.item(row, 3).text())
-            line_total = float(self.items_table.item(row, 4).text())
+            product_id = self.items_table.item(row, self.ITEM_COL_PRODUCT).data(Qt.ItemDataRole.UserRole)
+            name = self.items_table.item(row, self.ITEM_COL_PRODUCT).text()
+            code = self.items_table.item(row, self.ITEM_COL_CODE).text()
+            qty = float(self.items_table.item(row, self.ITEM_COL_QTY).text())
+            unit_price = float(self.items_table.item(row, self.ITEM_COL_UNIT_PRICE).text())
+            line_total = float(self.items_table.item(row, self.ITEM_COL_LINE_TOTAL).text())
             items.append(
                 JewelryInvoiceItem(
                     product_id=product_id,
@@ -643,23 +651,40 @@ class InvoiceTab(QWidget):
 
     def _add_product_to_invoice(self, product, qty: float) -> None:
         for row in range(self.items_table.rowCount()):
-            if self.items_table.item(row, 0).data(Qt.ItemDataRole.UserRole) == product.id:
-                existing_qty = float(self.items_table.item(row, 2).text())
+            if self.items_table.item(row, self.ITEM_COL_PRODUCT).data(Qt.ItemDataRole.UserRole) == product.id:
+                existing_qty = float(self.items_table.item(row, self.ITEM_COL_QTY).text())
                 new_qty = existing_qty + qty
-                self.items_table.setItem(row, 2, QTableWidgetItem(f"{new_qty:.2f}"))
+                self.items_table.setItem(row, self.ITEM_COL_QTY, QTableWidgetItem(f"{new_qty:.2f}"))
                 line_total = new_qty * product.price
-                self.items_table.setItem(row, 4, QTableWidgetItem(f"{line_total:.2f}"))
+                self.items_table.setItem(
+                    row,
+                    self.ITEM_COL_LINE_TOTAL,
+                    QTableWidgetItem(f"{line_total:.2f}"),
+                )
+                self._attach_qty_buttons(row, product.id)
                 self._recalculate_totals()
                 return
         line_total = qty * product.price
         item_row = self.items_table.rowCount()
         self.items_table.insertRow(item_row)
-        self.items_table.setItem(item_row, 0, QTableWidgetItem(f"{product.name_en} / {product.name_ar}"))
-        self.items_table.setItem(item_row, 1, QTableWidgetItem(product.sku))
-        self.items_table.setItem(item_row, 2, QTableWidgetItem(f"{qty:.2f}"))
-        self.items_table.setItem(item_row, 3, QTableWidgetItem(f"{product.price:.2f}"))
-        self.items_table.setItem(item_row, 4, QTableWidgetItem(f"{line_total:.2f}"))
-        self.items_table.item(item_row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
+        self.items_table.setItem(
+            item_row,
+            self.ITEM_COL_PRODUCT,
+            QTableWidgetItem(f"{product.name_en} / {product.name_ar}"),
+        )
+        self.items_table.setItem(item_row, self.ITEM_COL_CODE, QTableWidgetItem(product.sku))
+        self.items_table.setItem(item_row, self.ITEM_COL_QTY, QTableWidgetItem(f"{qty:.2f}"))
+        self.items_table.setItem(
+            item_row,
+            self.ITEM_COL_UNIT_PRICE,
+            QTableWidgetItem(f"{product.price:.2f}"),
+        )
+        self.items_table.setItem(
+            item_row,
+            self.ITEM_COL_LINE_TOTAL,
+            QTableWidgetItem(f"{line_total:.2f}"),
+        )
+        self.items_table.item(item_row, self.ITEM_COL_PRODUCT).setData(Qt.ItemDataRole.UserRole, product.id)
         self._attach_qty_buttons(item_row, product.id)
         self._recalculate_totals()
 
@@ -672,15 +697,15 @@ class InvoiceTab(QWidget):
         plus_btn.clicked.connect(lambda _checked=False, delta=1.0: self._adjust_item_qty(product_id, delta))
         minus_btn.setFixedWidth(32)
         plus_btn.setFixedWidth(32)
-        self.items_table.setCellWidget(row, 5, minus_btn)
-        self.items_table.setCellWidget(row, 6, plus_btn)
+        self.items_table.setCellWidget(row, self.ITEM_COL_DECREMENT, minus_btn)
+        self.items_table.setCellWidget(row, self.ITEM_COL_INCREMENT, plus_btn)
 
     def _adjust_item_qty(self, product_id: int, delta: float) -> None:
         row = self._find_item_row(product_id)
         if row < 0:
             return
         try:
-            current_qty = float(self.items_table.item(row, 2).text())
+            current_qty = float(self.items_table.item(row, self.ITEM_COL_QTY).text())
         except Exception:
             current_qty = 0.0
         new_qty = current_qty + delta
@@ -688,14 +713,18 @@ class InvoiceTab(QWidget):
             self.items_table.removeRow(row)
             self._recalculate_totals()
             return
-        unit_price = float(self.items_table.item(row, 3).text())
-        self.items_table.setItem(row, 2, QTableWidgetItem(f"{new_qty:.2f}"))
-        self.items_table.setItem(row, 4, QTableWidgetItem(f"{new_qty * unit_price:.2f}"))
+        unit_price = float(self.items_table.item(row, self.ITEM_COL_UNIT_PRICE).text())
+        self.items_table.setItem(row, self.ITEM_COL_QTY, QTableWidgetItem(f"{new_qty:.2f}"))
+        self.items_table.setItem(
+            row,
+            self.ITEM_COL_LINE_TOTAL,
+            QTableWidgetItem(f"{new_qty * unit_price:.2f}"),
+        )
         self._recalculate_totals()
 
     def _find_item_row(self, product_id: int) -> int:
         for row in range(self.items_table.rowCount()):
-            item = self.items_table.item(row, 0)
+            item = self.items_table.item(row, self.ITEM_COL_PRODUCT)
             if item and item.data(Qt.ItemDataRole.UserRole) == product_id:
                 return row
         return -1

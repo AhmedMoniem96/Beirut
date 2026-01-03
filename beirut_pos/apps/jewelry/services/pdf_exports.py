@@ -24,6 +24,8 @@ class GalleryInfo:
     name_ar: str
     address: str
     phone: str
+    website_name: str = ""
+    website_url: str = ""
     logo_path: str | None = None
     font_path: str | None = None
 
@@ -136,8 +138,16 @@ def export_invoice_pdf(
     c.drawString(40, y - 52, _shape_arabic(f"العنوان: {gallery.address}"))
     c.drawString(40, y - 68, f"Phone: {gallery.phone}")
     c.drawString(40, y - 84, _shape_arabic(f"هاتف: {gallery.phone}"))
+    contact_y = y - 100
+    if gallery.website_name:
+        c.drawString(40, contact_y, f"Website: {gallery.website_name}")
+        c.drawString(40, contact_y - 16, _shape_arabic(f"الموقع: {gallery.website_name}"))
+        contact_y -= 32
+    if gallery.website_url:
+        c.drawString(40, contact_y, f"URL: {gallery.website_url}")
+        contact_y -= 16
 
-    y -= 110
+    y = contact_y - 10
     c.setFont(font_name, 11)
     c.drawString(40, y, f"Invoice No: {invoice_no}")
     c.drawString(300, y, _shape_arabic(f"رقم الفاتورة: {invoice_no}"))
@@ -266,6 +276,12 @@ def export_daily_report_pdf(
     c.drawString(240, y, _shape_arabic("تقرير يومي"))
     y -= 20
     c.setFont(font_name, 10)
+    if gallery.website_name:
+        c.drawString(40, y, f"Website: {gallery.website_name}")
+        y -= 16
+    if gallery.website_url:
+        c.drawString(40, y, f"URL: {gallery.website_url}")
+        y -= 16
     c.drawString(40, y, f"Date: {report_date}")
     y -= 16
     c.drawString(40, y, f"Report No: {report_number}")

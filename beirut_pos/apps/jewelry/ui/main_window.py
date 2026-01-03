@@ -66,6 +66,8 @@ class JewelryMainWindow(QMainWindow):
         else:
             self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
             self.title_label.setText(title)
+        self.invoice_tab.apply_rtl_layout(settings.rtl_enabled)
+        self.settings_tab.apply_rtl_layout(settings.rtl_enabled)
 
     def _apply_user_context(self) -> None:
         user = get_current_user()

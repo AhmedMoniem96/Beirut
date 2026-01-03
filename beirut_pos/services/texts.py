@@ -146,6 +146,14 @@ DEFAULT_TEXTS: Dict[str, str] = {
     "settings.branding.import_success": "تم استيراد النصوص بنجاح (لم يتم الحفظ بعد).",
     "settings.branding.import_error": "تعذر قراءة ملف JSON المحدد.",
     "settings.branding.duplicate_key": "يوجد مفتاح مكرر: {key}",
+
+    # Jewelry app -----------------------------------------------------------
+    "jewelry.settings.rtl_toggle": "Enable RTL Layout (تفعيل الاتجاه العربي)",
+    "jewelry.settings.website_orders_toggle": "Website orders go through POS (طلبات الموقع تمر عبر الكاشير)",
+    "jewelry.customer.search_placeholder": "Search by phone or name...",
+    "jewelry.customer.no_results": "No matches found.",
+    "jewelry.customer.create_button": "Create new customer",
+    "jewelry.customer.points_label": "نقاط",
 }
 
 

@@ -395,6 +395,7 @@ def _migrate_customer_tables(cur) -> None:
 
 
 def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
+    cur.execute("PRAGMA foreign_keys=OFF")
     cur.execute("PRAGMA table_info(jw_invoices)")
     rows = cur.fetchall()
     if not rows:
@@ -453,6 +454,7 @@ def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
 
 
 def _migrate_loyalty_customer_keys(cur, use_id_map: bool) -> None:
+    cur.execute("PRAGMA foreign_keys=OFF")
     cur.execute("PRAGMA table_info(jw_loyalty_ledger)")
     rows = cur.fetchall()
     if not rows:

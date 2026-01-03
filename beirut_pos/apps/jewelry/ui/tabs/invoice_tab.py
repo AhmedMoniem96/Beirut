@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QTimer, QUrl
-from PyQt6.QtGui import QDesktopServices, QKeySequence, QShortcut
+from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,

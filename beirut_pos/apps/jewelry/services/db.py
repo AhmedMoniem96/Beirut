@@ -42,7 +42,7 @@ class JewelryInvoice:
     datetime: str
     cashier_name: str
     txn_type: str
-    customer_id: Optional[int] = None
+    customer_id: Optional[str] = None
     customer_name: str = ""
     customer_phone: str = ""
     subtotal: float
@@ -61,11 +61,8 @@ class JewelryInvoice:
 
 @dataclass
 class JewelryCustomer:
-    id: int
-    name: str
     phone: str
-    email: str
-    notes: str
+    name: str
     created_at: str
 
 
@@ -173,7 +170,7 @@ def init_jewelry_db() -> None:
             datetime TEXT NOT NULL,
             cashier_name TEXT NOT NULL,
             txn_type TEXT NOT NULL CHECK(txn_type in ('sale','return')),
-            customer_id INTEGER,
+            customer_id TEXT,
             customer_name TEXT DEFAULT '',
             customer_phone TEXT DEFAULT '',
             subtotal REAL NOT NULL,
@@ -187,12 +184,13 @@ def init_jewelry_db() -> None:
             order_source TEXT NOT NULL DEFAULT 'in_store',
             website_order_ref TEXT DEFAULT '',
             notes TEXT DEFAULT '',
-            return_reason TEXT DEFAULT ''
+            return_reason TEXT DEFAULT '',
+            FOREIGN KEY(customer_id) REFERENCES jw_customers(phone)
         )"""
     )
     _ensure_column(cur, "jw_invoices", "discount_type", "TEXT DEFAULT 'amount'")
     _ensure_column(cur, "jw_invoices", "discount_value", "REAL DEFAULT 0")
-    _ensure_column(cur, "jw_invoices", "customer_id", "INTEGER")
+    _ensure_column(cur, "jw_invoices", "customer_id", "TEXT")
     _ensure_column(cur, "jw_invoices", "customer_name", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_invoices", "customer_phone", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_invoices", "loyalty_earned", "REAL NOT NULL DEFAULT 0")
@@ -201,23 +199,20 @@ def init_jewelry_db() -> None:
     _ensure_column(cur, "jw_invoices", "website_order_ref", "TEXT DEFAULT ''")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_customers(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone TEXT NOT NULL PRIMARY KEY,
             name TEXT NOT NULL,
-            phone TEXT UNIQUE,
-            email TEXT DEFAULT '',
-            notes TEXT DEFAULT '',
             created_at TEXT NOT NULL
         )"""
     )
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_loyalty_ledger(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            customer_id INTEGER NOT NULL,
+            customer_id TEXT NOT NULL,
             invoice_id INTEGER,
             points_delta REAL NOT NULL,
             reason TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            FOREIGN KEY(customer_id) REFERENCES jw_customers(id),
+            FOREIGN KEY(customer_id) REFERENCES jw_customers(phone),
             FOREIGN KEY(invoice_id) REFERENCES jw_invoices(id)
         )"""
     )
@@ -312,6 +307,7 @@ def init_jewelry_db() -> None:
         )
     except Exception:
         pass
+    _migrate_customer_tables(cur)
     conn.commit()
     conn.close()
 
@@ -354,6 +350,140 @@ def _ensure_column(cur, table: str, column: str, column_type: str) -> None:
         cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
 
+def _migrate_customer_tables(cur) -> None:
+    cur.execute("PRAGMA table_info(jw_customers)")
+    customer_rows = cur.fetchall()
+    if not customer_rows:
+        return
+    customer_columns = {row[1]: row for row in customer_rows}
+    has_id = "id" in customer_columns
+    phone_col = customer_columns.get("phone")
+    phone_pk = bool(phone_col and phone_col[5] == 1)
+    needs_customer_migration = has_id or not phone_pk
+    if has_id:
+        cur.execute("DROP TABLE IF EXISTS jw_customer_id_map")
+        cur.execute(
+            """CREATE TEMP TABLE jw_customer_id_map AS
+               SELECT id, TRIM(phone) AS phone
+               FROM jw_customers
+               WHERE phone IS NOT NULL AND TRIM(phone) != ''"""
+        )
+    if needs_customer_migration:
+        cur.execute(
+            """CREATE TABLE jw_customers_new(
+                phone TEXT NOT NULL PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )"""
+        )
+        cur.execute(
+            """INSERT OR IGNORE INTO jw_customers_new(phone, name, created_at)
+               SELECT TRIM(phone), name, created_at
+               FROM jw_customers
+               WHERE phone IS NOT NULL AND TRIM(phone) != ''"""
+        )
+        cur.execute("DROP TABLE jw_customers")
+        cur.execute("ALTER TABLE jw_customers_new RENAME TO jw_customers")
+
+    _migrate_invoice_customer_keys(cur, has_id)
+    _migrate_loyalty_customer_keys(cur, has_id)
+
+
+def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
+    cur.execute("PRAGMA table_info(jw_invoices)")
+    rows = cur.fetchall()
+    if not rows:
+        return
+    columns = {row[1]: row for row in rows}
+    customer_col = columns.get("customer_id")
+    customer_type = (customer_col[2] or "").upper() if customer_col else ""
+    if customer_type == "TEXT":
+        return
+    customer_id_expr = "customer_id"
+    if use_id_map:
+        customer_id_expr = """CASE
+            WHEN customer_phone IS NOT NULL AND TRIM(customer_phone) != '' THEN TRIM(customer_phone)
+            WHEN customer_id IS NOT NULL THEN (SELECT phone FROM jw_customer_id_map WHERE id = customer_id)
+            ELSE NULL
+        END"""
+    cur.execute(
+        """CREATE TABLE jw_invoices_new(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_no TEXT NOT NULL UNIQUE,
+            datetime TEXT NOT NULL,
+            cashier_name TEXT NOT NULL,
+            txn_type TEXT NOT NULL CHECK(txn_type in ('sale','return')),
+            customer_id TEXT,
+            customer_name TEXT DEFAULT '',
+            customer_phone TEXT DEFAULT '',
+            subtotal REAL NOT NULL,
+            discount REAL NOT NULL,
+            discount_type TEXT NOT NULL DEFAULT 'amount',
+            discount_value REAL NOT NULL DEFAULT 0,
+            loyalty_earned REAL NOT NULL DEFAULT 0,
+            loyalty_redeemed REAL NOT NULL DEFAULT 0,
+            total REAL NOT NULL,
+            payment_method TEXT NOT NULL,
+            order_source TEXT NOT NULL DEFAULT 'in_store',
+            website_order_ref TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            return_reason TEXT DEFAULT '',
+            FOREIGN KEY(customer_id) REFERENCES jw_customers(phone)
+        )"""
+    )
+    cur.execute(
+        f"""INSERT INTO jw_invoices_new(
+                id, invoice_no, datetime, cashier_name, txn_type, customer_id, customer_name, customer_phone,
+                subtotal, discount, discount_type, discount_value, loyalty_earned, loyalty_redeemed,
+                total, payment_method, order_source, website_order_ref, notes, return_reason
+            )
+            SELECT id, invoice_no, datetime, cashier_name, txn_type, {customer_id_expr}, customer_name,
+                   customer_phone, subtotal, discount, discount_type, discount_value, loyalty_earned,
+                   loyalty_redeemed, total, payment_method, order_source, website_order_ref, notes,
+                   return_reason
+            FROM jw_invoices"""
+    )
+    cur.execute("DROP TABLE jw_invoices")
+    cur.execute("ALTER TABLE jw_invoices_new RENAME TO jw_invoices")
+
+
+def _migrate_loyalty_customer_keys(cur, use_id_map: bool) -> None:
+    cur.execute("PRAGMA table_info(jw_loyalty_ledger)")
+    rows = cur.fetchall()
+    if not rows:
+        return
+    columns = {row[1]: row for row in rows}
+    customer_col = columns.get("customer_id")
+    customer_type = (customer_col[2] or "").upper() if customer_col else ""
+    if customer_type == "TEXT":
+        return
+    customer_id_expr = "customer_id"
+    if use_id_map:
+        customer_id_expr = "(SELECT phone FROM jw_customer_id_map WHERE id = customer_id)"
+    cur.execute(
+        """CREATE TABLE jw_loyalty_ledger_new(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id TEXT NOT NULL,
+            invoice_id INTEGER,
+            points_delta REAL NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(customer_id) REFERENCES jw_customers(phone),
+            FOREIGN KEY(invoice_id) REFERENCES jw_invoices(id)
+        )"""
+    )
+    cur.execute(
+        f"""INSERT INTO jw_loyalty_ledger_new(
+                id, customer_id, invoice_id, points_delta, reason, created_at
+            )
+            SELECT id, {customer_id_expr}, invoice_id, points_delta, reason, created_at
+            FROM jw_loyalty_ledger
+            WHERE {customer_id_expr} IS NOT NULL"""
+    )
+    cur.execute("DROP TABLE jw_loyalty_ledger")
+    cur.execute("ALTER TABLE jw_loyalty_ledger_new RENAME TO jw_loyalty_ledger")
+
+
 def list_payment_methods() -> List[Tuple[int, str, str]]:
     conn = get_conn()
     cur = conn.cursor()
@@ -369,24 +499,21 @@ def list_customers(search: Optional[str] = None) -> List[JewelryCustomer]:
     conn = get_conn()
     cur = conn.cursor()
     params: Tuple[str, ...] = ()
-    query = """SELECT id, name, COALESCE(phone, ''), COALESCE(email, ''), COALESCE(notes, ''), created_at
+    query = """SELECT phone, name, created_at
                FROM jw_customers"""
     if search:
         like = f"%{search}%"
-        query += " WHERE name LIKE ? OR phone LIKE ? OR email LIKE ?"
-        params = (like, like, like)
-    query += " ORDER BY id DESC"
+        query += " WHERE name LIKE ? OR phone LIKE ?"
+        params = (like, like)
+    query += " ORDER BY created_at DESC"
     cur.execute(query, params)
     rows = cur.fetchall()
     conn.close()
     return [
         JewelryCustomer(
-            id=row[0],
+            phone=row[0] or "",
             name=row[1],
-            phone=row[2] or "",
-            email=row[3] or "",
-            notes=row[4] or "",
-            created_at=row[5],
+            created_at=row[2],
         )
         for row in rows
     ]
@@ -399,7 +526,7 @@ def find_customer_by_phone(phone: str) -> Optional[JewelryCustomer]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT id, name, COALESCE(phone, ''), COALESCE(email, ''), COALESCE(notes, ''), created_at
+        """SELECT phone, name, created_at
            FROM jw_customers WHERE phone = ? LIMIT 1""",
         (normalized,),
     )
@@ -408,81 +535,57 @@ def find_customer_by_phone(phone: str) -> Optional[JewelryCustomer]:
     if not row:
         return None
     return JewelryCustomer(
-        id=row[0],
+        phone=row[0] or "",
         name=row[1],
-        phone=row[2] or "",
-        email=row[3] or "",
-        notes=row[4] or "",
-        created_at=row[5],
+        created_at=row[2],
     )
 
 
 def save_customer(
-    customer_id: Optional[int],
     name: str,
     phone: str,
-    email: str,
-    notes: str,
-) -> int:
+) -> str:
     normalized_phone = (phone or "").strip()
-    phone_value = normalized_phone or None
+    normalized_name = name.strip()
+    if not normalized_phone or not normalized_name:
+        return ""
     conn = get_conn()
     cur = conn.cursor()
-    if customer_id:
-        cur.execute(
-            """UPDATE jw_customers
-               SET name = ?, phone = ?, email = ?, notes = ?
-               WHERE id = ?""",
-            (name.strip(), phone_value, email.strip(), notes.strip(), customer_id),
-        )
-        conn.commit()
-        conn.close()
-        return customer_id
-
-    if phone_value:
-        cur.execute(
-            """SELECT id FROM jw_customers WHERE phone = ?""",
-            (phone_value,),
-        )
-        row = cur.fetchone()
-        if row:
-            customer_id = int(row[0])
-            cur.execute(
-                """UPDATE jw_customers
-                   SET name = ?, email = ?, notes = ?
-                   WHERE id = ?""",
-                (name.strip(), email.strip(), notes.strip(), customer_id),
-            )
-            conn.commit()
-            conn.close()
-            return customer_id
-
     created_at = datetime.now().isoformat(timespec="seconds")
     cur.execute(
-        """INSERT INTO jw_customers(name, phone, email, notes, created_at)
-           VALUES (?, ?, ?, ?, ?)""",
-        (name.strip(), phone_value, email.strip(), notes.strip(), created_at),
+        """INSERT INTO jw_customers(phone, name, created_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(phone) DO UPDATE SET name = excluded.name""",
+        (normalized_phone, normalized_name, created_at),
     )
-    customer_id = int(cur.lastrowid)
     conn.commit()
     conn.close()
-    return customer_id
+    return normalized_phone
 
 
-def get_loyalty_balance(customer_id: int) -> float:
+def get_loyalty_balance(customer_phone: str) -> float:
+    normalized_phone = (customer_phone or "").strip()
+    if not normalized_phone:
+        return 0.0
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         "SELECT COALESCE(SUM(points_delta), 0) FROM jw_loyalty_ledger WHERE customer_id = ?",
-        (customer_id,),
+        (normalized_phone,),
     )
     balance = float(cur.fetchone()[0] or 0)
     conn.close()
     return balance
 
 
-def record_loyalty_entry(customer_id: int, invoice_id: Optional[int], points_delta: float, reason: str) -> None:
-    if not customer_id or not points_delta:
+def record_loyalty_entry(
+    customer_phone: str,
+    invoice_id: Optional[int],
+    points_delta: float,
+    reason: str,
+) -> None:
+    normalized_phone = (customer_phone or "").strip()
+    if not normalized_phone or not points_delta:
         return
     conn = get_conn()
     cur = conn.cursor()
@@ -491,7 +594,7 @@ def record_loyalty_entry(customer_id: int, invoice_id: Optional[int], points_del
            (customer_id, invoice_id, points_delta, reason, created_at)
            VALUES (?, ?, ?, ?, ?)""",
         (
-            customer_id,
+            normalized_phone,
             invoice_id,
             float(points_delta),
             reason.strip() or "invoice",
@@ -1079,7 +1182,7 @@ def _next_invoice_no(cur) -> str:
 def create_invoice(
     cashier_name: str,
     txn_type: str,
-    customer_id: Optional[int],
+    customer_id: Optional[str],
     customer_name: str,
     customer_phone: str,
     subtotal: float,

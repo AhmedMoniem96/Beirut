@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize, QTimer
 
-from ...utils.currency import format_pounds
+from beirut_pos.utils.currency import format_pounds
 
 STYLE = """
 QFrame#tile { background-color:#2b2b2b; border:1px solid #444; border-radius:12px; }

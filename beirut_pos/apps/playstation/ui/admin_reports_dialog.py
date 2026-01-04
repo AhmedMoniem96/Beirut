@@ -2347,11 +2347,6 @@ class AdminReportsDialog(BigDialog):
         except Exception:
             return dt
 
-    def _configure_time_edit(self, widget: QTimeEdit) -> None:
-        widget.setDisplayFormat("hh:mm AP")
-        widget.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        widget.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
-
     def _wrap_ltr(self, widget: QWidget) -> QWidget:
         container = QWidget()
         layout = QHBoxLayout(container)

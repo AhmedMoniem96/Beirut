@@ -598,15 +598,7 @@ class CatalogManagerDialog(BigDialog):
         )
         layout = QHBoxLayout(card)
         layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(10)
-
-        fg, _ = _avatar_palette(product.get("name") or "")
-        avatar = QLabel((product.get("name") or "?")[:2])
-        avatar.setFixedSize(44, 44)
-        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        avatar.setStyleSheet(
-            f"border-radius: 12px; color: white; font-weight: 700; font-size: 16px; background-color: {fg};"
-        )
+        layout.setSpacing(6)
 
         meta = QVBoxLayout()
         meta.setSpacing(4)
@@ -640,7 +632,6 @@ class CatalogManagerDialog(BigDialog):
         pill_widget.setLayout(pill_row)
         meta.addWidget(pill_widget)
 
-        layout.addWidget(avatar)
         layout.addLayout(meta, 1)
         layout.addStretch(1)
 

@@ -10,9 +10,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QAction, QKeySequence
 import json
 
-from ..core.db import setting_get, setting_set, get_synchronous_mode, set_synchronous_mode
-from ..core.simple_voucher import deactivate, is_activated, status as voucher_status
-from ..core.bus import bus
+from beirut_pos.core.db import setting_get, setting_set, get_synchronous_mode, set_synchronous_mode
+from beirut_pos.core.simple_voucher import deactivate, is_activated, status as voucher_status
+from beirut_pos.core.bus import bus
 from .common.big_dialog import BigDialog
 from .common.async_utils import Debouncer
 from .common import branding
@@ -23,7 +23,7 @@ from .voucher_dialog import VoucherDialog
 import sys
 from pathlib import Path
 
-from ..core.paths import DB_PATH, BACKUP_DIR, CONFIG_DIR
+from beirut_pos.core.paths import DB_PATH, BACKUP_DIR, CONFIG_DIR
 from ..services.backup import backup_now, restore_backup
 from .settings_branding import BrandingTextsPage
 

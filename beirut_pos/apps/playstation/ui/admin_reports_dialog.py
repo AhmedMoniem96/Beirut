@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
 
-from ..core.db import get_conn, setting_get
+from beirut_pos.core.db import get_conn, setting_get
 from .common.big_dialog import BigDialog
 from ..services.orders import order_manager
 from ..services import staff as staff_service

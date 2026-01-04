@@ -7,7 +7,7 @@ from typing import Callable
 from PyQt6.QtCore import QObject, QTimer, Qt
 from PyQt6.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
 
-from ...core.bus import bus
+from beirut_pos.core.bus import bus
 
 
 class Debouncer(QObject):

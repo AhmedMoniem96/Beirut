@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from ..core.auth import delete_user, list_users, update_user
+from beirut_pos.core.auth import delete_user, list_users, update_user
 from .create_user_dialog import CreateUserDialog
 from .common.branding import get_accent_color, get_text_color
 

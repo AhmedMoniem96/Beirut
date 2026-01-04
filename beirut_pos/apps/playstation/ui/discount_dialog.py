@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QButtonGroup,
 )
 from PyQt6.QtCore import Qt
-from ..core.auth import authenticate
+from beirut_pos.core.auth import authenticate
 from ..texts import texts
 
 class DiscountDialog(QDialog):

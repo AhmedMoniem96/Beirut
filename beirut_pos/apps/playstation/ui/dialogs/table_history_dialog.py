@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..common.big_dialog import BigDialog
-from ...core.db import get_conn
+from beirut_pos.core.db import get_conn
 from ...services import texts
 from ...services.orders import get_table_history
 from ...utils.currency import format_pounds

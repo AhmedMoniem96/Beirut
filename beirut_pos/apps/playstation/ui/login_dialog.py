@@ -9,11 +9,11 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QPalette, QColor
-from ..core.auth import authenticate
+from beirut_pos.core.auth import authenticate
 from .forgot_password_dialog import ForgotPasswordDialog
 from .create_user_dialog import CreateUserDialog
 from .common.branding import get_logo_pixmap, get_logo_icon, build_login_stylesheet
-from ..core.bus import bus
+from beirut_pos.core.bus import bus
 from ..services import texts
 from ..services import settings as settings_service
 from .theme import (

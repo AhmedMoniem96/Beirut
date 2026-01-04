@@ -3,7 +3,7 @@
 # from PyQt6.QtCore import QDate, Qt
 # from .common.big_dialog import BigDialog
 # from ..services.reports import z_report, format_z_text
-# from ..core.db import setting_get
+# from beirut_pos.core.db import setting_get
 # from ..services.printer import printer
 # from datetime import datetime
 # from pathlib import Path

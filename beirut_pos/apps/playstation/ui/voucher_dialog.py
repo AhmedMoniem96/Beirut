@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..core.simple_voucher import activate, format_voucher, status as voucher_status
+from beirut_pos.core.simple_voucher import activate, format_voucher, status as voucher_status
 
 
 class VoucherDialog(QDialog):

@@ -170,19 +170,23 @@ class MainWindow(QMainWindow):
         # Primary navigation (side panel)
         self._nav_panel = self._build_nav_panel()
         self._nav_collapsed = False
-        self._nav_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        self._nav_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
         # Layouts
-        container = QWidget()
-        container.setObjectName("MainContainer")
-        root_layout = QHBoxLayout(container)
-        root_layout.setContentsMargins(12, 12, 12, 12)
-        root_layout.setSpacing(8)
-        self._root_layout = root_layout
+        central = QWidget()
+        central.setObjectName("MainContainer")
+        central.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        root_layout = QHBoxLayout(central)
+        root_layout.setDirection(QBoxLayout.Direction.LeftToRight)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        content_holder = QVBoxLayout()
-        content_holder.setContentsMargins(0, 0, 0, 0)
+        left_content_container = QWidget()
+        left_content_container.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        content_holder = QVBoxLayout(left_content_container)
+        content_holder.setContentsMargins(12, 12, 12, 12)
         content_holder.setSpacing(8)
+        self._content_layout = content_holder
 
         self._page_header = self._build_page_header()
         self.pages = QStackedWidget()
@@ -206,8 +210,9 @@ class MainWindow(QMainWindow):
         content_holder.addWidget(self.banner, 0)
         content_holder.addWidget(self.pages, 1)
 
-        root_layout.addWidget(self._nav_panel, 0)
-        root_layout.addLayout(content_holder, 1)
+        right_nav_panel = self._nav_panel
+        root_layout.addWidget(left_content_container, 1)
+        root_layout.addWidget(right_nav_panel, 0)
 
         self.banner_timer = QTimer(self)
         self.banner_timer.setSingleShot(True)
@@ -219,7 +224,7 @@ class MainWindow(QMainWindow):
             "error": 8200,
         }
 
-        self.setCentralWidget(container)
+        self.setCentralWidget(central)
 
         # Tables page
         tables_page = QWidget()
@@ -592,20 +597,20 @@ class MainWindow(QMainWindow):
         self._current_breakpoint = mode
 
         if mode == "mobile":
-            self._root_layout.setContentsMargins(8, 8, 8, 8)
-            self._root_layout.setSpacing(6)
+            self._content_layout.setContentsMargins(8, 8, 8, 8)
+            self._content_layout.setSpacing(6)
             self._head_row.setSpacing(4)
             self._main_row.setDirection(QBoxLayout.Direction.TopToBottom)
             self._main_row.setSpacing(10)
         elif mode == "tablet":
-            self._root_layout.setContentsMargins(10, 10, 10, 10)
-            self._root_layout.setSpacing(8)
+            self._content_layout.setContentsMargins(10, 10, 10, 10)
+            self._content_layout.setSpacing(8)
             self._head_row.setSpacing(6)
             self._main_row.setDirection(QBoxLayout.Direction.LeftToRight)
             self._main_row.setSpacing(10)
         else:
-            self._root_layout.setContentsMargins(12, 12, 12, 12)
-            self._root_layout.setSpacing(8)
+            self._content_layout.setContentsMargins(12, 12, 12, 12)
+            self._content_layout.setSpacing(8)
             self._head_row.setSpacing(8)
             self._main_row.setDirection(QBoxLayout.Direction.LeftToRight)
             self._main_row.setSpacing(12)

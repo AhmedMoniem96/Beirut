@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QStyle,
     QBoxLayout,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
@@ -152,6 +153,13 @@ class MainWindow(QMainWindow):
         bar.setMovable(False)
         bar.addSeparator()
 
+        nav_container = QWidget()
+        nav_container.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        nav_container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        nav_layout = QHBoxLayout(nav_container)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(0)
+
         # Hotkeys
         QShortcut(QKeySequence("Esc"), self, activated=self._go_back)
         QShortcut(QKeySequence("F2"), self, activated=self._print_bar)
@@ -169,6 +177,9 @@ class MainWindow(QMainWindow):
         # Primary navigation (side panel)
         self._nav_panel = self._build_nav_panel()
         self._nav_collapsed = False
+        self._nav_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        nav_layout.addWidget(self._nav_panel)
+        bar.insertWidget(self.act_print_bar, nav_container)
 
         # Layouts
         container = QWidget()
@@ -177,8 +188,6 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(12, 12, 12, 12)
         root_layout.setSpacing(8)
         self._root_layout = root_layout
-
-        root_layout.addWidget(self._nav_panel, 0)
 
         content_holder = QVBoxLayout()
         content_holder.setContentsMargins(0, 0, 0, 0)

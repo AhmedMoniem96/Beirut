@@ -494,15 +494,23 @@ class CatalogManagerDialog(BigDialog):
             "المخزون",
             "التعبئة",
         ])
-        self.product_table.horizontalHeader().setStretchLastSection(True)
+        self.product_table.horizontalHeader().setStretchLastSection(False)
         self.product_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for idx in range(1, 6):
-            self.product_table.horizontalHeader().setSectionResizeMode(idx, QHeaderView.ResizeMode.ResizeToContents)
+            self.product_table.horizontalHeader().setSectionResizeMode(idx, QHeaderView.ResizeMode.Interactive)
+        self.product_table.setColumnWidth(1, 90)
+        self.product_table.setColumnWidth(2, 110)
+        self.product_table.setColumnWidth(3, 100)
+        self.product_table.setColumnWidth(4, 80)
+        self.product_table.setColumnWidth(5, 80)
         self.product_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.product_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.product_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.product_table.setAlternatingRowColors(True)
         self.product_table.verticalHeader().setVisible(False)
+        row_height = 82
+        header_height = self.product_table.horizontalHeader().sizeHint().height()
+        self.product_table.setMinimumHeight(row_height * 10 + header_height)
         prod_panel.addWidget(self.product_table, 3)
 
         prod_actions = QHBoxLayout()

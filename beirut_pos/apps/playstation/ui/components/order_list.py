@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QFrame, QSizePolicy, QSpacerItem
 )
 from beirut_pos.utils.currency import format_pounds
-from ...texts import texts
+from beirut_pos.texts import texts
 
 
 class OrderList(QWidget):

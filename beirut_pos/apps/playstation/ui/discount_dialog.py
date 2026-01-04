@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from beirut_pos.core.auth import authenticate
-from ..texts import texts
+from beirut_pos.texts import texts
 
 class DiscountDialog(QDialog):
     def __init__(self, parent=None):

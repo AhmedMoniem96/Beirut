@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout
 
-from ....utils.currency import format_pounds
+from beirut_pos.utils.currency import format_pounds
 from ...texts import texts
 
 

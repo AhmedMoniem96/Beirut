@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
     QLabel, QPushButton, QFrame, QSizePolicy, QSpacerItem
 )
-from ....utils.currency import format_pounds
+from beirut_pos.utils.currency import format_pounds
 from ...texts import texts
 
 

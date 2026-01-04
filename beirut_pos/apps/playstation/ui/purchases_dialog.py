@@ -25,7 +25,7 @@ from .common.big_dialog import BigDialog
 from .common.async_utils import Debouncer, emit_task_status
 from .theme.components import DSTable, KpiCard, DSButton, DSSelect, DSTextField
 from ..services import purchases
-from ..utils.currency import format_pounds
+from beirut_pos.utils.currency import format_pounds
 
 
 class PurchasesDialog(BigDialog):
@@ -411,4 +411,3 @@ class PurchasesDialog(BigDialog):
 
     def _focus_form(self) -> None:
         self.supplier.setFocus()
-

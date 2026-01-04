@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from ..utils.currency import format_pounds, pounds_value
+from beirut_pos.utils.currency import format_pounds, pounds_value
 
 @dataclass
 class CoffeeSelection:

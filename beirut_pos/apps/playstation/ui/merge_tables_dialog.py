@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..utils.currency import format_pounds
+from beirut_pos.utils.currency import format_pounds
 
 
 class MergeTablesDialog(QDialog):
@@ -74,4 +74,3 @@ class MergeTablesDialog(QDialog):
 
     def selected_action(self) -> tuple[str, str] | None:
         return self._selection
-

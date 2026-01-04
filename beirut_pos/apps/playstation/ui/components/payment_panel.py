@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QHBoxLayout
 
 from beirut_pos.utils.currency import format_pounds
-from ...texts import texts
+from beirut_pos.texts import texts
 
 
 class PaymentPanel(QWidget):

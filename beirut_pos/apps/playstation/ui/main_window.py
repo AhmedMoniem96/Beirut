@@ -153,13 +153,6 @@ class MainWindow(QMainWindow):
         bar.setMovable(False)
         bar.addSeparator()
 
-        nav_container = QWidget()
-        nav_container.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
-        nav_container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
-        nav_layout = QHBoxLayout(nav_container)
-        nav_layout.setContentsMargins(0, 0, 0, 0)
-        nav_layout.setSpacing(0)
-
         # Hotkeys
         QShortcut(QKeySequence("Esc"), self, activated=self._go_back)
         QShortcut(QKeySequence("F2"), self, activated=self._print_bar)
@@ -178,8 +171,6 @@ class MainWindow(QMainWindow):
         self._nav_panel = self._build_nav_panel()
         self._nav_collapsed = False
         self._nav_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
-        nav_layout.addWidget(self._nav_panel)
-        bar.insertWidget(self.act_print_bar, nav_container)
 
         # Layouts
         container = QWidget()
@@ -215,6 +206,7 @@ class MainWindow(QMainWindow):
         content_holder.addWidget(self.banner, 0)
         content_holder.addWidget(self.pages, 1)
 
+        root_layout.addWidget(self._nav_panel, 0)
         root_layout.addLayout(content_holder, 1)
 
         self.banner_timer = QTimer(self)

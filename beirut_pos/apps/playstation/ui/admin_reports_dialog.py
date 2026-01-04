@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QComboBox,
     QSizePolicy,
-    QTimeEdit,
+    QSpinBox,
 )
 from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
 
@@ -47,6 +47,92 @@ class ReportCell:
     text: str
     thumbnail: QPixmap | bytes | str | None = None
     badge: str | None = None
+
+
+class _ZeroPaddedSpinBox(QSpinBox):
+    def textFromValue(self, value: int) -> str:
+        return f"{value:02d}"
+
+    def valueFromText(self, text: str) -> int:
+        try:
+            return int(text.strip())
+        except (TypeError, ValueError):
+            return 0
+
+
+class Time12hWidget(QWidget):
+    def __init__(self, initial_time: QTime | None = None, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
+
+        self.hour_spin = QSpinBox()
+        self.hour_spin.setRange(1, 12)
+
+        self.minute_spin = _ZeroPaddedSpinBox()
+        self.minute_spin.setRange(0, 59)
+
+        self.ampm_combo = QComboBox()
+        self.ampm_combo.addItems(["AM", "PM"])
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        layout.addWidget(self.hour_spin)
+        layout.addWidget(QLabel(":"))
+        layout.addWidget(self.minute_spin)
+        layout.addWidget(self.ampm_combo)
+
+        for widget in (self.hour_spin, self.minute_spin, self.ampm_combo):
+            widget.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        for spin in (self.hour_spin, self.minute_spin):
+            line_edit = spin.lineEdit()
+            if line_edit is not None:
+                line_edit.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+                line_edit.setAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+
+        if initial_time is not None:
+            self.set_time(initial_time)
+
+    def get_time(self) -> QTime:
+        hour = self.hour_spin.value()
+        minute = self.minute_spin.value()
+        period = self.ampm_combo.currentText()
+
+        if period == "AM":
+            if hour == 12:
+                hour = 0
+        else:
+            if hour != 12:
+                hour += 12
+
+        return QTime(hour, minute)
+
+    def set_time(self, time_value: QTime) -> None:
+        if not time_value.isValid():
+            return
+
+        hour = time_value.hour()
+        minute = time_value.minute()
+
+        if hour == 0:
+            display_hour = 12
+            period = "AM"
+        elif 1 <= hour <= 11:
+            display_hour = hour
+            period = "AM"
+        elif hour == 12:
+            display_hour = 12
+            period = "PM"
+        else:
+            display_hour = hour - 12
+            period = "PM"
+
+        self.hour_spin.setValue(display_hour)
+        self.minute_spin.setValue(minute)
+        self.ampm_combo.setCurrentText(period)
 
 
 class AdminReportsDialog(BigDialog):
@@ -138,11 +224,10 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
 
-        self.daily_from_time = QTimeEdit(QTime(0, 0))
-        self._configure_time_edit(self.daily_from_time)
-        self.daily_from_time.setMinimumWidth(90)
+        self.daily_from_time = Time12hWidget(QTime(0, 0))
+        self.daily_from_time.setMinimumWidth(140)
         self.daily_from_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        controls.addWidget(self._wrap_ltr(self.daily_from_time))
+        controls.addWidget(self.daily_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.daily_to_date = QDateEdit(QDate.currentDate())
@@ -154,11 +239,10 @@ class AdminReportsDialog(BigDialog):
 
         controls.addWidget(QLabel("الساعة:"))
 
-        self.daily_to_time = QTimeEdit(QTime(23, 59))
-        self._configure_time_edit(self.daily_to_time)
-        self.daily_to_time.setMinimumWidth(90)
+        self.daily_to_time = Time12hWidget(QTime(23, 59))
+        self.daily_to_time.setMinimumWidth(140)
         self.daily_to_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        controls.addWidget(self._wrap_ltr(self.daily_to_time))
+        controls.addWidget(self.daily_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_daily_report)
@@ -285,10 +369,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.order_items_from)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.order_items_from_time = QTimeEdit(QTime(0, 0))
-        self._configure_time_edit(self.order_items_from_time)
-        self.order_items_from_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.order_items_from_time))
+        self.order_items_from_time = Time12hWidget(QTime(0, 0))
+        self.order_items_from_time.setMinimumWidth(140)
+        controls.addWidget(self.order_items_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.order_items_to = QDateEdit(QDate.currentDate())
@@ -297,10 +380,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.order_items_to)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.order_items_to_time = QTimeEdit(QTime(23, 59))
-        self._configure_time_edit(self.order_items_to_time)
-        self.order_items_to_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.order_items_to_time))
+        self.order_items_to_time = Time12hWidget(QTime(23, 59))
+        self.order_items_to_time.setMinimumWidth(140)
+        controls.addWidget(self.order_items_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_order_items_report)
@@ -419,11 +501,10 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.cashier_from)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.cashier_from_time = QTimeEdit(QTime(0, 0))
-        self._configure_time_edit(self.cashier_from_time)
-        self.cashier_from_time.setMinimumWidth(90)
+        self.cashier_from_time = Time12hWidget(QTime(0, 0))
+        self.cashier_from_time.setMinimumWidth(140)
         self.cashier_from_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        controls.addWidget(self._wrap_ltr(self.cashier_from_time))
+        controls.addWidget(self.cashier_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.cashier_to = QDateEdit(QDate.currentDate())
@@ -433,11 +514,10 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.cashier_to)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.cashier_to_time = QTimeEdit(QTime(23, 59))
-        self._configure_time_edit(self.cashier_to_time)
-        self.cashier_to_time.setMinimumWidth(90)
+        self.cashier_to_time = Time12hWidget(QTime(23, 59))
+        self.cashier_to_time.setMinimumWidth(140)
         self.cashier_to_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        controls.addWidget(self._wrap_ltr(self.cashier_to_time))
+        controls.addWidget(self.cashier_to_time)
 
         controls.addWidget(QLabel("الكاشير:"))
         self.cashier_filter = QComboBox()
@@ -588,10 +668,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.products_from)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.products_from_time = QTimeEdit(QTime(0, 0))
-        self._configure_time_edit(self.products_from_time)
-        self.products_from_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.products_from_time))
+        self.products_from_time = Time12hWidget(QTime(0, 0))
+        self.products_from_time.setMinimumWidth(140)
+        controls.addWidget(self.products_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.products_to = QDateEdit(QDate.currentDate())
@@ -599,10 +678,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.products_to)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.products_to_time = QTimeEdit(QTime(23, 59))
-        self._configure_time_edit(self.products_to_time)
-        self.products_to_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.products_to_time))
+        self.products_to_time = Time12hWidget(QTime(23, 59))
+        self.products_to_time.setMinimumWidth(140)
+        controls.addWidget(self.products_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_product_report)
@@ -684,10 +762,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.discounts_from)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.discounts_from_time = QTimeEdit(QTime(0, 0))
-        self._configure_time_edit(self.discounts_from_time)
-        self.discounts_from_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.discounts_from_time))
+        self.discounts_from_time = Time12hWidget(QTime(0, 0))
+        self.discounts_from_time.setMinimumWidth(140)
+        controls.addWidget(self.discounts_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.discounts_to = QDateEdit(QDate.currentDate())
@@ -696,10 +773,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.discounts_to)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.discounts_to_time = QTimeEdit(QTime(23, 59))
-        self._configure_time_edit(self.discounts_to_time)
-        self.discounts_to_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.discounts_to_time))
+        self.discounts_to_time = Time12hWidget(QTime(23, 59))
+        self.discounts_to_time.setMinimumWidth(140)
+        controls.addWidget(self.discounts_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_discounts_report)
@@ -785,10 +861,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.purchases_from)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.purchases_from_time = QTimeEdit(QTime(0, 0))
-        self._configure_time_edit(self.purchases_from_time)
-        self.purchases_from_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.purchases_from_time))
+        self.purchases_from_time = Time12hWidget(QTime(0, 0))
+        self.purchases_from_time.setMinimumWidth(140)
+        controls.addWidget(self.purchases_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.purchases_to = QDateEdit(QDate.currentDate())
@@ -797,10 +872,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.purchases_to)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.purchases_to_time = QTimeEdit(QTime(23, 59))
-        self._configure_time_edit(self.purchases_to_time)
-        self.purchases_to_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.purchases_to_time))
+        self.purchases_to_time = Time12hWidget(QTime(23, 59))
+        self.purchases_to_time.setMinimumWidth(140)
+        controls.addWidget(self.purchases_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_purchases_report)
@@ -892,10 +966,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.profit_from)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.profit_from_time = QTimeEdit(QTime(0, 0))
-        self._configure_time_edit(self.profit_from_time)
-        self.profit_from_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.profit_from_time))
+        self.profit_from_time = Time12hWidget(QTime(0, 0))
+        self.profit_from_time.setMinimumWidth(140)
+        controls.addWidget(self.profit_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.profit_to = QDateEdit(QDate.currentDate())
@@ -905,10 +978,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.profit_to)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.profit_to_time = QTimeEdit(QTime(23, 59))
-        self._configure_time_edit(self.profit_to_time)
-        self.profit_to_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.profit_to_time))
+        self.profit_to_time = Time12hWidget(QTime(23, 59))
+        self.profit_to_time.setMinimumWidth(140)
+        controls.addWidget(self.profit_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_profit_report)
@@ -1477,10 +1549,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.attendance_from)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.attendance_from_time = QTimeEdit(QTime(0, 0))
-        self._configure_time_edit(self.attendance_from_time)
-        self.attendance_from_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.attendance_from_time))
+        self.attendance_from_time = Time12hWidget(QTime(0, 0))
+        self.attendance_from_time.setMinimumWidth(140)
+        controls.addWidget(self.attendance_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.attendance_to = QDateEdit(QDate.currentDate())
@@ -1489,10 +1560,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.attendance_to)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.attendance_to_time = QTimeEdit(QTime(23, 59))
-        self._configure_time_edit(self.attendance_to_time)
-        self.attendance_to_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.attendance_to_time))
+        self.attendance_to_time = Time12hWidget(QTime(23, 59))
+        self.attendance_to_time.setMinimumWidth(140)
+        controls.addWidget(self.attendance_to_time)
 
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_attendance_report)
@@ -1574,10 +1644,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.shift_from_date)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.shift_from_time = QTimeEdit(QTime(0, 0))
-        self._configure_time_edit(self.shift_from_time)
-        self.shift_from_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.shift_from_time))
+        self.shift_from_time = Time12hWidget(QTime(0, 0))
+        self.shift_from_time.setMinimumWidth(140)
+        controls.addWidget(self.shift_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.shift_to_date = QDateEdit(QDate.currentDate())
@@ -1585,10 +1654,9 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(self.shift_to_date)
 
         controls.addWidget(QLabel("الساعة:"))
-        self.shift_to_time = QTimeEdit(QTime(23, 59))
-        self._configure_time_edit(self.shift_to_time)
-        self.shift_to_time.setMinimumWidth(90)
-        controls.addWidget(self._wrap_ltr(self.shift_to_time))
+        self.shift_to_time = Time12hWidget(QTime(23, 59))
+        self.shift_to_time.setMinimumWidth(140)
+        controls.addWidget(self.shift_to_time)
 
         controls.addWidget(QLabel("الموظف:"))
         self.shift_user_filter = QComboBox()
@@ -2347,25 +2415,6 @@ class AdminReportsDialog(BigDialog):
         except Exception:
             return dt
 
-    def _configure_time_edit(self, widget: QTimeEdit) -> None:
-        widget.setDisplayFormat("hh:mm AP")
-        widget.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        widget.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
-        line_edit = widget.lineEdit()
-        if line_edit is not None:
-            line_edit.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-            line_edit.setAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-            )
-
-    def _wrap_ltr(self, widget: QWidget) -> QWidget:
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(widget)
-        container.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        return container
-
     def _date_bounds(self, start_widget: QDateEdit, end_widget: QDateEdit) -> tuple[str, str]:
         s = datetime.combine(start_widget.date().toPyDate(), datetime.min.time())
         e = datetime.combine(end_widget.date().toPyDate(), datetime.max.time())
@@ -2381,15 +2430,15 @@ class AdminReportsDialog(BigDialog):
     def _datetime_bounds_from_date_time(
         self,
         start_date_widget: QDateEdit,
-        start_time_widget: QTimeEdit,
+        start_time_widget: Time12hWidget,
         end_date_widget: QDateEdit,
-        end_time_widget: QTimeEdit,
+        end_time_widget: Time12hWidget,
     ) -> tuple[str, str]:
         start_dt = datetime.combine(
-            start_date_widget.date().toPyDate(), start_time_widget.time().toPyTime()
+            start_date_widget.date().toPyDate(), start_time_widget.get_time().toPyTime()
         )
         end_dt = datetime.combine(
-            end_date_widget.date().toPyDate(), end_time_widget.time().toPyTime()
+            end_date_widget.date().toPyDate(), end_time_widget.get_time().toPyTime()
         )
         if end_dt < start_dt:
             end_dt = start_dt

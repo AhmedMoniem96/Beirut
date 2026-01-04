@@ -2348,8 +2348,15 @@ class AdminReportsDialog(BigDialog):
             return dt
 
     def _configure_time_edit(self, widget: QTimeEdit) -> None:
-        widget.setDisplayFormat("HH:mm")
+        widget.setDisplayFormat("hh:mm AP")
         widget.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        widget.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
+        line_edit = widget.lineEdit()
+        if line_edit is not None:
+            line_edit.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+            line_edit.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
 
     def _wrap_ltr(self, widget: QWidget) -> QWidget:
         container = QWidget()

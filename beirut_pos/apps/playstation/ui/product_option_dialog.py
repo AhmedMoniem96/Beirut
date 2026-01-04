@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
 )
-from ..utils.currency import format_pounds
+from beirut_pos.utils.currency import format_pounds
 
 
 class ProductOptionDialog(QDialog):

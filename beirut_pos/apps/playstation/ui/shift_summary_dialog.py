@@ -6,7 +6,7 @@ from datetime import datetime
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout
 
-from ..utils.currency import format_pounds
+from beirut_pos.utils.currency import format_pounds
 
 
 def _format_dt(value: datetime | None) -> str:

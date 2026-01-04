@@ -35,7 +35,7 @@ from .common.big_dialog import BigDialog
 from ..services.orders import order_manager
 from ..services import staff as staff_service
 from ..services import maintenance as maintenance_service
-from ..utils.currency import format_pounds
+from beirut_pos.utils.currency import format_pounds
 from .theme.components import DSTable, KpiCard
 
 
@@ -2400,7 +2400,7 @@ class AdminReportsDialog(BigDialog):
         ]
 
         try:
-            from ..utils.excel import write_protected_workbook
+            from beirut_pos.utils.excel import write_protected_workbook
             write_protected_workbook(path, headers, rows, title=default_name)
         except Exception as exc:
             QMessageBox.critical(self, "فشل التصدير", f"تعذر إنشاء ملف Excel:\n{exc}")

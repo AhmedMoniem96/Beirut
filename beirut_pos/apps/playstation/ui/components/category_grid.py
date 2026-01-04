@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QSize, Qt
 
-from ....utils.currency import format_pounds
+from beirut_pos.utils.currency import format_pounds
 from ..common import branding
 
 # English->Arabic display map (DB can stay English internally)

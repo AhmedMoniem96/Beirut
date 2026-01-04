@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from collections import Counter
 from dataclasses import dataclass
 
-from PyQt6.QtCore import Qt, QDate, QDateTime, QTime, QSize
+from PyQt6.QtCore import Qt, QDate, QDateTime, QTime, QSize, QLocale
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDateEdit,
@@ -2346,10 +2346,6 @@ class AdminReportsDialog(BigDialog):
             return dt.astimezone()
         except Exception:
             return dt
-
-    def _configure_time_edit(self, widget: QTimeEdit) -> None:
-        widget.setDisplayFormat("hh:mm AP")
-        widget.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
     def _wrap_ltr(self, widget: QWidget) -> QWidget:
         container = QWidget()

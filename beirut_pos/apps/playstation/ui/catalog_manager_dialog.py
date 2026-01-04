@@ -518,7 +518,14 @@ class CatalogManagerDialog(BigDialog):
         self.btn_prod_down = QPushButton("⬇ أسفل")
         prod_actions.addWidget(self.btn_prod_up)
         prod_actions.addWidget(self.btn_prod_down)
-        prod_panel.addLayout(prod_actions)
+
+        prod_table_container = QWidget()
+        prod_table_layout = QVBoxLayout(prod_table_container)
+        prod_table_layout.setContentsMargins(0, 0, 0, 0)
+        prod_table_layout.setSpacing(6)
+        prod_table_layout.addWidget(self.product_table, 1)
+        prod_table_layout.addLayout(prod_actions)
+        prod_panel.addWidget(prod_table_container, 3)
 
         self.options_group = QGroupBox("خيارات المنتج")
         opt_layout = QVBoxLayout(self.options_group)

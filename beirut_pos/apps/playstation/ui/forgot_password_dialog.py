@@ -1,7 +1,7 @@
 # beirut_pos/ui/forgot_password_dialog.py
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
 from PyQt6.QtCore import Qt
-from ..core.auth import reset_password_with_secret
+from beirut_pos.core.auth import reset_password_with_secret
 
 class ForgotPasswordDialog(QDialog):
     def __init__(self):

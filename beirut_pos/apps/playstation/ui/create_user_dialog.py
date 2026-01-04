@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 
-from ..core.auth import authenticate, create_user, UsernameExistsError
+from beirut_pos.core.auth import authenticate, create_user, UsernameExistsError
 from .common.branding import get_accent_color
 from .theme import (
     DSAlert,

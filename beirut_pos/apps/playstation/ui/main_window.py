@@ -29,7 +29,7 @@ from ..services.printer import printer
 from ..services import reservations as reservations_service
 from beirut_pos.services.texts import texts
 from beirut_pos.services import settings as settings_service
-from ..core.bus import bus
+from beirut_pos.core.bus import bus
 from .login_dialog import LoginDialog
 from .catalog_manager_dialog import CatalogManagerDialog
 from .discount_dialog import DiscountDialog

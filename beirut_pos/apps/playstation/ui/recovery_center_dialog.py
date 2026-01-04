@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..core import db as db_module
+from beirut_pos.core import db as db_module
 from ..services.backup import BackupMetadata, list_backup_metadata, restore_backup
 from .common.big_dialog import BigDialog
 

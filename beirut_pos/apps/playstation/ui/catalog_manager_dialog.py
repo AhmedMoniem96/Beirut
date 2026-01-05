@@ -504,17 +504,17 @@ class CatalogManagerDialog(BigDialog):
         self.product_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for idx in range(1, 6):
             self.product_table.horizontalHeader().setSectionResizeMode(idx, QHeaderView.ResizeMode.Fixed)
-        self.product_table.setColumnWidth(1, 90)
-        self.product_table.setColumnWidth(2, 130)
-        self.product_table.setColumnWidth(3, 110)
-        self.product_table.setColumnWidth(4, 85)
-        self.product_table.setColumnWidth(5, 80)
+        self.product_table.setColumnWidth(1, 72)
+        self.product_table.setColumnWidth(2, 120)
+        self.product_table.setColumnWidth(3, 95)
+        self.product_table.setColumnWidth(4, 78)
+        self.product_table.setColumnWidth(5, 70)
         self.product_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.product_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.product_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.product_table.setAlternatingRowColors(True)
         self.product_table.verticalHeader().setVisible(False)
-        row_height = 60
+        row_height = 46
         min_visible_rows = 5
         header_height = self.product_table.horizontalHeader().sizeHint().height()
         self.product_table.setMinimumHeight(row_height * min_visible_rows + header_height)
@@ -702,6 +702,7 @@ class CatalogManagerDialog(BigDialog):
 
     def _load_products(self, category_id: int, *, select_id: int | None = None) -> None:
         self._products = self._catalog.list_products(category_id)
+        self.product_table.clearContents()
         self.product_table.setRowCount(len(self._products))
         category_color = self._category_color(category_id)
         for row_idx, prod in enumerate(self._products):
@@ -721,17 +722,27 @@ class CatalogManagerDialog(BigDialog):
                 self.product_table.setItem(row_idx, col_idx, cell)
                 cell.setData(Qt.ItemDataRole.UserRole, prod["id"])
 
-            self.product_table.setRowHeight(row_idx, 60)
+            self.product_table.setRowHeight(row_idx, 46)
         current = self.product_table.currentRow()
+        selected_row = current
         if select_id is not None:
             for row_idx, prod in enumerate(self._products):
                 if prod["id"] == select_id:
                     self.product_table.setCurrentCell(row_idx, 0)
                     current = row_idx
+                    selected_row = row_idx
                     break
         if self._products and current < 0:
             self.product_table.setCurrentCell(0, 0)
             current = 0
+            selected_row = 0
+        if selected_row is not None and selected_row >= 0:
+            scroll_item = self.product_table.item(selected_row, 1)
+            if scroll_item is not None:
+                self.product_table.scrollToItem(
+                    scroll_item,
+                    QAbstractItemView.ScrollHint.PositionAtCenter,
+                )
         self._on_product_changed(current)
 
     def _current_category(self) -> tuple[int, dict] | tuple[None, None]:
@@ -906,8 +917,25 @@ class CatalogManagerDialog(BigDialog):
         except ValueError as exc:
             QMessageBox.warning(self, "تعذر الإضافة", str(exc))
             return
-        logger.debug("Created product id=%s category_id=%s", created.get("id"), cat["id"])
-        self._load_products(cat["id"], select_id=created.get("id"))
+        created_id = created.get("id")
+        logger.info("Catalog add product created_id=%s category_id=%s", created_id, cat["id"])
+        before_reload = self._catalog.list_products(cat["id"])
+        before_ids = [prod["id"] for prod in before_reload]
+        logger.info(
+            "Catalog add product verify created_id=%s count_before_reload=%s present_before_reload=%s",
+            created_id,
+            len(before_ids),
+            created_id in before_ids,
+        )
+        self._load_products(cat["id"], select_id=created_id)
+        after_reload = self._catalog.list_products(cat["id"])
+        after_ids = [prod["id"] for prod in after_reload]
+        logger.info(
+            "Catalog add product verify created_id=%s count_after_reload=%s present_after_reload=%s",
+            created_id,
+            len(after_ids),
+            created_id in after_ids,
+        )
 
     def _edit_product(self) -> None:
         _, cat = self._current_category()

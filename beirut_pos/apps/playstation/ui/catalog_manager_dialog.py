@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
@@ -30,6 +31,8 @@ from PyQt6.QtWidgets import (
 
 from ..services.orders import order_manager
 from .common.big_dialog import BigDialog
+
+logger = logging.getLogger(__name__)
 
 
 def _avatar_palette(seed: str) -> tuple[str, str]:
@@ -473,7 +476,10 @@ class CatalogManagerDialog(BigDialog):
         # Products panel
         prod_panel = QVBoxLayout()
         prod_panel.setSpacing(8)
-        body.addLayout(prod_panel, 2)
+        prod_panel_container = QWidget()
+        prod_panel_container.setLayout(prod_panel)
+        prod_panel_container.setMaximumWidth(680)
+        body.addWidget(prod_panel_container, 1)
 
         prod_header = QHBoxLayout()
         prod_header.addWidget(QLabel("المنتجات"))
@@ -497,21 +503,21 @@ class CatalogManagerDialog(BigDialog):
         self.product_table.horizontalHeader().setStretchLastSection(False)
         self.product_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for idx in range(1, 6):
-            self.product_table.horizontalHeader().setSectionResizeMode(idx, QHeaderView.ResizeMode.Interactive)
-        self.product_table.setColumnWidth(1, 110)
-        self.product_table.setColumnWidth(2, 140)
-        self.product_table.setColumnWidth(3, 120)
-        self.product_table.setColumnWidth(4, 90)
-        self.product_table.setColumnWidth(5, 90)
+            self.product_table.horizontalHeader().setSectionResizeMode(idx, QHeaderView.ResizeMode.Fixed)
+        self.product_table.setColumnWidth(1, 90)
+        self.product_table.setColumnWidth(2, 130)
+        self.product_table.setColumnWidth(3, 110)
+        self.product_table.setColumnWidth(4, 85)
+        self.product_table.setColumnWidth(5, 80)
         self.product_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.product_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.product_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.product_table.setAlternatingRowColors(True)
         self.product_table.verticalHeader().setVisible(False)
-        row_height = 82
+        row_height = 60
+        min_visible_rows = 5
         header_height = self.product_table.horizontalHeader().sizeHint().height()
-        self.product_table.setMinimumHeight(row_height * 10 + header_height)
-        prod_panel.addWidget(self.product_table, 3)
+        self.product_table.setMinimumHeight(row_height * min_visible_rows + header_height)
 
         prod_actions = QHBoxLayout()
         self.btn_prod_up = QPushButton("⬆ أعلى")
@@ -525,7 +531,7 @@ class CatalogManagerDialog(BigDialog):
         prod_table_layout.setSpacing(6)
         prod_table_layout.addWidget(self.product_table, 1)
         prod_table_layout.addLayout(prod_actions)
-        prod_panel.addWidget(prod_table_container, 3)
+        prod_panel.addWidget(prod_table_container, 1)
 
         self.options_group = QGroupBox("خيارات المنتج")
         opt_layout = QVBoxLayout(self.options_group)
@@ -547,7 +553,6 @@ class CatalogManagerDialog(BigDialog):
         for btn in (self.btn_opt_add, self.btn_opt_edit, self.btn_opt_delete, self.btn_opt_up, self.btn_opt_down):
             opt_buttons.addWidget(btn)
         opt_layout.addLayout(opt_buttons)
-        prod_panel.addWidget(self.options_group, 2)
         self.options_group.setEnabled(False)
 
         close_btn = QPushButton("إغلاق")
@@ -695,7 +700,7 @@ class CatalogManagerDialog(BigDialog):
             self.options_table.setRowCount(0)
             self.options_group.setEnabled(False)
 
-    def _load_products(self, category_id: int) -> None:
+    def _load_products(self, category_id: int, *, select_id: int | None = None) -> None:
         self._products = self._catalog.list_products(category_id)
         self.product_table.setRowCount(len(self._products))
         category_color = self._category_color(category_id)
@@ -716,8 +721,14 @@ class CatalogManagerDialog(BigDialog):
                 self.product_table.setItem(row_idx, col_idx, cell)
                 cell.setData(Qt.ItemDataRole.UserRole, prod["id"])
 
-            self.product_table.setRowHeight(row_idx, 82)
+            self.product_table.setRowHeight(row_idx, 60)
         current = self.product_table.currentRow()
+        if select_id is not None:
+            for row_idx, prod in enumerate(self._products):
+                if prod["id"] == select_id:
+                    self.product_table.setCurrentCell(row_idx, 0)
+                    current = row_idx
+                    break
         if self._products and current < 0:
             self.product_table.setCurrentCell(0, 0)
             current = 0
@@ -877,8 +888,9 @@ class CatalogManagerDialog(BigDialog):
         values = editor.get_values()
         if not values:
             return
+        logger.debug("Adding product in category_id=%s name=%s", cat["id"], values.name)
         try:
-            self._catalog.create_product(
+            created = self._catalog.create_product(
                 cat["id"],
                 values.name,
                 values.price_cents,
@@ -894,7 +906,8 @@ class CatalogManagerDialog(BigDialog):
         except ValueError as exc:
             QMessageBox.warning(self, "تعذر الإضافة", str(exc))
             return
-        self._load_products(cat["id"])
+        logger.debug("Created product id=%s category_id=%s", created.get("id"), cat["id"])
+        self._load_products(cat["id"], select_id=created.get("id"))
 
     def _edit_product(self) -> None:
         _, cat = self._current_category()

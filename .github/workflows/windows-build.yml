@@ -10,10 +10,30 @@ on:
 jobs:
   win-build:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app_label: OPS
+            branch: product/playstation
+            app_name: BeirutPOS-OPS
+            zip_name: BeirutPOS-OPS-Windows.zip
+            entry_mode: script
+            entry_value: launcher.py
+            app_module: beirut_pos.app
+          - app_label: Jewelry
+            branch: product/jewelry
+            app_name: BeirutPOS-Jewelry
+            zip_name: BeirutPOS-Jewelry-Windows.zip
+            entry_mode: script
+            entry_value: launcher.py
+            app_module: beirut_pos.app
 
     steps:
-      - name: Checkout
+      - name: Checkout (${{ matrix.branch }})
         uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
 
       - name: Set up Python (3.12)
         uses: actions/setup-python@v5
@@ -24,13 +44,14 @@ jobs:
       - name: Create launcher entry script
         shell: pwsh
         run: |
+          $module = '${{ matrix.app_module }}'
           @"
           # Force SQLAlchemy import so PyInstaller detects it
           import sqlalchemy
           import sqlalchemy.orm
           import sqlalchemy.ext.declarative
 
-          from beirut_pos.app import main
+          from $module import main
           if __name__ == "__main__":
               main()
           "@ | Out-File -FilePath "launcher.py" -Encoding UTF8
@@ -48,31 +69,7 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip uninstall -y PyQt6 PyQt6-Qt6 PyQt6-sip 2>$null | Out-Null
-          pip install --no-cache-dir --only-binary=:all: PyQt6==6.5.2
-          pip install --no-cache-dir --only-binary=:all: PyQt6-Qt6==6.5.2
-          pip install --no-cache-dir --only-binary=:all: "PyQt6-sip>=13.5,<14"
-
-          # Core packages
-          pip install --no-cache-dir SQLAlchemy==2.0.23
-          pip install --no-cache-dir reportlab==4.0.7
-          pip install --no-cache-dir pillow>=10.0.0
-          pip install --no-cache-dir qrcode>=7.4
-          pip install --no-cache-dir openpyxl>=3.1.2
-
-          # ESC/POS printing stack
-          pip install --no-cache-dir python-escpos==3.1.0
-          pip install --no-cache-dir pyusb>=1.2.1
-          pip install --no-cache-dir pyserial>=3.5
-
-          # Arabic support
-          pip install --no-cache-dir arabic-reshaper>=3.0.0
-          pip install --no-cache-dir python-bidi>=0.4.2
-
-          # Windows-specific printing backend
-          pip install --no-cache-dir pywin32>=305
-
-          # Builder
+          pip install --no-cache-dir -r requirements.txt
           pip install --no-cache-dir pyinstaller pyinstaller-hooks-contrib
 
       - name: Show versions (sanity check)
@@ -142,7 +139,7 @@ jobs:
       - name: Clean previous build artifacts/spec
         shell: pwsh
         run: |
-          if (Test-Path 'BeirutPOS.spec') { Remove-Item 'BeirutPOS.spec' -Force }
+          Get-ChildItem -Path . -Filter "*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
 
       - name: Ensure assets folders exist
@@ -156,9 +153,10 @@ jobs:
       - name: Build EXE with PyInstaller (bundle Qt + ESC/POS)
         shell: pwsh
         run: |
+          $entryMode = '${{ matrix.entry_mode }}'
+          $entryValue = '${{ matrix.entry_value }}'
           $args = @(
-            'launcher.py',
-            '--name','BeirutPOS',
+            '--name','${{ matrix.app_name }}',
             '--onefile',
             '--noconsole',
             '--clean',
@@ -215,6 +213,12 @@ jobs:
             '--add-binary','libusb-1.0.dll;.'
           )
 
+          if ($entryMode -eq 'module') {
+            $args = @('-m', $entryValue) + $args
+          } else {
+            $args = @($entryValue) + $args
+          }
+
           if (Test-Path 'assets/app.ico') {
             $args += @('--icon','assets/app.ico')
             Write-Host "Using icon: assets/app.ico"
@@ -234,7 +238,7 @@ jobs:
       - name: Test built executable (smoke test)
         shell: pwsh
         run: |
-          $exePath = "dist/BeirutPOS.exe"
+          $exePath = "dist/${{ matrix.app_name }}.exe"
           if (Test-Path $exePath) {
             $sizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 2)
             Write-Host "EXE built successfully: $sizeMB MB"
@@ -250,43 +254,27 @@ jobs:
       - name: Calculate and display SHA256
         shell: pwsh
         run: |
-          $hash = (Get-FileHash dist/BeirutPOS.exe -Algorithm SHA256).Hash
+          $hash = (Get-FileHash "dist/${{ matrix.app_name }}.exe" -Algorithm SHA256).Hash
           Write-Host "SHA256: $hash"
           echo "SHA256=$hash" >> $env:GITHUB_ENV
+
+      - name: Zip build output
+        shell: pwsh
+        run: |
+          $zipName = '${{ matrix.zip_name }}'
+          $exePath = "dist/${{ matrix.app_name }}.exe"
+          if (Test-Path $exePath) {
+            Compress-Archive -Path $exePath -DestinationPath $zipName -Force
+          } elseif (Test-Path "dist/${{ matrix.app_name }}") {
+            Compress-Archive -Path "dist/${{ matrix.app_name }}/*" -DestinationPath $zipName -Force
+          } else {
+            Write-Host "ERROR: Build output not found in dist."
+            exit 1
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BeirutPOS-win-${{ github.run_number }}
-          path: dist/BeirutPOS.exe
+          name: ${{ matrix.zip_name }}
+          path: ${{ matrix.zip_name }}
           retention-days: 90
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/BeirutPOS.exe
-          body: |
-            ## BeirutPOS Windows Build
-
-            **Features**
-            - 80mm Thermal Printer Support (XP-80C compatible)
-            - Arabic Text Support with Reshaping
-            - USB/Serial Printer Communication
-            - Enhanced Receipt & Bar Ticket Tables
-            - SQLite Database
-            - PyQt6 GUI
-
-            **Installation**
-            1. Download `BeirutPOS.exe`
-            2. Install the official Windows driver for your thermal printer (e.g., XPrinter XP-80C) via the vendor installer or Windows Update.
-            3. Run `BeirutPOS.exe` (Admin recommended for first USB access)
-
-            **Notes**
-            - WinUSB (Zadig) is ONLY needed if you choose the raw USB fallback. For normal Windows-driver printing, do NOT install WinUSB.
-            - `libusb-1.0.dll` is bundled for the optional raw USB mode.
-
-            **SHA256:** `${{ env.SHA256 }}`
-          draft: false
-          prerelease: false
-          generate_release_notes: true

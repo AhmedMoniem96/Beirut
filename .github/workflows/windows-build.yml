@@ -20,14 +20,14 @@ jobs:
             zip_name: BeirutPOS-OPS-Windows.zip
             entry_mode: script
             entry_value: launcher.py
-            app_module: beirut_pos.app
+            app_module: beirut_pos.app_launcher
           - app_label: Jewelry
             branch: product/jewelry
             app_name: BeirutPOS-Jewelry
             zip_name: BeirutPOS-Jewelry-Windows.zip
             entry_mode: script
             entry_value: launcher.py
-            app_module: beirut_pos.app
+            app_module: beirut_pos.app_launcher
 
     steps:
       - name: Checkout (${{ matrix.branch }})
@@ -51,9 +51,9 @@ jobs:
           import sqlalchemy.orm
           import sqlalchemy.ext.declarative
 
-          from $module import main
+          from $module import run
           if __name__ == "__main__":
-              main()
+              run()
           "@ | Out-File -FilePath "launcher.py" -Encoding UTF8
 
       - name: Create PyInstaller hook for SQLAlchemy

@@ -212,19 +212,47 @@ def _fit_line_for_col(text: str, col_px: int) -> str:
 
 
 # ===================================================== header/meta (receipt)
-def _build_receipt_header_meta(table_code: str, cashier: str, method: str | None = None) -> List[str]:
+def _format_receipt_timestamp(value: datetime | str | None) -> str:
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        raw = str(value)
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except Exception:
+            return raw
+    if dt.tzinfo is not None:
+        try:
+            dt = dt.astimezone()
+        except Exception:
+            pass
+    return dt.strftime("%Y/%m/%d %I:%M %p")
+
+
+def _build_receipt_header_meta(
+    table_code: str,
+    cashier: str,
+    method: str | None = None,
+    *,
+    order_id: int | None = None,
+    client_name: str | None = None,
+    opened_at: datetime | str | None = None,
+    closed_at: datetime | str | None = None,
+) -> List[str]:
     ts = datetime.now().strftime("%Y/%m/%d %I:%M %p")
-    client_name = settings_service.get_client_name()
+    client_name_brand = settings_service.get_client_name()
     box_width = 30
     brand_lines = [
-        texts_service.get("receipt.cashier.header", client_name=client_name),
-        texts_service.get("receipt.cashier.subtitle", client_name=client_name),
+        texts_service.get("receipt.cashier.header", client_name=client_name_brand),
+        texts_service.get("receipt.cashier.subtitle", client_name=client_name_brand),
         texts_service.get("receipt.cashier.address"),
         texts_service.get("receipt.cashier.phone"),
     ]
     brand_lines = [ln.strip() for ln in brand_lines if ln and ln.strip()]
     if not brand_lines:
-        brand_lines = [client_name]
+        brand_lines = [client_name_brand]
 
     def _box_line(text: str) -> str:
         trimmed = text[:box_width]
@@ -253,11 +281,50 @@ def _build_receipt_header_meta(table_code: str, cashier: str, method: str | None
     if meta_line:
         lines.append(">>R " + meta_line)
 
+    client_clean = (client_name or "").strip()
+    if client_clean:
+        client_line = texts_service.get(
+            "receipt.cashier.client_name",
+            default="العميل: {client_name}",
+            client_name=client_clean,
+        ).strip()
+        if client_line:
+            lines.append(">>R " + client_line)
+
+    if order_id is not None:
+        order_line = texts_service.get(
+            "receipt.cashier.order_id",
+            default="رقم الطلب: {order_id}",
+            order_id=order_id,
+        ).strip()
+        if order_line:
+            lines.append(">>R " + order_line)
+
     method_clean = (method or "").strip()
     if method_clean:
         method_line = texts_service.get("receipt.cashier.method", method=method_clean).strip()
         if method_line:
             lines.append(">>R " + method_line)
+
+    opened_at_fmt = _format_receipt_timestamp(opened_at)
+    if opened_at_fmt:
+        opened_line = texts_service.get(
+            "receipt.cashier.opened_at",
+            default="وقت الفتح: {timestamp}",
+            timestamp=opened_at_fmt,
+        ).strip()
+        if opened_line:
+            lines.append(">>R " + opened_line)
+
+    closed_at_fmt = _format_receipt_timestamp(closed_at)
+    if closed_at_fmt:
+        closed_line = texts_service.get(
+            "receipt.cashier.closed_at",
+            default="وقت الإغلاق: {timestamp}",
+            timestamp=closed_at_fmt,
+        ).strip()
+        if closed_line:
+            lines.append(">>R " + closed_line)
 
     lines.append(_draw_line("═"))
     return lines
@@ -668,8 +735,20 @@ def _print_escpos_receipt(
     service: int | float | None = None,
     tax: int | float | None = None,
     discount_label: str | None = None,
+    order_id: int | None = None,
+    client_name: str | None = None,
+    opened_at: datetime | str | None = None,
+    closed_at: datetime | str | None = None,
 ) -> None:
-    head = _build_receipt_header_meta(table_code, cashier, method)
+    head = _build_receipt_header_meta(
+        table_code,
+        cashier,
+        method,
+        order_id=order_id,
+        client_name=client_name,
+        opened_at=opened_at,
+        closed_at=closed_at,
+    )
     _emit_lines_to_printer(printer, head)
 
     headers, rows, calc_sub, total_qty = _build_items_table(items)
@@ -892,9 +971,21 @@ class PrinterService:
         tax: int | None = None,
         *,
         discount_label: str | None = None,
+        order_id: int | None = None,
+        client_name: str | None = None,
+        opened_at: datetime | str | None = None,
+        closed_at: datetime | str | None = None,
     ) -> bool:
         data = _collapse_items(items)
-        head = _build_receipt_header_meta(table_code, cashier, method)
+        head = _build_receipt_header_meta(
+            table_code,
+            cashier,
+            method,
+            order_id=order_id,
+            client_name=client_name,
+            opened_at=opened_at,
+            closed_at=closed_at,
+        )
         headers, rows, calc_sub, total_qty = _build_items_table(data)
         tail_lines = _build_receipt_footer_lines(
             subtotal,
@@ -937,6 +1028,10 @@ class PrinterService:
                 service=service,
                 tax=tax,
                 discount_label=discount_label,
+                order_id=order_id,
+                client_name=client_name,
+                opened_at=opened_at,
+                closed_at=closed_at,
             )
         return True
 

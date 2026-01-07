@@ -897,6 +897,12 @@ class MainWindow(QMainWindow):
             self._show_banner("لا توجد عناصر في الطلب الحالي.", "warn")
             return
         sub, disc, tot, label_key = self._update_totals(self.current_table)
+        order = order_manager.orders.get(self.current_table)
+        client_name = ""
+        if order and order.client_name:
+            client_name = order.client_name
+        else:
+            client_name = order_manager.get_client_name(self.current_table)
         try:
             printer.print_cashier_receipt(
                 self.current_table,
@@ -907,6 +913,9 @@ class MainWindow(QMainWindow):
                 method="manual",
                 cashier=self.user.username,
                 discount_label=texts.get(label_key),
+                order_id=order.id if order else None,
+                client_name=client_name,
+                opened_at=order.opened_at if order else None,
             )
         except Exception as exc:
             self._handle_printer_error(exc, context="إيصال الكاشير")
@@ -1340,6 +1349,10 @@ class MainWindow(QMainWindow):
                     method,
                     self.user.username,
                     discount_label=texts.get(receipt.get("label_key")),
+                    order_id=receipt.get("order_id"),
+                    client_name=receipt.get("client_name"),
+                    opened_at=receipt.get("opened_at"),
+                    closed_at=receipt.get("closed_at"),
                 )
             except Exception as exc:
                 self._handle_printer_error(exc, context="إيصال الدفع")

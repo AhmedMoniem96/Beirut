@@ -1131,6 +1131,7 @@ class Order:
     items: List[OrderItem] = field(default_factory=list)
     status: str = "open"  # open/paid/void
     opened_by: str = ""
+    opened_at: datetime | None = None
     client_name: str = ""
     discount_type: str = "amount"
     discount_value: float = 0.0
@@ -1210,7 +1211,7 @@ class OrderManager:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            """SELECT id, table_code, status, opened_by,
+            """SELECT id, table_code, status, opened_by, opened_at,
                       COALESCE(client_name, '')        AS client_name,
                       COALESCE(discount_type, 'amount') AS discount_type,
                       COALESCE(discount_value, 0)      AS discount_value,
@@ -1225,6 +1226,7 @@ class OrderManager:
                 table_code=o["table_code"],
                 status=o["status"],
                 opened_by=o["opened_by"],
+                opened_at=_parse_iso_datetime(o["opened_at"] if "opened_at" in o.keys() else None),
                 client_name=o["client_name"] or "",
                 discount_type=(o["discount_type"] or "amount"),
                 discount_value=float(o["discount_value"] or 0),
@@ -1341,6 +1343,7 @@ class OrderManager:
                 items=items,
                 status="open",
                 opened_by=order_row.get("opened_by", "") if order_row else "",
+                opened_at=_parse_iso_datetime(order_row.get("opened_at") if order_row else None),
                 client_name=(order_row.get("client_name", "") if order_row else ""),
                 discount_type="amount",
                 discount_value=0.0,
@@ -1550,6 +1553,7 @@ class OrderManager:
             if isinstance(opened_at, datetime)
             else datetime.utcnow().isoformat()
         )
+        opened_dt = opened_at if isinstance(opened_at, datetime) else datetime.utcnow()
         cur.execute(
             """INSERT INTO orders(table_code, opened_at, status, opened_by, client_name)
                VALUES(?,?,?,?,?)""",
@@ -1565,6 +1569,7 @@ class OrderManager:
             id=cur.lastrowid,
             table_code=table_code,
             opened_by=opened_by,
+            opened_at=opened_dt,
             client_name=self.table_clients.get(table_code, ""),
         )
         self.orders[table_code] = order
@@ -2703,6 +2708,10 @@ class OrderManager:
             "discount": discount,
             "total": total,
             "label_key": label_key,
+            "order_id": o.id,
+            "client_name": o.client_name,
+            "opened_at": None,
+            "closed_at": None,
         }
 
         amount = o.total_cents
@@ -2724,6 +2733,16 @@ class OrderManager:
                 (paid_at, cashier, paid_at, editable_until, o.id),
             )
             self._write_client_name(conn, table_code, "")
+
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT opened_at, closed_at FROM orders WHERE id=?",
+                (o.id,),
+            )
+            row = cur.fetchone()
+            if row:
+                receipt_data["opened_at"] = row["opened_at"]
+                receipt_data["closed_at"] = row["closed_at"]
 
         # Clear in-memory + update UI
         o.status = "paid"

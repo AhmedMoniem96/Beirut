@@ -21,7 +21,6 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QSplitter,
@@ -80,11 +79,9 @@ class InvoiceTab(QWidget):
         right_layout = QVBoxLayout()
         header = QLabel()
         header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        left_layout.addWidget(header)
         self.header_label = header
 
         self.invoice_info_label = QLabel()
-        left_layout.addWidget(self.invoice_info_label)
 
         form_box = QGroupBox()
         self.form_box = form_box
@@ -219,7 +216,6 @@ class InvoiceTab(QWidget):
         self.customer_notes_label = QLabel()
         self._form_layout.addRow(self.cashier_label, self.cashier_input)
         self._form_layout.addRow(self.transaction_label, self.txn_type_combo)
-        self._form_layout.addRow(self.payment_method_label, self.payment_combo)
         self._form_layout.addRow(self.order_source_label, self.order_source_combo)
         self._form_layout.addRow(self.customer_search_label, customer_search_container)
         self._form_layout.addRow(self.customer_name_label, self.customer_name_input)
@@ -250,11 +246,13 @@ class InvoiceTab(QWidget):
         self._form_layout.addRow(self.notes_panel)
         self._form_layout.addRow(self.return_panel)
         self._form_layout.addRow(self.website_order_panel)
-        left_layout.addWidget(form_box)
+        right_layout.addWidget(header)
+        right_layout.addWidget(self.invoice_info_label)
+        right_layout.addWidget(form_box)
 
-        product_box = QGroupBox()
-        self.product_box = product_box
-        product_layout = QGridLayout(product_box)
+        product_search_panel = QWidget()
+        product_search_layout = QGridLayout(product_search_panel)
+        product_search_layout.setContentsMargins(0, 0, 0, 0)
         self.barcode_input = QLineEdit()
         self.search_label = QLabel()
         self.barcode_label = QLabel()
@@ -263,10 +261,11 @@ class InvoiceTab(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("")
         self.search_input.textChanged.connect(self.refresh_products)
-        product_layout.addWidget(self.search_label, 0, 0)
-        product_layout.addWidget(self.search_input, 0, 1, 1, 2)
-        product_layout.addWidget(self.barcode_label, 1, 0)
-        product_layout.addWidget(self.barcode_input, 1, 1, 1, 2)
+        product_search_layout.addWidget(self.search_label, 0, 0)
+        product_search_layout.addWidget(self.search_input, 0, 1, 1, 2)
+        product_search_layout.addWidget(self.barcode_label, 1, 0)
+        product_search_layout.addWidget(self.barcode_input, 1, 1, 1, 2)
+        right_layout.addWidget(product_search_panel)
 
         self.products_table = QTableWidget(0, 6)
         self.products_table.setHorizontalHeaderLabels(["", "", "", "", "", ""])
@@ -282,12 +281,17 @@ class InvoiceTab(QWidget):
         self.add_btn.clicked.connect(self._add_selected_product)
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._add_selected_product)
 
-        product_layout.addWidget(self.products_table, 2, 0, 1, 3)
+        product_box = QGroupBox()
+        self.product_box = product_box
+        product_layout = QVBoxLayout(product_box)
+        product_layout.addWidget(self.products_table)
+        qty_row = QHBoxLayout()
         self.qty_label = QLabel()
-        product_layout.addWidget(self.qty_label, 3, 0)
-        product_layout.addWidget(self.qty_input, 3, 1)
-        product_layout.addWidget(self.add_btn, 3, 2)
-        left_layout.addWidget(product_box)
+        qty_row.addWidget(self.qty_label)
+        qty_row.addWidget(self.qty_input)
+        qty_row.addWidget(self.add_btn)
+        qty_row.addStretch()
+        product_layout.addLayout(qty_row)
 
         items_box = QGroupBox()
         self.items_box = items_box
@@ -303,16 +307,21 @@ class InvoiceTab(QWidget):
         self.remove_btn = QPushButton()
         self.remove_btn.clicked.connect(self._remove_selected_item)
         btn_row.addWidget(self.remove_btn)
+        btn_row.addStretch()
         items_layout.addLayout(btn_row)
-        left_layout.addWidget(items_box)
-        left_layout.addStretch()
+
+        tables_splitter = QSplitter(Qt.Orientation.Vertical)
+        tables_splitter.addWidget(product_box)
+        tables_splitter.addWidget(items_box)
+        tables_splitter.setStretchFactor(0, 3)
+        tables_splitter.setStretchFactor(1, 2)
+        right_layout.addWidget(tables_splitter)
 
         left_container = QWidget()
         left_container.setLayout(left_layout)
-        left_scroll = QScrollArea()
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setWidget(left_container)
-        splitter.addWidget(left_scroll)
+        left_container.setMinimumWidth(320)
+        left_container.setMaximumWidth(380)
+        splitter.addWidget(left_container)
 
         totals_box = QGroupBox()
         self.totals_box = totals_box
@@ -337,7 +346,16 @@ class InvoiceTab(QWidget):
         totals_layout.addWidget(breakdown_frame)
         self.payment_summary_label = QLabel()
         totals_layout.addWidget(self.payment_summary_label)
-        right_layout.addWidget(totals_box)
+        left_layout.addWidget(totals_box)
+
+        payment_box = QGroupBox()
+        payment_layout = QFormLayout(payment_box)
+        payment_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        payment_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        payment_layout.setHorizontalSpacing(12)
+        payment_layout.setVerticalSpacing(8)
+        payment_layout.addRow(self.payment_method_label, self.payment_combo)
+        left_layout.addWidget(payment_box)
 
         calculator_box = QGroupBox()
         self.calculator_box = calculator_box
@@ -382,8 +400,6 @@ class InvoiceTab(QWidget):
         self.copy_button = copy_button
         keypad_layout.addWidget(copy_button, 4, 3, 1, 1)
         calculator_layout.addLayout(keypad_layout)
-        right_layout.addWidget(calculator_box)
-
         actions_layout = QVBoxLayout()
         self.save_btn = QPushButton()
         self.save_btn.setObjectName("primaryButton")
@@ -403,13 +419,15 @@ class InvoiceTab(QWidget):
         actions_layout.addWidget(self.export_btn)
         actions_layout.addWidget(self.print_btn)
         actions_layout.addWidget(self.clear_btn)
-        right_layout.addLayout(actions_layout)
-        right_layout.addStretch()
+        left_layout.addLayout(actions_layout)
+        left_layout.addWidget(calculator_box)
+        left_layout.addStretch()
         right_container = QWidget()
         right_container.setLayout(right_layout)
         splitter.addWidget(right_container)
-        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
+        splitter.setSizes([360, 900])
 
         self._refresh_payment_methods()
         self.refresh_products()

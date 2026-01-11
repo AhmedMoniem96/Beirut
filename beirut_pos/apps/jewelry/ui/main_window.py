@@ -22,10 +22,10 @@ class JewelryMainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowFlags(
-            Qt.Window
-            | Qt.WindowMinimizeButtonHint
-            | Qt.WindowMaximizeButtonHint
-            | Qt.WindowCloseButtonHint
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+            | Qt.WindowType.WindowCloseButtonHint
         )
         self._language = get_ui_language()
         self.setWindowTitle(t("app.title", language=self._language))

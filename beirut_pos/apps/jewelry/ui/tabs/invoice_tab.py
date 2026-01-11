@@ -1042,6 +1042,7 @@ class InvoiceTab(QWidget):
             t("common.saved_title", language=self._language),
             t("invoice.saved_message", language=self._language, invoice_no=invoice_no),
         )
+        self._reset_after_save()
         self.refresh_products()
 
     def _export_invoice_pdf(self) -> None:
@@ -1147,21 +1148,31 @@ class InvoiceTab(QWidget):
         )
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(tmp_path)))
 
+    def _reset_after_save(self, keep_customer: bool = False) -> None:
+        self._reset_invoice(keep_customer=keep_customer)
+        self._focus_default_input()
+
     def _clear_invoice(self) -> None:
+        self._reset_invoice(keep_customer=False)
+
+    def _reset_invoice(self, keep_customer: bool = False) -> None:
         self.items_table.setRowCount(0)
+        self.txn_type_combo.setCurrentIndex(0)
+        self.payment_combo.setCurrentIndex(0)
         self.discount_type_combo.setCurrentIndex(0)
         self.discount_input.setValue(0.0)
         self.loyalty_redeem_input.setValue(0.0)
-        self.customer_name_input.clear()
-        self.customer_phone_input.clear()
-        self.customer_email_input.clear()
-        self.customer_notes_input.clear()
-        self.customer_points_label.setText("0")
-        self.customer_search_input.clear()
+        if not keep_customer:
+            self.customer_name_input.clear()
+            self.customer_phone_input.clear()
+            self.customer_email_input.clear()
+            self.customer_notes_input.clear()
+            self.customer_points_label.setText("0")
+            self.customer_search_input.clear()
+            self._customer_id = None
+            self._customer_points = 0.0
         self._hide_customer_dropdown()
         self.loyalty_earned_label.setText("0")
-        self._customer_id = None
-        self._customer_points = 0.0
         self.notes_input.clear()
         self.return_reason_input.clear()
         self.order_source_combo.setCurrentIndex(0)
@@ -1256,6 +1267,11 @@ class InvoiceTab(QWidget):
             return
         self.barcode_input.setFocus(Qt.FocusReason.OtherFocusReason)
         self.barcode_input.selectAll()
+
+    def _focus_default_input(self) -> None:
+        self._focus_barcode_input()
+        if not self.barcode_input.isVisible():
+            self._focus_product_search()
 
     def _handle_barcode_submit(self) -> None:
         code = self.barcode_input.text().strip()

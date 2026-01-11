@@ -22,6 +22,7 @@ from ...services.db import add_payment_method
 from ...services.settings import GallerySettings, load_gallery_settings, save_gallery_settings
 from ...services.demo_seed import seed_demo_data
 from ...services.i18n import get_ui_language, set_ui_language, t
+from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
 from beirut_pos.services import printer as printer_service
 
 
@@ -120,6 +121,11 @@ class SettingsTab(QWidget):
         save_btn.clicked.connect(self._save_settings)
         layout.addWidget(save_btn)
         self.save_btn = save_btn
+
+        loyalty_btn = QPushButton()
+        loyalty_btn.clicked.connect(self._open_loyalty_settings)
+        layout.addWidget(loyalty_btn)
+        self.loyalty_btn = loyalty_btn
 
         payment_box = QGroupBox()
         payment_layout = QFormLayout(payment_box)
@@ -303,7 +309,12 @@ class SettingsTab(QWidget):
         self.payment_en_label.setText(t("settings.name_en", language=language))
         self.add_payment_btn.setText(t("settings.add_method", language=language))
         self.demo_btn.setText(t("settings.seed_demo", language=language))
+        self.loyalty_btn.setText(t("loyalty.settings.button", language=language))
         self._set_language_combo(language)
+
+    def _open_loyalty_settings(self) -> None:
+        dialog = LoyaltySettingsDialog(self)
+        dialog.exec()
 
     @staticmethod
     def _set_combo_value(combo: QComboBox, value: str) -> None:

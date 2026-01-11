@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..services.auth import authenticate_user
+from ..services.i18n import get_ui_language, t
 from ..services.session import get_bootstrap_warning, set_current_user
 from .create_user_dialog import CreateUserDialog
 from .forgot_password_dialog import ForgotPasswordDialog
@@ -30,7 +31,8 @@ class LoginDialog(QDialog):
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("LoginDialog")
-        self.setWindowTitle("Jewelry Login")
+        self._language = get_ui_language()
+        self.setWindowTitle(t("login.window_title", language=self._language))
         self.setModal(True)
         self.setMinimumWidth(720)
 
@@ -49,6 +51,7 @@ class LoginDialog(QDialog):
 
         self.forgot_btn.clicked.connect(self._open_forgot_password)
         self.new_user_btn.clicked.connect(self._open_create_user)
+        self.apply_language(self._language)
 
     def _build_link_button(self, text: str) -> QPushButton:
         button = QPushButton(text)
@@ -74,15 +77,17 @@ class LoginDialog(QDialog):
             logo_label.setPixmap(logo)
         panel_layout.addWidget(logo_label)
 
-        hero = QLabel("Crystal Gallery")
+        hero = QLabel()
         hero.setObjectName("BrandHero")
         hero.setWordWrap(True)
         panel_layout.addWidget(hero)
+        self.hero_label = hero
 
-        tagline = QLabel("Timeless craftsmanship for modern elegance.")
+        tagline = QLabel()
         tagline.setObjectName("BrandTagline")
         tagline.setWordWrap(True)
         panel_layout.addWidget(tagline)
+        self.tagline_label = tagline
 
         panel_layout.addStretch()
         return panel
@@ -96,9 +101,10 @@ class LoginDialog(QDialog):
         panel_layout.setContentsMargins(32, 32, 32, 32)
         panel_layout.setSpacing(16)
 
-        title = QLabel("Welcome back")
+        title = QLabel()
         title.setObjectName("FormTitle")
         panel_layout.addWidget(title)
+        self.title_label = title
 
         self.warning_label = QLabel()
         self.warning_label.setWordWrap(True)
@@ -119,8 +125,10 @@ class LoginDialog(QDialog):
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.returnPressed.connect(self._attempt_login)
-        form_layout.addRow("Username", self.username_input)
-        form_layout.addRow("Password", self.password_input)
+        self.username_label = QLabel()
+        self.password_label = QLabel()
+        form_layout.addRow(self.username_label, self.username_input)
+        form_layout.addRow(self.password_label, self.password_input)
         panel_layout.addWidget(form_frame)
 
         self.message_label = QLabel()
@@ -129,15 +137,15 @@ class LoginDialog(QDialog):
 
         actions = QHBoxLayout()
         actions.addStretch()
-        self.login_btn = QPushButton("Login")
+        self.login_btn = QPushButton()
         self.login_btn.setObjectName("PrimaryButton")
         self.login_btn.clicked.connect(self._attempt_login)
         actions.addWidget(self.login_btn)
         panel_layout.addLayout(actions)
 
         links = QHBoxLayout()
-        self.forgot_btn = self._build_link_button("Forgot password")
-        self.new_user_btn = self._build_link_button("New user")
+        self.forgot_btn = self._build_link_button("")
+        self.new_user_btn = self._build_link_button("")
         links.addStretch()
         links.addWidget(self.forgot_btn)
         links.addWidget(self.new_user_btn)
@@ -146,6 +154,18 @@ class LoginDialog(QDialog):
 
         panel_layout.addStretch()
         return panel
+
+    def apply_language(self, language: str) -> None:
+        self._language = language
+        self.setWindowTitle(t("login.window_title", language=language))
+        self.hero_label.setText(t("login.hero", language=language))
+        self.tagline_label.setText(t("login.tagline", language=language))
+        self.title_label.setText(t("login.title", language=language))
+        self.username_label.setText(t("login.username", language=language))
+        self.password_label.setText(t("login.password", language=language))
+        self.login_btn.setText(t("login.login_button", language=language))
+        self.forgot_btn.setText(t("login.forgot_password", language=language))
+        self.new_user_btn.setText(t("login.new_user", language=language))
 
     def _resolve_background_image(self) -> Path | None:
         root = Path(__file__).resolve().parents[4]
@@ -192,7 +212,11 @@ class LoginDialog(QDialog):
         if result.user:
             set_current_user(result.user)
             if get_bootstrap_warning():
-                QMessageBox.warning(self, "Default Admin", get_bootstrap_warning())
+                QMessageBox.warning(
+                    self,
+                    t("login.default_admin_title", language=self._language),
+                    get_bootstrap_warning(),
+                )
             self.accept()
             return
         self._set_message(result.message, kind="error")

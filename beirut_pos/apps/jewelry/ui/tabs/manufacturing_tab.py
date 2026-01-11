@@ -47,15 +47,18 @@ from ...services.db import (
     save_material,
 )
 from ...services.reports import material_usage, production_history
+from ...services.i18n import choose_name, get_ui_language, t
 
 
 class ManufacturingTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
+        self._language = get_ui_language()
         layout = QVBoxLayout(self)
-        header = QLabel("Manufacturing (التصنيع)")
+        header = QLabel()
         header.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(header)
+        self.header_label = header
 
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
@@ -73,12 +76,14 @@ class ManufacturingTab(QWidget):
         self._refresh_products()
         self._refresh_boms()
         self._refresh_orders()
+        self.apply_language(self._language)
 
     def _build_materials_tab(self) -> None:
         self.materials_tab = QWidget()
         tab_layout = QVBoxLayout(self.materials_tab)
 
-        form_box = QGroupBox("Materials (الخامات)")
+        form_box = QGroupBox()
+        self.materials_box = form_box
         form_layout = QFormLayout(form_box)
         self.material_name_ar = QLineEdit()
         self.material_name_en = QLineEdit()
@@ -93,17 +98,24 @@ class ManufacturingTab(QWidget):
         self.material_cost = QDoubleSpinBox()
         self.material_cost.setRange(0, 999999)
         self.material_cost.setDecimals(2)
-        form_layout.addRow("Name Arabic (عربي):", self.material_name_ar)
-        form_layout.addRow("Name English (EN):", self.material_name_en)
-        form_layout.addRow("Code (كود):", self.material_code)
-        form_layout.addRow("Qty On Hand (الكمية):", self.material_qty)
-        form_layout.addRow("Unit (الوحدة):", self.material_unit)
-        form_layout.addRow("Min Qty (الحد الأدنى):", self.material_min_qty)
-        form_layout.addRow("Cost/Unit (تكلفة الوحدة):", self.material_cost)
+        self.material_name_ar_label = QLabel()
+        self.material_name_en_label = QLabel()
+        self.material_code_label = QLabel()
+        self.material_qty_label = QLabel()
+        self.material_unit_label = QLabel()
+        self.material_min_qty_label = QLabel()
+        self.material_cost_label = QLabel()
+        form_layout.addRow(self.material_name_ar_label, self.material_name_ar)
+        form_layout.addRow(self.material_name_en_label, self.material_name_en)
+        form_layout.addRow(self.material_code_label, self.material_code)
+        form_layout.addRow(self.material_qty_label, self.material_qty)
+        form_layout.addRow(self.material_unit_label, self.material_unit)
+        form_layout.addRow(self.material_min_qty_label, self.material_min_qty)
+        form_layout.addRow(self.material_cost_label, self.material_cost)
         button_row = QHBoxLayout()
-        self.material_save_btn = QPushButton("Save Material (حفظ خامة)")
-        self.material_delete_btn = QPushButton("Delete (حذف)")
-        self.material_clear_btn = QPushButton("Clear (مسح)")
+        self.material_save_btn = QPushButton()
+        self.material_delete_btn = QPushButton()
+        self.material_clear_btn = QPushButton()
         self.material_save_btn.clicked.connect(self._save_material)
         self.material_delete_btn.clicked.connect(self._delete_material)
         self.material_clear_btn.clicked.connect(self._clear_material_form)
@@ -112,9 +124,6 @@ class ManufacturingTab(QWidget):
         button_row.addWidget(self.material_clear_btn)
 
         self.materials_table = QTableWidget(0, 7)
-        self.materials_table.setHorizontalHeaderLabels(
-            ["Arabic", "English", "Code", "Qty", "Unit", "Min", "Cost"]
-        )
         self.materials_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.materials_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.materials_table.setAlternatingRowColors(True)
@@ -136,7 +145,7 @@ class ManufacturingTab(QWidget):
         splitter.setStretchFactor(1, 1)
         tab_layout.addWidget(splitter)
 
-        self.tabs.addTab(self.materials_tab, "Materials (الخامات)")
+        self.tabs.addTab(self.materials_tab, "")
 
         self._selected_material_id: Optional[int] = None
 
@@ -144,44 +153,50 @@ class ManufacturingTab(QWidget):
         self.boms_tab = QWidget()
         tab_layout = QVBoxLayout(self.boms_tab)
 
-        form_box = QGroupBox("BOM / Recipe (وصفة الإنتاج)")
+        form_box = QGroupBox()
+        self.bom_box = form_box
         form_layout = QFormLayout(form_box)
         self.bom_product_combo = QComboBox()
         self.bom_name_input = QLineEdit()
-        self.bom_active_check = QCheckBox("Active (نشط)")
-        form_layout.addRow("Product (المنتج):", self.bom_product_combo)
-        form_layout.addRow("BOM Name (اسم الوصفة):", self.bom_name_input)
+        self.bom_active_check = QCheckBox()
+        self.bom_product_label = QLabel()
+        self.bom_name_label = QLabel()
+        form_layout.addRow(self.bom_product_label, self.bom_product_combo)
+        form_layout.addRow(self.bom_name_label, self.bom_name_input)
         form_layout.addRow("", self.bom_active_check)
-        lines_box = QGroupBox("Materials Lines (مكونات الخامة)")
+        lines_box = QGroupBox()
+        self.lines_box = lines_box
         lines_layout = QVBoxLayout(lines_box)
         add_line_layout = QHBoxLayout()
         self.bom_material_combo = QComboBox()
         self.bom_qty_input = QDoubleSpinBox()
         self.bom_qty_input.setRange(0.001, 999999)
         self.bom_qty_input.setDecimals(3)
-        self.add_bom_line_btn = QPushButton("Add Line (إضافة خامة)")
+        self.add_bom_line_btn = QPushButton()
         self.add_bom_line_btn.clicked.connect(self._add_bom_line)
-        add_line_layout.addWidget(QLabel("Material (الخامة):"))
+        self.bom_material_label = QLabel()
+        self.bom_qty_label = QLabel()
+        add_line_layout.addWidget(self.bom_material_label)
         add_line_layout.addWidget(self.bom_material_combo)
-        add_line_layout.addWidget(QLabel("Qty Required (الكمية):"))
+        add_line_layout.addWidget(self.bom_qty_label)
         add_line_layout.addWidget(self.bom_qty_input)
         add_line_layout.addWidget(self.add_bom_line_btn)
         lines_layout.addLayout(add_line_layout)
 
         self.bom_lines_table = QTableWidget(0, 2)
-        self.bom_lines_table.setHorizontalHeaderLabels(["Material", "Qty Required"])
         self.bom_lines_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.bom_lines_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.bom_lines_table.setAlternatingRowColors(True)
         lines_layout.addWidget(self.bom_lines_table)
 
-        remove_line_btn = QPushButton("Remove Line (حذف السطر)")
+        remove_line_btn = QPushButton()
         remove_line_btn.clicked.connect(self._remove_bom_line)
         lines_layout.addWidget(remove_line_btn)
+        self.remove_line_btn = remove_line_btn
         action_row = QHBoxLayout()
-        self.bom_save_btn = QPushButton("Save BOM (حفظ الوصفة)")
-        self.bom_delete_btn = QPushButton("Delete BOM (حذف الوصفة)")
-        self.bom_clear_btn = QPushButton("Clear (مسح)")
+        self.bom_save_btn = QPushButton()
+        self.bom_delete_btn = QPushButton()
+        self.bom_clear_btn = QPushButton()
         self.bom_save_btn.clicked.connect(self._save_bom)
         self.bom_delete_btn.clicked.connect(self._delete_bom)
         self.bom_clear_btn.clicked.connect(self._clear_bom_form)
@@ -190,7 +205,6 @@ class ManufacturingTab(QWidget):
         action_row.addWidget(self.bom_clear_btn)
 
         self.boms_table = QTableWidget(0, 3)
-        self.boms_table.setHorizontalHeaderLabels(["Product", "Name", "Active"])
         self.boms_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.boms_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.boms_table.setAlternatingRowColors(True)
@@ -213,7 +227,7 @@ class ManufacturingTab(QWidget):
         splitter.setStretchFactor(1, 1)
         tab_layout.addWidget(splitter)
 
-        self.tabs.addTab(self.boms_tab, "BOMs (الوصفات)")
+        self.tabs.addTab(self.boms_tab, "")
 
         self._selected_bom_id: Optional[int] = None
 
@@ -221,9 +235,10 @@ class ManufacturingTab(QWidget):
         self.orders_tab = QWidget()
         tab_layout = QVBoxLayout(self.orders_tab)
 
-        form_box = QGroupBox("Production Order (أمر إنتاج)")
+        form_box = QGroupBox()
+        self.orders_box = form_box
         form_layout = QFormLayout(form_box)
-        self.order_no_label = QLabel("Auto")
+        self.order_no_label = QLabel("")
         self.order_product_combo = QComboBox()
         self.order_bom_combo = QComboBox()
         self.order_qty_input = QDoubleSpinBox()
@@ -241,18 +256,25 @@ class ManufacturingTab(QWidget):
         self.order_notes_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.order_bom_combo.currentIndexChanged.connect(self._refresh_shortages)
         self.order_product_combo.currentIndexChanged.connect(self._refresh_bom_combo)
-        form_layout.addRow("Order No (رقم الأمر):", self.order_no_label)
-        form_layout.addRow("Product (المنتج):", self.order_product_combo)
-        form_layout.addRow("BOM (الوصفة):", self.order_bom_combo)
-        form_layout.addRow("Qty To Produce (الكمية):", self.order_qty_input)
-        form_layout.addRow("Labor Cost (تكلفة العمالة):", self.order_labor_input)
-        form_layout.addRow("Overhead Cost (تكلفة إضافية):", self.order_overhead_input)
-        form_layout.addRow("Notes (ملاحظات):", self.order_notes_input)
+        self.order_no_text = QLabel()
+        self.order_product_label = QLabel()
+        self.order_bom_label = QLabel()
+        self.order_qty_label = QLabel()
+        self.order_labor_label = QLabel()
+        self.order_overhead_label = QLabel()
+        self.order_notes_label = QLabel()
+        form_layout.addRow(self.order_no_text, self.order_no_label)
+        form_layout.addRow(self.order_product_label, self.order_product_combo)
+        form_layout.addRow(self.order_bom_label, self.order_bom_combo)
+        form_layout.addRow(self.order_qty_label, self.order_qty_input)
+        form_layout.addRow(self.order_labor_label, self.order_labor_input)
+        form_layout.addRow(self.order_overhead_label, self.order_overhead_input)
+        form_layout.addRow(self.order_notes_label, self.order_notes_input)
 
         action_row = QHBoxLayout()
-        self.order_create_btn = QPushButton("Create Draft (إنشاء مسودة)")
-        self.order_confirm_btn = QPushButton("Confirm (تأكيد)")
-        self.order_done_btn = QPushButton("Mark Done (إنهاء)")
+        self.order_create_btn = QPushButton()
+        self.order_confirm_btn = QPushButton()
+        self.order_done_btn = QPushButton()
         self.order_create_btn.clicked.connect(self._create_order)
         self.order_confirm_btn.clicked.connect(self._confirm_order)
         self.order_done_btn.clicked.connect(self._mark_done)
@@ -261,9 +283,6 @@ class ManufacturingTab(QWidget):
         action_row.addWidget(self.order_done_btn)
 
         self.orders_table = QTableWidget(0, 7)
-        self.orders_table.setHorizontalHeaderLabels(
-            ["Order No", "Date", "Status", "Product", "Qty", "Produced", "Costs"]
-        )
         self.orders_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.orders_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.orders_table.setAlternatingRowColors(True)
@@ -287,7 +306,7 @@ class ManufacturingTab(QWidget):
         splitter.setStretchFactor(1, 1)
         tab_layout.addWidget(splitter)
 
-        self.tabs.addTab(self.orders_tab, "Production Orders (أوامر الإنتاج)")
+        self.tabs.addTab(self.orders_tab, "")
 
         self._selected_order_id: Optional[int] = None
 
@@ -301,7 +320,8 @@ class ManufacturingTab(QWidget):
         scroll_area.setWidget(content)
         layout = QVBoxLayout(content)
 
-        history_box = QGroupBox("Production History (سجل الإنتاج)")
+        history_box = QGroupBox()
+        self.history_box = history_box
         history_layout = QVBoxLayout(history_box)
         filter_row = QHBoxLayout()
         self.history_start = QDateEdit()
@@ -314,29 +334,31 @@ class ManufacturingTab(QWidget):
         self.history_status = QComboBox()
         self.history_status.addItems(["all", "draft", "confirmed", "done", "cancelled"])
         self.history_product = QComboBox()
-        self.history_refresh_btn = QPushButton("Refresh (تحديث)")
+        self.history_refresh_btn = QPushButton()
         self.history_refresh_btn.clicked.connect(self._refresh_history_report)
-        filter_row.addWidget(QLabel("From:"))
+        self.history_from_label = QLabel()
+        filter_row.addWidget(self.history_from_label)
         filter_row.addWidget(self.history_start)
-        filter_row.addWidget(QLabel("To:"))
+        self.history_to_label = QLabel()
+        filter_row.addWidget(self.history_to_label)
         filter_row.addWidget(self.history_end)
-        filter_row.addWidget(QLabel("Status:"))
+        self.history_status_label = QLabel()
+        filter_row.addWidget(self.history_status_label)
         filter_row.addWidget(self.history_status)
-        filter_row.addWidget(QLabel("Product:"))
+        self.history_product_label = QLabel()
+        filter_row.addWidget(self.history_product_label)
         filter_row.addWidget(self.history_product)
         filter_row.addWidget(self.history_refresh_btn)
         history_layout.addLayout(filter_row)
 
         self.history_table = QTableWidget(0, 7)
-        self.history_table.setHorizontalHeaderLabels(
-            ["Order No", "Date", "Status", "Product", "Qty", "Produced", "Total Cost"]
-        )
         self.history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.history_table.setAlternatingRowColors(True)
         history_layout.addWidget(self.history_table)
 
-        usage_box = QGroupBox("Material Usage (استهلاك الخامات)")
+        usage_box = QGroupBox()
+        self.usage_box = usage_box
         usage_layout = QVBoxLayout(usage_box)
         usage_filter = QHBoxLayout()
         self.usage_start = QDateEdit()
@@ -345,17 +367,18 @@ class ManufacturingTab(QWidget):
         self.usage_end.setCalendarPopup(True)
         self.usage_start.setDate(today.addDays(-30))
         self.usage_end.setDate(today)
-        self.usage_refresh_btn = QPushButton("Refresh (تحديث)")
+        self.usage_refresh_btn = QPushButton()
         self.usage_refresh_btn.clicked.connect(self._refresh_usage_report)
-        usage_filter.addWidget(QLabel("From:"))
+        self.usage_from_label = QLabel()
+        usage_filter.addWidget(self.usage_from_label)
         usage_filter.addWidget(self.usage_start)
-        usage_filter.addWidget(QLabel("To:"))
+        self.usage_to_label = QLabel()
+        usage_filter.addWidget(self.usage_to_label)
         usage_filter.addWidget(self.usage_end)
         usage_filter.addWidget(self.usage_refresh_btn)
         usage_layout.addLayout(usage_filter)
 
         self.usage_table = QTableWidget(0, 3)
-        self.usage_table.setHorizontalHeaderLabels(["Material", "Total Qty", "Total Cost"])
         self.usage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.usage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.usage_table.setAlternatingRowColors(True)
@@ -368,7 +391,7 @@ class ManufacturingTab(QWidget):
         splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter)
 
-        self.tabs.addTab(self.reports_tab, "Manufacturing Reports (تقارير)")
+        self.tabs.addTab(self.reports_tab, "")
 
     def _refresh_materials(self) -> None:
         materials = list_materials()
@@ -385,7 +408,7 @@ class ManufacturingTab(QWidget):
             self.materials_table.setItem(row, 5, QTableWidgetItem(f"{material.min_qty:.3f}"))
             self.materials_table.setItem(row, 6, QTableWidgetItem(f"{material.cost_per_unit:.2f}"))
             self.materials_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, material.id)
-            display = f"{material.name_en} ({material.code})"
+            display = f"{choose_name(material.name_ar, material.name_en, language=self._language)} ({material.code})"
             self._material_map[display] = material.id
 
         self.bom_material_combo.clear()
@@ -395,7 +418,8 @@ class ManufacturingTab(QWidget):
     def _refresh_products(self) -> None:
         products = list_products()
         self._product_map = {
-            f"{p.name_en} ({p.sku})": p.id for p in products
+            f"{choose_name(p.name_ar, p.name_en, language=self._language)} ({p.sku})": p.id for p in products
+            for p in products
         }
         self.bom_product_combo.clear()
         self.order_product_combo.clear()
@@ -403,7 +427,7 @@ class ManufacturingTab(QWidget):
         for label, product_id in self._product_map.items():
             self.bom_product_combo.addItem(label, product_id)
             self.order_product_combo.addItem(label, product_id)
-        self.history_product.addItem("All", None)
+        self.history_product.addItem(t("manufacturing.status_all", language=self._language), None)
         for label, product_id in self._product_map.items():
             self.history_product.addItem(label, product_id)
         self._refresh_bom_combo()
@@ -415,13 +439,21 @@ class ManufacturingTab(QWidget):
         for bom in boms:
             product_name = next(
                 (label for label, pid in self._product_map.items() if pid == bom.product_id),
-                f"Product {bom.product_id}",
+                f"{t('common.product', language=self._language)} {bom.product_id}",
             )
             row = self.boms_table.rowCount()
             self.boms_table.insertRow(row)
             self.boms_table.setItem(row, 0, QTableWidgetItem(product_name))
             self.boms_table.setItem(row, 1, QTableWidgetItem(bom.name))
-            self.boms_table.setItem(row, 2, QTableWidgetItem("Yes" if bom.active else "No"))
+            self.boms_table.setItem(
+                row,
+                2,
+                QTableWidgetItem(
+                    t("common.yes", language=self._language)
+                    if bom.active
+                    else t("common.no", language=self._language)
+                ),
+            )
             self.boms_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, bom.id)
             display = f"{product_name} - {bom.name}"
             self._bom_entries.append((display, bom.id, bom.product_id))
@@ -430,7 +462,7 @@ class ManufacturingTab(QWidget):
 
     def _refresh_bom_combo(self) -> None:
         self.order_bom_combo.clear()
-        self.order_bom_combo.addItem("Select BOM", None)
+        self.order_bom_combo.addItem(t("manufacturing.select_bom_label", language=self._language), None)
         selected_product_id = self.order_product_combo.currentData()
         for label, bom_id, product_id in self._bom_entries:
             if selected_product_id and product_id != selected_product_id:
@@ -443,13 +475,13 @@ class ManufacturingTab(QWidget):
         for order in orders:
             product_label = next(
                 (label for label, pid in self._product_map.items() if pid == order.product_id),
-                f"Product {order.product_id}",
+                f"{t('common.product', language=self._language)} {order.product_id}",
             )
             row = self.orders_table.rowCount()
             self.orders_table.insertRow(row)
             self.orders_table.setItem(row, 0, QTableWidgetItem(order.order_no))
             self.orders_table.setItem(row, 1, QTableWidgetItem(order.datetime))
-            self.orders_table.setItem(row, 2, QTableWidgetItem(order.status))
+            self.orders_table.setItem(row, 2, QTableWidgetItem(self._status_label(order.status)))
             self.orders_table.setItem(row, 3, QTableWidgetItem(product_label))
             self.orders_table.setItem(row, 4, QTableWidgetItem(f"{order.qty_to_produce:.3f}"))
             self.orders_table.setItem(row, 5, QTableWidgetItem(f"{order.qty_produced:.3f}"))
@@ -459,10 +491,18 @@ class ManufacturingTab(QWidget):
 
     def _save_material(self) -> None:
         if not self.material_name_en.text().strip():
-            QMessageBox.warning(self, "Missing", "Material English name required.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.material_name_required", language=self._language),
+            )
             return
         if not self.material_code.text().strip():
-            QMessageBox.warning(self, "Missing", "Material code required.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.material_code_required", language=self._language),
+            )
             return
         save_material(
             self._selected_material_id,
@@ -474,14 +514,22 @@ class ManufacturingTab(QWidget):
             float(self.material_min_qty.value()),
             float(self.material_cost.value()),
         )
-        QMessageBox.information(self, "Saved", "Material saved.")
+        QMessageBox.information(
+            self,
+            t("common.saved_title", language=self._language),
+            t("manufacturing.material_saved", language=self._language),
+        )
         self._refresh_materials()
         self._clear_material_form()
 
     def _delete_material(self) -> None:
         if not self._selected_material_id:
             return
-        confirm = QMessageBox.question(self, "Delete", "Delete this material?")
+        confirm = QMessageBox.question(
+            self,
+            t("common.delete", language=self._language),
+            t("manufacturing.delete_material", language=self._language),
+        )
         if confirm != QMessageBox.StandardButton.Yes:
             return
         delete_material(self._selected_material_id)
@@ -527,10 +575,18 @@ class ManufacturingTab(QWidget):
     def _save_bom(self) -> None:
         product_id = self.bom_product_combo.currentData()
         if not product_id:
-            QMessageBox.warning(self, "Missing", "Select a product.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.select_product", language=self._language),
+            )
             return
         if not self.bom_name_input.text().strip():
-            QMessageBox.warning(self, "Missing", "BOM name required.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.bom_name_required", language=self._language),
+            )
             return
         lines = []
         for row in range(self.bom_lines_table.rowCount()):
@@ -538,7 +594,11 @@ class ManufacturingTab(QWidget):
             qty_required = float(self.bom_lines_table.item(row, 1).text())
             lines.append((material_id, qty_required))
         if not lines:
-            QMessageBox.warning(self, "Missing", "Add at least one material line.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.add_material_line", language=self._language),
+            )
             return
         save_bom(
             self._selected_bom_id,
@@ -547,14 +607,22 @@ class ManufacturingTab(QWidget):
             self.bom_active_check.isChecked(),
             lines,
         )
-        QMessageBox.information(self, "Saved", "BOM saved.")
+        QMessageBox.information(
+            self,
+            t("common.saved_title", language=self._language),
+            t("manufacturing.bom_saved", language=self._language),
+        )
         self._refresh_boms()
         self._clear_bom_form()
 
     def _delete_bom(self) -> None:
         if not self._selected_bom_id:
             return
-        confirm = QMessageBox.question(self, "Delete", "Delete this BOM?")
+        confirm = QMessageBox.question(
+            self,
+            t("common.delete", language=self._language),
+            t("manufacturing.delete_bom", language=self._language),
+        )
         if confirm != QMessageBox.StandardButton.Yes:
             return
         delete_bom(self._selected_bom_id)
@@ -582,7 +650,7 @@ class ManufacturingTab(QWidget):
         for line in list_bom_lines(bom.id):
             material_label = next(
                 (label for label, mid in self._material_map.items() if mid == line.material_id),
-                f"Material {line.material_id}",
+                f"{t('manufacturing.material_label', language=self._language)} {line.material_id}",
             )
             row_idx = self.bom_lines_table.rowCount()
             self.bom_lines_table.insertRow(row_idx)
@@ -594,13 +662,25 @@ class ManufacturingTab(QWidget):
         product_id = self.order_product_combo.currentData()
         bom_id = self.order_bom_combo.currentData()
         if not product_id:
-            QMessageBox.warning(self, "Missing", "Select a product.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.select_product", language=self._language),
+            )
             return
         if not bom_id:
-            QMessageBox.warning(self, "Missing", "Select a BOM.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.select_bom", language=self._language),
+            )
             return
         if float(self.order_qty_input.value()) <= 0:
-            QMessageBox.warning(self, "Missing", "Enter quantity to produce.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.enter_qty", language=self._language),
+            )
             return
         order = create_production_order(
             product_id=product_id,
@@ -612,31 +692,59 @@ class ManufacturingTab(QWidget):
         )
         self.order_no_label.setText(order.order_no)
         self._refresh_orders()
-        QMessageBox.information(self, "Created", f"Order created: {order.order_no}")
+        QMessageBox.information(
+            self,
+            t("common.saved_title", language=self._language),
+            t("manufacturing.order_created", language=self._language, order_no=order.order_no),
+        )
 
     def _confirm_order(self) -> None:
         if not self._selected_order_id:
-            QMessageBox.warning(self, "Select", "Select an order.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.select_order", language=self._language),
+            )
             return
         try:
             confirm_production_order(self._selected_order_id)
         except ValueError:
-            QMessageBox.warning(self, "Shortage", "Not enough material stock.")
+            QMessageBox.warning(
+                self,
+                t("manufacturing.shortage", language=self._language),
+                t("manufacturing.shortage_message", language=self._language),
+            )
             return
         self._refresh_orders()
-        QMessageBox.information(self, "Confirmed", "Order confirmed.")
+        QMessageBox.information(
+            self,
+            t("common.saved_title", language=self._language),
+            t("manufacturing.order_confirmed", language=self._language),
+        )
 
     def _mark_done(self) -> None:
         if not self._selected_order_id:
-            QMessageBox.warning(self, "Select", "Select an order.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("manufacturing.select_order", language=self._language),
+            )
             return
         try:
             mark_production_done(self._selected_order_id)
         except ValueError:
-            QMessageBox.warning(self, "Shortage", "Not enough material stock.")
+            QMessageBox.warning(
+                self,
+                t("manufacturing.shortage", language=self._language),
+                t("manufacturing.shortage_message", language=self._language),
+            )
             return
         self._refresh_orders()
-        QMessageBox.information(self, "Done", "Order completed and stock updated.")
+        QMessageBox.information(
+            self,
+            t("common.saved_title", language=self._language),
+            t("manufacturing.order_done", language=self._language),
+        )
 
     def _load_order(self, row: int) -> None:
         self._selected_order_id = self.orders_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -664,21 +772,24 @@ class ManufacturingTab(QWidget):
             return
         shortages = check_material_availability(bom_id, qty)
         if not shortages:
-            self.shortage_label.setText("Materials OK ✅")
+            self.shortage_label.setText(t("manufacturing.materials_ok", language=self._language))
             return
         details = ", ".join(
             [f"{name} ({available:.2f}/{required:.2f})" for name, available, required in shortages]
         )
-        self.shortage_label.setText(f"Shortages: {details}")
+        self.shortage_label.setText(
+            t("manufacturing.shortages_label", language=self._language, details=details)
+        )
 
     def _refresh_history_report(self) -> None:
         start_dt = datetime.combine(self.history_start.date().toPyDate(), time.min)
         end_dt = datetime.combine(self.history_end.date().toPyDate(), time.max)
         product_id = self.history_product.currentData()
+        status_value = self.history_status.currentData() or "all"
         rows = production_history(
             start_dt.isoformat(timespec="seconds"),
             end_dt.isoformat(timespec="seconds"),
-            self.history_status.currentText(),
+            status_value,
             product_id,
         )
         self.history_table.setRowCount(0)
@@ -687,7 +798,7 @@ class ManufacturingTab(QWidget):
             self.history_table.insertRow(row)
             self.history_table.setItem(row, 0, QTableWidgetItem(row_data.order_no))
             self.history_table.setItem(row, 1, QTableWidgetItem(row_data.datetime))
-            self.history_table.setItem(row, 2, QTableWidgetItem(row_data.status))
+            self.history_table.setItem(row, 2, QTableWidgetItem(self._status_label(row_data.status)))
             self.history_table.setItem(row, 3, QTableWidgetItem(row_data.product_name))
             self.history_table.setItem(row, 4, QTableWidgetItem(f"{row_data.qty_to_produce:.3f}"))
             self.history_table.setItem(row, 5, QTableWidgetItem(f"{row_data.qty_produced:.3f}"))
@@ -707,3 +818,129 @@ class ManufacturingTab(QWidget):
             self.usage_table.setItem(row, 0, QTableWidgetItem(row_data.material_name))
             self.usage_table.setItem(row, 1, QTableWidgetItem(f"{row_data.total_qty:.3f}"))
             self.usage_table.setItem(row, 2, QTableWidgetItem(f"{row_data.total_cost:.2f}"))
+
+    def _status_label(self, status: str) -> str:
+        mapping = {
+            "draft": t("manufacturing.status_draft", language=self._language),
+            "confirmed": t("manufacturing.status_confirmed", language=self._language),
+            "done": t("manufacturing.status_done", language=self._language),
+            "cancelled": t("manufacturing.status_cancelled", language=self._language),
+            "all": t("manufacturing.status_all", language=self._language),
+        }
+        return mapping.get(status, status)
+
+    def apply_language(self, language: str) -> None:
+        self._language = language
+        self.header_label.setText(t("manufacturing.header", language=language))
+        self.tabs.setTabText(0, t("manufacturing.tab.materials", language=language))
+        self.tabs.setTabText(1, t("manufacturing.tab.boms", language=language))
+        self.tabs.setTabText(2, t("manufacturing.tab.orders", language=language))
+        self.tabs.setTabText(3, t("manufacturing.tab.reports", language=language))
+        self.materials_box.setTitle(t("manufacturing.materials_box", language=language))
+        self.material_name_ar_label.setText(t("manufacturing.material_name_ar", language=language))
+        self.material_name_en_label.setText(t("manufacturing.material_name_en", language=language))
+        self.material_code_label.setText(t("manufacturing.material_code", language=language))
+        self.material_qty_label.setText(t("manufacturing.material_qty", language=language))
+        self.material_unit_label.setText(t("manufacturing.material_unit", language=language))
+        self.material_min_qty_label.setText(t("manufacturing.material_min_qty", language=language))
+        self.material_cost_label.setText(t("manufacturing.material_cost", language=language))
+        self.material_save_btn.setText(t("manufacturing.save_material", language=language))
+        self.material_delete_btn.setText(t("manufacturing.delete", language=language))
+        self.material_clear_btn.setText(t("manufacturing.clear", language=language))
+        self.materials_table.setHorizontalHeaderLabels(
+            [
+                t("manufacturing.table_arabic", language=language),
+                t("manufacturing.table_english", language=language),
+                t("manufacturing.table_code", language=language),
+                t("manufacturing.table_qty", language=language),
+                t("manufacturing.table_unit", language=language),
+                t("manufacturing.table_min", language=language),
+                t("manufacturing.table_cost", language=language),
+            ]
+        )
+        self.bom_box.setTitle(t("manufacturing.bom_box", language=language))
+        self.bom_product_label.setText(t("manufacturing.bom_product", language=language))
+        self.bom_name_label.setText(t("manufacturing.bom_name", language=language))
+        self.bom_active_check.setText(t("manufacturing.bom_active", language=language))
+        self.lines_box.setTitle(t("manufacturing.lines_box", language=language))
+        self.bom_material_label.setText(t("manufacturing.material_label", language=language))
+        self.bom_qty_label.setText(t("manufacturing.qty_required", language=language))
+        self.add_bom_line_btn.setText(t("manufacturing.add_line", language=language))
+        self.bom_lines_table.setHorizontalHeaderLabels(
+            [
+                t("manufacturing.material_label", language=language),
+                t("manufacturing.qty_required", language=language),
+            ]
+        )
+        self.remove_line_btn.setText(t("manufacturing.remove_line", language=language))
+        self.bom_save_btn.setText(t("manufacturing.save_bom", language=language))
+        self.bom_delete_btn.setText(t("manufacturing.delete_bom", language=language))
+        self.bom_clear_btn.setText(t("manufacturing.clear", language=language))
+        self.boms_table.setHorizontalHeaderLabels(
+            [
+                t("manufacturing.bom_table_product", language=language),
+                t("manufacturing.bom_table_name", language=language),
+                t("manufacturing.bom_table_active", language=language),
+            ]
+        )
+        self.orders_box.setTitle(t("manufacturing.orders_box", language=language))
+        self.order_no_text.setText(t("manufacturing.order_no", language=language))
+        if not self.order_no_label.text().strip():
+            self.order_no_label.setText(t("common.auto", language=language))
+        self.order_product_label.setText(t("manufacturing.order_product", language=language))
+        self.order_bom_label.setText(t("manufacturing.order_bom", language=language))
+        self.order_qty_label.setText(t("manufacturing.order_qty", language=language))
+        self.order_labor_label.setText(t("manufacturing.order_labor", language=language))
+        self.order_overhead_label.setText(t("manufacturing.order_overhead", language=language))
+        self.order_notes_label.setText(t("manufacturing.order_notes", language=language))
+        self.order_create_btn.setText(t("manufacturing.create_draft", language=language))
+        self.order_confirm_btn.setText(t("manufacturing.confirm", language=language))
+        self.order_done_btn.setText(t("manufacturing.mark_done", language=language))
+        self.orders_table.setHorizontalHeaderLabels(
+            [
+                t("manufacturing.orders_table_order", language=language),
+                t("manufacturing.orders_table_date", language=language),
+                t("manufacturing.orders_table_status", language=language),
+                t("manufacturing.orders_table_product", language=language),
+                t("manufacturing.orders_table_qty", language=language),
+                t("manufacturing.orders_table_produced", language=language),
+                t("manufacturing.orders_table_costs", language=language),
+            ]
+        )
+        self.history_box.setTitle(t("manufacturing.history_box", language=language))
+        self.history_from_label.setText(f"{t('common.from', language=language)}:")
+        self.history_to_label.setText(f"{t('common.to', language=language)}:")
+        self.history_status_label.setText(f"{t('manufacturing.history_status', language=language)}:")
+        self.history_product_label.setText(f"{t('manufacturing.history_product', language=language)}:")
+        self.history_refresh_btn.setText(t("manufacturing.history_refresh", language=language))
+        self.history_table.setHorizontalHeaderLabels(
+            [
+                t("manufacturing.history_table_order", language=language),
+                t("manufacturing.history_table_date", language=language),
+                t("manufacturing.history_table_status", language=language),
+                t("manufacturing.history_table_product", language=language),
+                t("manufacturing.history_table_qty", language=language),
+                t("manufacturing.history_table_produced", language=language),
+                t("manufacturing.history_table_total_cost", language=language),
+            ]
+        )
+        self.usage_box.setTitle(t("manufacturing.usage_box", language=language))
+        self.usage_from_label.setText(f"{t('common.from', language=language)}:")
+        self.usage_to_label.setText(f"{t('common.to', language=language)}:")
+        self.usage_refresh_btn.setText(t("manufacturing.history_refresh", language=language))
+        self.usage_table.setHorizontalHeaderLabels(
+            [
+                t("manufacturing.usage_table_material", language=language),
+                t("manufacturing.usage_table_qty", language=language),
+                t("manufacturing.usage_table_cost", language=language),
+            ]
+        )
+        self.history_status.blockSignals(True)
+        self.history_status.clear()
+        for status in ["all", "draft", "confirmed", "done", "cancelled"]:
+            self.history_status.addItem(self._status_label(status), status)
+        self.history_status.blockSignals(False)
+        self._refresh_materials()
+        self._refresh_products()
+        self._refresh_boms()
+        self._refresh_orders()

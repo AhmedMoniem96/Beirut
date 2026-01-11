@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QHeaderView,
     QSizePolicy,
     QSpinBox,
     QSplitter,
@@ -272,6 +273,17 @@ class InvoiceTab(QWidget):
         self.products_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.products_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.products_table.setAlternatingRowColors(True)
+        self.products_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.products_table.verticalHeader().setDefaultSectionSize(28)
+        products_header = self.products_table.horizontalHeader()
+        products_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        products_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        products_header.resizeSection(3, 80)
+        products_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        products_header.resizeSection(4, 80)
+        product_header_height = self.products_table.horizontalHeader().sizeHint().height()
+        product_row_height = self.products_table.verticalHeader().defaultSectionSize()
+        self.products_table.setMinimumHeight(product_row_height * 8 + product_header_height)
         self.products_table.cellDoubleClicked.connect(self._add_selected_product)
         self.products_table.itemSelectionChanged.connect(self._update_add_state)
 
@@ -301,6 +313,22 @@ class InvoiceTab(QWidget):
         self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.items_table.setAlternatingRowColors(True)
+        self.items_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.items_table.verticalHeader().setDefaultSectionSize(28)
+        items_header = self.items_table.horizontalHeader()
+        items_header.setSectionResizeMode(self.ITEM_COL_PRODUCT, QHeaderView.ResizeMode.Stretch)
+        for column in (
+            self.ITEM_COL_QTY,
+            self.ITEM_COL_UNIT_PRICE,
+            self.ITEM_COL_LINE_TOTAL,
+            self.ITEM_COL_DECREMENT,
+            self.ITEM_COL_INCREMENT,
+        ):
+            items_header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
+            items_header.resizeSection(column, 80 if column <= self.ITEM_COL_LINE_TOTAL else 36)
+        items_header_height = self.items_table.horizontalHeader().sizeHint().height()
+        items_row_height = self.items_table.verticalHeader().defaultSectionSize()
+        self.items_table.setMinimumHeight(items_row_height * 8 + items_header_height)
         items_layout.addWidget(self.items_table)
 
         btn_row = QHBoxLayout()

@@ -113,6 +113,11 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "loyalty.settings.auto_print": {"en": "Auto-print receipt", "ar": "طباعة الإيصال تلقائياً"},
     "loyalty.settings.save": {"en": "Save", "ar": "حفظ"},
     "loyalty.settings.cancel": {"en": "Cancel", "ar": "إلغاء"},
+    "loyalty.alert_title": {"en": "Loyalty Alert", "ar": "تنبيه نقاط الولاء"},
+    "loyalty.alert_message": {
+        "en": "Customer balance {balance} has reached the threshold ({threshold}).",
+        "ar": "رصيد العميل {balance} وصل إلى حد التنبيه ({threshold}).",
+    },
     "login.window_title": {"en": "Jewelry Login", "ar": "تسجيل الدخول للمجوهرات"},
     "login.hero": {"en": "Crystal Gallery", "ar": "كريستال جاليري"},
     "login.tagline": {"en": "Timeless craftsmanship for modern elegance.", "ar": "حرفية خالدة لأناقة عصرية."},

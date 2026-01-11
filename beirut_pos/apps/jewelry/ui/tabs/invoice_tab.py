@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QTimer, QUrl
+from PyQt6.QtCore import QElapsedTimer, QEvent, QSettings, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -71,6 +72,9 @@ class InvoiceTab(QWidget):
         self._gallery_settings = load_gallery_settings()
         self._website_orders_enabled = self._gallery_settings.website_orders_enabled
         self._language = get_ui_language()
+        self._loyalty_points_per_100 = 1.0
+        self._loyalty_alert_threshold = 0
+        self._load_loyalty_settings()
         QApplication.instance().installEventFilter(self)
 
         layout = QHBoxLayout(self)
@@ -887,6 +891,17 @@ class InvoiceTab(QWidget):
             self.loyalty_redeem_input.blockSignals(False)
         return float(self.loyalty_redeem_input.value())
 
+    def _load_loyalty_settings(self) -> None:
+        settings = QSettings()
+        self._loyalty_points_per_100 = settings.value("loyalty_points_per_100", 1.0, float)
+        self._loyalty_alert_threshold = settings.value("loyalty_alert_threshold", 0, int)
+
+    def _calculate_loyalty_points(self, net_total: float) -> int:
+        self._load_loyalty_settings()
+        # Floor the computed points so we never round up fractional earnings.
+        earned = math.floor(net_total / 100 * self._loyalty_points_per_100)
+        return max(0, int(earned))
+
     def _add_selected_product(self) -> None:
         row = self.products_table.currentRow()
         if row < 0:
@@ -924,8 +939,12 @@ class InvoiceTab(QWidget):
         self.loyalty_summary_label.setText(
             t("invoice.loyalty_summary", language=self._language, total=f"{loyalty_redeem:.2f}")
         )
-        earned = 0 if self.txn_type_combo.currentIndex() == 1 else int(total)
-        self.loyalty_earned_label.setText(f"{earned}")
+        customer_name = self.customer_name_input.text().strip()
+        customer_phone = self.customer_phone_input.text().strip()
+        has_customer = bool(self._customer_id or (customer_name and customer_phone))
+        earned = 0 if self.txn_type_combo.currentIndex() == 1 else self._calculate_loyalty_points(total)
+        display_earned = earned if has_customer else 0
+        self.loyalty_earned_label.setText(f"{display_earned}")
         self._refresh_summary_labels()
         self._update_validation_state()
 
@@ -1004,7 +1023,7 @@ class InvoiceTab(QWidget):
         discount = self._calculate_discount_amount(subtotal)
         loyalty_redeem = 0.0 if txn_type == "return" else float(self.loyalty_redeem_input.value())
         total = max(subtotal - discount - loyalty_redeem, 0.0)
-        loyalty_earned = 0 if txn_type == "return" else int(total)
+        loyalty_earned = 0 if txn_type == "return" else self._calculate_loyalty_points(total)
         payment_method = self.payment_combo.currentText()
         order_source = "website" if self._website_orders_enabled else (self.order_source_combo.currentData() or "in_store")
         website_order_ref = ""
@@ -1037,6 +1056,20 @@ class InvoiceTab(QWidget):
         )
         self._last_invoice_no = invoice_no
         self.invoice_info_label.setText(t("invoice.info_number", language=self._language, invoice_no=invoice_no))
+        if customer_id:
+            self._load_loyalty_settings()
+            self._customer_points = get_loyalty_balance(customer_id)
+            if self._loyalty_alert_threshold > 0 and self._customer_points >= self._loyalty_alert_threshold:
+                QMessageBox.information(
+                    self,
+                    t("loyalty.alert_title", language=self._language),
+                    t(
+                        "loyalty.alert_message",
+                        language=self._language,
+                        balance=f"{self._customer_points:.2f}",
+                        threshold=self._loyalty_alert_threshold,
+                    ),
+                )
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),

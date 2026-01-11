@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSignalBlocker, Qt
+from PyQt6.QtCore import QSettings, QSignalBlocker, QSize, Qt
+from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import QLabel, QMainWindow, QMessageBox, QTabWidget, QVBoxLayout, QWidget
 
 from ..services.settings import load_gallery_settings
@@ -20,9 +21,24 @@ from .theme import gallery_stylesheet
 class JewelryMainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
         self._language = get_ui_language()
         self.setWindowTitle(t("app.title", language=self._language))
         self.resize(1280, 840)
+
+        settings = QSettings()
+        saved_geometry = settings.value("jw_main_geometry")
+        if saved_geometry:
+            self.restoreGeometry(saved_geometry)
+        saved_state = settings.value("jw_main_state")
+        if saved_state:
+            self.restoreState(saved_state)
+        self._ensure_window_visible(QSize(1280, 840))
 
         self.central = QWidget()
         self.setCentralWidget(self.central)
@@ -60,6 +76,29 @@ class JewelryMainWindow(QMainWindow):
         self._apply_language(self._language)
         self._apply_settings()
         self._apply_user_context()
+
+    def closeEvent(self, event) -> None:
+        settings = QSettings()
+        settings.setValue("jw_main_geometry", self.saveGeometry())
+        settings.setValue("jw_main_state", self.saveState())
+        super().closeEvent(event)
+
+    def _ensure_window_visible(self, default_size: QSize) -> None:
+        screens = QGuiApplication.screens()
+        if not screens:
+            return
+        geometry = self.geometry()
+        if any(geometry.intersects(screen.availableGeometry()) for screen in screens):
+            return
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        width = min(default_size.width(), available.width())
+        height = min(default_size.height(), available.height())
+        x = max(available.left(), min(geometry.x(), available.right() - width + 1))
+        y = max(available.top(), min(geometry.y(), available.bottom() - height + 1))
+        self.setGeometry(x, y, width, height)
 
     def _apply_language(self, language: str | None = None) -> None:
         self._language = language or get_ui_language()

@@ -992,6 +992,19 @@ class PrinterService:
             )
         return True
 
+    def print_text_receipt(self, lines: Sequence[str]) -> bool:
+        """Print tagged text lines as a receipt."""
+        if self._use_windows_cash():
+            bmp = _render_lines_to_bitmap(lines)
+            win_print_image(self._cash_win, bmp.convert("RGB"))
+            return True
+
+        self._refresh_escpos_printer()
+        prn = self._escpos_printer
+        if prn:
+            _print_escpos_lines(prn, lines)
+        return True
+
 
 # singleton
 printer = PrinterService()

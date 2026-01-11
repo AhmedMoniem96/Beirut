@@ -47,9 +47,11 @@ from ...services.db import (
     save_customer,
 )
 from ...services.pdf_exports import GalleryInfo, export_invoice_pdf
+from ...services.receipt import build_receipt_text
 from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
+from beirut_pos.services.printer import printer
 
 
 class InvoiceTab(QWidget):
@@ -1056,6 +1058,20 @@ class InvoiceTab(QWidget):
         )
         self._last_invoice_no = invoice_no
         self.invoice_info_label.setText(t("invoice.info_number", language=self._language, invoice_no=invoice_no))
+        settings = QSettings()
+        if settings.value("loyalty_auto_print", False, bool):
+            invoice, items = fetch_invoice_details(invoice_no)
+            self._load_loyalty_settings()
+            loyalty_balance = None
+            if invoice.customer_id:
+                loyalty_balance = get_loyalty_balance(invoice.customer_id)
+            receipt_text = build_receipt_text(
+                invoice,
+                items,
+                loyalty_balance=loyalty_balance,
+                loyalty_threshold=self._loyalty_alert_threshold,
+            )
+            printer.print_text_receipt(receipt_text.splitlines())
         if customer_id:
             self._load_loyalty_settings()
             self._customer_points = get_loyalty_balance(customer_id)

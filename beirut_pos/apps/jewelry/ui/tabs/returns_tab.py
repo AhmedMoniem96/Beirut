@@ -15,34 +15,52 @@ from PyQt6.QtWidgets import (
 )
 
 from ...services.db import list_return_invoices
+from ...services.i18n import get_ui_language, t
 
 
 class ReturnsTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
+        self._language = get_ui_language()
         layout = QVBoxLayout(self)
-        header = QLabel("Returns (مرتجع)")
+        header = QLabel()
         header.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(header)
+        self.header_label = header
 
         filters = QHBoxLayout()
         self.date_filter = QDateEdit()
         self.date_filter.setCalendarPopup(True)
         self.date_filter.setDate(QDate.currentDate())
-        self.refresh_btn = QPushButton("Refresh (تحديث)")
+        self.refresh_btn = QPushButton()
         self.refresh_btn.clicked.connect(self.refresh)
-        filters.addWidget(QLabel("Date (التاريخ):"))
+        self.date_label = QLabel()
+        filters.addWidget(self.date_label)
         filters.addWidget(self.date_filter)
         filters.addWidget(self.refresh_btn)
         layout.addLayout(filters)
 
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(
-            ["Invoice", "Date", "Cashier", "Total", "Method", "Reason"]
-        )
         layout.addWidget(self.table)
 
+        self.apply_language(self._language)
         self.refresh()
+
+    def apply_language(self, language: str) -> None:
+        self._language = language
+        self.header_label.setText(t("returns.header", language=language))
+        self.refresh_btn.setText(t("returns.refresh", language=language))
+        self.date_label.setText(f"{t('common.date', language=language)}:")
+        self.table.setHorizontalHeaderLabels(
+            [
+                t("returns.table_invoice", language=language),
+                t("returns.table_date", language=language),
+                t("returns.table_cashier", language=language),
+                t("returns.table_total", language=language),
+                t("returns.table_method", language=language),
+                t("returns.table_reason", language=language),
+            ]
+        )
 
     def refresh(self) -> None:
         date_iso = self.date_filter.date().toString("yyyy-MM-dd")

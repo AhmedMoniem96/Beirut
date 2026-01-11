@@ -15,12 +15,14 @@ from PyQt6.QtWidgets import (
 )
 
 from ..services.auth import ADMIN_ROLE, UsernameExistsError, authenticate_user, create_user
+from ..services.i18n import get_ui_language, t
 
 
 class CreateUserDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Create New User")
+        self._language = get_ui_language()
+        self.setWindowTitle(t("user_create.window_title", language=self._language))
         self.setModal(True)
         self.setMinimumWidth(460)
 
@@ -30,10 +32,11 @@ class CreateUserDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        hint = QLabel("Admin credentials are required to create new users.")
+        hint = QLabel()
         hint.setStyleSheet("color: #6e6a64;")
         hint.setWordWrap(True)
         layout.addWidget(hint)
+        self.hint_label = hint
 
         form_layout = QFormLayout()
         self.admin_username_input = QLineEdit()
@@ -48,19 +51,26 @@ class CreateUserDialog(QDialog):
         self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Password)
 
         self.role_input = QComboBox()
-        self.role_input.addItem("Cashier", "Cashier")
-        self.role_input.addItem("Admin", "Admin")
+        self.role_input.addItem("", "Cashier")
+        self.role_input.addItem("", "Admin")
 
-        self.active_input = QCheckBox("Active")
+        self.active_input = QCheckBox()
         self.active_input.setChecked(True)
 
-        form_layout.addRow("Admin username:", self.admin_username_input)
-        form_layout.addRow("Admin password:", self.admin_password_input)
-        form_layout.addRow("Username:", self.username_input)
-        form_layout.addRow("Full name:", self.full_name_input)
-        form_layout.addRow("Password:", self.password_input)
-        form_layout.addRow("Confirm password:", self.confirm_password_input)
-        form_layout.addRow("Role:", self.role_input)
+        self.admin_username_label = QLabel()
+        self.admin_password_label = QLabel()
+        self.username_label = QLabel()
+        self.full_name_label = QLabel()
+        self.password_label = QLabel()
+        self.confirm_password_label = QLabel()
+        self.role_label = QLabel()
+        form_layout.addRow(self.admin_username_label, self.admin_username_input)
+        form_layout.addRow(self.admin_password_label, self.admin_password_input)
+        form_layout.addRow(self.username_label, self.username_input)
+        form_layout.addRow(self.full_name_label, self.full_name_input)
+        form_layout.addRow(self.password_label, self.password_input)
+        form_layout.addRow(self.confirm_password_label, self.confirm_password_input)
+        form_layout.addRow(self.role_label, self.role_input)
         form_layout.addRow("", self.active_input)
         layout.addLayout(form_layout)
 
@@ -71,13 +81,33 @@ class CreateUserDialog(QDialog):
 
         actions = QHBoxLayout()
         actions.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        create_btn = QPushButton("Create")
+        cancel_btn = QPushButton()
+        create_btn = QPushButton()
         cancel_btn.clicked.connect(self.reject)
         create_btn.clicked.connect(self._handle_create)
         actions.addWidget(cancel_btn)
         actions.addWidget(create_btn)
         layout.addLayout(actions)
+        self.cancel_btn = cancel_btn
+        self.create_btn = create_btn
+        self.apply_language(self._language)
+
+    def apply_language(self, language: str) -> None:
+        self._language = language
+        self.setWindowTitle(t("user_create.window_title", language=language))
+        self.hint_label.setText(t("user_create.hint", language=language))
+        self.admin_username_label.setText(t("user_create.admin_username", language=language))
+        self.admin_password_label.setText(t("user_create.admin_password", language=language))
+        self.username_label.setText(t("user_create.username", language=language))
+        self.full_name_label.setText(t("user_create.full_name", language=language))
+        self.password_label.setText(t("user_create.password", language=language))
+        self.confirm_password_label.setText(t("user_create.confirm_password", language=language))
+        self.role_label.setText(t("user_create.role", language=language))
+        self.active_input.setText(t("user_create.active", language=language))
+        self.role_input.setItemText(0, t("user_create.role_cashier", language=language))
+        self.role_input.setItemText(1, t("user_create.role_admin", language=language))
+        self.cancel_btn.setText(t("user_create.cancel", language=language))
+        self.create_btn.setText(t("user_create.create", language=language))
 
     def _handle_create(self) -> None:
         self.message_label.setText("")
@@ -87,7 +117,7 @@ class CreateUserDialog(QDialog):
             self.admin_password_input.text(),
         )
         if not admin_result.user or admin_result.user.role != ADMIN_ROLE:
-            self._set_error("Admin credentials are invalid.")
+            self._set_error(t("user_create.admin_invalid", language=self._language))
             return
 
         username = self.username_input.text().strip()
@@ -96,7 +126,7 @@ class CreateUserDialog(QDialog):
         confirm = self.confirm_password_input.text()
 
         if password != confirm:
-            self._set_error("Passwords do not match.")
+            self._set_error(t("user_create.password_mismatch", language=self._language))
             return
 
         try:
@@ -115,7 +145,7 @@ class CreateUserDialog(QDialog):
             return
 
         self.created_username = user.username
-        self.result_message = "User created successfully."
+        self.result_message = t("user_create.success", language=self._language)
         self.success = True
         self._clear_sensitive()
         self.accept()

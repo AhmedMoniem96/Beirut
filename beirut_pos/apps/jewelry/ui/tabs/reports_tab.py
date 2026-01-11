@@ -36,6 +36,7 @@ from ...services.pdf_exports import GalleryInfo, export_daily_report_pdf
 from ...services.reports import lowest_products, payment_breakdown, returns_aggregate, sales_aggregate, stock_alerts, top_products
 from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
+from ...services.i18n import choose_name, get_ui_language, t
 
 
 @dataclass
@@ -63,6 +64,7 @@ class ReportsTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self._last_report: Optional[ReportData] = None
+        self._language = get_ui_language()
 
         main_layout = QVBoxLayout(self)
         scroll_area = QScrollArea()
@@ -71,22 +73,25 @@ class ReportsTab(QWidget):
         content = QWidget()
         scroll_area.setWidget(content)
         layout = QVBoxLayout(content)
-        header = QLabel("Reports (التقارير)")
+        header = QLabel()
         header.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(header)
+        self.header_label = header
 
         filters = QHBoxLayout()
         self.date_filter = QDateEdit()
         self.date_filter.setCalendarPopup(True)
         self.date_filter.setDate(QDate.currentDate())
         self.date_filter.dateChanged.connect(self._load_shift_from_db)
-        self.refresh_btn = QPushButton("Generate (إنشاء)")
+        self.refresh_btn = QPushButton()
         self.refresh_btn.clicked.connect(self._generate_report)
-        filters.addWidget(QLabel("Date (التاريخ):"))
+        self.date_label = QLabel()
+        filters.addWidget(self.date_label)
         filters.addWidget(self.date_filter)
         filters.addWidget(self.refresh_btn)
 
-        shift_box = QGroupBox("Shift Info (بيانات الوردية)")
+        shift_box = QGroupBox()
+        self.shift_box = shift_box
         shift_layout = QFormLayout(shift_box)
         self.cashier_input = QLineEdit()
         self.cashier_input.setReadOnly(True)
@@ -102,35 +107,39 @@ class ReportsTab(QWidget):
         self.closing_cash_input.setDecimals(2)
         self.opening_cash_input.valueChanged.connect(self._refresh_cash_diff)
         self.closing_cash_input.valueChanged.connect(self._refresh_cash_diff)
-        self.expected_cash_label = QLabel("Expected: 0.00")
-        self.diff_label = QLabel("Over/Short: 0.00")
+        self.expected_cash_label = QLabel()
+        self.diff_label = QLabel()
         self.notes_input = QTextEdit()
         self.notes_input.setMinimumHeight(90)
         self.notes_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        shift_layout.addRow("Cashier (الكاشير):", self.cashier_input)
-        shift_layout.addRow("Open Time (فتح):", self.open_time_input)
-        shift_layout.addRow("Close Time (إغلاق):", self.close_time_input)
-        shift_layout.addRow("Opening Cash (بداية):", self.opening_cash_input)
-        shift_layout.addRow("Actual Cash (نقد فعلي):", self.closing_cash_input)
-        shift_layout.addRow("Expected (متوقع):", self.expected_cash_label)
-        shift_layout.addRow("Over/Short (فرق):", self.diff_label)
-        shift_layout.addRow("Notes (ملاحظات):", self.notes_input)
+        self.cashier_label = QLabel()
+        self.open_time_label = QLabel()
+        self.close_time_label = QLabel()
+        self.opening_cash_label = QLabel()
+        self.actual_cash_label = QLabel()
+        self.expected_label = QLabel()
+        self.over_short_label = QLabel()
+        self.notes_label = QLabel()
+        shift_layout.addRow(self.cashier_label, self.cashier_input)
+        shift_layout.addRow(self.open_time_label, self.open_time_input)
+        shift_layout.addRow(self.close_time_label, self.close_time_input)
+        shift_layout.addRow(self.opening_cash_label, self.opening_cash_input)
+        shift_layout.addRow(self.actual_cash_label, self.closing_cash_input)
+        shift_layout.addRow(self.expected_label, self.expected_cash_label)
+        shift_layout.addRow(self.over_short_label, self.diff_label)
+        shift_layout.addRow(self.notes_label, self.notes_input)
 
-        save_shift_btn = QPushButton("Save Shift Session (حفظ الوردية)")
+        save_shift_btn = QPushButton()
         save_shift_btn.clicked.connect(self._save_shift_session)
+        self.save_shift_btn = save_shift_btn
 
-        self.summary_label = QLabel("Daily report summary will appear here.")
+        self.summary_label = QLabel()
 
         self.payment_table = QTableWidget(0, 2)
-        self.payment_table.setHorizontalHeaderLabels(["Payment Method", "Total"])
         self.returns_table = QTableWidget(0, 3)
-        self.returns_table.setHorizontalHeaderLabels(["Reason", "Count", "Total"])
         self.top_table = QTableWidget(0, 3)
-        self.top_table.setHorizontalHeaderLabels(["Product", "Code", "Qty"])
         self.low_table = QTableWidget(0, 3)
-        self.low_table.setHorizontalHeaderLabels(["Product", "Code", "Qty"])
         self.stock_table = QTableWidget(0, 5)
-        self.stock_table.setHorizontalHeaderLabels(["Product", "SKU", "Qty", "Min", "Status"])
         for table in [
             self.payment_table,
             self.returns_table,
@@ -141,9 +150,9 @@ class ReportsTab(QWidget):
             table.setAlternatingRowColors(True)
 
         export_layout = QHBoxLayout()
-        self.export_pdf_btn = QPushButton("Export PDF (تصدير PDF)")
+        self.export_pdf_btn = QPushButton()
         self.export_pdf_btn.clicked.connect(self._export_pdf)
-        self.export_excel_btn = QPushButton("Export Excel (تصدير Excel)")
+        self.export_excel_btn = QPushButton()
         self.export_excel_btn.clicked.connect(self._export_excel)
         export_layout.addWidget(self.export_pdf_btn)
         export_layout.addWidget(self.export_excel_btn)
@@ -157,15 +166,20 @@ class ReportsTab(QWidget):
 
         tables_section = QWidget()
         tables_layout = QVBoxLayout(tables_section)
-        tables_layout.addWidget(QLabel("Payment Breakdown (تفاصيل الدفع)"))
+        self.payment_breakdown_label = QLabel()
+        tables_layout.addWidget(self.payment_breakdown_label)
         tables_layout.addWidget(self.payment_table)
-        tables_layout.addWidget(QLabel("Return Reasons (أسباب المرتجع)"))
+        self.return_reasons_label = QLabel()
+        tables_layout.addWidget(self.return_reasons_label)
         tables_layout.addWidget(self.returns_table)
-        tables_layout.addWidget(QLabel("Top 5 Sold Products (الأكثر مبيعًا)"))
+        self.top_products_label = QLabel()
+        tables_layout.addWidget(self.top_products_label)
         tables_layout.addWidget(self.top_table)
-        tables_layout.addWidget(QLabel("Lowest Sold Products (الأقل مبيعًا)"))
+        self.low_products_label = QLabel()
+        tables_layout.addWidget(self.low_products_label)
         tables_layout.addWidget(self.low_table)
-        tables_layout.addWidget(QLabel("Stock Alerts (تنبيهات المخزون)"))
+        self.stock_alerts_label = QLabel()
+        tables_layout.addWidget(self.stock_alerts_label)
         tables_layout.addWidget(self.stock_table)
         tables_layout.addLayout(export_layout)
         tables_layout.addStretch()
@@ -177,6 +191,7 @@ class ReportsTab(QWidget):
         splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter)
 
+        self.apply_language(self._language)
         self._initialize_shift_defaults()
         self._initialize_cashier()
 
@@ -194,6 +209,67 @@ class ReportsTab(QWidget):
     def set_cashier_name(self, name: str) -> None:
         if not self.cashier_input.text().strip():
             self.cashier_input.setText(name)
+
+    def apply_language(self, language: str) -> None:
+        self._language = language
+        self.header_label.setText(t("reports.header", language=language))
+        self.date_label.setText(f"{t('common.date', language=language)}:")
+        self.refresh_btn.setText(t("reports.generate", language=language))
+        self.shift_box.setTitle(t("reports.shift_box", language=language))
+        self.cashier_label.setText(t("reports.cashier", language=language))
+        self.open_time_label.setText(t("reports.open_time", language=language))
+        self.close_time_label.setText(t("reports.close_time", language=language))
+        self.opening_cash_label.setText(t("reports.opening_cash", language=language))
+        self.actual_cash_label.setText(t("reports.actual_cash", language=language))
+        self.expected_label.setText(t("reports.expected_cash", language=language))
+        self.over_short_label.setText(t("reports.over_short", language=language))
+        self.notes_label.setText(t("reports.notes", language=language))
+        self.save_shift_btn.setText(t("reports.save_shift", language=language))
+        self.summary_label.setText(t("reports.summary_placeholder", language=language))
+        self.expected_cash_label.setText(
+            t("reports.expected_label", language=language, amount="0.00")
+        )
+        self.diff_label.setText(t("reports.diff_label", language=language, amount="0.00"))
+        self.payment_table.setHorizontalHeaderLabels(
+            [t("reports.payment_method", language=language), t("common.total", language=language)]
+        )
+        self.returns_table.setHorizontalHeaderLabels(
+            [
+                t("common.reason", language=language),
+                t("reports.count", language=language),
+                t("common.total", language=language),
+            ]
+        )
+        self.top_table.setHorizontalHeaderLabels(
+            [
+                t("reports.product", language=language),
+                t("reports.sku", language=language),
+                t("reports.qty", language=language),
+            ]
+        )
+        self.low_table.setHorizontalHeaderLabels(
+            [
+                t("reports.product", language=language),
+                t("reports.sku", language=language),
+                t("reports.qty", language=language),
+            ]
+        )
+        self.stock_table.setHorizontalHeaderLabels(
+            [
+                t("reports.product", language=language),
+                t("reports.sku", language=language),
+                t("reports.qty", language=language),
+                t("inventory.table_min", language=language),
+                t("reports.status", language=language),
+            ]
+        )
+        self.export_pdf_btn.setText(t("reports.export_pdf", language=language))
+        self.export_excel_btn.setText(t("reports.export_excel", language=language))
+        self.payment_breakdown_label.setText(t("reports.payment_breakdown", language=language))
+        self.return_reasons_label.setText(t("reports.return_reasons", language=language))
+        self.top_products_label.setText(t("reports.top_products", language=language))
+        self.low_products_label.setText(t("reports.low_products", language=language))
+        self.stock_alerts_label.setText(t("reports.stock_alerts", language=language))
 
     def _load_shift_from_db(self) -> None:
         date_iso = self.date_filter.date().toString("yyyy-MM-dd")
@@ -240,19 +316,45 @@ class ReportsTab(QWidget):
         )
         stock_rows = []
         for name_ar, name_en, sku, qty, min_qty in out_of_stock:
-            stock_rows.append((f"{name_en} / {name_ar}", sku, f"{qty:.2f}", f"{min_qty:.2f}", "Out"))
+            stock_rows.append(
+                (
+                    choose_name(name_ar, name_en, language=self._language),
+                    sku,
+                    f"{qty:.2f}",
+                    f"{min_qty:.2f}",
+                    t("reports.stock_out", language=self._language),
+                )
+            )
         for name_ar, name_en, sku, qty, min_qty in near_out:
-            stock_rows.append((f"{name_en} / {name_ar}", sku, f"{qty:.2f}", f"{min_qty:.2f}", "Near"))
+            stock_rows.append(
+                (
+                    choose_name(name_ar, name_en, language=self._language),
+                    sku,
+                    f"{qty:.2f}",
+                    f"{min_qty:.2f}",
+                    t("reports.stock_near", language=self._language),
+                )
+            )
         self._populate_table(self.stock_table, stock_rows)
 
         expected_cash = self._compute_expected_cash(net_payments)
-        self.expected_cash_label.setText(f"Expected: {expected_cash:.2f}")
+        self.expected_cash_label.setText(
+            t("reports.expected_label", language=self._language, amount=f"{expected_cash:.2f}")
+        )
         diff = float(self.closing_cash_input.value()) - expected_cash
-        self.diff_label.setText(f"Over/Short: {diff:.2f}")
+        self.diff_label.setText(
+            t("reports.diff_label", language=self._language, amount=f"{diff:.2f}")
+        )
 
         self.summary_label.setText(
-            f"Invoices: {sales.invoice_count} | Subtotal: {sales.subtotal:.2f} | "
-            f"Discounts: {sales.discounts:.2f} | Net Sales: {sales.net_sales:.2f}"
+            t(
+                "reports.summary_label",
+                language=self._language,
+                count=sales.invoice_count,
+                subtotal=f"{sales.subtotal:.2f}",
+                discounts=f"{sales.discounts:.2f}",
+                net=f"{sales.net_sales:.2f}",
+            )
         )
 
         self._last_report = ReportData(
@@ -284,7 +386,9 @@ class ReportsTab(QWidget):
         if not self._last_report:
             return
         diff = float(self.closing_cash_input.value()) - self._last_report.expected_cash
-        self.diff_label.setText(f"Over/Short: {diff:.2f}")
+        self.diff_label.setText(
+            t("reports.diff_label", language=self._language, amount=f"{diff:.2f}")
+        )
 
     def _compute_expected_cash(self, payments: Dict[str, float]) -> float:
         for method, total in payments.items():
@@ -309,17 +413,25 @@ class ReportsTab(QWidget):
             float(self.closing_cash_input.value()),
             self.notes_input.toPlainText().strip(),
         )
-        QMessageBox.information(self, "Saved", "Shift session saved.")
+        QMessageBox.information(
+            self,
+            t("common.saved_title", language=self._language),
+            t("reports.shift_saved", language=self._language),
+        )
 
     def _export_pdf(self) -> None:
         if not self._last_report:
-            QMessageBox.warning(self, "Export", "Generate report first.")
+            QMessageBox.warning(
+                self,
+                t("common.export", language=self._language),
+                t("reports.generate_first", language=self._language),
+            )
             return
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Daily Report PDF",
+            t("reports.export_pdf", language=self._language),
             f"{self._last_report.report_number}.pdf",
-            "PDF Files (*.pdf)",
+            f"{t('common.file_filter_pdf', language=self._language)} (*.pdf)",
         )
         if not path:
             return
@@ -355,62 +467,92 @@ class ReportsTab(QWidget):
             self._last_report.out_of_stock,
             self._last_report.near_out,
         )
-        QMessageBox.information(self, "Export", "Daily report PDF exported.")
+        QMessageBox.information(
+            self,
+            t("common.export", language=self._language),
+            t("reports.pdf_exported", language=self._language),
+        )
 
     def _export_excel(self) -> None:
         if not self._last_report:
-            QMessageBox.warning(self, "Export", "Generate report first.")
+            QMessageBox.warning(
+                self,
+                t("common.export", language=self._language),
+                t("reports.generate_first", language=self._language),
+            )
             return
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Daily Report Excel",
+            t("reports.export_excel", language=self._language),
             f"{self._last_report.report_number}.xlsx",
-            "Excel Files (*.xlsx)",
+            f"{t('common.file_filter_excel', language=self._language)} (*.xlsx)",
         )
         if not path:
             return
         rows: List[List[str]] = [
-            ["Daily Report", "تقرير يومي"],
-            ["Date", self._last_report.report_date],
-            ["Report No", self._last_report.report_number],
-            ["Cashier", self._last_report.cashier],
-            ["Shift Open", self._last_report.shift_open],
-            ["Shift Close", self._last_report.shift_close],
-            ["Opening Cash", f"{self._last_report.opening_cash:.2f}"],
-            ["Expected Cash", f"{self._last_report.expected_cash:.2f}"],
-            ["Actual Cash", f"{self._last_report.closing_cash_actual:.2f}"],
-            ["Over/Short", f"{self._last_report.closing_cash_actual - self._last_report.expected_cash:.2f}"],
-            ["Notes", self._last_report.notes],
+            [t("reports.excel_title", language=self._language), ""],
+            [t("reports.excel_date", language=self._language), self._last_report.report_date],
+            [t("reports.excel_report_no", language=self._language), self._last_report.report_number],
+            [t("reports.excel_cashier", language=self._language), self._last_report.cashier],
+            [t("reports.excel_shift_open", language=self._language), self._last_report.shift_open],
+            [t("reports.excel_shift_close", language=self._language), self._last_report.shift_close],
+            [t("reports.excel_opening_cash", language=self._language), f"{self._last_report.opening_cash:.2f}"],
+            [t("reports.excel_expected_cash", language=self._language), f"{self._last_report.expected_cash:.2f}"],
+            [t("reports.excel_actual_cash", language=self._language), f"{self._last_report.closing_cash_actual:.2f}"],
+            [
+                t("reports.excel_over_short", language=self._language),
+                f"{self._last_report.closing_cash_actual - self._last_report.expected_cash:.2f}",
+            ],
+            [t("reports.excel_notes", language=self._language), self._last_report.notes],
             ["", ""],
-            ["Sales Movement", ""],
-            ["Invoices", str(self._last_report.sales_summary[0])],
-            ["Subtotal", f"{self._last_report.sales_summary[1]:.2f}"],
-            ["Discounts", f"{self._last_report.sales_summary[2]:.2f}"],
-            ["Net Sales", f"{self._last_report.sales_summary[3]:.2f}"],
+            [t("reports.excel_sales_movement", language=self._language), ""],
+            [t("reports.excel_invoices", language=self._language), str(self._last_report.sales_summary[0])],
+            [t("reports.excel_subtotal", language=self._language), f"{self._last_report.sales_summary[1]:.2f}"],
+            [t("reports.excel_discounts", language=self._language), f"{self._last_report.sales_summary[2]:.2f}"],
+            [t("reports.excel_net_sales", language=self._language), f"{self._last_report.sales_summary[3]:.2f}"],
             ["", ""],
-            ["Payment Breakdown", ""],
+            [t("reports.excel_payment_breakdown", language=self._language), ""],
         ]
         for method, total in self._last_report.payment_breakdown:
             rows.append([method, f"{total:.2f}"])
         rows.append(["", ""])
-        rows.append(["Returns", ""])
-        rows.append(["Return Count", str(self._last_report.returns_summary[0])])
-        rows.append(["Return Value", f"{self._last_report.returns_summary[1]:.2f}"])
+        rows.append([t("reports.excel_returns", language=self._language), ""])
+        rows.append([t("reports.excel_return_count", language=self._language), str(self._last_report.returns_summary[0])])
+        rows.append([t("reports.excel_return_value", language=self._language), f"{self._last_report.returns_summary[1]:.2f}"])
         for reason, count, total in self._last_report.return_reasons:
             rows.append([reason, f"{count} ({total:.2f})"])
         rows.append(["", ""])
-        rows.append(["Top Sold Products", ""])
+        rows.append([t("reports.excel_top_products", language=self._language), ""])
         for name, code, qty in self._last_report.top_products:
             rows.append([f"{name} ({code})", f"{qty:.2f}"])
-        rows.append(["Lowest Sold Products", ""])
+        rows.append([t("reports.excel_low_products", language=self._language), ""])
         for name, code, qty in self._last_report.low_products:
             rows.append([f"{name} ({code})", f"{qty:.2f}"])
         rows.append(["", ""])
-        rows.append(["Stock Alerts", ""])
+        rows.append([t("reports.excel_stock_alerts", language=self._language), ""])
         for name_ar, name_en, sku, qty, min_qty in self._last_report.out_of_stock:
-            rows.append([f"{name_en} / {name_ar}", f"{qty:.2f} - Out"])
+            rows.append(
+                [
+                    choose_name(name_ar, name_en, language=self._language),
+                    f"{qty:.2f} - {t('reports.stock_out', language=self._language)}",
+                ]
+            )
         for name_ar, name_en, sku, qty, min_qty in self._last_report.near_out:
-            rows.append([f"{name_en} / {name_ar}", f"{qty:.2f} - Near"])
+            rows.append(
+                [
+                    choose_name(name_ar, name_en, language=self._language),
+                    f"{qty:.2f} - {t('reports.stock_near', language=self._language)}",
+                ]
+            )
 
-        write_protected_workbook(path, ["Field", "Value"], rows, title="Daily Report")
-        QMessageBox.information(self, "Export", "Daily report Excel exported.")
+        write_protected_workbook(
+            path,
+            [t("reports.excel_field", language=self._language), t("reports.excel_value", language=self._language)],
+            rows,
+            title=t("reports.excel_title", language=self._language),
+        )
+        QMessageBox.information(
+            self,
+            t("common.export", language=self._language),
+            t("reports.excel_exported", language=self._language),
+        )

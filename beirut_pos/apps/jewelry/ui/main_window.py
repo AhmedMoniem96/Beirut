@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from PyQt6.QtCore import QSettings, QSignalBlocker, QSize, Qt
 from PyQt6.QtGui import QAction, QGuiApplication
 from PyQt6.QtWidgets import QLabel, QMainWindow, QMessageBox, QTabWidget, QVBoxLayout, QWidget
@@ -17,6 +19,8 @@ from .tabs.reports_tab import ReportsTab
 from .tabs.returns_tab import ReturnsTab
 from .tabs.settings_tab import SettingsTab
 from .theme import gallery_stylesheet
+
+logger = logging.getLogger(__name__)
 
 
 class JewelryMainWindow(QMainWindow):
@@ -97,7 +101,18 @@ class JewelryMainWindow(QMainWindow):
         screens = QGuiApplication.screens()
         if not screens:
             return
-        geometry = self.geometry()
+        window_state = self.windowState()
+        has_fullscreen = window_state & Qt.WindowState.WindowFullScreen
+        has_maximized = window_state & Qt.WindowState.WindowMaximized
+        if has_fullscreen or has_maximized:
+            geometry = self.geometry()
+            if any(geometry.intersects(screen.availableGeometry()) for screen in screens):
+                return
+            normal_geometry = self.normalGeometry()
+            self.showNormal()
+            geometry = normal_geometry if normal_geometry.isValid() else geometry
+        else:
+            geometry = self.geometry()
         if any(geometry.intersects(screen.availableGeometry()) for screen in screens):
             return
         screen = QGuiApplication.primaryScreen()
@@ -109,6 +124,15 @@ class JewelryMainWindow(QMainWindow):
         x = max(available.left(), min(geometry.x(), available.right() - width + 1))
         y = max(available.top(), min(geometry.y(), available.bottom() - height + 1))
         self.setGeometry(x, y, width, height)
+        if has_fullscreen:
+            self.showFullScreen()
+        elif has_maximized:
+            self.showMaximized()
+        logger.debug(
+            "Corrected main window geometry to %s (state=%s)",
+            self.geometry(),
+            int(self.windowState()),
+        )
 
     def _apply_language(self, language: str | None = None) -> None:
         self._language = language or get_ui_language()

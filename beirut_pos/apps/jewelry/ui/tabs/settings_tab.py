@@ -24,6 +24,7 @@ from ...services.demo_seed import seed_demo_data
 from ...services.i18n import get_ui_language, set_ui_language, t
 from ..dialogs.delivery_companies_dialog import DeliveryCompaniesDialog
 from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
+from ..dialogs.statuses_dialog import StatusesDialog
 from beirut_pos.services import printer as printer_service
 
 
@@ -132,6 +133,11 @@ class SettingsTab(QWidget):
         delivery_companies_btn.clicked.connect(self._open_delivery_companies)
         layout.addWidget(delivery_companies_btn)
         self.delivery_companies_btn = delivery_companies_btn
+
+        statuses_btn = QPushButton()
+        statuses_btn.clicked.connect(self._open_statuses)
+        layout.addWidget(statuses_btn)
+        self.statuses_btn = statuses_btn
 
         payment_box = QGroupBox()
         payment_layout = QFormLayout(payment_box)
@@ -317,6 +323,7 @@ class SettingsTab(QWidget):
         self.demo_btn.setText(t("settings.seed_demo", language=language))
         self.loyalty_btn.setText(t("loyalty.settings.button", language=language))
         self.delivery_companies_btn.setText(t("delivery_companies.button", language=language))
+        self.statuses_btn.setText(t("statuses.button", language=language))
         self._set_language_combo(language)
 
     def _open_loyalty_settings(self) -> None:
@@ -325,6 +332,10 @@ class SettingsTab(QWidget):
 
     def _open_delivery_companies(self) -> None:
         dialog = DeliveryCompaniesDialog(self)
+        dialog.exec()
+
+    def _open_statuses(self) -> None:
+        dialog = StatusesDialog(self)
         dialog.exec()
 
     @staticmethod

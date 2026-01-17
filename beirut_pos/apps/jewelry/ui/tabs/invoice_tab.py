@@ -79,6 +79,8 @@ class InvoiceTab(QWidget):
         self._current_grand_total = 0.0
         self._pay_now_manual = False
         self._pay_now_updating = False
+        self._payment_statuses_enabled = False
+        self._delivery_statuses_enabled = False
         self._gallery_settings = load_gallery_settings()
         self._website_orders_enabled = self._gallery_settings.website_orders_enabled
         self._language = get_ui_language()
@@ -607,14 +609,30 @@ class InvoiceTab(QWidget):
             self.payment_combo.addItem(choose_name(name_ar, name_en, language=self._language), _id)
         self._refresh_summary_labels()
 
-    def _refresh_payment_statuses(self) -> None:
+    def _payment_status_required(self) -> bool:
+        grand_total = max(self._current_grand_total, 0.0)
+        pay_now = min(float(self.pay_now_input.value()), grand_total)
+        return grand_total > 0 and pay_now < grand_total
+
+    def _refresh_payment_statuses(self, required: Optional[bool] = None) -> None:
+        if required is None:
+            required = self._payment_status_required()
+        selected_id = self.payment_order_status_combo.currentData()
+        self.payment_order_status_combo.blockSignals(True)
         self.payment_order_status_combo.clear()
         self.payment_order_status_combo.addItem("", None)
-        for status in list_active_statuses("PAYMENT"):
-            self.payment_order_status_combo.addItem(
-                choose_name(status.name_ar, status.name_en, language=self._language),
-                status.id,
-            )
+        if required:
+            for status in list_active_statuses("PAYMENT"):
+                self.payment_order_status_combo.addItem(
+                    choose_name(status.name_ar, status.name_en, language=self._language),
+                    status.id,
+                )
+        self.payment_order_status_combo.blockSignals(False)
+        if required and selected_id is not None:
+            idx = self.payment_order_status_combo.findData(selected_id)
+            if idx >= 0:
+                self.payment_order_status_combo.setCurrentIndex(idx)
+        self._payment_statuses_enabled = required
 
     def _refresh_delivery_companies(self) -> None:
         self.delivery_company_combo.clear()
@@ -628,14 +646,25 @@ class InvoiceTab(QWidget):
                 Qt.ItemDataRole.UserRole + 1,
             )
 
-    def _refresh_delivery_statuses(self) -> None:
+    def _refresh_delivery_statuses(self, required: Optional[bool] = None) -> None:
+        if required is None:
+            required = self.delivery_enabled_checkbox.isChecked()
+        selected_id = self.delivery_status_combo.currentData()
+        self.delivery_status_combo.blockSignals(True)
         self.delivery_status_combo.clear()
         self.delivery_status_combo.addItem("", None)
-        for status in list_active_statuses("DELIVERY"):
-            self.delivery_status_combo.addItem(
-                choose_name(status.name_ar, status.name_en, language=self._language),
-                status.id,
-            )
+        if required:
+            for status in list_active_statuses("DELIVERY"):
+                self.delivery_status_combo.addItem(
+                    choose_name(status.name_ar, status.name_en, language=self._language),
+                    status.id,
+                )
+        self.delivery_status_combo.blockSignals(False)
+        if required and selected_id is not None:
+            idx = self.delivery_status_combo.findData(selected_id)
+            if idx >= 0:
+                self.delivery_status_combo.setCurrentIndex(idx)
+        self._delivery_statuses_enabled = required
 
     def _handle_delivery_company_change(self) -> None:
         if not self.delivery_enabled_checkbox.isChecked():
@@ -655,6 +684,8 @@ class InvoiceTab(QWidget):
         self.delivery_fee_input.setEnabled(enabled)
         self.delivery_address_input.setEnabled(enabled)
         self.delivery_status_combo.setEnabled(enabled)
+        if enabled != self._delivery_statuses_enabled:
+            self._refresh_delivery_statuses(required=enabled)
         if not enabled:
             self.delivery_fee_input.blockSignals(True)
             self.delivery_fee_input.setValue(0.0)
@@ -1103,6 +1134,8 @@ class InvoiceTab(QWidget):
         self.paid_total_value.setText(f"{pay_now:.2f}")
         self.remaining_total_value.setText(f"{remaining:.2f}")
         is_partial = grand_total > 0 and pay_now < grand_total
+        if is_partial != self._payment_statuses_enabled:
+            self._refresh_payment_statuses(required=is_partial)
         self.payment_order_status_label.setVisible(is_partial)
         self.payment_order_status_combo.setVisible(is_partial)
         self.payment_due_date_input.setEnabled(is_partial)

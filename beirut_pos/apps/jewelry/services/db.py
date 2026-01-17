@@ -871,6 +871,7 @@ def update_status(
     name_ar: str,
     name_en: str,
     sort_order: int,
+    active: bool = True,
 ) -> None:
     normalized_group = status_group.strip().upper()
     normalized_name_ar = name_ar.strip()
@@ -881,9 +882,16 @@ def update_status(
     cur = conn.cursor()
     cur.execute(
         """UPDATE jw_statuses
-           SET status_group = ?, name_ar = ?, name_en = ?, sort_order = ?
+           SET status_group = ?, name_ar = ?, name_en = ?, sort_order = ?, active = ?
            WHERE id = ?""",
-        (normalized_group, normalized_name_ar, normalized_name_en, int(sort_order), status_id),
+        (
+            normalized_group,
+            normalized_name_ar,
+            normalized_name_en,
+            int(sort_order),
+            int(bool(active)),
+            status_id,
+        ),
     )
     conn.commit()
     conn.close()

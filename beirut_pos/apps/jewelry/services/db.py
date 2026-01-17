@@ -110,6 +110,36 @@ class JewelryProductionOrder:
     bom_id: Optional[int]
 
 
+@dataclass
+class JewelryPaymentRow:
+    id: int
+    invoice_id: int
+    payment_method: str
+    amount: float
+    paid_at: str
+    cashier_name: str
+    notes: str
+
+
+@dataclass
+class JewelryDeliveryCompany:
+    id: int
+    name: str
+    company_type: str
+    phone: str
+    active: bool
+
+
+@dataclass
+class JewelryStatusItem:
+    id: int
+    status_group: str
+    name_ar: str
+    name_en: str
+    sort_order: int
+    active: bool
+
+
 def init_jewelry_db() -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -648,6 +678,199 @@ def list_payment_methods() -> List[Tuple[int, str, str]]:
     rows = cur.fetchall()
     conn.close()
     return [(row[0], row[1], row[2]) for row in rows]
+
+
+def list_delivery_companies(include_inactive: bool = True) -> List[JewelryDeliveryCompany]:
+    conn = get_conn()
+    cur = conn.cursor()
+    query = """SELECT id, name, company_type, COALESCE(phone, ''), active
+               FROM jw_delivery_companies"""
+    params: Tuple = ()
+    if not include_inactive:
+        query += " WHERE active = 1"
+    query += " ORDER BY id"
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryDeliveryCompany(
+            id=row[0],
+            name=row[1],
+            company_type=row[2],
+            phone=row[3] or "",
+            active=bool(row[4]),
+        )
+        for row in rows
+    ]
+
+
+def create_delivery_company(name: str, company_type: str, phone: str) -> int:
+    normalized_name = name.strip()
+    normalized_company_type = company_type.strip()
+    if not normalized_name or not normalized_company_type:
+        raise ValueError("Delivery company name and type are required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO jw_delivery_companies(name, company_type, phone, active)
+           VALUES (?, ?, ?, 1)""",
+        (normalized_name, normalized_company_type, (phone or "").strip()),
+    )
+    company_id = int(cur.lastrowid)
+    conn.commit()
+    conn.close()
+    return company_id
+
+
+def update_delivery_company(
+    company_id: int,
+    name: str,
+    company_type: str,
+    phone: str,
+) -> None:
+    normalized_name = name.strip()
+    normalized_company_type = company_type.strip()
+    if not normalized_name or not normalized_company_type:
+        raise ValueError("Delivery company name and type are required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """UPDATE jw_delivery_companies
+           SET name = ?, company_type = ?, phone = ?
+           WHERE id = ?""",
+        (normalized_name, normalized_company_type, (phone or "").strip(), company_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def disable_delivery_company(company_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE jw_delivery_companies SET active = 0 WHERE id = ?",
+        (company_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_statuses(
+    status_group: Optional[str] = None,
+    include_inactive: bool = True,
+) -> List[JewelryStatusItem]:
+    conn = get_conn()
+    cur = conn.cursor()
+    query = """SELECT id, status_group, name_ar, name_en, sort_order, active
+               FROM jw_statuses"""
+    params: List = []
+    conditions = []
+    if status_group:
+        conditions.append("status_group = ?")
+        params.append(status_group)
+    if not include_inactive:
+        conditions.append("active = 1")
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY status_group, sort_order, id"
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryStatusItem(
+            id=row[0],
+            status_group=row[1],
+            name_ar=row[2],
+            name_en=row[3],
+            sort_order=row[4],
+            active=bool(row[5]),
+        )
+        for row in rows
+    ]
+
+
+def create_status(
+    status_group: str,
+    name_ar: str,
+    name_en: str,
+    sort_order: int,
+) -> int:
+    normalized_group = status_group.strip().upper()
+    normalized_name_ar = name_ar.strip()
+    normalized_name_en = name_en.strip()
+    if not normalized_group or not normalized_name_ar or not normalized_name_en:
+        raise ValueError("Status group and names are required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO jw_statuses(status_group, name_ar, name_en, sort_order, active)
+           VALUES (?, ?, ?, ?, 1)""",
+        (normalized_group, normalized_name_ar, normalized_name_en, int(sort_order)),
+    )
+    status_id = int(cur.lastrowid)
+    conn.commit()
+    conn.close()
+    return status_id
+
+
+def update_status(
+    status_id: int,
+    status_group: str,
+    name_ar: str,
+    name_en: str,
+    sort_order: int,
+) -> None:
+    normalized_group = status_group.strip().upper()
+    normalized_name_ar = name_ar.strip()
+    normalized_name_en = name_en.strip()
+    if not normalized_group or not normalized_name_ar or not normalized_name_en:
+        raise ValueError("Status group and names are required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """UPDATE jw_statuses
+           SET status_group = ?, name_ar = ?, name_en = ?, sort_order = ?
+           WHERE id = ?""",
+        (normalized_group, normalized_name_ar, normalized_name_en, int(sort_order), status_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def disable_status(status_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE jw_statuses SET active = 0 WHERE id = ?", (status_id,))
+    conn.commit()
+    conn.close()
+
+
+def list_active_statuses(status_group: str) -> List[JewelryStatusItem]:
+    normalized_group = status_group.strip().upper()
+    if not normalized_group:
+        return []
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, status_group, name_ar, name_en, sort_order, active
+           FROM jw_statuses
+           WHERE status_group = ? AND active = 1
+           ORDER BY sort_order, id""",
+        (normalized_group,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryStatusItem(
+            id=row[0],
+            status_group=row[1],
+            name_ar=row[2],
+            name_en=row[3],
+            sort_order=row[4],
+            active=bool(row[5]),
+        )
+        for row in rows
+    ]
 
 
 def list_customers(search: Optional[str] = None) -> List[JewelryCustomer]:
@@ -1444,6 +1667,109 @@ def create_invoice(
             points_delta = float(loyalty_earned) - float(loyalty_redeemed)
         record_loyalty_entry(customer_id, invoice_id, points_delta, reason=f"invoice:{invoice_no}")
     return invoice_no
+
+
+def list_order_payments(invoice_id: int) -> List[JewelryPaymentRow]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, invoice_id, payment_method, amount, paid_at,
+                  COALESCE(cashier_name, ''), COALESCE(notes, '')
+           FROM jw_order_payments
+           WHERE invoice_id = ?
+           ORDER BY paid_at, id""",
+        (invoice_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryPaymentRow(
+            id=row[0],
+            invoice_id=row[1],
+            payment_method=row[2],
+            amount=row[3],
+            paid_at=row[4],
+            cashier_name=row[5] or "",
+            notes=row[6] or "",
+        )
+        for row in rows
+    ]
+
+
+def create_order_payment(
+    invoice_id: int,
+    payment_method: str,
+    amount: float,
+    cashier_name: str = "",
+    notes: str = "",
+    paid_at: Optional[str] = None,
+) -> int:
+    normalized_method = payment_method.strip()
+    if not normalized_method:
+        raise ValueError("Payment method is required")
+    if amount <= 0:
+        raise ValueError("Payment amount must be positive")
+    paid_at_value = paid_at or datetime.now().isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO jw_order_payments
+           (invoice_id, payment_method, amount, paid_at, cashier_name, notes)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            invoice_id,
+            normalized_method,
+            float(amount),
+            paid_at_value,
+            cashier_name.strip(),
+            (notes or "").strip(),
+        ),
+    )
+    payment_id = int(cur.lastrowid)
+    conn.commit()
+    conn.close()
+    recalculate_invoice_payment_totals(invoice_id)
+    return payment_id
+
+
+def recalculate_invoice_payment_totals(invoice_id: int) -> Tuple[float, float, str]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT total
+           FROM jw_invoices
+           WHERE id = ?""",
+        (invoice_id,),
+    )
+    invoice_row = cur.fetchone()
+    if not invoice_row:
+        conn.close()
+        raise ValueError("Invoice not found")
+    grand_total = float(invoice_row[0] or 0)
+    if grand_total < 0:
+        grand_total = 0.0
+    cur.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM jw_order_payments WHERE invoice_id = ?",
+        (invoice_id,),
+    )
+    raw_paid_total = float(cur.fetchone()[0] or 0)
+    paid_total = min(raw_paid_total, grand_total)
+    remaining_total = max(grand_total - paid_total, 0.0)
+    if remaining_total <= 0 and grand_total >= 0:
+        payment_status = "PAID"
+    elif paid_total <= 0:
+        payment_status = "UNPAID"
+    else:
+        payment_status = "PARTIAL"
+    cur.execute(
+        """UPDATE jw_invoices
+           SET paid_total = ?, remaining_total = ?, payment_status = ?
+           WHERE id = ?""",
+        (paid_total, remaining_total, payment_status, invoice_id),
+    )
+    conn.commit()
+    conn.close()
+    return paid_total, remaining_total, payment_status
 
 
 def _apply_stock_adjustment(cur, product_id: int, qty: float, txn_type: str) -> None:

@@ -10,10 +10,12 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -129,6 +131,8 @@ class InventoryTab(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.cellClicked.connect(self._load_selected_product)
         layout.addWidget(self.table)
 
@@ -136,6 +140,8 @@ class InventoryTab(QWidget):
         alerts_layout = QVBoxLayout(self.alerts_box)
         self.alerts_table = QTableWidget(0, 5)
         self.alerts_table.setAlternatingRowColors(True)
+        self.alerts_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.alerts_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         alerts_layout.addWidget(self.alerts_table)
         layout.addWidget(self.alerts_box)
 

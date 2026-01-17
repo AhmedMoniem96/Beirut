@@ -6,8 +6,10 @@ from PyQt6.QtCore import QDate
 from PyQt6.QtWidgets import (
     QDateEdit,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -41,6 +43,8 @@ class ReturnsTab(QWidget):
         layout.addLayout(filters)
 
         self.table = QTableWidget(0, 6)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
 
         self.apply_language(self._language)

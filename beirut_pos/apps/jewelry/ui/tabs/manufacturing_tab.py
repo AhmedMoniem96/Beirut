@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -127,6 +128,8 @@ class ManufacturingTab(QWidget):
         self.materials_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.materials_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.materials_table.setAlternatingRowColors(True)
+        self.materials_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.materials_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.materials_table.cellClicked.connect(self._load_material)
         form_widget = QWidget()
         form_layout_container = QVBoxLayout(form_widget)
@@ -187,6 +190,8 @@ class ManufacturingTab(QWidget):
         self.bom_lines_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.bom_lines_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.bom_lines_table.setAlternatingRowColors(True)
+        self.bom_lines_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.bom_lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         lines_layout.addWidget(self.bom_lines_table)
 
         remove_line_btn = QPushButton()
@@ -208,6 +213,8 @@ class ManufacturingTab(QWidget):
         self.boms_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.boms_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.boms_table.setAlternatingRowColors(True)
+        self.boms_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.boms_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.boms_table.cellClicked.connect(self._load_bom)
         form_widget = QWidget()
         form_layout_container = QVBoxLayout(form_widget)
@@ -286,6 +293,8 @@ class ManufacturingTab(QWidget):
         self.orders_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.orders_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.orders_table.setAlternatingRowColors(True)
+        self.orders_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.orders_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.orders_table.cellClicked.connect(self._load_order)
         self.shortage_label = QLabel("")
         form_widget = QWidget()
@@ -355,6 +364,8 @@ class ManufacturingTab(QWidget):
         self.history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.history_table.setAlternatingRowColors(True)
+        self.history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         history_layout.addWidget(self.history_table)
 
         usage_box = QGroupBox()
@@ -382,6 +393,8 @@ class ManufacturingTab(QWidget):
         self.usage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.usage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.usage_table.setAlternatingRowColors(True)
+        self.usage_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.usage_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         usage_layout.addWidget(self.usage_table)
 
         splitter = QSplitter(Qt.Orientation.Vertical)

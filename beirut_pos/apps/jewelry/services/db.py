@@ -127,6 +127,7 @@ class JewelryDeliveryCompany:
     name: str
     company_type: str
     phone: str
+    default_fee: float
     active: bool
 
 
@@ -200,6 +201,7 @@ def init_jewelry_db() -> None:
             name TEXT NOT NULL UNIQUE,
             company_type TEXT NOT NULL,
             phone TEXT DEFAULT '',
+            default_fee REAL NOT NULL DEFAULT 0,
             active INTEGER NOT NULL DEFAULT 1
         )"""
     )
@@ -271,6 +273,7 @@ def init_jewelry_db() -> None:
     _ensure_column(cur, "jw_invoices", "delivery_fee", "REAL NOT NULL DEFAULT 0")
     _ensure_column(cur, "jw_invoices", "delivery_address", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_invoices", "delivery_status_id", "INTEGER")
+    _ensure_column(cur, "jw_delivery_companies", "default_fee", "REAL NOT NULL DEFAULT 0")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_customers(
             phone TEXT NOT NULL PRIMARY KEY,
@@ -463,9 +466,9 @@ def _ensure_default_delivery_companies() -> None:
     if cur.fetchone()[0] == 0:
         cur.execute(
             """INSERT INTO jw_delivery_companies(
-                   name, company_type, phone, active
-               ) VALUES (?, ?, ?, 1)""",
-            ("In-house Delivery", "SELF", ""),
+                   name, company_type, phone, default_fee, active
+               ) VALUES (?, ?, ?, ?, 1)""",
+            ("In-house Delivery", "SELF", "", 0.0),
         )
     conn.commit()
     conn.close()
@@ -684,6 +687,7 @@ def list_delivery_companies(include_inactive: bool = True) -> List[JewelryDelive
     conn = get_conn()
     cur = conn.cursor()
     query = """SELECT id, name, company_type, COALESCE(phone, ''), active
+               , COALESCE(default_fee, 0)
                FROM jw_delivery_companies"""
     params: Tuple = ()
     if not include_inactive:
@@ -698,13 +702,14 @@ def list_delivery_companies(include_inactive: bool = True) -> List[JewelryDelive
             name=row[1],
             company_type=row[2],
             phone=row[3] or "",
+            default_fee=float(row[5] or 0.0),
             active=bool(row[4]),
         )
         for row in rows
     ]
 
 
-def create_delivery_company(name: str, company_type: str, phone: str) -> int:
+def create_delivery_company(name: str, company_type: str, phone: str, default_fee: float = 0.0) -> int:
     normalized_name = name.strip()
     normalized_company_type = company_type.strip()
     if not normalized_name or not normalized_company_type:
@@ -712,9 +717,14 @@ def create_delivery_company(name: str, company_type: str, phone: str) -> int:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """INSERT INTO jw_delivery_companies(name, company_type, phone, active)
-           VALUES (?, ?, ?, 1)""",
-        (normalized_name, normalized_company_type, (phone or "").strip()),
+        """INSERT INTO jw_delivery_companies(name, company_type, phone, default_fee, active)
+           VALUES (?, ?, ?, ?, 1)""",
+        (
+            normalized_name,
+            normalized_company_type,
+            (phone or "").strip(),
+            float(default_fee),
+        ),
     )
     company_id = int(cur.lastrowid)
     conn.commit()
@@ -727,6 +737,7 @@ def update_delivery_company(
     name: str,
     company_type: str,
     phone: str,
+    default_fee: float = 0.0,
 ) -> None:
     normalized_name = name.strip()
     normalized_company_type = company_type.strip()
@@ -736,9 +747,9 @@ def update_delivery_company(
     cur = conn.cursor()
     cur.execute(
         """UPDATE jw_delivery_companies
-           SET name = ?, company_type = ?, phone = ?
+           SET name = ?, company_type = ?, phone = ?, default_fee = ?
            WHERE id = ?""",
-        (normalized_name, normalized_company_type, (phone or "").strip(), company_id),
+        (normalized_name, normalized_company_type, (phone or "").strip(), float(default_fee), company_id),
     )
     conn.commit()
     conn.close()
@@ -1603,12 +1614,19 @@ def create_invoice(
     loyalty_redeemed: float,
     total: float,
     payment_method: str,
+    payment_due_date: str,
+    payment_order_status_id: Optional[int],
     order_source: str,
     website_order_ref: str,
+    delivery_enabled: bool,
+    delivery_company_id: Optional[int],
+    delivery_fee: float,
+    delivery_address: str,
+    delivery_status_id: Optional[int],
     notes: str,
     return_reason: str,
     items: Iterable[JewelryInvoiceItem],
-) -> str:
+) -> Tuple[str, int]:
     invoice_datetime = datetime.now().isoformat(timespec="seconds")
     conn = get_conn()
     cur = conn.cursor()
@@ -1617,8 +1635,10 @@ def create_invoice(
         """INSERT INTO jw_invoices
            (invoice_no, datetime, cashier_name, txn_type, customer_id, customer_name, customer_phone,
             subtotal, discount, discount_type, discount_value, loyalty_earned, loyalty_redeemed,
-            total, payment_method, order_source, website_order_ref, notes, return_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            total, payment_method, payment_due_date, payment_order_status_id,
+            order_source, website_order_ref, delivery_enabled, delivery_company_id, delivery_fee,
+            delivery_address, delivery_status_id, notes, return_reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             invoice_no,
             invoice_datetime,
@@ -1635,8 +1655,15 @@ def create_invoice(
             loyalty_redeemed,
             total,
             payment_method,
+            payment_due_date.strip() if payment_due_date else "",
+            payment_order_status_id,
             order_source,
             website_order_ref,
+            int(bool(delivery_enabled)),
+            delivery_company_id,
+            float(delivery_fee),
+            delivery_address.strip() if delivery_address else "",
+            delivery_status_id,
             notes,
             return_reason,
         ),
@@ -1666,7 +1693,7 @@ def create_invoice(
         else:
             points_delta = float(loyalty_earned) - float(loyalty_redeemed)
         record_loyalty_entry(customer_id, invoice_id, points_delta, reason=f"invoice:{invoice_no}")
-    return invoice_no
+    return invoice_no, int(invoice_id)
 
 
 def list_order_payments(invoice_id: int) -> List[JewelryPaymentRow]:

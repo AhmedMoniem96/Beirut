@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QSettings, QSignalBlocker, QSize, Qt
-from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtGui import QAction, QGuiApplication
 from PyQt6.QtWidgets import QLabel, QMainWindow, QMessageBox, QTabWidget, QVBoxLayout, QWidget
 
 from ..services.settings import load_gallery_settings
 from ..services.i18n import choose_name, get_ui_language, t
 from ..services.session import get_current_user
+from .dialogs.unpaid_orders_dialog import UnpaidOrdersDialog
 from .tabs.inventory_tab import InventoryTab
 from .tabs.invoice_tab import InvoiceTab
 from .tabs.manufacturing_tab import ManufacturingTab
@@ -70,12 +71,21 @@ class JewelryMainWindow(QMainWindow):
         self.tabs.addTab(self.settings_tab, "")
         self.tabs.currentChanged.connect(self._handle_tab_change)
 
+        self._build_menu()
+
         self._last_allowed_tab = 0
 
         self.setStyleSheet(gallery_stylesheet())
         self._apply_language(self._language)
         self._apply_settings()
         self._apply_user_context()
+
+    def _build_menu(self) -> None:
+        menu_bar = self.menuBar()
+        self.orders_menu = menu_bar.addMenu("")
+        self.unpaid_orders_action = QAction("", self)
+        self.unpaid_orders_action.triggered.connect(self._open_unpaid_orders)
+        self.orders_menu.addAction(self.unpaid_orders_action)
 
     def closeEvent(self, event) -> None:
         settings = QSettings()
@@ -109,6 +119,8 @@ class JewelryMainWindow(QMainWindow):
         self.tabs.setTabText(3, t("tab.manufacturing", language=self._language))
         self.tabs.setTabText(4, t("tab.reports", language=self._language))
         self.tabs.setTabText(5, t("tab.settings", language=self._language))
+        self.orders_menu.setTitle(t("menu.orders", language=self._language))
+        self.unpaid_orders_action.setText(t("menu.unpaid_orders", language=self._language))
         self.invoice_tab.apply_language(self._language)
         self.returns_tab.apply_language(self._language)
         self.inventory_tab.apply_language(self._language)
@@ -137,6 +149,10 @@ class JewelryMainWindow(QMainWindow):
         self.reports_tab.set_cashier_name(user.full_name)
         is_admin = user.role == "Admin"
         self.inventory_tab.set_edit_permissions(is_admin)
+
+    def _open_unpaid_orders(self) -> None:
+        dialog = UnpaidOrdersDialog(self)
+        dialog.exec()
 
     def _handle_tab_change(self, index: int) -> None:
         user = get_current_user()

@@ -401,6 +401,13 @@ class UnpaidOrdersDialog(QDialog):
         dialog = AddPaymentDialog(summary.order.remaining_total, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+        if not dialog.payment_method():
+            QMessageBox.warning(
+                self,
+                t("payment.add_title", language=self._language),
+                t("payment.method_required", language=self._language),
+            )
+            return
         if dialog.amount() <= 0:
             QMessageBox.warning(
                 self,

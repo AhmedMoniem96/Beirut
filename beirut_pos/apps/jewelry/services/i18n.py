@@ -99,6 +99,10 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "payment.note": {"en": "Note", "ar": "ملاحظة"},
     "payment.add": {"en": "Add", "ar": "إضافة"},
     "payment.cancel": {"en": "Cancel", "ar": "إلغاء"},
+    "payment.method_required": {
+        "en": "Select a payment method.",
+        "ar": "يرجى اختيار طريقة الدفع.",
+    },
     "payment.amount_required": {
         "en": "Enter a payment amount greater than zero.",
         "ar": "يرجى إدخال مبلغ دفع أكبر من صفر.",
@@ -217,7 +221,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "delivery_company.type.self": {"en": "Self", "ar": "ذاتي"},
     "delivery_company.type.external": {"en": "External", "ar": "خارجي"},
     "loyalty.settings.title": {"en": "Loyalty Program Settings", "ar": "إعدادات برنامج الولاء"},
-    "loyalty.settings.button": {"en": "Loyalty Program / برنمج الولاء", "ar": "Loyalty Program / برنمج الولاء"},
+    "loyalty.settings.button": {"en": "Loyalty Program", "ar": "برنامج الولاء"},
     "loyalty.settings.points_per_100": {"en": "Points per 100 LE", "ar": "النقاط لكل 100 جنيه"},
     "loyalty.settings.alert_threshold": {"en": "Alert threshold points", "ar": "حد التنبيه للنقاط"},
     "loyalty.settings.auto_print": {"en": "Auto-print receipt", "ar": "طباعة الإيصال تلقائياً"},

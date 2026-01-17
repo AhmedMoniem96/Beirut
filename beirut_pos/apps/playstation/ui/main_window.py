@@ -77,7 +77,6 @@ class MainWindow(QMainWindow):
             self._active_session_id = None
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.resize(1440, 900)
-        self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
         self._apply_window_title()
         self.setStyleSheet(build_main_window_stylesheet())
         icon = get_logo_icon(64)

@@ -98,7 +98,9 @@ def run() -> None:
         sys.exit(0)
 
     mw = MainWindow(current_user=login.get_user())
-    mw.show()
+    print(f"[MainWindow] windowState before showMaximized: {mw.windowState()}")
+    mw.showMaximized()
+    print(f"[MainWindow] windowState after showMaximized: {mw.windowState()}")
     sys.exit(app.exec())
 
 

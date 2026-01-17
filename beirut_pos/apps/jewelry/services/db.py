@@ -165,6 +165,26 @@ def init_jewelry_db() -> None:
         )"""
     )
     cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_delivery_companies(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            company_type TEXT NOT NULL,
+            phone TEXT DEFAULT '',
+            active INTEGER NOT NULL DEFAULT 1
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_statuses(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            status_group TEXT NOT NULL CHECK(status_group in ('DELIVERY', 'PAYMENT')),
+            name_ar TEXT NOT NULL,
+            name_en TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(status_group, name_ar, name_en)
+        )"""
+    )
+    cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_invoices(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             invoice_no TEXT NOT NULL UNIQUE,
@@ -181,12 +201,25 @@ def init_jewelry_db() -> None:
             loyalty_earned REAL NOT NULL DEFAULT 0,
             loyalty_redeemed REAL NOT NULL DEFAULT 0,
             total REAL NOT NULL,
+            paid_total REAL NOT NULL DEFAULT 0,
+            remaining_total REAL NOT NULL DEFAULT 0,
+            payment_status TEXT DEFAULT '',
+            payment_due_date TEXT,
+            payment_order_status_id INTEGER,
             payment_method TEXT NOT NULL,
             order_source TEXT NOT NULL DEFAULT 'in_store',
             website_order_ref TEXT DEFAULT '',
+            delivery_enabled INTEGER NOT NULL DEFAULT 0,
+            delivery_company_id INTEGER,
+            delivery_fee REAL NOT NULL DEFAULT 0,
+            delivery_address TEXT DEFAULT '',
+            delivery_status_id INTEGER,
             notes TEXT DEFAULT '',
             return_reason TEXT DEFAULT '',
-            FOREIGN KEY(customer_id) REFERENCES jw_customers(phone)
+            FOREIGN KEY(customer_id) REFERENCES jw_customers(phone),
+            FOREIGN KEY(delivery_company_id) REFERENCES jw_delivery_companies(id),
+            FOREIGN KEY(payment_order_status_id) REFERENCES jw_statuses(id),
+            FOREIGN KEY(delivery_status_id) REFERENCES jw_statuses(id)
         )"""
     )
     _ensure_column(cur, "jw_invoices", "discount_type", "TEXT DEFAULT 'amount'")
@@ -198,6 +231,16 @@ def init_jewelry_db() -> None:
     _ensure_column(cur, "jw_invoices", "loyalty_redeemed", "REAL NOT NULL DEFAULT 0")
     _ensure_column(cur, "jw_invoices", "order_source", "TEXT NOT NULL DEFAULT 'in_store'")
     _ensure_column(cur, "jw_invoices", "website_order_ref", "TEXT DEFAULT ''")
+    _ensure_column(cur, "jw_invoices", "paid_total", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_invoices", "remaining_total", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_invoices", "payment_status", "TEXT DEFAULT ''")
+    _ensure_column(cur, "jw_invoices", "payment_due_date", "TEXT")
+    _ensure_column(cur, "jw_invoices", "payment_order_status_id", "INTEGER")
+    _ensure_column(cur, "jw_invoices", "delivery_enabled", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_invoices", "delivery_company_id", "INTEGER")
+    _ensure_column(cur, "jw_invoices", "delivery_fee", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_invoices", "delivery_address", "TEXT DEFAULT ''")
+    _ensure_column(cur, "jw_invoices", "delivery_status_id", "INTEGER")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_customers(
             phone TEXT NOT NULL PRIMARY KEY,
@@ -301,7 +344,27 @@ def init_jewelry_db() -> None:
             FOREIGN KEY(material_id) REFERENCES jw_materials(id)
         )"""
     )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_order_payments(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL,
+            payment_method TEXT NOT NULL,
+            amount REAL NOT NULL,
+            paid_at TEXT NOT NULL,
+            cashier_name TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            FOREIGN KEY(invoice_id) REFERENCES jw_invoices(id)
+        )"""
+    )
     _ensure_column(cur, "jw_production_orders", "bom_id", "INTEGER")
+    cur.execute(
+        """UPDATE jw_invoices
+           SET paid_total = COALESCE(paid_total, 0),
+               remaining_total = CASE
+                   WHEN total - COALESCE(paid_total, 0) < 0 THEN 0
+                   ELSE total - COALESCE(paid_total, 0)
+               END"""
+    )
     try:
         cur.execute(
             """CREATE UNIQUE INDEX IF NOT EXISTS jw_products_barcode_unique
@@ -315,6 +378,8 @@ def init_jewelry_db() -> None:
     conn.close()
 
     _ensure_default_payment_methods()
+    _ensure_default_statuses()
+    _ensure_default_delivery_companies()
     _ensure_default_user()
 
 
@@ -331,6 +396,46 @@ def _ensure_default_payment_methods() -> None:
             """INSERT OR IGNORE INTO jw_payment_methods(name_ar, name_en, active)
                VALUES (?, ?, 1)""",
             (name_ar, name_en),
+        )
+    conn.commit()
+    conn.close()
+
+
+def _ensure_default_statuses() -> None:
+    defaults = [
+        ("DELIVERY", "قيد الانتظار", "Pending", 1),
+        ("DELIVERY", "خارج للتوصيل", "Out for Delivery", 2),
+        ("DELIVERY", "تم التوصيل", "Delivered", 3),
+        ("DELIVERY", "مرتجع", "Returned", 4),
+        ("PAYMENT", "بانتظار الدفع", "Awaiting Payment", 1),
+        ("PAYMENT", "دفع لاحق", "Pay Later", 2),
+        ("PAYMENT", "تحت التحصيل", "Under Collection", 3),
+    ]
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM jw_statuses")
+    if cur.fetchone()[0] == 0:
+        for status_group, name_ar, name_en, sort_order in defaults:
+            cur.execute(
+                """INSERT INTO jw_statuses(
+                       status_group, name_ar, name_en, sort_order, active
+                   ) VALUES (?, ?, ?, ?, 1)""",
+                (status_group, name_ar, name_en, sort_order),
+            )
+    conn.commit()
+    conn.close()
+
+
+def _ensure_default_delivery_companies() -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM jw_delivery_companies")
+    if cur.fetchone()[0] == 0:
+        cur.execute(
+            """INSERT INTO jw_delivery_companies(
+                   name, company_type, phone, active
+               ) VALUES (?, ?, ?, 1)""",
+            ("In-house Delivery", "SELF", ""),
         )
     conn.commit()
     conn.close()
@@ -411,6 +516,9 @@ def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
     customer_type = (customer_col[2] or "").upper() if customer_col else ""
     if customer_type == "TEXT":
         return
+    def _column_expr(name: str, default: str) -> str:
+        return name if name in columns else default
+
     customer_id_expr = "customer_id"
     if use_id_map:
         customer_id_expr = """CASE
@@ -418,6 +526,21 @@ def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
             WHEN customer_id IS NOT NULL THEN (SELECT phone FROM jw_customer_id_map WHERE id = customer_id)
             ELSE NULL
         END"""
+    paid_total_expr = _column_expr("paid_total", "0")
+    payment_status_expr = _column_expr("payment_status", "''")
+    payment_due_date_expr = _column_expr("payment_due_date", "NULL")
+    payment_order_status_id_expr = _column_expr("payment_order_status_id", "NULL")
+    delivery_enabled_expr = _column_expr("delivery_enabled", "0")
+    delivery_company_id_expr = _column_expr("delivery_company_id", "NULL")
+    delivery_fee_expr = _column_expr("delivery_fee", "0")
+    delivery_address_expr = _column_expr("delivery_address", "''")
+    delivery_status_id_expr = _column_expr("delivery_status_id", "NULL")
+    remaining_total_expr = (
+        "CASE "
+        f"WHEN total - COALESCE({paid_total_expr}, 0) < 0 THEN 0 "
+        f"ELSE total - COALESCE({paid_total_expr}, 0) "
+        "END"
+    )
     cur.execute(
         """CREATE TABLE jw_invoices_new(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -435,24 +558,44 @@ def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
             loyalty_earned REAL NOT NULL DEFAULT 0,
             loyalty_redeemed REAL NOT NULL DEFAULT 0,
             total REAL NOT NULL,
+            paid_total REAL NOT NULL DEFAULT 0,
+            remaining_total REAL NOT NULL DEFAULT 0,
+            payment_status TEXT DEFAULT '',
+            payment_due_date TEXT,
+            payment_order_status_id INTEGER,
             payment_method TEXT NOT NULL,
             order_source TEXT NOT NULL DEFAULT 'in_store',
             website_order_ref TEXT DEFAULT '',
+            delivery_enabled INTEGER NOT NULL DEFAULT 0,
+            delivery_company_id INTEGER,
+            delivery_fee REAL NOT NULL DEFAULT 0,
+            delivery_address TEXT DEFAULT '',
+            delivery_status_id INTEGER,
             notes TEXT DEFAULT '',
             return_reason TEXT DEFAULT '',
-            FOREIGN KEY(customer_id) REFERENCES jw_customers(phone)
+            FOREIGN KEY(customer_id) REFERENCES jw_customers(phone),
+            FOREIGN KEY(delivery_company_id) REFERENCES jw_delivery_companies(id),
+            FOREIGN KEY(payment_order_status_id) REFERENCES jw_statuses(id),
+            FOREIGN KEY(delivery_status_id) REFERENCES jw_statuses(id)
         )"""
     )
     cur.execute(
         f"""INSERT INTO jw_invoices_new(
                 id, invoice_no, datetime, cashier_name, txn_type, customer_id, customer_name, customer_phone,
                 subtotal, discount, discount_type, discount_value, loyalty_earned, loyalty_redeemed,
-                total, payment_method, order_source, website_order_ref, notes, return_reason
+                total, paid_total, remaining_total, payment_status, payment_due_date, payment_order_status_id,
+                payment_method, order_source, website_order_ref, delivery_enabled, delivery_company_id,
+                delivery_fee, delivery_address, delivery_status_id, notes, return_reason
             )
             SELECT id, invoice_no, datetime, cashier_name, txn_type, {customer_id_expr}, customer_name,
                    customer_phone, subtotal, discount, discount_type, discount_value, loyalty_earned,
-                   loyalty_redeemed, total, payment_method, order_source, website_order_ref, notes,
-                   return_reason
+                   loyalty_redeemed, total, COALESCE({paid_total_expr}, 0),
+                   {remaining_total_expr},
+                   COALESCE({payment_status_expr}, ''), {payment_due_date_expr}, {payment_order_status_id_expr},
+                   payment_method, order_source, website_order_ref, COALESCE({delivery_enabled_expr}, 0),
+                   {delivery_company_id_expr}, COALESCE({delivery_fee_expr}, 0),
+                   COALESCE({delivery_address_expr}, ''),
+                   {delivery_status_id_expr}, notes, return_reason
             FROM jw_invoices"""
     )
     cur.execute("DROP TABLE jw_invoices")

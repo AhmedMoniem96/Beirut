@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -148,6 +149,8 @@ class ReportsTab(QWidget):
             self.stock_table,
         ]:
             table.setAlternatingRowColors(True)
+            table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
         export_layout = QHBoxLayout()
         self.export_pdf_btn = QPushButton()

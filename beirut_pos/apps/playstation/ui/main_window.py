@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QStyle,
     QBoxLayout,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QAction, QShortcut, QKeySequence
@@ -258,7 +259,8 @@ class MainWindow(QMainWindow):
         self.client_name_edit = QLineEdit()
         self.client_name_edit.setPlaceholderText("اسم العميل")
         self.client_name_edit.setClearButtonEnabled(True)
-        self.client_name_edit.setFixedWidth(200)
+        self.client_name_edit.setMinimumWidth(200)
+        self.client_name_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.client_name_edit.setEnabled(False)
         self.client_name_edit.editingFinished.connect(self._commit_client_name)
         head_row.addWidget(self.client_name_edit, 0)
@@ -271,7 +273,8 @@ class MainWindow(QMainWindow):
 
         self.btn_clear_customer = QPushButton("✕")
         self.btn_clear_customer.setToolTip("إزالة العميل")
-        self.btn_clear_customer.setFixedWidth(36)
+        self.btn_clear_customer.setMinimumWidth(36)
+        self.btn_clear_customer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.btn_clear_customer.clicked.connect(self._clear_customer_selection)
         self.btn_clear_customer.setEnabled(False)
         head_row.addWidget(self.btn_clear_customer, 0)
@@ -660,11 +663,15 @@ class MainWindow(QMainWindow):
         if collapse is None:
             collapse = self._current_breakpoint in {"mobile", "tablet"}
         if collapse == self._nav_collapsed:
-            self._nav_panel.setFixedWidth(68 if collapse else 220)
+            width = 68 if collapse else 220
+            self._nav_panel.setMinimumWidth(width)
+            self._nav_panel.setMaximumWidth(width)
             self._sync_nav_collapse_state()
             return
         self._nav_collapsed = collapse
-        self._nav_panel.setFixedWidth(68 if collapse else 220)
+        width = 68 if collapse else 220
+        self._nav_panel.setMinimumWidth(width)
+        self._nav_panel.setMaximumWidth(width)
         self._sync_nav_collapse_state()
 
     def resizeEvent(self, event):  # noqa: D401 - Qt lifecycle hook

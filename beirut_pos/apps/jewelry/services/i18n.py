@@ -185,6 +185,15 @@ _TEXTS: Dict[str, Dict[str, str]] = {
         "en": "Website order number (optional)",
         "ar": "رقم طلب الموقع (اختياري)",
     },
+    "invoice.delivery_enabled_label": {"en": "Delivery", "ar": "التوصيل"},
+    "invoice.delivery_company_label": {"en": "Delivery Company", "ar": "شركة التوصيل"},
+    "invoice.delivery_fee_label": {"en": "Delivery Fee", "ar": "رسوم التوصيل"},
+    "invoice.delivery_address_label": {"en": "Delivery Address", "ar": "عنوان التوصيل"},
+    "invoice.delivery_address_placeholder": {
+        "en": "Enter delivery address",
+        "ar": "أدخل عنوان التوصيل",
+    },
+    "invoice.delivery_status_label": {"en": "Delivery Status", "ar": "حالة التوصيل"},
     "invoice.discount_type_amount": {"en": "Amount", "ar": "قيمة"},
     "invoice.discount_type_percent": {"en": "Percent (%)", "ar": "نسبة مئوية (%)"},
     "invoice.discount_type_label": {"en": "Discount Type", "ar": "نوع الخصم"},
@@ -248,6 +257,16 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "invoice.discount_summary": {"en": "Discount: {total}", "ar": "الخصم: {total}"},
     "invoice.loyalty_summary": {"en": "Loyalty Redeem: {total}", "ar": "خصم بالنقاط: {total}"},
     "invoice.payment_summary": {"en": "Payment: {method}", "ar": "الدفع: {method}"},
+    "invoice.grand_total_label": {"en": "Grand Total", "ar": "الإجمالي النهائي"},
+    "invoice.paid_total_label": {"en": "Paid Total", "ar": "إجمالي المدفوع"},
+    "invoice.remaining_total_label": {"en": "Remaining Total", "ar": "الإجمالي المتبقي"},
+    "invoice.pay_now_label": {"en": "Pay Now", "ar": "الدفع الآن"},
+    "invoice.payment_due_date_label": {"en": "Payment Due Date", "ar": "تاريخ استحقاق الدفع"},
+    "invoice.payment_due_date_placeholder": {"en": "YYYY-MM-DD", "ar": "YYYY-MM-DD"},
+    "invoice.payment_order_status_label": {
+        "en": "Payment Order Status",
+        "ar": "حالة أمر الدفع",
+    },
     "invoice.calculator_box": {"en": "Calculator", "ar": "آلة حاسبة"},
     "invoice.copy_result": {"en": "Copy Result", "ar": "نسخ النتيجة"},
     "invoice.save_invoice": {"en": "Save Invoice [F8]", "ar": "حفظ الفاتورة [F8]"},
@@ -258,6 +277,26 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "invoice.validation_customer": {
         "en": "Enter customer name and phone.",
         "ar": "أدخل اسم العميل ورقم الهاتف.",
+    },
+    "invoice.validation_credit_customer": {
+        "en": "Select a customer for credit orders.",
+        "ar": "يرجى اختيار عميل للطلبات الآجلة.",
+    },
+    "invoice.validation_payment_status": {
+        "en": "Select a payment order status.",
+        "ar": "يرجى اختيار حالة أمر الدفع.",
+    },
+    "invoice.validation_delivery_company": {
+        "en": "Select a delivery company.",
+        "ar": "يرجى اختيار شركة التوصيل.",
+    },
+    "invoice.validation_delivery_address": {
+        "en": "Enter a delivery address.",
+        "ar": "يرجى إدخال عنوان التوصيل.",
+    },
+    "invoice.validation_delivery_status": {
+        "en": "Select a delivery status.",
+        "ar": "يرجى اختيار حالة التوصيل.",
     },
     "invoice.missing_items_title": {"en": "Missing Items", "ar": "عناصر مفقودة"},
     "invoice.missing_items_message": {

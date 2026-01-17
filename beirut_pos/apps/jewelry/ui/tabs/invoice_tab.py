@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QFileDialog,
     QFrame,
+    QCheckBox,
 )
 
 from ...services.db import (
@@ -41,8 +42,12 @@ from ...services.db import (
     fetch_invoice_details,
     find_product_by_code,
     get_loyalty_balance,
+    list_active_statuses,
+    list_delivery_companies,
     list_payment_methods,
     list_products,
+    create_order_payment,
+    recalculate_invoice_payment_totals,
     search_customers,
     save_customer,
 )
@@ -71,6 +76,9 @@ class InvoiceTab(QWidget):
         self._scan_buffer = ""
         self._scan_timer = QElapsedTimer()
         self._scan_timer.start()
+        self._current_grand_total = 0.0
+        self._pay_now_manual = False
+        self._pay_now_updating = False
         self._gallery_settings = load_gallery_settings()
         self._website_orders_enabled = self._gallery_settings.website_orders_enabled
         self._language = get_ui_language()
@@ -108,6 +116,29 @@ class InvoiceTab(QWidget):
         self.order_source_combo.addItem("", "in_store")
         self.order_source_combo.addItem("", "website")
         self.order_source_combo.currentIndexChanged.connect(self._handle_order_source_change)
+        self.delivery_enabled_checkbox = QCheckBox()
+        self.delivery_enabled_checkbox.toggled.connect(self._update_delivery_state)
+        self.delivery_company_combo = QComboBox()
+        self.delivery_company_combo.currentIndexChanged.connect(self._handle_delivery_company_change)
+        self.delivery_fee_input = QDoubleSpinBox()
+        self.delivery_fee_input.setRange(0, 999999)
+        self.delivery_fee_input.setDecimals(2)
+        self.delivery_fee_input.valueChanged.connect(self._recalculate_totals)
+        self.delivery_address_input = QLineEdit()
+        self.delivery_status_combo = QComboBox()
+        self.delivery_panel = QWidget()
+        delivery_layout = QFormLayout(self.delivery_panel)
+        delivery_layout.setContentsMargins(0, 0, 0, 0)
+        delivery_layout.setHorizontalSpacing(12)
+        delivery_layout.setVerticalSpacing(8)
+        self.delivery_company_label = QLabel()
+        self.delivery_fee_label = QLabel()
+        self.delivery_address_label = QLabel()
+        self.delivery_status_label = QLabel()
+        delivery_layout.addRow(self.delivery_company_label, self.delivery_company_combo)
+        delivery_layout.addRow(self.delivery_fee_label, self.delivery_fee_input)
+        delivery_layout.addRow(self.delivery_address_label, self.delivery_address_input)
+        delivery_layout.addRow(self.delivery_status_label, self.delivery_status_combo)
         self.website_order_label = QLabel()
         self.website_order_input = QLineEdit()
         self.website_order_input.setEnabled(False)
@@ -216,12 +247,15 @@ class InvoiceTab(QWidget):
         self.transaction_label = QLabel()
         self.payment_method_label = QLabel()
         self.order_source_label = QLabel()
+        self.delivery_enabled_label = QLabel()
         self.customer_search_label = QLabel()
         self.customer_name_label = QLabel()
         self.customer_phone_label = QLabel()
         self._form_layout.addRow(self.cashier_label, self.cashier_input)
         self._form_layout.addRow(self.transaction_label, self.txn_type_combo)
         self._form_layout.addRow(self.order_source_label, self.order_source_combo)
+        self._form_layout.addRow(self.delivery_enabled_label, self.delivery_enabled_checkbox)
+        self._form_layout.addRow("", self.delivery_panel)
         self._form_layout.addRow(self.customer_search_label, customer_search_container)
         self._form_layout.addRow(self.customer_name_label, self.customer_name_input)
         self._form_layout.addRow(self.customer_phone_label, self.customer_phone_input)
@@ -402,6 +436,27 @@ class InvoiceTab(QWidget):
         payment_layout.setHorizontalSpacing(12)
         payment_layout.setVerticalSpacing(8)
         payment_layout.addRow(self.payment_method_label, self.payment_combo)
+        self.grand_total_label = QLabel()
+        self.grand_total_value = QLabel("0.00")
+        self.paid_total_label = QLabel()
+        self.paid_total_value = QLabel("0.00")
+        self.remaining_total_label = QLabel()
+        self.remaining_total_value = QLabel("0.00")
+        self.pay_now_label = QLabel()
+        self.pay_now_input = QDoubleSpinBox()
+        self.pay_now_input.setRange(0, 999999)
+        self.pay_now_input.setDecimals(2)
+        self.pay_now_input.valueChanged.connect(self._handle_pay_now_change)
+        self.payment_due_date_label = QLabel()
+        self.payment_due_date_input = QLineEdit()
+        self.payment_order_status_label = QLabel()
+        self.payment_order_status_combo = QComboBox()
+        payment_layout.addRow(self.grand_total_label, self.grand_total_value)
+        payment_layout.addRow(self.paid_total_label, self.paid_total_value)
+        payment_layout.addRow(self.remaining_total_label, self.remaining_total_value)
+        payment_layout.addRow(self.pay_now_label, self.pay_now_input)
+        payment_layout.addRow(self.payment_due_date_label, self.payment_due_date_input)
+        payment_layout.addRow(self.payment_order_status_label, self.payment_order_status_combo)
         left_layout.addWidget(payment_box)
 
         calculator_box = QGroupBox()
@@ -477,6 +532,9 @@ class InvoiceTab(QWidget):
         splitter.setSizes([360, 900])
 
         self._refresh_payment_methods()
+        self._refresh_payment_statuses()
+        self._refresh_delivery_companies()
+        self._refresh_delivery_statuses()
         self.refresh_products()
         self._initialize_cashier()
         self._customer_id: Optional[str] = None
@@ -485,6 +543,7 @@ class InvoiceTab(QWidget):
         self._configure_focus_order()
         self._apply_invoice_styles()
         self._update_advanced_panels()
+        self._update_delivery_state(self.delivery_enabled_checkbox.isChecked())
         self.apply_language(self._language)
 
     def _initialize_cashier(self) -> None:
@@ -547,6 +606,67 @@ class InvoiceTab(QWidget):
         for _id, name_ar, name_en in list_payment_methods():
             self.payment_combo.addItem(choose_name(name_ar, name_en, language=self._language), _id)
         self._refresh_summary_labels()
+
+    def _refresh_payment_statuses(self) -> None:
+        self.payment_order_status_combo.clear()
+        self.payment_order_status_combo.addItem("", None)
+        for status in list_active_statuses("PAYMENT"):
+            self.payment_order_status_combo.addItem(
+                choose_name(status.name_ar, status.name_en, language=self._language),
+                status.id,
+            )
+
+    def _refresh_delivery_companies(self) -> None:
+        self.delivery_company_combo.clear()
+        self.delivery_company_combo.addItem("", None)
+        for company in list_delivery_companies(include_inactive=False):
+            self.delivery_company_combo.addItem(company.name, company.id)
+            index = self.delivery_company_combo.count() - 1
+            self.delivery_company_combo.setItemData(
+                index,
+                float(getattr(company, "default_fee", 0.0)),
+                Qt.ItemDataRole.UserRole + 1,
+            )
+
+    def _refresh_delivery_statuses(self) -> None:
+        self.delivery_status_combo.clear()
+        self.delivery_status_combo.addItem("", None)
+        for status in list_active_statuses("DELIVERY"):
+            self.delivery_status_combo.addItem(
+                choose_name(status.name_ar, status.name_en, language=self._language),
+                status.id,
+            )
+
+    def _handle_delivery_company_change(self) -> None:
+        if not self.delivery_enabled_checkbox.isChecked():
+            return
+        fee_value = self.delivery_company_combo.currentData(Qt.ItemDataRole.UserRole + 1)
+        if fee_value is None:
+            return
+        self.delivery_fee_input.blockSignals(True)
+        self.delivery_fee_input.setValue(float(fee_value))
+        self.delivery_fee_input.blockSignals(False)
+        self._recalculate_totals()
+
+    def _update_delivery_state(self, enabled: bool) -> None:
+        self.delivery_panel.setVisible(enabled)
+        self.delivery_panel.setEnabled(enabled)
+        self.delivery_company_combo.setEnabled(enabled)
+        self.delivery_fee_input.setEnabled(enabled)
+        self.delivery_address_input.setEnabled(enabled)
+        self.delivery_status_combo.setEnabled(enabled)
+        if not enabled:
+            self.delivery_fee_input.blockSignals(True)
+            self.delivery_fee_input.setValue(0.0)
+            self.delivery_fee_input.blockSignals(False)
+        else:
+            self._handle_delivery_company_change()
+        self._recalculate_totals()
+
+    def _handle_pay_now_change(self) -> None:
+        if not self._pay_now_updating:
+            self._pay_now_manual = True
+        self._update_payment_totals()
 
     def refresh_products(self, _text: str | None = None) -> None:
         search = self.search_input.text().strip()
@@ -933,21 +1053,62 @@ class InvoiceTab(QWidget):
             subtotal += float(self.items_table.item(row, self.ITEM_COL_LINE_TOTAL).text())
         discount = self._calculate_discount_amount(subtotal)
         loyalty_redeem = self._loyalty_redeem_amount(subtotal, discount)
-        total = max(subtotal - discount - loyalty_redeem, 0.0)
+        net_total = max(subtotal - discount - loyalty_redeem, 0.0)
+        delivery_fee = self._delivery_fee_value()
+        grand_total = max(net_total + delivery_fee, 0.0)
         self.subtotal_label.setText(
             t("invoice.subtotal", language=self._language, total=f"{subtotal:.2f}")
         )
-        self.total_label.setText(t("invoice.net_total", language=self._language, total=f"{total:.2f}"))
+        self.total_label.setText(t("invoice.net_total", language=self._language, total=f"{net_total:.2f}"))
         self.loyalty_summary_label.setText(
             t("invoice.loyalty_summary", language=self._language, total=f"{loyalty_redeem:.2f}")
         )
         customer_name = self.customer_name_input.text().strip()
         customer_phone = self.customer_phone_input.text().strip()
         has_customer = bool(self._customer_id or (customer_name and customer_phone))
-        earned = 0 if self.txn_type_combo.currentIndex() == 1 else self._calculate_loyalty_points(total)
+        earned = 0 if self.txn_type_combo.currentIndex() == 1 else self._calculate_loyalty_points(net_total)
         display_earned = earned if has_customer else 0
         self.loyalty_earned_label.setText(f"{display_earned}")
+        self._current_grand_total = grand_total
+        if self.items_table.rowCount() == 0:
+            self._pay_now_manual = False
+        if not self._pay_now_manual:
+            self._set_pay_now_value(grand_total)
+        self._update_payment_totals()
         self._refresh_summary_labels()
+        self._update_validation_state()
+
+    def _delivery_fee_value(self) -> float:
+        if not self.delivery_enabled_checkbox.isChecked():
+            return 0.0
+        return float(self.delivery_fee_input.value())
+
+    def _set_pay_now_value(self, value: float) -> None:
+        self._pay_now_updating = True
+        self.pay_now_input.blockSignals(True)
+        self.pay_now_input.setValue(max(value, 0.0))
+        self.pay_now_input.blockSignals(False)
+        self._pay_now_updating = False
+
+    def _update_payment_totals(self) -> None:
+        grand_total = max(self._current_grand_total, 0.0)
+        if grand_total < 0:
+            grand_total = 0.0
+        self.pay_now_input.setMaximum(grand_total)
+        pay_now = min(float(self.pay_now_input.value()), grand_total)
+        if float(self.pay_now_input.value()) != pay_now:
+            self._set_pay_now_value(pay_now)
+        remaining = max(grand_total - pay_now, 0.0)
+        self.grand_total_value.setText(f"{grand_total:.2f}")
+        self.paid_total_value.setText(f"{pay_now:.2f}")
+        self.remaining_total_value.setText(f"{remaining:.2f}")
+        is_partial = grand_total > 0 and pay_now < grand_total
+        self.payment_order_status_label.setVisible(is_partial)
+        self.payment_order_status_combo.setVisible(is_partial)
+        self.payment_due_date_input.setEnabled(is_partial)
+        if not is_partial:
+            self.payment_order_status_combo.setCurrentIndex(0)
+            self.payment_due_date_input.clear()
         self._update_validation_state()
 
     def _calculate_subtotal(self) -> float:
@@ -963,6 +1124,22 @@ class InvoiceTab(QWidget):
         customer_phone = self.customer_phone_input.text().strip()
         if (customer_name or customer_phone) and not (customer_name and customer_phone):
             return t("invoice.validation_customer", language=self._language)
+        has_customer = bool(self._customer_id or (customer_name and customer_phone))
+        pay_now = float(self.pay_now_input.value())
+        grand_total = max(self._current_grand_total, 0.0)
+        is_partial = grand_total > 0 and pay_now < grand_total
+        if is_partial and not has_customer:
+            return t("invoice.validation_credit_customer", language=self._language)
+        if is_partial and self.payment_order_status_combo.currentData() is None:
+            if self.payment_order_status_combo.count() > 1:
+                return t("invoice.validation_payment_status", language=self._language)
+        if self.delivery_enabled_checkbox.isChecked():
+            if self.delivery_company_combo.currentData() is None:
+                return t("invoice.validation_delivery_company", language=self._language)
+            if not self.delivery_address_input.text().strip():
+                return t("invoice.validation_delivery_address", language=self._language)
+            if self.delivery_status_combo.count() > 1 and self.delivery_status_combo.currentData() is None:
+                return t("invoice.validation_delivery_status", language=self._language)
         return ""
 
     def _update_validation_state(self) -> None:
@@ -1024,9 +1201,25 @@ class InvoiceTab(QWidget):
         discount_value = float(self.discount_input.value())
         discount = self._calculate_discount_amount(subtotal)
         loyalty_redeem = 0.0 if txn_type == "return" else float(self.loyalty_redeem_input.value())
-        total = max(subtotal - discount - loyalty_redeem, 0.0)
-        loyalty_earned = 0 if txn_type == "return" else self._calculate_loyalty_points(total)
+        net_total = max(subtotal - discount - loyalty_redeem, 0.0)
+        delivery_enabled = self.delivery_enabled_checkbox.isChecked()
+        delivery_fee = self._delivery_fee_value() if delivery_enabled else 0.0
+        total = max(net_total + delivery_fee, 0.0)
+        loyalty_earned = 0 if txn_type == "return" else self._calculate_loyalty_points(net_total)
         payment_method = self.payment_combo.currentText()
+        pay_now = min(float(self.pay_now_input.value()), total)
+        is_partial = total > 0 and pay_now < total
+        payment_due_date = self.payment_due_date_input.text().strip() if is_partial else ""
+        payment_order_status_id = (
+            self.payment_order_status_combo.currentData() if is_partial else None
+        )
+        delivery_company_id = (
+            self.delivery_company_combo.currentData() if delivery_enabled else None
+        )
+        delivery_address = self.delivery_address_input.text().strip() if delivery_enabled else ""
+        delivery_status_id = (
+            self.delivery_status_combo.currentData() if delivery_enabled else None
+        )
         order_source = "website" if self._website_orders_enabled else (self.order_source_combo.currentData() or "in_store")
         website_order_ref = ""
         if order_source == "website":
@@ -1036,7 +1229,7 @@ class InvoiceTab(QWidget):
         notes = self.notes_input.toPlainText().strip()
         return_reason = self.return_reason_input.text().strip() if txn_type == "return" else ""
         items = self._collect_items()
-        invoice_no = create_invoice(
+        invoice_no, invoice_id = create_invoice(
             cashier,
             txn_type,
             customer_id,
@@ -1050,12 +1243,22 @@ class InvoiceTab(QWidget):
             loyalty_redeem,
             total,
             payment_method,
+            payment_due_date,
+            payment_order_status_id,
             order_source,
             website_order_ref,
+            delivery_enabled,
+            delivery_company_id,
+            delivery_fee,
+            delivery_address,
+            delivery_status_id,
             notes,
             return_reason,
             items,
         )
+        if pay_now > 0:
+            create_order_payment(invoice_id, payment_method, pay_now, cashier_name=cashier)
+        recalculate_invoice_payment_totals(invoice_id)
         self._last_invoice_no = invoice_no
         self.invoice_info_label.setText(t("invoice.info_number", language=self._language, invoice_no=invoice_no))
         settings = QSettings()
@@ -1211,6 +1414,15 @@ class InvoiceTab(QWidget):
         self.discount_type_combo.setCurrentIndex(0)
         self.discount_input.setValue(0.0)
         self.loyalty_redeem_input.setValue(0.0)
+        self.pay_now_input.setValue(0.0)
+        self.payment_due_date_input.clear()
+        self.payment_order_status_combo.setCurrentIndex(0)
+        self.delivery_enabled_checkbox.setChecked(False)
+        self.delivery_company_combo.setCurrentIndex(0)
+        self.delivery_fee_input.setValue(0.0)
+        self.delivery_address_input.clear()
+        self.delivery_status_combo.setCurrentIndex(0)
+        self._pay_now_manual = False
         if not keep_customer:
             self.customer_name_input.clear()
             self.customer_phone_input.clear()
@@ -1450,6 +1662,14 @@ class InvoiceTab(QWidget):
         self.website_order_input.setPlaceholderText(
             t("invoice.website_order_placeholder", language=language)
         )
+        self.delivery_enabled_label.setText(t("invoice.delivery_enabled_label", language=language))
+        self.delivery_company_label.setText(t("invoice.delivery_company_label", language=language))
+        self.delivery_fee_label.setText(t("invoice.delivery_fee_label", language=language))
+        self.delivery_address_label.setText(t("invoice.delivery_address_label", language=language))
+        self.delivery_address_input.setPlaceholderText(
+            t("invoice.delivery_address_placeholder", language=language)
+        )
+        self.delivery_status_label.setText(t("invoice.delivery_status_label", language=language))
         self.discount_type_combo.setItemText(0, t("invoice.discount_type_amount", language=language))
         self.discount_type_combo.setItemText(1, t("invoice.discount_type_percent", language=language))
         self.discount_type_label.setText(t("invoice.discount_type_label", language=language))
@@ -1485,6 +1705,17 @@ class InvoiceTab(QWidget):
         self.customer_search_label.setText(t("invoice.customer_search_label", language=language))
         self.customer_name_label.setText(t("invoice.customer_name_label", language=language))
         self.customer_phone_label.setText(t("invoice.customer_phone_label", language=language))
+        self.grand_total_label.setText(t("invoice.grand_total_label", language=language))
+        self.paid_total_label.setText(t("invoice.paid_total_label", language=language))
+        self.remaining_total_label.setText(t("invoice.remaining_total_label", language=language))
+        self.pay_now_label.setText(t("invoice.pay_now_label", language=language))
+        self.payment_due_date_label.setText(t("invoice.payment_due_date_label", language=language))
+        self.payment_due_date_input.setPlaceholderText(
+            t("invoice.payment_due_date_placeholder", language=language)
+        )
+        self.payment_order_status_label.setText(
+            t("invoice.payment_order_status_label", language=language)
+        )
         self.customer_email_label.setText(t("invoice.customer_email_label", language=language))
         self.customer_notes_label.setText(t("invoice.customer_notes_label", language=language))
         self.loyalty_balance_label.setText(t("invoice.loyalty_balance_label", language=language))
@@ -1530,6 +1761,9 @@ class InvoiceTab(QWidget):
         self.print_btn.setText(t("invoice.print", language=language))
         self.clear_btn.setText(t("invoice.new_invoice", language=language))
         self._refresh_payment_methods()
+        self._refresh_payment_statuses()
+        self._refresh_delivery_companies()
+        self._refresh_delivery_statuses()
         self.refresh_products()
         self._recalculate_totals()
         self._update_validation_state()

@@ -118,6 +118,7 @@ class JewelryPaymentRow:
     amount: float
     paid_at: str
     cashier_name: str
+    reference: str
     notes: str
 
 
@@ -139,6 +140,23 @@ class JewelryStatusItem:
     name_en: str
     sort_order: int
     active: bool
+
+
+@dataclass
+class JewelryUnpaidOrder:
+    id: int
+    invoice_no: str
+    datetime: str
+    customer_name: str
+    customer_phone: str
+    total: float
+    paid_total: float
+    remaining_total: float
+    payment_due_date: str
+    payment_status: str
+    payment_order_status_id: Optional[int]
+    payment_order_status_name_ar: str
+    payment_order_status_name_en: str
 
 
 def init_jewelry_db() -> None:
@@ -385,10 +403,12 @@ def init_jewelry_db() -> None:
             amount REAL NOT NULL,
             paid_at TEXT NOT NULL,
             cashier_name TEXT DEFAULT '',
+            reference TEXT DEFAULT '',
             notes TEXT DEFAULT '',
             FOREIGN KEY(invoice_id) REFERENCES jw_invoices(id)
         )"""
     )
+    _ensure_column(cur, "jw_order_payments", "reference", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_production_orders", "bom_id", "INTEGER")
     cur.execute(
         """UPDATE jw_invoices
@@ -1701,7 +1721,7 @@ def list_order_payments(invoice_id: int) -> List[JewelryPaymentRow]:
     cur = conn.cursor()
     cur.execute(
         """SELECT id, invoice_id, payment_method, amount, paid_at,
-                  COALESCE(cashier_name, ''), COALESCE(notes, '')
+                  COALESCE(cashier_name, ''), COALESCE(reference, ''), COALESCE(notes, '')
            FROM jw_order_payments
            WHERE invoice_id = ?
            ORDER BY paid_at, id""",
@@ -1717,7 +1737,8 @@ def list_order_payments(invoice_id: int) -> List[JewelryPaymentRow]:
             amount=row[3],
             paid_at=row[4],
             cashier_name=row[5] or "",
-            notes=row[6] or "",
+            reference=row[6] or "",
+            notes=row[7] or "",
         )
         for row in rows
     ]
@@ -1729,6 +1750,7 @@ def create_order_payment(
     amount: float,
     cashier_name: str = "",
     notes: str = "",
+    reference: str = "",
     paid_at: Optional[str] = None,
 ) -> int:
     normalized_method = payment_method.strip()
@@ -1741,14 +1763,15 @@ def create_order_payment(
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO jw_order_payments
-           (invoice_id, payment_method, amount, paid_at, cashier_name, notes)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+           (invoice_id, payment_method, amount, paid_at, cashier_name, reference, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (
             invoice_id,
             normalized_method,
             float(amount),
             paid_at_value,
             cashier_name.strip(),
+            (reference or "").strip(),
             (notes or "").strip(),
         ),
     )
@@ -1797,6 +1820,68 @@ def recalculate_invoice_payment_totals(invoice_id: int) -> Tuple[float, float, s
     conn.commit()
     conn.close()
     return paid_total, remaining_total, payment_status
+
+
+def list_unpaid_orders(
+    status_filter: Optional[str] = None,
+    search: str = "",
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> List[JewelryUnpaidOrder]:
+    conn = get_conn()
+    cur = conn.cursor()
+    query = """SELECT i.id, i.invoice_no, i.datetime, COALESCE(i.customer_name, ''),
+                      COALESCE(i.customer_phone, ''), i.total,
+                      COALESCE(i.paid_total, 0), COALESCE(i.remaining_total, 0),
+                      COALESCE(i.payment_due_date, ''), COALESCE(i.payment_status, ''),
+                      i.payment_order_status_id,
+                      COALESCE(s.name_ar, ''), COALESCE(s.name_en, '')
+               FROM jw_invoices i
+               LEFT JOIN jw_statuses s ON s.id = i.payment_order_status_id
+               WHERE i.txn_type = 'sale'
+                 AND COALESCE(i.payment_status, '') IN ('UNPAID', 'PARTIAL')"""
+    params: List = []
+    if status_filter == "UNPAID":
+        query += " AND COALESCE(i.payment_status, '') = 'UNPAID'"
+    elif status_filter == "PARTIAL":
+        query += " AND COALESCE(i.payment_status, '') = 'PARTIAL'"
+    elif status_filter == "OVERDUE":
+        query += """ AND COALESCE(i.payment_due_date, '') != ''
+                      AND date(i.payment_due_date) < date('now')
+                      AND COALESCE(i.remaining_total, 0) > 0"""
+    if search:
+        term = f"%{search.strip()}%"
+        query += """ AND (
+                    i.invoice_no LIKE ?
+                    OR COALESCE(i.customer_name, '') LIKE ?
+                    OR COALESCE(i.customer_phone, '') LIKE ?
+                )"""
+        params.extend([term, term, term])
+    if date_from and date_to:
+        query += " AND date(i.datetime) BETWEEN date(?) AND date(?)"
+        params.extend([date_from, date_to])
+    query += " ORDER BY datetime(i.datetime) DESC, i.id DESC"
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryUnpaidOrder(
+            id=row[0],
+            invoice_no=row[1],
+            datetime=row[2],
+            customer_name=row[3] or "",
+            customer_phone=row[4] or "",
+            total=float(row[5] or 0),
+            paid_total=float(row[6] or 0),
+            remaining_total=float(row[7] or 0),
+            payment_due_date=row[8] or "",
+            payment_status=row[9] or "",
+            payment_order_status_id=row[10],
+            payment_order_status_name_ar=row[11] or "",
+            payment_order_status_name_en=row[12] or "",
+        )
+        for row in rows
+    ]
 
 
 def _apply_stock_adjustment(cur, product_id: int, qty: float, txn_type: str) -> None:

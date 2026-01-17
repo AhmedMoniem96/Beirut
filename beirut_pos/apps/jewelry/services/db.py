@@ -128,6 +128,7 @@ class JewelryDeliveryCompany:
     name: str
     company_type: str
     phone: str
+    address: str
     default_fee: float
     active: bool
 
@@ -219,6 +220,7 @@ def init_jewelry_db() -> None:
             name TEXT NOT NULL UNIQUE,
             company_type TEXT NOT NULL,
             phone TEXT DEFAULT '',
+            address TEXT DEFAULT '',
             default_fee REAL NOT NULL DEFAULT 0,
             active INTEGER NOT NULL DEFAULT 1
         )"""
@@ -291,6 +293,7 @@ def init_jewelry_db() -> None:
     _ensure_column(cur, "jw_invoices", "delivery_fee", "REAL NOT NULL DEFAULT 0")
     _ensure_column(cur, "jw_invoices", "delivery_address", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_invoices", "delivery_status_id", "INTEGER")
+    _ensure_column(cur, "jw_delivery_companies", "address", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_delivery_companies", "default_fee", "REAL NOT NULL DEFAULT 0")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_customers(
@@ -486,9 +489,9 @@ def _ensure_default_delivery_companies() -> None:
     if cur.fetchone()[0] == 0:
         cur.execute(
             """INSERT INTO jw_delivery_companies(
-                   name, company_type, phone, default_fee, active
-               ) VALUES (?, ?, ?, ?, 1)""",
-            ("In-house Delivery", "SELF", "", 0.0),
+                   name, company_type, phone, address, default_fee, active
+               ) VALUES (?, ?, ?, ?, ?, 1)""",
+            ("In-house Delivery", "SELF", "", "", 0.0),
         )
     conn.commit()
     conn.close()
@@ -707,7 +710,7 @@ def list_delivery_companies(include_inactive: bool = True) -> List[JewelryDelive
     conn = get_conn()
     cur = conn.cursor()
     query = """SELECT id, name, company_type, COALESCE(phone, ''), active
-               , COALESCE(default_fee, 0)
+               , COALESCE(address, ''), COALESCE(default_fee, 0)
                FROM jw_delivery_companies"""
     params: Tuple = ()
     if not include_inactive:
@@ -722,14 +725,21 @@ def list_delivery_companies(include_inactive: bool = True) -> List[JewelryDelive
             name=row[1],
             company_type=row[2],
             phone=row[3] or "",
-            default_fee=float(row[5] or 0.0),
+            address=row[5] or "",
+            default_fee=float(row[6] or 0.0),
             active=bool(row[4]),
         )
         for row in rows
     ]
 
 
-def create_delivery_company(name: str, company_type: str, phone: str, default_fee: float = 0.0) -> int:
+def create_delivery_company(
+    name: str,
+    company_type: str,
+    phone: str,
+    address: str,
+    default_fee: float = 0.0,
+) -> int:
     normalized_name = name.strip()
     normalized_company_type = company_type.strip()
     if not normalized_name or not normalized_company_type:
@@ -737,12 +747,13 @@ def create_delivery_company(name: str, company_type: str, phone: str, default_fe
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """INSERT INTO jw_delivery_companies(name, company_type, phone, default_fee, active)
-           VALUES (?, ?, ?, ?, 1)""",
+        """INSERT INTO jw_delivery_companies(name, company_type, phone, address, default_fee, active)
+           VALUES (?, ?, ?, ?, ?, 1)""",
         (
             normalized_name,
             normalized_company_type,
             (phone or "").strip(),
+            (address or "").strip(),
             float(default_fee),
         ),
     )
@@ -757,7 +768,9 @@ def update_delivery_company(
     name: str,
     company_type: str,
     phone: str,
+    address: str,
     default_fee: float = 0.0,
+    active: bool = True,
 ) -> None:
     normalized_name = name.strip()
     normalized_company_type = company_type.strip()
@@ -767,9 +780,17 @@ def update_delivery_company(
     cur = conn.cursor()
     cur.execute(
         """UPDATE jw_delivery_companies
-           SET name = ?, company_type = ?, phone = ?, default_fee = ?
+           SET name = ?, company_type = ?, phone = ?, address = ?, default_fee = ?, active = ?
            WHERE id = ?""",
-        (normalized_name, normalized_company_type, (phone or "").strip(), float(default_fee), company_id),
+        (
+            normalized_name,
+            normalized_company_type,
+            (phone or "").strip(),
+            (address or "").strip(),
+            float(default_fee),
+            int(bool(active)),
+            company_id,
+        ),
     )
     conn.commit()
     conn.close()

@@ -7,7 +7,11 @@ import sys
 
 
 def run() -> None:
-    mode = os.getenv("APP_MODE", "playstation").strip().lower()
+    raw_mode = os.getenv("APP_MODE")
+    if raw_mode is None:
+        raise SystemExit("APP_MODE must be set to 'playstation' or 'jewelry'.")
+
+    mode = raw_mode.strip().lower()
     if mode == "playstation":
         from beirut_pos.apps.playstation.app import run as app_run
     elif mode == "jewelry":

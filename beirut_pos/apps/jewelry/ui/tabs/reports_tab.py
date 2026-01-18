@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QDateEdit,
     QDateTimeEdit,
     QDoubleSpinBox,
@@ -19,7 +20,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSplitter,
     QTableWidget,
@@ -27,7 +27,6 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
-    QFileDialog,
 )
 
 from beirut_pos.utils.excel import write_protected_workbook
@@ -38,6 +37,7 @@ from ...services.reports import lowest_products, payment_breakdown, returns_aggr
 from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
+from .base_tab import BaseTabContainer
 
 
 @dataclass
@@ -61,23 +61,13 @@ class ReportData:
     near_out: List[Tuple[str, str, str, float, float]]
 
 
-class ReportsTab(QWidget):
+class ReportsTab(BaseTabContainer):
     def __init__(self) -> None:
         super().__init__()
         self._last_report: Optional[ReportData] = None
         self._language = get_ui_language()
 
-        main_layout = QVBoxLayout(self)
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        main_layout.addWidget(scroll_area)
-        content = QWidget()
-        scroll_area.setWidget(content)
-        layout = QVBoxLayout(content)
-        header = QLabel()
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(header)
-        self.header_label = header
+        layout = self.content_layout
 
         filters = QHBoxLayout()
         self.date_filter = QDateEdit()

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import shutil
 import sqlite3
 from contextlib import contextmanager
@@ -17,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from .config_store import get_config_value, set_config_value
 from .paths import (
     BACKUP_DIR,
+    BASE_DIR,
     DATA_DIR,
     DB_PATH,
     ensure_storage_dirs,
@@ -130,11 +130,7 @@ def _copy_seed_db_if_needed() -> bool:
     seed_path = resolve_seed_db_path(DB_PATH.name)
     if seed_path and seed_path.exists():
         ensure_storage_dirs()
-        shutil.copyfile(seed_path, DB_PATH)
-        try:
-            os.chmod(DB_PATH, stat.S_IWRITE | stat.S_IREAD)
-        except OSError:
-            pass
+        shutil.copy2(seed_path, DB_PATH)
         return True
     return False
 
@@ -168,11 +164,6 @@ def _ensure_db_writable() -> None:
             )
 
     if DB_PATH.exists():
-        if not os.access(DB_PATH, os.W_OK):
-            try:
-                os.chmod(DB_PATH, stat.S_IWRITE | stat.S_IREAD)
-            except OSError:
-                pass
         if not os.access(DB_PATH, os.W_OK):
             raise RuntimeError(
                 "SQLite database is not writable. "

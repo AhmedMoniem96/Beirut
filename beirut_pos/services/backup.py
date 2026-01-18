@@ -49,7 +49,9 @@ def backup_now() -> Path:
     tmp_target = target.with_suffix(".tmp")
 
     db_path = get_user_db_path()
+    db_module._log_db_diagnostics(db_path)
     src = sqlite3.connect(db_path)
+    db_module._log_db_diagnostics(db_path)
     dst = sqlite3.connect(tmp_target)
     try:
         src.backup(dst)

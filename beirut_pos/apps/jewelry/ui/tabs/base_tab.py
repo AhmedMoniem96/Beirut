@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 
 class BaseTabContainer(QWidget):
@@ -42,12 +42,34 @@ class BaseTabContainer(QWidget):
         self._scroll_layout = scroll_layout
         self._page_content_index: Optional[int] = None
         self._tail_stretch: int = self._scroll_layout.addStretch()
+        self.content_layout: Optional[QVBoxLayout] = None
+        self._content_tail_stretch: Optional[int] = None
 
     def set_page_content_widget(self, widget: QWidget) -> None:
         self._set_page_content(widget=widget)
 
     def set_page_content_layout(self, layout: QVBoxLayout) -> None:
         self._set_page_content(layout=layout)
+
+    def set_content_layout(self, layout: QVBoxLayout) -> None:
+        self.content_layout = layout
+        self._content_tail_stretch = self.content_layout.addStretch()
+
+    def add_content_widget(self, widget: QWidget) -> None:
+        if self.content_layout is None:
+            return
+        if self._content_tail_stretch is None:
+            self._content_tail_stretch = self.content_layout.addStretch()
+        self.content_layout.insertWidget(self._content_tail_stretch, widget)
+        self._content_tail_stretch += 1
+
+    def add_content_layout(self, layout: QLayout) -> None:
+        if self.content_layout is None:
+            return
+        if self._content_tail_stretch is None:
+            self._content_tail_stretch = self.content_layout.addStretch()
+        self.content_layout.insertLayout(self._content_tail_stretch, layout)
+        self._content_tail_stretch += 1
 
     def _set_page_content(
         self,

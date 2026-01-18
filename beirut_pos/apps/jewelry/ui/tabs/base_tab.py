@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QScrollArea,
+    QSpacerItem,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class BaseTabContainer(QWidget):
@@ -40,10 +50,17 @@ class BaseTabContainer(QWidget):
         self.scroll_area = scroll_area
         self.footer_layout = footer_layout
         self._scroll_layout = scroll_layout
-        self._page_content_index: Optional[int] = None
-        self._tail_stretch: int = self._scroll_layout.addStretch()
+        self._page_content_widget: Optional[QWidget] = None
+        self._page_content_layout: Optional[QLayout] = None
+        self._tail_spacer = QSpacerItem(
+            0,
+            0,
+            QSizePolicy.Policy.Minimum,
+            QSizePolicy.Policy.Expanding,
+        )
+        self._scroll_layout.addItem(self._tail_spacer)
         self.content_layout: Optional[QVBoxLayout] = None
-        self._content_tail_stretch: Optional[int] = None
+        self._content_tail_spacer: Optional[QSpacerItem] = None
 
     def set_page_content_widget(self, widget: QWidget) -> None:
         self._set_page_content(widget=widget)
@@ -53,23 +70,51 @@ class BaseTabContainer(QWidget):
 
     def set_content_layout(self, layout: QVBoxLayout) -> None:
         self.content_layout = layout
-        self._content_tail_stretch = self.content_layout.addStretch()
+        self._content_tail_spacer = QSpacerItem(
+            0,
+            0,
+            QSizePolicy.Policy.Minimum,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.content_layout.addItem(self._content_tail_spacer)
 
     def add_content_widget(self, widget: QWidget) -> None:
         if self.content_layout is None:
             return
-        if self._content_tail_stretch is None:
-            self._content_tail_stretch = self.content_layout.addStretch()
-        self.content_layout.insertWidget(self._content_tail_stretch, widget)
-        self._content_tail_stretch += 1
+        if self._content_tail_spacer is None:
+            self._content_tail_spacer = QSpacerItem(
+                0,
+                0,
+                QSizePolicy.Policy.Minimum,
+                QSizePolicy.Policy.Expanding,
+            )
+            self.content_layout.addItem(self._content_tail_spacer)
+        index = self.content_layout.indexOf(self._content_tail_spacer)
+        if index < 0:
+            self.content_layout.addItem(self._content_tail_spacer)
+            index = self.content_layout.indexOf(self._content_tail_spacer)
+        if index < 0:
+            index = self.content_layout.count()
+        self.content_layout.insertWidget(index, widget)
 
     def add_content_layout(self, layout: QLayout) -> None:
         if self.content_layout is None:
             return
-        if self._content_tail_stretch is None:
-            self._content_tail_stretch = self.content_layout.addStretch()
-        self.content_layout.insertLayout(self._content_tail_stretch, layout)
-        self._content_tail_stretch += 1
+        if self._content_tail_spacer is None:
+            self._content_tail_spacer = QSpacerItem(
+                0,
+                0,
+                QSizePolicy.Policy.Minimum,
+                QSizePolicy.Policy.Expanding,
+            )
+            self.content_layout.addItem(self._content_tail_spacer)
+        index = self.content_layout.indexOf(self._content_tail_spacer)
+        if index < 0:
+            self.content_layout.addItem(self._content_tail_spacer)
+            index = self.content_layout.indexOf(self._content_tail_spacer)
+        if index < 0:
+            index = self.content_layout.count()
+        self.content_layout.insertLayout(index, layout)
 
     def _set_page_content(
         self,
@@ -80,21 +125,27 @@ class BaseTabContainer(QWidget):
         if widget is None and layout is None:
             return
         self._clear_page_content()
+        index = self._scroll_layout.indexOf(self._tail_spacer)
+        if index < 0:
+            self._scroll_layout.addItem(self._tail_spacer)
+            index = self._scroll_layout.indexOf(self._tail_spacer)
+        if index < 0:
+            index = self._scroll_layout.count()
         if widget is not None:
-            self._scroll_layout.insertWidget(self._tail_stretch, widget)
+            self._scroll_layout.insertWidget(index, widget)
+            self._page_content_widget = widget
+            self._page_content_layout = None
         else:
-            self._scroll_layout.insertLayout(self._tail_stretch, layout)
-        self._page_content_index = self._tail_stretch
-        self._tail_stretch += 1
+            self._scroll_layout.insertLayout(index, layout)
+            self._page_content_layout = layout
+            self._page_content_widget = None
 
     def _clear_page_content(self) -> None:
-        if self._page_content_index is None:
-            return
-        item = self._scroll_layout.takeAt(self._page_content_index)
-        if item is not None:
-            if item.widget() is not None:
-                item.widget().setParent(None)
-            elif item.layout() is not None:
-                item.layout().setParent(None)
-        self._tail_stretch -= 1
-        self._page_content_index = None
+        if self._page_content_widget is not None:
+            self._scroll_layout.removeWidget(self._page_content_widget)
+            self._page_content_widget.setParent(None)
+            self._page_content_widget = None
+        if self._page_content_layout is not None:
+            self._scroll_layout.removeItem(self._page_content_layout)
+            self._page_content_layout.setParent(None)
+            self._page_content_layout = None

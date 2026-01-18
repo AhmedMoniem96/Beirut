@@ -60,6 +60,7 @@ from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
 from beirut_pos.services.printer import printer
+from .base_tab import BaseTabContainer
 
 
 class InvoiceTab(BaseTabContainer):
@@ -307,7 +308,6 @@ class InvoiceTab(BaseTabContainer):
         advanced_customer_layout.addRow(self.points_earned_label, self.loyalty_earned_label)
         advanced_box_layout.addWidget(self.advanced_customer_panel)
         self._form_layout.addRow(self.advanced_box)
-        right_layout.addWidget(header)
         right_layout.addWidget(self.invoice_info_label)
         right_layout.addWidget(form_box)
 

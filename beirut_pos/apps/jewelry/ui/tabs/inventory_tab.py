@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -18,9 +19,6 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-    QFileDialog,
 )
 
 from ...services.db import barcode_exists, delete_product, list_products, save_product
@@ -28,9 +26,10 @@ from ...services.barcode_printer import render_barcode_label_image, print_barcod
 from ...services.pdf_exports import export_barcode_labels_pdf
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
+from .base_tab import BaseTabContainer
 
 
-class InventoryTab(QWidget):
+class InventoryTab(BaseTabContainer):
     _SUPPORTED_BARCODE_TYPES = {
         "code128": "Code128",
         "code39": "Code39",
@@ -49,13 +48,6 @@ class InventoryTab(QWidget):
         self._language = get_ui_language()
         QApplication.instance().installEventFilter(self)
 
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        header = QLabel()
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(header)
-        self.header_label = header
-
         search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("")
@@ -63,7 +55,7 @@ class InventoryTab(QWidget):
         self.search_label = QLabel()
         search_layout.addWidget(self.search_label)
         search_layout.addWidget(self.search_input)
-        layout.addLayout(search_layout)
+        self.content_layout.addLayout(search_layout)
 
         form_box = QGroupBox()
         form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -113,7 +105,6 @@ class InventoryTab(QWidget):
         form_layout.addRow(self.stone_type_label, self.stone_type_input)
         form_layout.addRow(self.color_label, self.color_input)
 
-        buttons = QHBoxLayout()
         self.save_btn = QPushButton()
         self.save_btn.clicked.connect(self._save_product)
         self.delete_btn = QPushButton()
@@ -122,13 +113,12 @@ class InventoryTab(QWidget):
         self.clear_btn.clicked.connect(self._clear_form)
         self.print_barcode_btn = QPushButton()
         self.print_barcode_btn.clicked.connect(self._print_barcode_label)
-        buttons.addWidget(self.save_btn)
-        buttons.addWidget(self.delete_btn)
-        buttons.addWidget(self.clear_btn)
-        buttons.addWidget(self.print_barcode_btn)
 
-        layout.addWidget(form_box)
-        layout.addLayout(buttons)
+        self.content_layout.addWidget(form_box)
+        self.footer_layout.addWidget(self.save_btn)
+        self.footer_layout.addWidget(self.delete_btn)
+        self.footer_layout.addWidget(self.clear_btn)
+        self.footer_layout.addWidget(self.print_barcode_btn)
 
         self.table = QTableWidget(0, 12)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -137,7 +127,7 @@ class InventoryTab(QWidget):
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.cellClicked.connect(self._load_selected_product)
-        layout.addWidget(self.table)
+        self.content_layout.addWidget(self.table)
 
         self.alerts_box = QGroupBox()
         alerts_layout = QVBoxLayout(self.alerts_box)
@@ -146,7 +136,8 @@ class InventoryTab(QWidget):
         self.alerts_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.alerts_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         alerts_layout.addWidget(self.alerts_table)
-        layout.addWidget(self.alerts_box)
+        self.content_layout.addWidget(self.alerts_box)
+        self.content_layout.addStretch()
 
         self.apply_language(self._language)
         self.refresh()

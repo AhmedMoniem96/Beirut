@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
 )
 
+from .base_tab import BaseTabContainer
 from ...services.db import (
     JewelryInvoiceItem,
     create_invoice,
@@ -61,7 +62,7 @@ from ...services.i18n import choose_name, get_ui_language, t
 from beirut_pos.services.printer import printer
 
 
-class InvoiceTab(QWidget):
+class InvoiceTab(BaseTabContainer):
     ITEM_COL_PRODUCT = 0
     ITEM_COL_CODE = 1
     ITEM_COL_QTY = 2
@@ -94,14 +95,13 @@ class InvoiceTab(QWidget):
         self._categories: List[str] = []
         self._active_category: Optional[str] = None
 
-        layout = QHBoxLayout(self)
+        content = QWidget()
+        layout = QHBoxLayout(content)
+        self.set_page_content_widget(content)
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
         left_layout = QVBoxLayout()
         right_layout = QVBoxLayout()
-        header = QLabel()
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        self.header_label = header
 
         self.invoice_info_label = QLabel()
 

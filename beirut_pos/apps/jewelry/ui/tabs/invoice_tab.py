@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
 )
 
+from .base_tab import BaseTabContainer
 from ...services.db import (
     JewelryInvoiceItem,
     create_invoice,
@@ -97,11 +98,12 @@ class InvoiceTab(BaseTabContainer):
 
         content = QWidget()
         layout = QHBoxLayout(content)
+        self.set_page_content_widget(content)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter, 1)
         left_layout = QVBoxLayout()
         right_layout = QVBoxLayout()
-        self.set_page_content_widget(content)
+
         self.invoice_info_label = QLabel()
 
         form_box = QGroupBox()

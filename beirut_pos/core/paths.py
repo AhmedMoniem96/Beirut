@@ -13,11 +13,11 @@ __all__ = [
     "BACKUP_DIR",
     "LICENSE_DIR",
     "LOG_DIR",
-    "DB_PATH",
     "SETTINGS_FILE",
     "LICENSE_CACHE_FILE",
     "ensure_storage_dirs",
     "get_app_data_dir",
+    "get_user_db_path",
     "resolve_seed_db_path",
 ]
 
@@ -34,7 +34,7 @@ def get_app_data_dir(app_name: str = "BeirutPOS") -> Path:
 
 
 def resolve_seed_db_path(filename: str = "beirut_pos.db") -> Path | None:
-    candidates = [filename, "beirut_pos_seed.db"]
+    candidates = [filename, "beirut_pos.db", "beirut_pos_seed.db"]
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         base_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
     else:
@@ -45,6 +45,17 @@ def resolve_seed_db_path(filename: str = "beirut_pos.db") -> Path | None:
             if path.exists():
                 return path
     return None
+
+
+def get_user_db_path() -> Path:
+    if os.name == "nt":
+        base_env = os.getenv("APPDATA") or os.getenv("LOCALAPPDATA")
+        base = Path(base_env) if base_env else Path.home() / "AppData" / "Roaming"
+        db_path = base / "BeirutPOS" / "beirut_pos.sqlite"
+    else:
+        db_path = get_app_data_dir() / "beirut_pos.sqlite"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return db_path
 
 
 def _detect_base_dir() -> Path:
@@ -65,7 +76,6 @@ BACKUP_DIR = BASE_DIR / "backup"
 LICENSE_DIR = BASE_DIR / "license"
 LOG_DIR = BASE_DIR / "logs"
 
-DB_PATH = DATA_DIR / "beirut_pos.db"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 LICENSE_CACHE_FILE = LICENSE_DIR / "license.sig.json"
 

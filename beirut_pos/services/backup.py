@@ -12,9 +12,9 @@ from typing import List, Optional
 
 from ..core import db as db_module
 from ..core.config_store import get_config_value, set_config_value
-from ..core.paths import BACKUP_DIR, DB_PATH, ensure_storage_dirs
+from ..core.paths import BACKUP_DIR, ensure_storage_dirs, get_user_db_path
 
-_BACKUP_NAME = "beirut_pos.db"
+_BACKUP_NAME = get_user_db_path().name
 
 
 def _today_dir() -> Path:
@@ -48,7 +48,8 @@ def backup_now() -> Path:
     target = today_dir / _BACKUP_NAME
     tmp_target = target.with_suffix(".tmp")
 
-    src = sqlite3.connect(DB_PATH)
+    db_path = get_user_db_path()
+    src = sqlite3.connect(db_path)
     dst = sqlite3.connect(tmp_target)
     try:
         src.backup(dst)
@@ -148,7 +149,8 @@ def restore_backup(source: Path) -> Path:
         raise ValueError("ملف النسخة الاحتياطية غير صالح")
 
     db_module.close_engine()
-    tmp_path = DB_PATH.with_suffix(".restore.tmp")
+    db_path = get_user_db_path()
+    tmp_path = db_path.with_suffix(".restore.tmp")
     shutil.copy2(resolved, tmp_path)
-    os.replace(tmp_path, DB_PATH)
-    return DB_PATH
+    os.replace(tmp_path, db_path)
+    return db_path

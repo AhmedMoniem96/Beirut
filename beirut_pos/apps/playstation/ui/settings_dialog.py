@@ -23,7 +23,7 @@ from .voucher_dialog import VoucherDialog
 import sys
 from pathlib import Path
 
-from ..core.paths import DB_PATH, BACKUP_DIR, CONFIG_DIR
+from ..core.paths import BACKUP_DIR, CONFIG_DIR, get_user_db_path
 from ..services.backup import backup_now, restore_backup
 from .settings_branding import BrandingTextsPage
 
@@ -223,7 +223,7 @@ class SettingsDialog(BigDialog):
         _configure_field(self.sync_mode)
         gen_f.addRow("قوة مزامنة قاعدة البيانات:", self.sync_mode)
 
-        data_label = QLabel(str(DB_PATH))
+        data_label = QLabel(str(get_user_db_path()))
         data_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         gen_f.addRow("مسار قاعدة البيانات:", data_label)
         cfg_label = QLabel(str(CONFIG_DIR))

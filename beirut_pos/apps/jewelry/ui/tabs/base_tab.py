@@ -27,7 +27,6 @@ class BaseTabContainer(QWidget):
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setSpacing(12)
-        content_layout.addStretch()
         scroll_area.setWidget(content)
         root_layout.addWidget(scroll_area, 1)
 
@@ -40,3 +39,29 @@ class BaseTabContainer(QWidget):
         self.scroll_area = scroll_area
         self.content_layout = content_layout
         self.footer_layout = footer_layout
+        self._tail_stretch: Optional[int] = None
+
+    def add_content_widget(self, widget: QWidget) -> None:
+        self._ensure_tail_stretch()
+        if self._tail_stretch is None:
+            return
+        self.content_layout.insertWidget(self._tail_stretch, widget)
+        self._tail_stretch += 1
+
+    def add_content_layout(self, layout: QVBoxLayout) -> None:
+        self._ensure_tail_stretch()
+        if self._tail_stretch is None:
+            return
+        self.content_layout.insertLayout(self._tail_stretch, layout)
+        self._tail_stretch += 1
+
+    def _ensure_tail_stretch(self) -> None:
+        if self._tail_stretch is None:
+            last_index = self.content_layout.count() - 1
+            if last_index >= 0:
+                last_item = self.content_layout.itemAt(last_index)
+                if last_item is not None and last_item.spacerItem() is not None:
+                    self._tail_stretch = last_index
+                    return
+            self.content_layout.addStretch()
+            self._tail_stretch = self.content_layout.count() - 1

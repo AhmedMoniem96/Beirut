@@ -1566,7 +1566,7 @@ class InvoiceTab(QWidget):
         self.items_table.setItem(
             item_row,
             self.ITEM_COL_PRODUCT,
-            QTableWidgetItem(f"{product.name_en} / {product.name_ar}"),
+            QTableWidgetItem(choose_name(product.name_ar, product.name_en, language=self._language)),
         )
         self.items_table.setItem(item_row, self.ITEM_COL_CODE, QTableWidgetItem(product.sku))
         self.items_table.setItem(item_row, self.ITEM_COL_QTY, QTableWidgetItem(f"{qty:.2f}"))

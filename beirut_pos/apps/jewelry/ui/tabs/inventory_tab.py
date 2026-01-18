@@ -442,11 +442,11 @@ class InventoryTab(BaseTabContainer):
                     print_barcode_label_image,
                     render_barcode_label_image,
                 )
-            except ImportError as exc:
+            except RuntimeError:
                 QMessageBox.critical(
                     self,
                     t("inventory.print_failed", language=self._language),
-                    t("inventory.direct_print_failed", language=self._language, error=exc),
+                    "Barcode printing is unavailable because required dependencies are missing.",
                 )
                 return
             try:

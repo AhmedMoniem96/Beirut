@@ -6,8 +6,19 @@ import os
 import sys
 
 
+def _infer_mode_from_executable() -> str | None:
+    executable_name = os.path.basename(sys.argv[0]).lower()
+    if "jewelry" in executable_name:
+        return "jewelry"
+    if "playstation" in executable_name:
+        return "playstation"
+    return None
+
+
 def run() -> None:
     raw_mode = os.getenv("APP_MODE")
+    if raw_mode is None:
+        raw_mode = _infer_mode_from_executable()
     if raw_mode is None:
         raise SystemExit("APP_MODE must be set to 'playstation' or 'jewelry'.")
 

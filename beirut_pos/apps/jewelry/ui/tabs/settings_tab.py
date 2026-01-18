@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
-    QWidget,
 )
 
 from ...services.db import add_payment_method
@@ -26,24 +25,17 @@ from ...services.i18n import get_ui_language, set_ui_language, t
 from ..dialogs.delivery_companies_dialog import DeliveryCompaniesDialog
 from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
 from ..dialogs.statuses_dialog import StatusesDialog
+from .base_tab import BaseTabContainer
 from beirut_pos.services import printer as printer_service
 
 
-class SettingsTab(QWidget):
+class SettingsTab(BaseTabContainer):
     def __init__(self, on_settings_changed=None, on_payment_methods_changed=None, on_language_changed=None) -> None:
         super().__init__()
         self._on_settings_changed = on_settings_changed
         self._on_payment_methods_changed = on_payment_methods_changed
         self._on_language_changed = on_language_changed
         self._language = get_ui_language()
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        header = QLabel()
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(header)
-        self.header_label = header
-
         gallery_box = QGroupBox()
         gallery_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         gallery_layout = QFormLayout(gallery_box)
@@ -88,7 +80,7 @@ class SettingsTab(QWidget):
         gallery_layout.addRow(self.font_label, font_row)
         gallery_layout.addRow("", self.rtl_check)
         gallery_layout.addRow(self.language_label, self.language_combo)
-        layout.addWidget(gallery_box)
+        self.content_layout.addWidget(gallery_box)
         self.gallery_box = gallery_box
         self.logo_btn = logo_btn
         self.font_btn = font_btn
@@ -103,7 +95,7 @@ class SettingsTab(QWidget):
         website_layout.addRow(self.website_name_label, self.website_name_input)
         website_layout.addRow(self.website_url_label, self.website_url_input)
         website_layout.addRow("", self.website_orders_check)
-        layout.addWidget(website_box)
+        self.content_layout.addWidget(website_box)
         self.website_box = website_box
 
         printer_box = QGroupBox()
@@ -124,27 +116,27 @@ class SettingsTab(QWidget):
         self.printer_label = QLabel()
         printer_layout.addRow(self.printer_mode_label, self.barcode_mode)
         printer_layout.addRow(self.printer_label, self.barcode_printer)
-        layout.addWidget(printer_box)
+        self.content_layout.addWidget(printer_box)
         self.printer_box = printer_box
 
         save_btn = QPushButton()
         save_btn.clicked.connect(self._save_settings)
-        layout.addWidget(save_btn)
+        self.footer_layout.addWidget(save_btn)
         self.save_btn = save_btn
 
         loyalty_btn = QPushButton()
         loyalty_btn.clicked.connect(self._open_loyalty_settings)
-        layout.addWidget(loyalty_btn)
+        self.footer_layout.addWidget(loyalty_btn)
         self.loyalty_btn = loyalty_btn
 
         delivery_companies_btn = QPushButton()
         delivery_companies_btn.clicked.connect(self._open_delivery_companies)
-        layout.addWidget(delivery_companies_btn)
+        self.footer_layout.addWidget(delivery_companies_btn)
         self.delivery_companies_btn = delivery_companies_btn
 
         statuses_btn = QPushButton()
         statuses_btn.clicked.connect(self._open_statuses)
-        layout.addWidget(statuses_btn)
+        self.footer_layout.addWidget(statuses_btn)
         self.statuses_btn = statuses_btn
 
         payment_box = QGroupBox()
@@ -161,7 +153,7 @@ class SettingsTab(QWidget):
         payment_layout.addRow(self.payment_ar_label, self.payment_ar_input)
         payment_layout.addRow(self.payment_en_label, self.payment_en_input)
         payment_layout.addRow("", add_payment_btn)
-        layout.addWidget(payment_box)
+        self.content_layout.addWidget(payment_box)
         self.payment_box = payment_box
         self.add_payment_btn = add_payment_btn
 
@@ -170,10 +162,10 @@ class SettingsTab(QWidget):
         demo_btn = QPushButton()
         demo_btn.clicked.connect(self._seed_demo)
         demo_layout.addWidget(demo_btn)
-        layout.addWidget(demo_box)
+        self.content_layout.addWidget(demo_box)
         self.demo_box = demo_box
         self.demo_btn = demo_btn
-        layout.addStretch()
+        self.content_layout.addStretch()
 
         self._load_settings()
         self.apply_language(self._language)

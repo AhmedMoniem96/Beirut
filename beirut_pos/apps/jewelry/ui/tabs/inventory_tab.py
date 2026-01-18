@@ -484,11 +484,11 @@ class InventoryTab(BaseTabContainer):
             return
         try:
             from ...services.pdf_exports import export_barcode_labels_pdf
-        except ImportError as exc:
-            QMessageBox.warning(
+        except RuntimeError:
+            QMessageBox.critical(
                 self,
                 t("common.export", language=self._language),
-                t("inventory.export_failed", language=self._language, error=exc),
+                "PDF export is unavailable. Please install or rebuild with the missing dependency.",
             )
             return
         export_barcode_labels_pdf(

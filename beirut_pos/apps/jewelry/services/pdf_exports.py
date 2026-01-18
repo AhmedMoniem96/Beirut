@@ -9,13 +9,16 @@ from typing import Iterable, List, Tuple
 
 import arabic_reshaper
 from bidi.algorithm import get_display
-from reportlab.lib.pagesizes import A4
-from reportlab.graphics import renderPDF
-from reportlab.graphics.barcode import code128, code39, qr
-from reportlab.graphics.shapes import Drawing
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfgen import canvas
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.graphics import renderPDF
+    from reportlab.graphics.barcode import code128, code39, qr
+    from reportlab.graphics.shapes import Drawing
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.pdfgen import canvas
+except Exception as e:  # pragma: no cover - import guard for optional dependency
+    raise RuntimeError("PDF export dependency missing") from e
 
 
 @dataclass

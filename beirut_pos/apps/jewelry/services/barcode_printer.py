@@ -4,7 +4,19 @@ from __future__ import annotations
 
 from typing import Sequence
 
+import importlib.util
+
 from PIL import Image
+
+if importlib.util.find_spec("reportlab") is None:
+    raise RuntimeError("Barcode printing dependency missing")
+if importlib.util.find_spec("reportlab.graphics") is None:
+    raise RuntimeError("Barcode printing dependency missing")
+if importlib.util.find_spec("reportlab.graphics.barcode") is None:
+    raise RuntimeError("Barcode printing dependency missing")
+if importlib.util.find_spec("reportlab.graphics.shapes") is None:
+    raise RuntimeError("Barcode printing dependency missing")
+
 from reportlab.graphics import renderPM
 from reportlab.graphics.barcode import createBarcodeDrawing, qr
 from reportlab.graphics.shapes import Drawing

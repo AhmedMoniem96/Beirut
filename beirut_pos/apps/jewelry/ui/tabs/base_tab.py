@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 
 class BaseTabContainer(QWidget):
@@ -21,12 +21,14 @@ class BaseTabContainer(QWidget):
             self.header_label = header
 
         scroll_area = QScrollArea()
+        scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         scroll_area.setWidgetResizable(True)
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setSpacing(12)
+        content_layout.addStretch()
         scroll_area.setWidget(content)
-        root_layout.addWidget(scroll_area)
+        root_layout.addWidget(scroll_area, 1)
 
         footer = QWidget()
         footer_layout = QHBoxLayout(footer)

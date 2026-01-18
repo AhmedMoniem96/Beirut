@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 from contextlib import contextmanager
@@ -13,7 +14,15 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from .config_store import get_config_value, set_config_value
-from .paths import BACKUP_DIR, DATA_DIR, DB_PATH, ensure_storage_dirs
+from .paths import (
+    BACKUP_DIR,
+    BASE_DIR,
+    DATA_DIR,
+    DB_PATH,
+    ensure_storage_dirs,
+    get_app_data_dir,
+    resolve_seed_db_path,
+)
 
 _VALID_SYNC = {"OFF", "NORMAL", "FULL", "EXTRA"}
 _DEFAULT_SYNC = "FULL"
@@ -115,8 +124,65 @@ def init_db() -> None:
     safe_migrations()
 
 
+def _copy_seed_db_if_needed() -> bool:
+    if DB_PATH.exists():
+        return False
+    seed_path = resolve_seed_db_path(DB_PATH.name)
+    if seed_path and seed_path.exists():
+        ensure_storage_dirs()
+        shutil.copy2(seed_path, DB_PATH)
+        return True
+    return False
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        return path.is_relative_to(parent)
+    except AttributeError:
+        try:
+            path.relative_to(parent)
+        except ValueError:
+            return False
+        return True
+
+
+def _ensure_db_writable() -> None:
+    app_data_dir = get_app_data_dir()
+    try:
+        app_data_dir = app_data_dir.resolve()
+        db_path = DB_PATH.resolve()
+    except OSError:
+        app_data_dir = get_app_data_dir()
+        db_path = DB_PATH
+
+    if os.name == "nt":
+        env_override = os.getenv("BEIRUTPOS_DATA_DIR")
+        if not env_override and not _is_relative_to(db_path, app_data_dir):
+            raise RuntimeError(
+                "SQLite database must be stored under the user AppData directory. "
+                f"Current path: {DB_PATH}"
+            )
+
+    if DB_PATH.exists():
+        if not os.access(DB_PATH, os.W_OK):
+            raise RuntimeError(
+                "SQLite database is not writable. "
+                f"Current path: {DB_PATH}"
+            )
+        return
+
+    db_dir = DB_PATH.parent
+    if not os.access(db_dir, os.W_OK):
+        raise RuntimeError(
+            "SQLite database directory is not writable. "
+            f"Current path: {DB_PATH}"
+        )
+
+
 def safe_migrations() -> None:
     ensure_storage_dirs()
+    _copy_seed_db_if_needed()
+    _ensure_db_writable()
     first_time = not DB_PATH.exists()
     if not first_time:
         _backup_database()

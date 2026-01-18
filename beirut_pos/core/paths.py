@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 __all__ = [
@@ -16,7 +17,34 @@ __all__ = [
     "SETTINGS_FILE",
     "LICENSE_CACHE_FILE",
     "ensure_storage_dirs",
+    "get_app_data_dir",
+    "resolve_seed_db_path",
 ]
+
+
+def get_app_data_dir(app_name: str = "BeirutPOS") -> Path:
+    if os.name == "nt":
+        base = os.getenv("APPDATA") or os.getenv("LOCALAPPDATA")
+        if base:
+            return Path(base) / app_name
+        return Path.home() / "AppData" / "Roaming" / app_name
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / app_name
+    return Path.home() / ".local" / "share" / "beirut_pos"
+
+
+def resolve_seed_db_path(filename: str = "beirut_pos.db") -> Path | None:
+    candidates = [filename, "beirut_pos_seed.db"]
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    else:
+        base_dir = Path(__file__).resolve().parents[2]
+    for candidate in candidates:
+        for parent in (base_dir, base_dir / "assets"):
+            path = parent / candidate
+            if path.exists():
+                return path
+    return None
 
 
 def _detect_base_dir() -> Path:
@@ -25,11 +53,9 @@ def _detect_base_dir() -> Path:
         return Path(env_override).expanduser().resolve()
 
     if os.name == "nt":
-        program_data = os.environ.get("PROGRAMDATA") or r"C:\\ProgramData"
-        return Path(program_data) / "BeirutPOS"
+        return get_app_data_dir()
 
-    # POS runs primarily on Windows; on other platforms keep data in project dir.
-    return Path.home() / ".beirut_pos"
+    return get_app_data_dir()
 
 
 BASE_DIR = _detect_base_dir()

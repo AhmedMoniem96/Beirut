@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
+import stat
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -47,6 +49,22 @@ def _ensure_schema_backup() -> None:
     except Exception:
         return
     _SCHEMA_BACKUP_CREATED = True
+
+
+def _ensure_path_writable(path: Path) -> None:
+    try:
+        if os.access(path, os.W_OK):
+            return
+        mode = path.stat().st_mode
+        path.chmod(mode | stat.S_IWUSR)
+    except OSError:
+        return
+
+
+def _ensure_db_writable() -> None:
+    _ensure_path_writable(DATA_DIR)
+    if DB_PATH.exists():
+        _ensure_path_writable(DB_PATH)
 
 
 def _current_sync() -> str:
@@ -160,6 +178,7 @@ def _ensure_customer_search_indexes(cur: sqlite3.Cursor) -> None:
 
 def safe_migrations() -> None:
     ensure_storage_dirs()
+    _ensure_db_writable()
     first_time = not DB_PATH.exists()
     if not first_time:
         _backup_database()

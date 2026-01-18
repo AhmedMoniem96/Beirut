@@ -24,8 +24,6 @@ from PyQt6.QtWidgets import (
 )
 
 from ...services.db import barcode_exists, delete_product, list_products, save_product
-from ...services.barcode_printer import render_barcode_label_image, print_barcode_label_image
-from ...services.pdf_exports import export_barcode_labels_pdf
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
@@ -440,6 +438,18 @@ class InventoryTab(BaseTabContainer):
         settings = load_gallery_settings()
         if settings.barcode_print_mode == "direct":
             try:
+                from ...services.barcode_printer import (
+                    print_barcode_label_image,
+                    render_barcode_label_image,
+                )
+            except ImportError as exc:
+                QMessageBox.critical(
+                    self,
+                    t("inventory.print_failed", language=self._language),
+                    t("inventory.direct_print_failed", language=self._language, error=exc),
+                )
+                return
+            try:
                 label_img = render_barcode_label_image(
                     product_name=choose_name(product.name_ar, product.name_en, language=self._language),
                     sku=product.sku,
@@ -471,6 +481,15 @@ class InventoryTab(BaseTabContainer):
             f"{t('common.file_filter_pdf', language=self._language)} (*.pdf)",
         )
         if not path:
+            return
+        try:
+            from ...services.pdf_exports import export_barcode_labels_pdf
+        except ImportError as exc:
+            QMessageBox.warning(
+                self,
+                t("common.export", language=self._language),
+                t("inventory.export_failed", language=self._language, error=exc),
+            )
             return
         export_barcode_labels_pdf(
             path,

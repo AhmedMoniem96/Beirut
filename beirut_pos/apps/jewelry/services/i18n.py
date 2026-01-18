@@ -523,6 +523,10 @@ _TEXTS: Dict[str, Dict[str, str]] = {
         "ar": "تم إرسال ملصق الباركود للطباعة.",
     },
     "inventory.export_labels": {"en": "Export Barcode Labels", "ar": "تصدير ملصقات الباركود"},
+    "inventory.export_failed": {
+        "en": "Export failed: {error}",
+        "ar": "فشل التصدير: {error}",
+    },
     "inventory.exported_labels": {
         "en": "Barcode labels exported.",
         "ar": "تم تصدير ملصقات الباركود.",

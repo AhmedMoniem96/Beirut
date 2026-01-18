@@ -140,8 +140,9 @@ class ReportsTab(BaseTabContainer):
         super().__init__()
         self._last_report: Optional[ReportData] = None
         self._language = get_ui_language()
-
-        layout = self.content_layout
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setSpacing(12)
 
         filters = QHBoxLayout()
         self.date_filter = QDateEdit()
@@ -265,6 +266,7 @@ class ReportsTab(BaseTabContainer):
         splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter)
 
+        self.set_page_content_widget(content)
         self.apply_language(self._language)
         self._initialize_shift_defaults()
         self._initialize_cashier()

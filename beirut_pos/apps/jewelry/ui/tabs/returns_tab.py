@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ...services.db import list_return_invoices
@@ -23,7 +25,9 @@ class ReturnsTab(BaseTabContainer):
     def __init__(self) -> None:
         super().__init__()
         self._language = get_ui_language()
-        layout = self.content_layout
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setSpacing(12)
 
         filters = QHBoxLayout()
         self.date_filter = QDateEdit()
@@ -42,6 +46,7 @@ class ReturnsTab(BaseTabContainer):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
 
+        self.set_page_content_widget(content)
         self.apply_language(self._language)
         self.refresh()
 

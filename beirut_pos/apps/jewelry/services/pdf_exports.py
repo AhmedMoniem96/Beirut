@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import importlib.util
 from pathlib import Path
+import sys
+import types
 from typing import Iterable, List, Tuple
 
 import arabic_reshaper
@@ -12,7 +15,6 @@ from bidi.algorithm import get_display
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.graphics import renderPDF
-    from reportlab.graphics.barcode import code128, code39, qr
     from reportlab.graphics.shapes import Drawing
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
@@ -39,6 +41,38 @@ _SUPPORTED_BARCODE_TYPES = {
     "qr": "QR",
 }
 
+_code128_module = None
+_code39_module = None
+_qr_module = None
+
+
+def _load_barcode_module(module_name: str):
+    spec = importlib.util.find_spec(f"reportlab.graphics.barcode.{module_name}")
+    if spec is None or spec.origin is None or spec.loader is None:
+        raise ImportError(f"Missing reportlab barcode module: {module_name}")
+
+    package_spec = importlib.util.find_spec("reportlab.graphics.barcode")
+    if package_spec and package_spec.submodule_search_locations:
+        package = sys.modules.get("reportlab.graphics.barcode")
+        if package is None:
+            package = types.ModuleType("reportlab.graphics.barcode")
+            package.__path__ = list(package_spec.submodule_search_locations)
+            sys.modules["reportlab.graphics.barcode"] = package
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _get_barcode_modules():
+    global _code128_module, _code39_module, _qr_module
+    if _code128_module is None or _code39_module is None or _qr_module is None:
+        _code128_module = _load_barcode_module("code128")
+        _code39_module = _load_barcode_module("code39")
+        _qr_module = _load_barcode_module("qr")
+    return _code128_module, _code39_module, _qr_module
+
 
 def _normalize_barcode_type(barcode_type: str) -> str:
     normalized = barcode_type.strip().lower()
@@ -58,6 +92,7 @@ def _draw_barcode(
     max_width: float,
     max_height: float,
 ) -> str:
+    code128, code39, qr = _get_barcode_modules()
     normalized = _normalize_barcode_type(barcode_type)
     if normalized == "code39":
         barcode_obj = code39.Standard39(barcode_value, barHeight=22, barWidth=0.6, checksum=False)
@@ -76,6 +111,7 @@ def _draw_barcode(
     barcode_obj = code128.Code128(barcode_value, barHeight=22, barWidth=0.6)
     barcode_obj.drawOn(c, x, y)
     return _SUPPORTED_BARCODE_TYPES["code128"]
+
 
 def _shape_arabic(text: str) -> str:
     if not text:

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QSizePolicy,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -55,6 +56,7 @@ class JewelryMainWindow(QMainWindow):
         self._ensure_window_visible(QSize(1280, 840))
 
         self.central = QWidget()
+        self.central.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setCentralWidget(self.central)
         layout = QVBoxLayout(self.central)
 
@@ -76,7 +78,8 @@ class JewelryMainWindow(QMainWindow):
         layout.addWidget(header)
 
         self.tabs = QTabWidget()
-        layout.addWidget(self.tabs)
+        self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.tabs, 1)
 
         self.invoice_tab = InvoiceTab()
         self.returns_tab = ReturnsTab()

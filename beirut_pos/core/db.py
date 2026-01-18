@@ -29,15 +29,26 @@ _DEFAULT_SYNC = "FULL"
 
 ensure_storage_dirs()
 
-_ENGINE = create_engine(
-    f"sqlite:///{get_user_db_path().as_posix()}",
-    connect_args={"check_same_thread": False},
-)
-
-SessionLocal = sessionmaker(bind=_ENGINE, expire_on_commit=False)
+_ENGINE = None
+SessionLocal = sessionmaker(expire_on_commit=False)
 
 
 _SCHEMA_BACKUP_CREATED = False
+
+
+def _log_db_diagnostics(path: Path) -> None:
+    try:
+        abs_path = path.resolve()
+    except OSError:
+        abs_path = path.absolute()
+    print(f"SQLite diagnostics: db_path={abs_path}")
+    print(f"SQLite diagnostics: cwd={os.getcwd()}")
+    print(f"SQLite diagnostics: exists={path.exists()}")
+    print(
+        "SQLite diagnostics: "
+        f"db_writable={os.access(path, os.W_OK)}, "
+        f"dir_writable={os.access(path.parent, os.W_OK)}"
+    )
 
 
 def _ensure_schema_backup() -> None:
@@ -67,7 +78,6 @@ def _current_sync() -> str:
     return value
 
 
-@event.listens_for(_ENGINE, "connect")
 def _apply_pragmas(dbapi_conn, _):  # pragma: no cover - exercised via runtime
     dbapi_conn.row_factory = sqlite3.Row
     cursor = dbapi_conn.cursor()
@@ -80,8 +90,31 @@ def _apply_pragmas(dbapi_conn, _):  # pragma: no cover - exercised via runtime
         cursor.close()
 
 
+def _sqlite_creator() -> sqlite3.Connection:
+    db_path = get_user_db_path()
+    _log_db_diagnostics(db_path)
+    return sqlite3.connect(db_path.as_posix(), check_same_thread=False)
+
+
+def _create_engine():
+    engine = create_engine(
+        f"sqlite:///{get_user_db_path().as_posix()}",
+        creator=_sqlite_creator,
+    )
+    event.listen(engine, "connect", _apply_pragmas)
+    SessionLocal.configure(bind=engine)
+    return engine
+
+
+def get_engine():
+    global _ENGINE
+    if _ENGINE is None:
+        _ENGINE = _create_engine()
+    return _ENGINE
+
+
 def get_conn() -> sqlite3.Connection:
-    conn = _ENGINE.raw_connection()
+    conn = get_engine().raw_connection()
     conn.isolation_level = None  # explicit transactions via BEGIN
     return conn
 
@@ -101,7 +134,10 @@ def db_transaction(begin_stmt: str = "BEGIN IMMEDIATE"):
 
 
 def close_engine() -> None:
-    _ENGINE.dispose()
+    global _ENGINE
+    if _ENGINE is not None:
+        _ENGINE.dispose()
+        _ENGINE = None
 
 
 def get_synchronous_mode() -> str:

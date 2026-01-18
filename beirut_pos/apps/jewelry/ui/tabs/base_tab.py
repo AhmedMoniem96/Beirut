@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBox
 class BaseTabContainer(QWidget):
     def __init__(self, *, show_header: bool = True) -> None:
         super().__init__()
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         root_layout = QVBoxLayout(self)
         root_layout.setSpacing(12)
 

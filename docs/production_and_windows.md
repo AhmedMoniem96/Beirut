@@ -32,7 +32,10 @@ This guide summarizes where the Beirut POS stands today, what still needs attent
    ```
 2. **Run PyInstaller against the module entry point**
    ```powershell
-   pyinstaller -F -w -n BeirutPOS beirut_pos\__main__.py
+   pyinstaller -F -w -n BeirutPOS `
+     --collect-submodules reportlab.graphics.barcode `
+     --collect-submodules reportlab.graphics `
+     beirut_pos\__main__.py
    ```
    * `-F -w` creates a single-windowed executable.
    * The `--add-data` switches bundle the default database and ticket templates that the printers read.

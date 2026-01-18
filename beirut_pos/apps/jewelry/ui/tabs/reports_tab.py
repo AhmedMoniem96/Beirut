@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, time
 from typing import Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtCore import QDate, QRectF, Qt
+from PyQt6.QtGui import QColor, QFontMetrics, QPainter
 from PyQt6.QtWidgets import (
     QFileDialog,
     QDateEdit,
@@ -59,6 +60,79 @@ class ReportData:
     low_products: List[Tuple[str, str, float]]
     out_of_stock: List[Tuple[str, str, str, float, float]]
     near_out: List[Tuple[str, str, str, float, float]]
+
+
+class MostSellingChart(QWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._data: List[Tuple[str, float]] = []
+        self._bar_color = QColor("#5B8FF9")
+        self._text_color = QColor("#2C2C2C")
+        self._empty_color = QColor("#7A7A7A")
+
+    def set_data(self, data: List[Tuple[str, float]]) -> None:
+        self._data = data
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API naming
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = self.rect().adjusted(16, 16, -16, -16)
+        if rect.width() <= 0 or rect.height() <= 0:
+            return
+
+        if not self._data:
+            painter.setPen(self._empty_color)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "—")
+            return
+
+        font_metrics = QFontMetrics(self.font())
+        label_width = max(
+            (font_metrics.horizontalAdvance(label) for label, _ in self._data),
+            default=0,
+        )
+        value_area = 48
+        bar_rect = rect.adjusted(label_width + 12, 0, -value_area, 0)
+        if bar_rect.width() <= 0:
+            return
+
+        max_value = max((value for _, value in self._data), default=0)
+        if max_value <= 0:
+            max_value = 1
+
+        spacing = 8
+        bar_height = max(
+            12.0,
+            (bar_rect.height() - spacing * (len(self._data) - 1)) / max(len(self._data), 1),
+        )
+
+        painter.setPen(self._text_color)
+        for index, (label, value) in enumerate(self._data):
+            y_offset = bar_rect.top() + index * (bar_height + spacing)
+            width = (value / max_value) * bar_rect.width()
+            bar = QRectF(bar_rect.left(), y_offset, width, bar_height)
+            label_rect = QRectF(rect.left(), y_offset, label_width, bar_height)
+            value_rect = QRectF(bar_rect.right() + 6, y_offset, value_area - 6, bar_height)
+
+            painter.setPen(self._text_color)
+            painter.drawText(
+                label_rect,
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                label,
+            )
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self._bar_color)
+            painter.drawRoundedRect(bar, 4, 4)
+
+            painter.setPen(self._text_color)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawText(
+                value_rect,
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                f"{value:.2f}",
+            )
 
 
 class ReportsTab(BaseTabContainer):
@@ -167,6 +241,13 @@ class ReportsTab(BaseTabContainer):
         tables_layout.addWidget(self.returns_table)
         self.top_products_label = QLabel()
         tables_layout.addWidget(self.top_products_label)
+        self.top_products_chart = MostSellingChart()
+        self.top_products_chart.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.MinimumExpanding,
+        )
+        self.top_products_chart.setMinimumHeight(320)
+        tables_layout.addWidget(self.top_products_chart)
         tables_layout.addWidget(self.top_table)
         self.low_products_label = QLabel()
         tables_layout.addWidget(self.low_products_label)
@@ -303,6 +384,7 @@ class ReportsTab(BaseTabContainer):
             self.top_table,
             [(p.name, p.code, f"{p.qty:.2f}") for p in top],
         )
+        self.top_products_chart.set_data([(p.name, p.qty) for p in top])
         self._populate_table(
             self.low_table,
             [(p.name, p.code, f"{p.qty:.2f}") for p in low],

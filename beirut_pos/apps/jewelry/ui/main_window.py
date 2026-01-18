@@ -149,7 +149,8 @@ class JewelryMainWindow(QMainWindow):
         height = min(default_size.height(), available.height())
         x = max(available.left(), min(geometry.x(), available.right() - width + 1))
         y = max(available.top(), min(geometry.y(), available.bottom() - height + 1))
-        self.setGeometry(x, y, width, height)
+        self.resize(width, height)
+        self.move(x, y)
         if has_fullscreen:
             self.showFullScreen()
         elif has_maximized:
@@ -241,7 +242,8 @@ class JewelryMainWindow(QMainWindow):
                 if fallback_geometry.isValid():
                     target_geometry = fallback_geometry
             if target_geometry:
-                self.setGeometry(target_geometry)
+                self.resize(target_geometry.size())
+                self.move(target_geometry.topLeft())
         else:
             self._normal_geometry = self.geometry()
             self.showMaximized()

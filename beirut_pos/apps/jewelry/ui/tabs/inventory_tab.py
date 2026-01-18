@@ -50,6 +50,7 @@ class InventoryTab(QWidget):
         QApplication.instance().installEventFilter(self)
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
         header = QLabel()
         header.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(header)
@@ -65,8 +66,10 @@ class InventoryTab(QWidget):
         layout.addLayout(search_layout)
 
         form_box = QGroupBox()
+        form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.form_box = form_box
         form_layout = QFormLayout(form_box)
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.name_ar_input = QLineEdit()
         self.name_en_input = QLineEdit()
         self.sku_input = QLineEdit()

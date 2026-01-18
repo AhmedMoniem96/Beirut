@@ -82,10 +82,13 @@ class ManufacturingTab(QWidget):
     def _build_materials_tab(self) -> None:
         self.materials_tab = QWidget()
         tab_layout = QVBoxLayout(self.materials_tab)
+        tab_layout.setSpacing(12)
 
         form_box = QGroupBox()
+        form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.materials_box = form_box
         form_layout = QFormLayout(form_box)
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.material_name_ar = QLineEdit()
         self.material_name_en = QLineEdit()
         self.material_code = QLineEdit()
@@ -155,10 +158,13 @@ class ManufacturingTab(QWidget):
     def _build_boms_tab(self) -> None:
         self.boms_tab = QWidget()
         tab_layout = QVBoxLayout(self.boms_tab)
+        tab_layout.setSpacing(12)
 
         form_box = QGroupBox()
+        form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.bom_box = form_box
         form_layout = QFormLayout(form_box)
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.bom_product_combo = QComboBox()
         self.bom_name_input = QLineEdit()
         self.bom_active_check = QCheckBox()
@@ -241,10 +247,13 @@ class ManufacturingTab(QWidget):
     def _build_orders_tab(self) -> None:
         self.orders_tab = QWidget()
         tab_layout = QVBoxLayout(self.orders_tab)
+        tab_layout.setSpacing(12)
 
         form_box = QGroupBox()
+        form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.orders_box = form_box
         form_layout = QFormLayout(form_box)
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.order_no_label = QLabel("")
         self.order_product_combo = QComboBox()
         self.order_bom_combo = QComboBox()
@@ -322,12 +331,14 @@ class ManufacturingTab(QWidget):
     def _build_reports_tab(self) -> None:
         self.reports_tab = QWidget()
         tab_layout = QVBoxLayout(self.reports_tab)
+        tab_layout.setSpacing(12)
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         tab_layout.addWidget(scroll_area)
         content = QWidget()
         scroll_area.setWidget(content)
         layout = QVBoxLayout(content)
+        layout.setSpacing(12)
 
         history_box = QGroupBox()
         self.history_box = history_box

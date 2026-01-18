@@ -222,10 +222,29 @@ class JewelryMainWindow(QMainWindow):
         self._last_allowed_tab = index
 
     def _toggle_maximize_restore(self) -> None:
+        logger.debug(
+            "Toggle maximize before: state=%s maximized=%s size=%s",
+            int(self.windowState()),
+            self.isMaximized(),
+            self.size(),
+        )
         if self.window().isMaximized():
             self.showNormal()
+            target_geometry = None
             if self._normal_geometry and self._normal_geometry.isValid():
-                self.setGeometry(self._normal_geometry)
+                target_geometry = self._normal_geometry
+            else:
+                fallback_geometry = self.normalGeometry()
+                if fallback_geometry.isValid():
+                    target_geometry = fallback_geometry
+            if target_geometry:
+                self.setGeometry(target_geometry)
         else:
-            self._normal_geometry = self.normalGeometry()
+            self._normal_geometry = self.geometry()
             self.showMaximized()
+        logger.debug(
+            "Toggle maximize after: state=%s maximized=%s size=%s",
+            int(self.windowState()),
+            self.isMaximized(),
+            self.size(),
+        )

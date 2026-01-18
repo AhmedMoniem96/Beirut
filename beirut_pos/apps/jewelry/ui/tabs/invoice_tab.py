@@ -423,7 +423,6 @@ class InvoiceTab(BaseTabContainer):
         left_container = QWidget()
         left_container.setLayout(left_layout)
         left_container.setMinimumWidth(320)
-        left_container.setMaximumWidth(380)
         splitter.addWidget(left_container)
 
         totals_box = QGroupBox()

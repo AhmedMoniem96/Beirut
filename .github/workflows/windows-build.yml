@@ -35,23 +35,6 @@ jobs:
               main()
           "@ | Out-File -FilePath "launcher.py" -Encoding UTF8
 
-      - name: Create Jewelry launcher entry script
-        shell: pwsh
-        run: |
-          @"
-          # Force SQLAlchemy import so PyInstaller detects it
-          import os
-          import sqlalchemy
-          import sqlalchemy.orm
-          import sqlalchemy.ext.declarative
-
-          os.environ["APP_MODE"] = "jewelry"
-
-          from beirut_pos.app import main
-          if __name__ == "__main__":
-              main()
-          "@ | Out-File -FilePath "launcher_jewelry.py" -Encoding UTF8
-
       - name: Create PyInstaller hook for SQLAlchemy
         shell: pwsh
         run: |
@@ -283,7 +266,7 @@ jobs:
         run: |
           $env:APP_MODE = "jewelry"
           $args = @(
-            'launcher_jewelry.py',
+            'beirut_pos/apps/jewelry/entrypoint.py',
             '--name','BeirutPOS-Jewelry',
             '--onefile',
             '--noconsole',
@@ -293,7 +276,11 @@ jobs:
             # PyQt6 and UI
             '--collect-all','PyQt6',
             '--collect-all','PyQt6.Qt6',
-            '--collect-submodules','beirut_pos',
+            '--collect-submodules','beirut_pos.apps.jewelry',
+
+            # Exclude PlayStation app modules
+            '--exclude-module','beirut_pos.apps.playstation',
+            '--exclude-module','beirut_pos.apps.playstation.core',
 
             # Database (SQLAlchemy + SQLite)
             '--collect-all','sqlalchemy',

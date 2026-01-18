@@ -18,9 +18,9 @@ from .paths import (
     BACKUP_DIR,
     BASE_DIR,
     DATA_DIR,
-    DB_PATH,
     ensure_storage_dirs,
     get_app_data_dir,
+    get_user_db_path,
     resolve_seed_db_path,
 )
 
@@ -29,8 +29,12 @@ _DEFAULT_SYNC = "FULL"
 
 ensure_storage_dirs()
 
+def _db_path() -> Path:
+    return get_user_db_path()
+
+
 _ENGINE = create_engine(
-    f"sqlite:///{DB_PATH.as_posix()}",
+    f"sqlite:///{_db_path().as_posix()}",
     connect_args={"check_same_thread": False},
 )
 
@@ -44,15 +48,16 @@ def _ensure_schema_backup() -> None:
     """Create a one-time .bak copy before altering the schema."""
 
     global _SCHEMA_BACKUP_CREATED
-    if _SCHEMA_BACKUP_CREATED or not DB_PATH.exists():
+    db_path = _db_path()
+    if _SCHEMA_BACKUP_CREATED or not db_path.exists():
         return
 
     timestamp = datetime.utcnow().strftime("%Y%m%d-%I%M%S%p")
-    backup_name = f"{DB_PATH.stem}.{timestamp}.bak"
+    backup_name = f"{db_path.stem}.{timestamp}.bak"
     backup_path = DATA_DIR / backup_name
     try:
         ensure_storage_dirs()
-        shutil.copy2(DB_PATH, backup_path)
+        shutil.copy2(db_path, backup_path)
     except Exception:
         return
     _SCHEMA_BACKUP_CREATED = True
@@ -125,12 +130,13 @@ def init_db() -> None:
 
 
 def _copy_seed_db_if_needed() -> bool:
-    if DB_PATH.exists():
+    db_path = _db_path()
+    if db_path.exists():
         return False
-    seed_path = resolve_seed_db_path(DB_PATH.name)
+    seed_path = resolve_seed_db_path(db_path.name)
     if seed_path and seed_path.exists():
         ensure_storage_dirs()
-        shutil.copy2(seed_path, DB_PATH)
+        shutil.copy2(seed_path, db_path)
         return True
     return False
 
@@ -150,32 +156,32 @@ def _ensure_db_writable() -> None:
     app_data_dir = get_app_data_dir()
     try:
         app_data_dir = app_data_dir.resolve()
-        db_path = DB_PATH.resolve()
+        db_path = _db_path().resolve()
     except OSError:
         app_data_dir = get_app_data_dir()
-        db_path = DB_PATH
+        db_path = _db_path()
 
     if os.name == "nt":
         env_override = os.getenv("BEIRUTPOS_DATA_DIR")
         if not env_override and not _is_relative_to(db_path, app_data_dir):
             raise RuntimeError(
                 "SQLite database must be stored under the user AppData directory. "
-                f"Current path: {DB_PATH}"
+                f"Current path: {db_path}"
             )
 
-    if DB_PATH.exists():
-        if not os.access(DB_PATH, os.W_OK):
+    if db_path.exists():
+        if not os.access(db_path, os.W_OK):
             raise RuntimeError(
                 "SQLite database is not writable. "
-                f"Current path: {DB_PATH}"
+                f"Current path: {db_path}"
             )
         return
 
-    db_dir = DB_PATH.parent
+    db_dir = db_path.parent
     if not os.access(db_dir, os.W_OK):
         raise RuntimeError(
             "SQLite database directory is not writable. "
-            f"Current path: {DB_PATH}"
+            f"Current path: {db_path}"
         )
 
 
@@ -183,7 +189,8 @@ def safe_migrations() -> None:
     ensure_storage_dirs()
     _copy_seed_db_if_needed()
     _ensure_db_writable()
-    first_time = not DB_PATH.exists()
+    db_path = _db_path()
+    first_time = not db_path.exists()
     if not first_time:
         _backup_database()
 
@@ -393,12 +400,13 @@ def safe_migrations() -> None:
 
 
 def _backup_database() -> None:
-    if not DB_PATH.exists():
+    db_path = _db_path()
+    if not db_path.exists():
         return
     timestamp = datetime.utcnow().strftime("%Y%m%d-%I%M%S%p")
-    target = DATA_DIR / f"{DB_PATH.stem}-{timestamp}.bak"
+    target = DATA_DIR / f"{db_path.stem}-{timestamp}.bak"
     try:
-        shutil.copy2(DB_PATH, target)
+        shutil.copy2(db_path, target)
     except Exception:
         # Best effort; ignore backup issues to avoid blocking migrations.
         pass
@@ -786,6 +794,6 @@ def iter_backups() -> Iterator[Path]:
     for day_dir in sorted(BACKUP_DIR.iterdir()):
         if not day_dir.is_dir():
             continue
-        candidate = day_dir / "beirut_pos.db"
+        candidate = day_dir / get_user_db_path().name
         if candidate.exists():
             yield candidate

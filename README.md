@@ -12,15 +12,15 @@ management, licensing, and hardened persistence that we iterated on across prior
   session timers, and keyboard shortcuts for the busiest screens.
 - **Operations tooling** – table admin with drag-and-drop ordering, user creation with admin
   verification, voucher activation guard rails, rich multi-tab reports (cashier, product movers,
-  low-stock alerts, price history), and ProgramData-friendly backups with restore helpers.
+  low-stock alerts, price history), and user-data-friendly backups with restore helpers.
 
 ## Storage layout
-- **Windows deployments** persist everything under `%ProgramData%\BeirutPOS`:
-  - `data\beirut_pos.db` → live SQLite database.
+- **Windows deployments** persist everything under `%APPDATA%\BeirutPOS`:
+  - `beirut_pos.sqlite` → live SQLite database.
   - `config\settings.json` → JSON config/PRAGMA overrides.
-  - `backup\YYYY-MM-DD\beirut_pos.db` → rolling 14-day backups.
+  - `backup\YYYY-MM-DD\beirut_pos.sqlite` → rolling 14-day backups.
   - Voucher activations are stored as hashed entries inside the SQLite `settings` table.
-- **Linux/macOS development** can override the root with `BEIRUTPOS_DATA_DIR`; otherwise files live under `~/.beirut_pos`.
+- **Linux/macOS development** can override the root with `BEIRUTPOS_DATA_DIR`; otherwise files live under `~/.local/share/beirut_pos`.
 
 ## Exporting into a fresh repository
 Need a clean repo that only contains the final feature set?  Run the helper script:

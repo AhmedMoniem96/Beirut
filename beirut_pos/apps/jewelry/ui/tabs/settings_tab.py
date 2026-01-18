@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
+    QWidget,
 )
 
 from ...services.db import add_payment_method
@@ -36,6 +37,9 @@ class SettingsTab(BaseTabContainer):
         self._on_payment_methods_changed = on_payment_methods_changed
         self._on_language_changed = on_language_changed
         self._language = get_ui_language()
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setSpacing(12)
         gallery_box = QGroupBox()
         gallery_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         gallery_layout = QFormLayout(gallery_box)
@@ -80,7 +84,7 @@ class SettingsTab(BaseTabContainer):
         gallery_layout.addRow(self.font_label, font_row)
         gallery_layout.addRow("", self.rtl_check)
         gallery_layout.addRow(self.language_label, self.language_combo)
-        self.content_layout.addWidget(gallery_box)
+        content_layout.addWidget(gallery_box)
         self.gallery_box = gallery_box
         self.logo_btn = logo_btn
         self.font_btn = font_btn
@@ -95,7 +99,7 @@ class SettingsTab(BaseTabContainer):
         website_layout.addRow(self.website_name_label, self.website_name_input)
         website_layout.addRow(self.website_url_label, self.website_url_input)
         website_layout.addRow("", self.website_orders_check)
-        self.content_layout.addWidget(website_box)
+        content_layout.addWidget(website_box)
         self.website_box = website_box
 
         printer_box = QGroupBox()
@@ -116,7 +120,7 @@ class SettingsTab(BaseTabContainer):
         self.printer_label = QLabel()
         printer_layout.addRow(self.printer_mode_label, self.barcode_mode)
         printer_layout.addRow(self.printer_label, self.barcode_printer)
-        self.content_layout.addWidget(printer_box)
+        content_layout.addWidget(printer_box)
         self.printer_box = printer_box
 
         save_btn = QPushButton()
@@ -153,7 +157,7 @@ class SettingsTab(BaseTabContainer):
         payment_layout.addRow(self.payment_ar_label, self.payment_ar_input)
         payment_layout.addRow(self.payment_en_label, self.payment_en_input)
         payment_layout.addRow("", add_payment_btn)
-        self.content_layout.addWidget(payment_box)
+        content_layout.addWidget(payment_box)
         self.payment_box = payment_box
         self.add_payment_btn = add_payment_btn
 
@@ -162,11 +166,11 @@ class SettingsTab(BaseTabContainer):
         demo_btn = QPushButton()
         demo_btn.clicked.connect(self._seed_demo)
         demo_layout.addWidget(demo_btn)
-        self.content_layout.addWidget(demo_box)
+        content_layout.addWidget(demo_box)
         self.demo_box = demo_box
         self.demo_btn = demo_btn
-        self.content_layout.addStretch()
 
+        self.set_page_content_widget(content)
         self._load_settings()
         self.apply_language(self._language)
         self._apply_rtl_layout()

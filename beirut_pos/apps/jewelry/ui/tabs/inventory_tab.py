@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
+    QWidget,
 )
 
 from ...services.db import barcode_exists, delete_product, list_products, save_product
@@ -49,6 +50,10 @@ class InventoryTab(BaseTabContainer):
         self._language = get_ui_language()
         QApplication.instance().installEventFilter(self)
 
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setSpacing(12)
+
         search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("")
@@ -56,7 +61,7 @@ class InventoryTab(BaseTabContainer):
         self.search_label = QLabel()
         search_layout.addWidget(self.search_label)
         search_layout.addWidget(self.search_input)
-        self.content_layout.addLayout(search_layout)
+        content_layout.addLayout(search_layout)
 
         form_box = QGroupBox()
         form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -115,7 +120,7 @@ class InventoryTab(BaseTabContainer):
         self.print_barcode_btn = QPushButton()
         self.print_barcode_btn.clicked.connect(self._print_barcode_label)
 
-        self.content_layout.addWidget(form_box)
+        content_layout.addWidget(form_box)
         self.footer_layout.addWidget(self.save_btn)
         self.footer_layout.addWidget(self.delete_btn)
         self.footer_layout.addWidget(self.clear_btn)
@@ -128,7 +133,7 @@ class InventoryTab(BaseTabContainer):
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.cellClicked.connect(self._load_selected_product)
-        self.content_layout.addWidget(self.table)
+        content_layout.addWidget(self.table)
 
         self.alerts_box = QGroupBox()
         alerts_layout = QVBoxLayout(self.alerts_box)
@@ -137,9 +142,9 @@ class InventoryTab(BaseTabContainer):
         self.alerts_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.alerts_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         alerts_layout.addWidget(self.alerts_table)
-        self.content_layout.addWidget(self.alerts_box)
-        self.content_layout.addStretch()
+        content_layout.addWidget(self.alerts_box)
 
+        self.set_page_content_widget(content)
         self.apply_language(self._language)
         self.refresh()
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 
 class BaseTabContainer(QWidget):
@@ -22,12 +22,13 @@ class BaseTabContainer(QWidget):
             self.header_label = header
 
         scroll_area = QScrollArea()
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         scroll_area.setWidgetResizable(True)
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setSpacing(12)
-        scroll_area.setWidget(content)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(12)
+        scroll_area.setWidget(scroll_content)
         root_layout.addWidget(scroll_area, 1)
 
         footer = QWidget()
@@ -37,31 +38,41 @@ class BaseTabContainer(QWidget):
         root_layout.addWidget(footer)
 
         self.scroll_area = scroll_area
-        self.content_layout = content_layout
         self.footer_layout = footer_layout
-        self._tail_stretch: Optional[int] = None
+        self._scroll_layout = scroll_layout
+        self._page_content_index: Optional[int] = None
+        self._tail_stretch: int = self._scroll_layout.addStretch()
 
-    def add_content_widget(self, widget: QWidget) -> None:
-        self._ensure_tail_stretch()
-        if self._tail_stretch is None:
+    def set_page_content_widget(self, widget: QWidget) -> None:
+        self._set_page_content(widget=widget)
+
+    def set_page_content_layout(self, layout: QVBoxLayout) -> None:
+        self._set_page_content(layout=layout)
+
+    def _set_page_content(
+        self,
+        *,
+        widget: QWidget | None = None,
+        layout: QVBoxLayout | None = None,
+    ) -> None:
+        if widget is None and layout is None:
             return
-        self.content_layout.insertWidget(self._tail_stretch, widget)
+        self._clear_page_content()
+        if widget is not None:
+            self._scroll_layout.insertWidget(self._tail_stretch, widget)
+        else:
+            self._scroll_layout.insertLayout(self._tail_stretch, layout)
+        self._page_content_index = self._tail_stretch
         self._tail_stretch += 1
 
-    def add_content_layout(self, layout: QVBoxLayout) -> None:
-        self._ensure_tail_stretch()
-        if self._tail_stretch is None:
+    def _clear_page_content(self) -> None:
+        if self._page_content_index is None:
             return
-        self.content_layout.insertLayout(self._tail_stretch, layout)
-        self._tail_stretch += 1
-
-    def _ensure_tail_stretch(self) -> None:
-        if self._tail_stretch is None:
-            last_index = self.content_layout.count() - 1
-            if last_index >= 0:
-                last_item = self.content_layout.itemAt(last_index)
-                if last_item is not None and last_item.spacerItem() is not None:
-                    self._tail_stretch = last_index
-                    return
-            self.content_layout.addStretch()
-            self._tail_stretch = self.content_layout.count() - 1
+        item = self._scroll_layout.takeAt(self._page_content_index)
+        if item is not None:
+            if item.widget() is not None:
+                item.widget().setParent(None)
+            elif item.layout() is not None:
+                item.layout().setParent(None)
+        self._tail_stretch -= 1
+        self._page_content_index = None

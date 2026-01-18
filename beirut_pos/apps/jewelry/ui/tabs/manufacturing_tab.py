@@ -52,18 +52,15 @@ from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
 
 
-class ManufacturingTab(QWidget):
+class ManufacturingTab(BaseTabContainer):
     def __init__(self) -> None:
         super().__init__()
         self._language = get_ui_language()
-        layout = QVBoxLayout(self)
-        header = QLabel()
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(header)
-        self.header_label = header
-
+        content = QWidget()
+        layout = QVBoxLayout(content)
         self.tabs = QTabWidget()
-        layout.addWidget(self.tabs)
+        layout.addWidget(self.tabs, 1)
+        self.set_page_content_widget(content)
 
         self._material_map: Dict[str, int] = {}
         self._product_map: Dict[str, int] = {}

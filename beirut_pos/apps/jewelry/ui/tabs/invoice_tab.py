@@ -59,9 +59,10 @@ from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
 from beirut_pos.services.printer import printer
+from .base_tab import BaseTabContainer
 
 
-class InvoiceTab(QWidget):
+class InvoiceTab(BaseTabContainer):
     ITEM_COL_PRODUCT = 0
     ITEM_COL_CODE = 1
     ITEM_COL_QTY = 2
@@ -94,15 +95,13 @@ class InvoiceTab(QWidget):
         self._categories: List[str] = []
         self._active_category: Optional[str] = None
 
-        layout = QHBoxLayout(self)
+        content = QWidget()
+        layout = QHBoxLayout(content)
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
         left_layout = QVBoxLayout()
         right_layout = QVBoxLayout()
-        header = QLabel()
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        self.header_label = header
-
+        self.set_page_content_widget(content)
         self.invoice_info_label = QLabel()
 
         form_box = QGroupBox()
@@ -307,7 +306,6 @@ class InvoiceTab(QWidget):
         advanced_customer_layout.addRow(self.points_earned_label, self.loyalty_earned_label)
         advanced_box_layout.addWidget(self.advanced_customer_panel)
         self._form_layout.addRow(self.advanced_box)
-        right_layout.addWidget(header)
         right_layout.addWidget(self.invoice_info_label)
         right_layout.addWidget(form_box)
 
@@ -423,7 +421,6 @@ class InvoiceTab(QWidget):
         left_container = QWidget()
         left_container.setLayout(left_layout)
         left_container.setMinimumWidth(320)
-        left_container.setMaximumWidth(380)
         splitter.addWidget(left_container)
 
         totals_box = QGroupBox()

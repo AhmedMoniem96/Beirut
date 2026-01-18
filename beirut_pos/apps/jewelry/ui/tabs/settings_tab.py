@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -37,13 +38,16 @@ class SettingsTab(QWidget):
         self._language = get_ui_language()
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
         header = QLabel()
         header.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(header)
         self.header_label = header
 
         gallery_box = QGroupBox()
+        gallery_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         gallery_layout = QFormLayout(gallery_box)
+        gallery_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._form_layouts = [gallery_layout]
         self.name_en_input = QLineEdit()
         self.name_ar_input = QLineEdit()
@@ -90,7 +94,9 @@ class SettingsTab(QWidget):
         self.font_btn = font_btn
 
         website_box = QGroupBox()
+        website_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         website_layout = QFormLayout(website_box)
+        website_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._form_layouts.append(website_layout)
         self.website_name_label = QLabel()
         self.website_url_label = QLabel()
@@ -101,7 +107,9 @@ class SettingsTab(QWidget):
         self.website_box = website_box
 
         printer_box = QGroupBox()
+        printer_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         printer_layout = QFormLayout(printer_box)
+        printer_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._form_layouts.append(printer_layout)
         self.barcode_mode = QComboBox()
         self.barcode_mode.addItem("", "pdf")
@@ -140,7 +148,9 @@ class SettingsTab(QWidget):
         self.statuses_btn = statuses_btn
 
         payment_box = QGroupBox()
+        payment_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         payment_layout = QFormLayout(payment_box)
+        payment_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._form_layouts.append(payment_layout)
         self.payment_ar_input = QLineEdit()
         self.payment_en_input = QLineEdit()
@@ -163,6 +173,7 @@ class SettingsTab(QWidget):
         layout.addWidget(demo_box)
         self.demo_box = demo_box
         self.demo_btn = demo_btn
+        layout.addStretch()
 
         self._load_settings()
         self.apply_language(self._language)

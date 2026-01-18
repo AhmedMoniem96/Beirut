@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QVBoxLayout,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,

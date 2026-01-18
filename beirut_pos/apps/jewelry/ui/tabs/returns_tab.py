@@ -12,23 +12,18 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
 )
 
 from ...services.db import list_return_invoices
 from ...services.i18n import get_ui_language, t
+from .base_tab import BaseTabContainer
 
 
-class ReturnsTab(QWidget):
+class ReturnsTab(BaseTabContainer):
     def __init__(self) -> None:
         super().__init__()
         self._language = get_ui_language()
-        layout = QVBoxLayout(self)
-        header = QLabel()
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(header)
-        self.header_label = header
+        layout = self.content_layout
 
         filters = QHBoxLayout()
         self.date_filter = QDateEdit()

@@ -6,7 +6,16 @@ import logging
 
 from PyQt6.QtCore import QSettings, QSignalBlocker, QSize, Qt
 from PyQt6.QtGui import QAction, QGuiApplication
-from PyQt6.QtWidgets import QLabel, QMainWindow, QMessageBox, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QTabWidget,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..services.settings import load_gallery_settings
 from ..services.i18n import choose_name, get_ui_language, t
@@ -49,9 +58,22 @@ class JewelryMainWindow(QMainWindow):
         self.setCentralWidget(self.central)
         layout = QVBoxLayout(self.central)
 
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+
         self.title_label = QLabel()
         self.title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
-        layout.addWidget(self.title_label)
+        header_layout.addWidget(self.title_label, 1)
+
+        self.maximize_button = QToolButton()
+        self.maximize_button.setText("▢")
+        self.maximize_button.setAccessibleName("Toggle maximize")
+        self.maximize_button.clicked.connect(self._toggle_maximize_restore)
+        header_layout.addWidget(self.maximize_button, 0, alignment=Qt.AlignmentFlag.AlignRight)
+
+        layout.addWidget(header)
 
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
@@ -78,6 +100,7 @@ class JewelryMainWindow(QMainWindow):
         self._build_menu()
 
         self._last_allowed_tab = 0
+        self._normal_geometry = None
 
         self.setStyleSheet(gallery_stylesheet())
         self._apply_language(self._language)
@@ -197,3 +220,12 @@ class JewelryMainWindow(QMainWindow):
             del blocker
             return
         self._last_allowed_tab = index
+
+    def _toggle_maximize_restore(self) -> None:
+        if self.window().isMaximized():
+            self.showNormal()
+            if self._normal_geometry and self._normal_geometry.isValid():
+                self.setGeometry(self._normal_geometry)
+        else:
+            self._normal_geometry = self.normalGeometry()
+            self.showMaximized()

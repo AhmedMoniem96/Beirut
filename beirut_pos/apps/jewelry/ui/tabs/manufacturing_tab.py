@@ -52,18 +52,17 @@ from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
 
 
-class ManufacturingTab(QWidget):
+class ManufacturingTab(BaseTabContainer):
     def __init__(self) -> None:
         super().__init__()
         self._language = get_ui_language()
-        layout = QVBoxLayout(self)
-        header = QLabel()
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(header)
-        self.header_label = header
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setSpacing(12)
+        self.set_page_content_widget(content)
 
         self.tabs = QTabWidget()
-        layout.addWidget(self.tabs)
+        content_layout.addWidget(self.tabs, 1)
 
         self._material_map: Dict[str, int] = {}
         self._product_map: Dict[str, int] = {}
@@ -844,7 +843,8 @@ class ManufacturingTab(QWidget):
 
     def apply_language(self, language: str) -> None:
         self._language = language
-        self.header_label.setText(t("manufacturing.header", language=language))
+        if self.header_label is not None:
+            self.header_label.setText(t("manufacturing.header", language=language))
         self.tabs.setTabText(0, t("manufacturing.tab.materials", language=language))
         self.tabs.setTabText(1, t("manufacturing.tab.boms", language=language))
         self.tabs.setTabText(2, t("manufacturing.tab.orders", language=language))

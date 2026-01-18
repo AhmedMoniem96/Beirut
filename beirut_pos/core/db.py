@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sqlite3
+import stat
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -16,7 +17,6 @@ from sqlalchemy.orm import sessionmaker
 from .config_store import get_config_value, set_config_value
 from .paths import (
     BACKUP_DIR,
-    BASE_DIR,
     DATA_DIR,
     ensure_storage_dirs,
     get_app_data_dir,
@@ -29,12 +29,8 @@ _DEFAULT_SYNC = "FULL"
 
 ensure_storage_dirs()
 
-def _db_path() -> Path:
-    return get_user_db_path()
-
-
 _ENGINE = create_engine(
-    f"sqlite:///{_db_path().as_posix()}",
+    f"sqlite:///{get_user_db_path().as_posix()}",
     connect_args={"check_same_thread": False},
 )
 
@@ -48,7 +44,7 @@ def _ensure_schema_backup() -> None:
     """Create a one-time .bak copy before altering the schema."""
 
     global _SCHEMA_BACKUP_CREATED
-    db_path = _db_path()
+    db_path = get_user_db_path()
     if _SCHEMA_BACKUP_CREATED or not db_path.exists():
         return
 
@@ -130,13 +126,14 @@ def init_db() -> None:
 
 
 def _copy_seed_db_if_needed() -> bool:
-    db_path = _db_path()
-    if db_path.exists():
+    user_db_path = get_user_db_path()
+    if user_db_path.exists():
         return False
-    seed_path = resolve_seed_db_path(db_path.name)
+    seed_path = resolve_seed_db_path()
     if seed_path and seed_path.exists():
         ensure_storage_dirs()
-        shutil.copy2(seed_path, db_path)
+        shutil.copy2(seed_path, user_db_path)
+        os.chmod(user_db_path, stat.S_IWRITE | stat.S_IREAD)
         return True
     return False
 
@@ -156,10 +153,10 @@ def _ensure_db_writable() -> None:
     app_data_dir = get_app_data_dir()
     try:
         app_data_dir = app_data_dir.resolve()
-        db_path = _db_path().resolve()
+        db_path = get_user_db_path().resolve()
     except OSError:
         app_data_dir = get_app_data_dir()
-        db_path = _db_path()
+        db_path = get_user_db_path()
 
     if os.name == "nt":
         env_override = os.getenv("BEIRUTPOS_DATA_DIR")
@@ -189,7 +186,7 @@ def safe_migrations() -> None:
     ensure_storage_dirs()
     _copy_seed_db_if_needed()
     _ensure_db_writable()
-    db_path = _db_path()
+    db_path = get_user_db_path()
     first_time = not db_path.exists()
     if not first_time:
         _backup_database()
@@ -400,7 +397,7 @@ def safe_migrations() -> None:
 
 
 def _backup_database() -> None:
-    db_path = _db_path()
+    db_path = get_user_db_path()
     if not db_path.exists():
         return
     timestamp = datetime.utcnow().strftime("%Y%m%d-%I%M%S%p")

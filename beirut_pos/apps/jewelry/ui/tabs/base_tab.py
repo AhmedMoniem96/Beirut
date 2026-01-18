@@ -22,7 +22,7 @@ class BaseTabContainer(QWidget):
             self.header_label = header
 
         scroll_area = QScrollArea()
-        scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         scroll_area.setWidgetResizable(True)
         content = QWidget()
         content_layout = QVBoxLayout(content)

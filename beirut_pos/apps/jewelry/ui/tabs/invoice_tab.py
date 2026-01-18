@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QSizePolicy,
     QSpinBox,
+    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -45,6 +46,7 @@ from ...services.db import (
     list_active_statuses,
     list_delivery_companies,
     list_payment_methods,
+    list_product_categories,
     list_products,
     create_order_payment,
     recalculate_invoice_payment_totals,
@@ -88,6 +90,9 @@ class InvoiceTab(QWidget):
         self._loyalty_alert_threshold = 0
         self._load_loyalty_settings()
         QApplication.instance().installEventFilter(self)
+        self._category_buttons: dict[Optional[str], QPushButton] = {}
+        self._categories: List[str] = []
+        self._active_category: Optional[str] = None
 
         layout = QHBoxLayout(self)
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -316,12 +321,26 @@ class InvoiceTab(QWidget):
         self.barcode_input.returnPressed.connect(self._handle_barcode_submit)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("")
-        self.search_input.textChanged.connect(self.refresh_products)
+        self.search_input.textChanged.connect(self._handle_product_search_change)
         product_search_layout.addWidget(self.search_label, 0, 0)
         product_search_layout.addWidget(self.search_input, 0, 1, 1, 2)
         product_search_layout.addWidget(self.barcode_label, 1, 0)
         product_search_layout.addWidget(self.barcode_input, 1, 1, 1, 2)
         right_layout.addWidget(product_search_panel)
+
+        self.category_scroll = QScrollArea()
+        self.category_scroll.setWidgetResizable(True)
+        self.category_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.category_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.category_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.category_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.category_container = QWidget()
+        self.category_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.category_layout = QHBoxLayout(self.category_container)
+        self.category_layout.setContentsMargins(0, 0, 0, 0)
+        self.category_layout.setSpacing(8)
+        self.category_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.category_scroll.setWidget(self.category_container)
 
         self.products_table = QTableWidget(0, 6)
         self.products_table.setHorizontalHeaderLabels(["", "", "", "", "", ""])
@@ -351,6 +370,7 @@ class InvoiceTab(QWidget):
         product_box = QGroupBox()
         self.product_box = product_box
         product_layout = QVBoxLayout(product_box)
+        product_layout.addWidget(self.category_scroll)
         product_layout.addWidget(self.products_table)
         qty_row = QHBoxLayout()
         self.qty_label = QLabel()
@@ -537,7 +557,8 @@ class InvoiceTab(QWidget):
         self._refresh_payment_statuses()
         self._refresh_delivery_companies()
         self._refresh_delivery_statuses()
-        self.refresh_products()
+        self.load_categories()
+        self.on_category_selected(None)
         self._initialize_cashier()
         self._customer_id: Optional[str] = None
         self._customer_points: float = 0.0
@@ -700,8 +721,15 @@ class InvoiceTab(QWidget):
         self._update_payment_totals()
 
     def refresh_products(self, _text: str | None = None) -> None:
-        search = self.search_input.text().strip()
-        self._products = list_products(search=search if search else None)
+        self.load_products(self._active_category, self.search_input.text())
+
+    def load_categories(self) -> None:
+        self._categories = list_product_categories()
+        self.render_category_buttons()
+
+    def load_products(self, category_id: Optional[str] = None, search_text: str = "") -> None:
+        search = search_text.strip()
+        self._products = list_products(search=search if search else None, category=category_id)
         self.products_table.setRowCount(0)
         name_font = QFont(self.products_table.font())
         name_font.setPointSize(name_font.pointSize() + 2)
@@ -729,6 +757,42 @@ class InvoiceTab(QWidget):
                 )
             )
             self.products_table.setCellWidget(row, 5, add_button)
+
+    def render_category_buttons(self) -> None:
+        while self.category_layout.count():
+            item = self.category_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._category_buttons.clear()
+        categories = [None, *self._categories]
+        labels = {None: "All Products"}
+        for category in categories:
+            label = labels.get(category, str(category))
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            button.setStyleSheet(
+                "QPushButton { padding: 6px 12px; border-radius: 12px; border: 1px solid #c8c8c8; }"
+                "QPushButton:checked { background-color: #2d7dd2; color: white; border-color: #2d7dd2; }"
+            )
+            button.clicked.connect(
+                lambda _checked=False, category_id=category: self.on_category_selected(category_id)
+            )
+            self.category_layout.addWidget(button)
+            self._category_buttons[category] = button
+        self.category_layout.addStretch()
+
+    def on_category_selected(self, category_id: Optional[str]) -> None:
+        self._active_category = category_id
+        for category, button in self._category_buttons.items():
+            button.blockSignals(True)
+            button.setChecked(category == category_id)
+            button.blockSignals(False)
+        self.load_products(category_id, self.search_input.text())
+
+    def _handle_product_search_change(self, text: str) -> None:
+        self.load_products(self._active_category, text)
 
     def _handle_txn_type_change(self) -> None:
         is_return = self.txn_type_combo.currentIndex() == 1

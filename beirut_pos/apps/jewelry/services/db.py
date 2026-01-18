@@ -1087,19 +1087,45 @@ def add_payment_method(name_ar: str, name_en: str) -> None:
     conn.close()
 
 
-def list_products(search: Optional[str] = None) -> List[JewelryProduct]:
+def list_product_categories() -> List[str]:
     conn = get_conn()
     cur = conn.cursor()
-    params: Tuple[str, ...] = ()
+    cur.execute(
+        """SELECT DISTINCT
+                  CASE
+                      WHEN category IS NULL OR TRIM(category) = '' THEN 'Uncategorized'
+                      ELSE category
+                  END AS category
+           FROM jw_products
+           ORDER BY category COLLATE NOCASE"""
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [row[0] for row in rows if row[0]]
+
+
+def list_products(search: Optional[str] = None, category: Optional[str] = None) -> List[JewelryProduct]:
+    conn = get_conn()
+    cur = conn.cursor()
+    params: List[str] = []
     query = """SELECT id, name_ar, name_en, sku, COALESCE(barcode, ''), COALESCE(barcode_type, ''),
                       price, qty_on_hand, min_qty, category, handmade_flag, stone_type, color
                FROM jw_products"""
+    conditions: List[str] = []
+    if category is not None:
+        if category == "Uncategorized":
+            conditions.append("(category IS NULL OR TRIM(category) = '')")
+        else:
+            conditions.append("category = ?")
+            params.append(category)
     if search:
-        query += " WHERE name_ar LIKE ? OR name_en LIKE ? OR sku LIKE ? OR barcode LIKE ?"
+        conditions.append("name_ar LIKE ? OR name_en LIKE ? OR sku LIKE ? OR barcode LIKE ?")
         like = f"%{search}%"
-        params = (like, like, like, like)
+        params.extend([like, like, like, like])
+    if conditions:
+        query += " WHERE " + " AND ".join(f"({condition})" for condition in conditions)
     query += " ORDER BY id DESC"
-    cur.execute(query, params)
+    cur.execute(query, tuple(params))
     rows = cur.fetchall()
     conn.close()
     return [

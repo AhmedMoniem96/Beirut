@@ -190,6 +190,7 @@ class OrderDetailsDialog(QDialog):
         self.paid_label = QLabel()
         self.remaining_label = QLabel()
         self.status_label = QLabel()
+        self.order_status_label = QLabel()
 
         self.order_no_value = QLabel(invoice.invoice_no)
         self.date_value = QLabel(invoice.datetime)
@@ -199,6 +200,8 @@ class OrderDetailsDialog(QDialog):
         self.paid_value = QLabel(f"{summary.order.paid_total:.2f}")
         self.remaining_value = QLabel(f"{summary.order.remaining_total:.2f}")
         self.status_value = QLabel(summary.payment_status_label)
+        payment_order_status = summary.payment_order_status_label or "-"
+        self.order_status_value = QLabel(payment_order_status)
 
         form_layout.addRow(self.order_no_label, self.order_no_value)
         form_layout.addRow(self.date_label, self.date_value)
@@ -208,6 +211,7 @@ class OrderDetailsDialog(QDialog):
         form_layout.addRow(self.paid_label, self.paid_value)
         form_layout.addRow(self.remaining_label, self.remaining_value)
         form_layout.addRow(self.status_label, self.status_value)
+        form_layout.addRow(self.order_status_label, self.order_status_value)
         layout.addLayout(form_layout)
 
         self.items_label = QLabel()
@@ -259,6 +263,7 @@ class OrderDetailsDialog(QDialog):
         self.paid_label.setText(t("order_details.paid", language=language))
         self.remaining_label.setText(t("order_details.remaining", language=language))
         self.status_label.setText(t("order_details.payment_status", language=language))
+        self.order_status_label.setText(t("order_details.payment_order_status", language=language))
         self.items_label.setText(t("order_details.items", language=language))
         self.items_table.setHorizontalHeaderLabels(
             [

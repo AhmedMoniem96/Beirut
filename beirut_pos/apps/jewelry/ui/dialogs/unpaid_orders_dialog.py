@@ -45,23 +45,40 @@ class OrderSummary:
 
 
 class AddPaymentDialog(QDialog):
-    def __init__(self, remaining_total: float, parent=None) -> None:
+    def __init__(self, summary: OrderSummary, parent=None) -> None:
         super().__init__(parent)
         self._language = get_ui_language()
+        self._remaining_total = summary.order.remaining_total
         self.setModal(True)
         self.setMinimumWidth(360)
 
         layout = QVBoxLayout(self)
+        info_layout = QFormLayout()
+        self.order_no_label = QLabel()
+        self.customer_label = QLabel()
+        self.remaining_label = QLabel()
+        self.order_no_value = QLabel(summary.order.invoice_no)
+        self.customer_value = QLabel(summary.order.customer_name or "-")
+        self.remaining_value = QLabel(f"{summary.order.remaining_total:.2f}")
+        info_layout.addRow(self.order_no_label, self.order_no_value)
+        info_layout.addRow(self.customer_label, self.customer_value)
+        info_layout.addRow(self.remaining_label, self.remaining_value)
+        layout.addLayout(info_layout)
+
         form_layout = QFormLayout()
         self.payment_method_label = QLabel()
         self.payment_method_combo = None
+        self._payment_method_placeholder_index = 0
         self._build_payment_method_input(form_layout)
 
         self.amount_input = QDoubleSpinBox()
-        max_amount = max(remaining_total, 0.01)
+        max_amount = max(self._remaining_total, 0.01)
         self.amount_input.setRange(0.01, max_amount)
         self.amount_input.setDecimals(2)
         self.amount_input.setValue(max_amount)
+        if self.payment_method_combo is not None:
+            self.payment_method_combo.currentIndexChanged.connect(self._update_validation_state)
+        self.amount_input.valueChanged.connect(self._update_validation_state)
         self.reference_input = QLineEdit()
         self.notes_input = QTextEdit()
         self.notes_input.setMinimumHeight(80)
@@ -79,18 +96,20 @@ class AddPaymentDialog(QDialog):
         self.cancel_btn = QPushButton()
         self.add_btn = QPushButton()
         self.cancel_btn.clicked.connect(self.reject)
-        self.add_btn.clicked.connect(self.accept)
+        self.add_btn.clicked.connect(self._attempt_accept)
         actions.addWidget(self.cancel_btn)
         actions.addWidget(self.add_btn)
         layout.addLayout(actions)
 
         self.apply_language(self._language)
+        self._update_validation_state()
 
     def _build_payment_method_input(self, form_layout: QFormLayout) -> None:
         from PyQt6.QtWidgets import QComboBox
 
         methods = list_payment_methods()
         combo = QComboBox()
+        combo.addItem("")
         for _, name_ar, name_en in methods:
             combo.addItem(choose_name(name_ar, name_en))
         self.payment_method_combo = combo
@@ -99,15 +118,25 @@ class AddPaymentDialog(QDialog):
     def apply_language(self, language: str) -> None:
         self._language = language
         self.setWindowTitle(t("payment.add_title", language=language))
+        self.order_no_label.setText(t("order_details.order_no", language=language))
+        self.customer_label.setText(t("order_details.customer", language=language))
+        self.remaining_label.setText(t("order_details.remaining", language=language))
         self.payment_method_label.setText(t("common.payment_method", language=language))
         self.amount_label.setText(t("payment.amount", language=language))
         self.reference_label.setText(t("payment.reference", language=language))
         self.notes_label.setText(t("payment.note", language=language))
         self.cancel_btn.setText(t("payment.cancel", language=language))
         self.add_btn.setText(t("payment.add", language=language))
+        if self.payment_method_combo is not None:
+            self.payment_method_combo.setItemText(
+                self._payment_method_placeholder_index,
+                t("common.select", language=language),
+            )
 
     def payment_method(self) -> str:
         if self.payment_method_combo is None:
+            return ""
+        if self.payment_method_combo.currentIndex() <= self._payment_method_placeholder_index:
             return ""
         return self.payment_method_combo.currentText().strip()
 
@@ -119,6 +148,20 @@ class AddPaymentDialog(QDialog):
 
     def notes(self) -> str:
         return self.notes_input.toPlainText().strip()
+
+    def _update_validation_state(self) -> None:
+        if self.payment_method_combo is None:
+            self.add_btn.setEnabled(False)
+            return
+        has_method = self.payment_method_combo.currentIndex() > self._payment_method_placeholder_index
+        amount = float(self.amount_input.value())
+        is_valid = has_method and 0 < amount <= self._remaining_total
+        self.add_btn.setEnabled(is_valid)
+
+    def _attempt_accept(self) -> None:
+        self._update_validation_state()
+        if self.add_btn.isEnabled():
+            self.accept()
 
 
 class OrderDetailsDialog(QDialog):
@@ -398,7 +441,7 @@ class UnpaidOrdersDialog(QDialog):
         summary = self._selected_order()
         if not summary:
             return
-        dialog = AddPaymentDialog(summary.order.remaining_total, self)
+        dialog = AddPaymentDialog(summary, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         if not dialog.payment_method():

@@ -1232,8 +1232,8 @@ class InvoiceTab(BaseTabContainer):
         is_partial = grand_total > 0 and pay_now < grand_total
         if is_partial and not has_customer:
             return t("invoice.validation_credit_customer", language=self._language)
-        if is_partial and self.payment_order_status_combo.currentData() is None:
-            if self.payment_order_status_combo.count() > 1:
+        if is_partial and self.payment_order_status_combo.count() > 1:
+            if self.payment_order_status_combo.currentIndex() <= 0:
                 return t("invoice.validation_payment_status", language=self._language)
         if self.delivery_enabled_checkbox.isChecked():
             if self.delivery_company_combo.currentData() is None:
@@ -1312,9 +1312,9 @@ class InvoiceTab(BaseTabContainer):
         pay_now = min(float(self.pay_now_input.value()), total)
         is_partial = total > 0 and pay_now < total
         payment_due_date = self.payment_due_date_input.text().strip() if is_partial else ""
-        payment_order_status_id = (
-            self.payment_order_status_combo.currentData() if is_partial else None
-        )
+        payment_order_status_id = None
+        if is_partial and self.payment_order_status_combo.currentIndex() > 0:
+            payment_order_status_id = self.payment_order_status_combo.currentData()
         delivery_company_id = (
             self.delivery_company_combo.currentData() if delivery_enabled else None
         )
@@ -1380,12 +1380,12 @@ class InvoiceTab(BaseTabContainer):
                     loyalty_threshold=self._loyalty_alert_threshold,
                 )
                 printer.print_text_receipt(receipt_text.splitlines())
-        except Exception as exc:
-            logger.exception("Failed to save invoice")
+        except Exception as exc:  # noqa: BLE001 - show the error and keep the app open.
+            logger.exception("Failed to save invoice.")
             QMessageBox.critical(
                 self,
                 t("invoice.save_failed_title", language=self._language),
-                t("invoice.save_failed_message", language=self._language, error=exc),
+                t("invoice.save_failed_message", language=self._language, error=str(exc)),
             )
             return
         if customer_id:
@@ -1407,7 +1407,7 @@ class InvoiceTab(BaseTabContainer):
             t("common.saved_title", language=self._language),
             t("invoice.saved_message", language=self._language, invoice_no=invoice_no),
         )
-        self._reset_after_save()
+        self.reset_invoice_state()
         self.refresh_products()
 
     def _export_invoice_pdf(self) -> None:
@@ -1513,13 +1513,15 @@ class InvoiceTab(BaseTabContainer):
         )
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(tmp_path)))
 
-    def _reset_after_save(self, keep_customer: bool = False) -> None:
+    def reset_invoice_state(self, keep_customer: bool = False) -> None:
         self._reset_invoice(keep_customer=keep_customer)
         self._focus_default_input()
 
+    def _reset_after_save(self, keep_customer: bool = False) -> None:
+        self.reset_invoice_state(keep_customer=keep_customer)
+
     def _clear_invoice(self) -> None:
-        self._reset_invoice(keep_customer=False)
-        self._focus_default_input()
+        self.reset_invoice_state(keep_customer=False)
 
     def _reset_invoice(self, keep_customer: bool = False) -> None:
         self.items_table.setRowCount(0)

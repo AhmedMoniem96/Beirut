@@ -23,7 +23,8 @@ from .voucher_dialog import VoucherDialog
 import sys
 from pathlib import Path
 
-from ..core.paths import DB_PATH, BACKUP_DIR, CONFIG_DIR
+from ..core.db import DB_PATH
+from ..core.paths import BACKUP_DIR, CONFIG_DIR
 from ..services.backup import backup_now, restore_backup
 from .settings_branding import BrandingTextsPage
 

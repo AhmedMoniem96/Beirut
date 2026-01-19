@@ -1046,6 +1046,9 @@ class InvoiceTab(BaseTabContainer):
         search_shortcut = QShortcut(QKeySequence("/"), self)
         search_shortcut.activated.connect(self._focus_product_search)
 
+        new_invoice_shortcut = QShortcut(QKeySequence("Ctrl+N"), self)
+        new_invoice_shortcut.activated.connect(self._clear_invoice)
+
         new_customer_shortcut = QShortcut(QKeySequence("F2"), self)
         new_customer_shortcut.activated.connect(self._start_new_customer_entry)
 
@@ -1516,6 +1519,7 @@ class InvoiceTab(BaseTabContainer):
 
     def _clear_invoice(self) -> None:
         self._reset_invoice(keep_customer=False)
+        self._focus_default_input()
 
     def _reset_invoice(self, keep_customer: bool = False) -> None:
         self.items_table.setRowCount(0)
@@ -1869,7 +1873,7 @@ class InvoiceTab(BaseTabContainer):
         self.save_btn.setText(t("invoice.save_invoice", language=language))
         self.export_btn.setText(t("invoice.export_pdf", language=language))
         self.print_btn.setText(t("invoice.print", language=language))
-        self.clear_btn.setText(t("invoice.new_invoice", language=language))
+        self.clear_btn.setText(t("invoice.new", language=language))
         self._refresh_payment_methods()
         self._refresh_payment_statuses()
         self._refresh_delivery_companies()

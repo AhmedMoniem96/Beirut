@@ -386,6 +386,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "invoice.save_invoice": {"en": "Save Invoice [F8]", "ar": "حفظ الفاتورة [F8]"},
     "invoice.export_pdf": {"en": "Export PDF", "ar": "تصدير ملف بي دي إف"},
     "invoice.print": {"en": "Print", "ar": "طباعة"},
+    "invoice.new": {"en": "New Invoice", "ar": "فاتورة جديدة"},
     "invoice.new_invoice": {"en": "New Invoice", "ar": "فاتورة جديدة"},
     "invoice.validation_items": {"en": "Add at least 1 product.", "ar": "أضف منتجاً واحداً على الأقل."},
     "invoice.validation_customer": {

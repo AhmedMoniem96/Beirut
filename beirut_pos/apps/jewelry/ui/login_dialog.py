@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from ..services.auth import authenticate_user
 from ..services.i18n import get_ui_language, t
 from ..services.session import get_bootstrap_warning, set_current_user
+from ..services.settings import load_gallery_settings
 from .create_user_dialog import CreateUserDialog
 from .forgot_password_dialog import ForgotPasswordDialog
 from .styles import login_stylesheet
@@ -184,17 +185,27 @@ class LoginDialog(QDialog):
         return None
 
     def _load_logo_pixmap(self) -> QPixmap | None:
+        def _scaled_pixmap(path: Path) -> QPixmap | None:
+            if not path.exists():
+                return None
+            pixmap = QPixmap(str(path))
+            if pixmap.isNull():
+                return None
+            return pixmap.scaledToHeight(
+                120,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+
+        settings = load_gallery_settings()
+        if settings.logo_path:
+            custom_path = Path(settings.logo_path).expanduser()
+            custom_pixmap = _scaled_pixmap(custom_path)
+            if custom_pixmap:
+                return custom_pixmap
+
         root = Path(__file__).resolve().parents[4]
         logo_path = root / "assets" / "logo.jpeg"
-        if not logo_path.exists():
-            return None
-        pixmap = QPixmap(str(logo_path))
-        if pixmap.isNull():
-            return None
-        return pixmap.scaledToHeight(
-            120,
-            Qt.TransformationMode.SmoothTransformation,
-        )
+        return _scaled_pixmap(logo_path)
 
     def _set_message(self, message: str, *, kind: str = "info") -> None:
         palette = {

@@ -1713,7 +1713,7 @@ def create_invoice(
             total, payment_method, payment_due_date, payment_order_status_id,
             order_source, website_order_ref, delivery_enabled, delivery_company_id, delivery_fee,
             delivery_address, delivery_status_id, notes, return_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             invoice_no,
             invoice_datetime,

@@ -1232,8 +1232,8 @@ class InvoiceTab(BaseTabContainer):
         is_partial = grand_total > 0 and pay_now < grand_total
         if is_partial and not has_customer:
             return t("invoice.validation_credit_customer", language=self._language)
-        if is_partial and self.payment_order_status_combo.currentData() is None:
-            if self.payment_order_status_combo.count() > 1:
+        if is_partial and self.payment_order_status_combo.count() > 1:
+            if self.payment_order_status_combo.currentIndex() <= 0:
                 return t("invoice.validation_payment_status", language=self._language)
         if self.delivery_enabled_checkbox.isChecked():
             if self.delivery_company_combo.currentData() is None:
@@ -1312,9 +1312,9 @@ class InvoiceTab(BaseTabContainer):
         pay_now = min(float(self.pay_now_input.value()), total)
         is_partial = total > 0 and pay_now < total
         payment_due_date = self.payment_due_date_input.text().strip() if is_partial else ""
-        payment_order_status_id = (
-            self.payment_order_status_combo.currentData() if is_partial else None
-        )
+        payment_order_status_id = None
+        if is_partial and self.payment_order_status_combo.currentIndex() > 0:
+            payment_order_status_id = self.payment_order_status_combo.currentData()
         delivery_company_id = (
             self.delivery_company_combo.currentData() if delivery_enabled else None
         )

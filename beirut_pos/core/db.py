@@ -8,6 +8,7 @@ import sqlite3
 import stat
 from contextlib import contextmanager
 from datetime import date, datetime
+from importlib import resources
 from pathlib import Path
 from typing import Iterator, Tuple
 
@@ -15,12 +16,25 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from .config_store import get_config_value, set_config_value
-from .paths import BACKUP_DIR, DATA_DIR, DB_PATH, ensure_storage_dirs
+from .paths import BACKUP_DIR
 
 _VALID_SYNC = {"OFF", "NORMAL", "FULL", "EXTRA"}
 _DEFAULT_SYNC = "FULL"
 
-ensure_storage_dirs()
+def _resolve_db_path() -> Path:
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+        if not base:
+            base = str(Path.home() / "AppData" / "Roaming")
+        return Path(base) / "BeirutPOS" / "beirut_pos.sqlite"
+    return Path.home() / ".local" / "share" / "BeirutPOS" / "beirut_pos.sqlite"
+
+
+DB_PATH = _resolve_db_path().expanduser()
+
+
+def _ensure_db_dir() -> None:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 _ENGINE = create_engine(
     f"sqlite:///{DB_PATH.as_posix()}",
@@ -42,9 +56,9 @@ def _ensure_schema_backup() -> None:
 
     timestamp = datetime.utcnow().strftime("%Y%m%d-%I%M%S%p")
     backup_name = f"{DB_PATH.stem}.{timestamp}.bak"
-    backup_path = DATA_DIR / backup_name
+    backup_path = DB_PATH.parent / backup_name
     try:
-        ensure_storage_dirs()
+        _ensure_db_dir()
         shutil.copy2(DB_PATH, backup_path)
     except Exception:
         return
@@ -61,10 +75,53 @@ def _ensure_path_writable(path: Path) -> None:
         return
 
 
+def _is_path_writable(path: Path) -> bool:
+    try:
+        return os.access(path, os.W_OK)
+    except OSError:
+        return False
+
+
 def _ensure_db_writable() -> None:
-    _ensure_path_writable(DATA_DIR)
+    _ensure_path_writable(DB_PATH.parent)
     if DB_PATH.exists():
         _ensure_path_writable(DB_PATH)
+
+
+def _locate_seed_db() -> resources.abc.Traversable | None:
+    try:
+        package_root = resources.files("beirut_pos")
+    except Exception:
+        return None
+
+    candidates = (
+        package_root / "beirut_pos.sqlite",
+        package_root / "beirut_pos.db",
+        package_root / "seed" / "beirut_pos.sqlite",
+        package_root / "seed" / "beirut_pos.db",
+    )
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate
+        except (FileNotFoundError, OSError):
+            continue
+    return None
+
+
+def _copy_seed_db_if_needed() -> None:
+    if DB_PATH.exists():
+        return
+    seed = _locate_seed_db()
+    if seed is None:
+        return
+    _ensure_db_dir()
+    try:
+        with resources.as_file(seed) as seed_path:
+            shutil.copy2(seed_path, DB_PATH)
+    except OSError:
+        return
+    _ensure_path_writable(DB_PATH)
 
 
 def _current_sync() -> str:
@@ -177,11 +234,17 @@ def _ensure_customer_search_indexes(cur: sqlite3.Cursor) -> None:
 
 
 def safe_migrations() -> None:
-    ensure_storage_dirs()
+    _ensure_db_dir()
+    _copy_seed_db_if_needed()
     _ensure_db_writable()
     first_time = not DB_PATH.exists()
     if not first_time:
         _backup_database()
+
+    print(
+        f"[DB] path={DB_PATH} writable={_is_path_writable(DB_PATH)} "
+        f"dir_writable={_is_path_writable(DB_PATH.parent)}"
+    )
 
     conn = get_conn()
     cur = conn.cursor()
@@ -419,7 +482,7 @@ def _backup_database() -> None:
     if not DB_PATH.exists():
         return
     timestamp = datetime.utcnow().strftime("%Y%m%d-%I%M%S%p")
-    target = DATA_DIR / f"{DB_PATH.stem}-{timestamp}.bak"
+    target = DB_PATH.parent / f"{DB_PATH.stem}-{timestamp}.bak"
     try:
         shutil.copy2(DB_PATH, target)
     except Exception:

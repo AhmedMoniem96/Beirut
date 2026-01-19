@@ -12,7 +12,6 @@ __all__ = [
     "BACKUP_DIR",
     "LICENSE_DIR",
     "LOG_DIR",
-    "DB_PATH",
     "SETTINGS_FILE",
     "LICENSE_CACHE_FILE",
     "ensure_storage_dirs",
@@ -39,7 +38,6 @@ BACKUP_DIR = BASE_DIR / "backup"
 LICENSE_DIR = BASE_DIR / "license"
 LOG_DIR = BASE_DIR / "logs"
 
-DB_PATH = DATA_DIR / "beirut_pos.db"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 LICENSE_CACHE_FILE = LICENSE_DIR / "license.sig.json"
 

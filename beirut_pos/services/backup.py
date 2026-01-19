@@ -12,7 +12,8 @@ from typing import List, Optional
 
 from ..core import db as db_module
 from ..core.config_store import get_config_value, set_config_value
-from ..core.paths import BACKUP_DIR, DB_PATH, ensure_storage_dirs
+from ..core.db import DB_PATH
+from ..core.paths import BACKUP_DIR, ensure_storage_dirs
 
 _BACKUP_NAME = "beirut_pos.db"
 

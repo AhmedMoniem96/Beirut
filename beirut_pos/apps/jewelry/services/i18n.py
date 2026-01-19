@@ -56,6 +56,10 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "order_details.paid": {"en": "Paid", "ar": "المدفوع"},
     "order_details.remaining": {"en": "Remaining", "ar": "المتبقي"},
     "order_details.payment_status": {"en": "Payment Status", "ar": "حالة الدفع"},
+    "order_details.payment_order_status": {
+        "en": "Payment Order Status",
+        "ar": "حالة طلب الدفع",
+    },
     "order_details.items": {"en": "Items", "ar": "الأصناف"},
     "language.label": {"en": "Language", "ar": "اللغة"},
     "language.option.ar": {"en": "Arabic", "ar": "العربية"},

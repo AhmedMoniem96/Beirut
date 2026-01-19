@@ -417,6 +417,11 @@ _TEXTS: Dict[str, Dict[str, str]] = {
         "en": "Add at least one item.",
         "ar": "أضف عنصراً واحداً على الأقل.",
     },
+    "invoice.save_failed_title": {"en": "Save Failed", "ar": "فشل الحفظ"},
+    "invoice.save_failed_message": {
+        "en": "Unable to save the invoice. Please try again.\n{error}",
+        "ar": "تعذر حفظ الفاتورة. يرجى المحاولة مرة أخرى.\n{error}",
+    },
     "invoice.customer_required": {
         "en": "Customer name and phone are required.",
         "ar": "اسم العميل ورقم الهاتف مطلوبان.",

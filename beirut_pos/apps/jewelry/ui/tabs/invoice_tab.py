@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -61,6 +62,8 @@ from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
 from beirut_pos.services.printer import printer
 from .base_tab import BaseTabContainer
+
+logger = logging.getLogger(__name__)
 
 
 class InvoiceTab(BaseTabContainer):
@@ -1325,52 +1328,63 @@ class InvoiceTab(BaseTabContainer):
         notes = self.notes_input.toPlainText().strip()
         return_reason = self.return_reason_input.text().strip() if txn_type == "return" else ""
         items = self._collect_items()
-        invoice_no, invoice_id = create_invoice(
-            cashier,
-            txn_type,
-            customer_id,
-            customer_name,
-            customer_phone,
-            subtotal,
-            discount,
-            discount_type,
-            discount_value,
-            loyalty_earned,
-            loyalty_redeem,
-            total,
-            payment_method,
-            payment_due_date,
-            payment_order_status_id,
-            order_source,
-            website_order_ref,
-            delivery_enabled,
-            delivery_company_id,
-            delivery_fee,
-            delivery_address,
-            delivery_status_id,
-            notes,
-            return_reason,
-            items,
-        )
-        if pay_now > 0:
-            create_order_payment(invoice_id, payment_method, pay_now, cashier_name=cashier)
-        recalculate_invoice_payment_totals(invoice_id)
-        self._last_invoice_no = invoice_no
-        self.invoice_info_label.setText(t("invoice.info_number", language=self._language, invoice_no=invoice_no))
-        settings = QSettings()
-        if settings.value("loyalty_auto_print", False, bool):
-            invoice, items = fetch_invoice_details(invoice_no)
-            self._load_loyalty_settings()
-            loyalty_balance = None
-            if invoice.customer_id:
-                loyalty_balance = get_loyalty_balance(invoice.customer_id)
-            receipt_text = build_receipt_text(
-                invoice,
+        try:
+            invoice_no, invoice_id = create_invoice(
+                cashier,
+                txn_type,
+                customer_id,
+                customer_name,
+                customer_phone,
+                subtotal,
+                discount,
+                discount_type,
+                discount_value,
+                loyalty_earned,
+                loyalty_redeem,
+                total,
+                payment_method,
+                payment_due_date,
+                payment_order_status_id,
+                order_source,
+                website_order_ref,
+                delivery_enabled,
+                delivery_company_id,
+                delivery_fee,
+                delivery_address,
+                delivery_status_id,
+                notes,
+                return_reason,
                 items,
-                loyalty_balance=loyalty_balance,
-                loyalty_threshold=self._loyalty_alert_threshold,
             )
-            printer.print_text_receipt(receipt_text.splitlines())
+            if pay_now > 0:
+                create_order_payment(invoice_id, payment_method, pay_now, cashier_name=cashier)
+            recalculate_invoice_payment_totals(invoice_id)
+            self._last_invoice_no = invoice_no
+            self.invoice_info_label.setText(
+                t("invoice.info_number", language=self._language, invoice_no=invoice_no)
+            )
+            settings = QSettings()
+            if settings.value("loyalty_auto_print", False, bool):
+                invoice, items = fetch_invoice_details(invoice_no)
+                self._load_loyalty_settings()
+                loyalty_balance = None
+                if invoice.customer_id:
+                    loyalty_balance = get_loyalty_balance(invoice.customer_id)
+                receipt_text = build_receipt_text(
+                    invoice,
+                    items,
+                    loyalty_balance=loyalty_balance,
+                    loyalty_threshold=self._loyalty_alert_threshold,
+                )
+                printer.print_text_receipt(receipt_text.splitlines())
+        except Exception as exc:
+            logger.exception("Failed to save invoice")
+            QMessageBox.critical(
+                self,
+                t("invoice.save_failed_title", language=self._language),
+                t("invoice.save_failed_message", language=self._language, error=exc),
+            )
+            return
         if customer_id:
             self._load_loyalty_settings()
             self._customer_points = get_loyalty_balance(customer_id)

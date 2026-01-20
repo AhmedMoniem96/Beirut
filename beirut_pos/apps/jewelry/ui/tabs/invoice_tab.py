@@ -1322,12 +1322,10 @@ class InvoiceTab(BaseTabContainer):
         delivery_status_id = (
             self.delivery_status_combo.currentData() if delivery_enabled else None
         )
-        order_source = "website" if self._website_orders_enabled else (self.order_source_combo.currentData() or "in_store")
-        website_order_ref = ""
-        if order_source == "website":
-            website_order_ref = self.website_order_input.text().strip()
-        if order_source != "website":
-            website_order_ref = ""
+        order_source = self.order_source_combo.currentData() or "in_store"
+        website_order_ref = (
+            self.website_order_input.text().strip() if order_source == "website" else ""
+        )
         notes = self.notes_input.toPlainText().strip()
         return_reason = self.return_reason_input.text().strip() if txn_type == "return" else ""
         items = self._collect_items()

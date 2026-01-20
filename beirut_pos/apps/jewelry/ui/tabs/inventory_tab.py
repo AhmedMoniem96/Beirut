@@ -460,7 +460,7 @@ class InventoryTab(BaseTabContainer):
                     label_img,
                     printer_name=settings.barcode_printer_name,
                 )
-            except Exception as exc:
+            except BaseException as exc:
                 QMessageBox.critical(
                     self,
                     t("inventory.print_failed", language=self._language),

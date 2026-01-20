@@ -525,40 +525,41 @@ def _migrate_customer_tables(cur) -> None:
     phone_col = customer_columns.get("phone")
     phone_pk = bool(phone_col and phone_col[5] == 1)
     needs_customer_migration = has_id or not phone_pk
-    if has_id:
-        cur.execute("DROP TABLE IF EXISTS jw_customer_id_map")
-        cur.execute(
-            """CREATE TEMP TABLE jw_customer_id_map AS
-               SELECT id, TRIM(phone) AS phone
-               FROM jw_customers
-               WHERE phone IS NOT NULL AND TRIM(phone) != ''"""
-        )
-    if needs_customer_migration:
-        cur.execute("DROP TABLE IF EXISTS jw_customers_new")
-        cur.execute(
-            """CREATE TABLE jw_customers_new(
-                phone TEXT NOT NULL PRIMARY KEY,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL
-            )"""
-        )
-        cur.execute(
-            """INSERT OR IGNORE INTO jw_customers_new(phone, name, email, created_at)
-               SELECT TRIM(phone), name, COALESCE(email, ''), created_at
-               FROM jw_customers
-               WHERE phone IS NOT NULL AND TRIM(phone) != ''"""
-        )
-        cur.execute("DROP TABLE jw_customers")
-        cur.execute("ALTER TABLE jw_customers_new RENAME TO jw_customers")
-
     conn.commit()
     conn.execute("PRAGMA foreign_keys=OFF")
     try:
+        if has_id:
+            cur.execute("DROP TABLE IF EXISTS jw_customer_id_map")
+            cur.execute(
+                """CREATE TEMP TABLE jw_customer_id_map AS
+                   SELECT id, TRIM(phone) AS phone
+                   FROM jw_customers
+                   WHERE phone IS NOT NULL AND TRIM(phone) != ''"""
+            )
+        if needs_customer_migration:
+            cur.execute("DROP TABLE IF EXISTS jw_customers_new")
+            cur.execute(
+                """CREATE TABLE jw_customers_new(
+                    phone TEXT NOT NULL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                )"""
+            )
+            cur.execute(
+                """INSERT OR IGNORE INTO jw_customers_new(phone, name, email, created_at)
+                   SELECT TRIM(phone), name, COALESCE(email, ''), created_at
+                   FROM jw_customers
+                   WHERE phone IS NOT NULL AND TRIM(phone) != ''"""
+            )
+            cur.execute("DROP TABLE jw_customers")
+            cur.execute("ALTER TABLE jw_customers_new RENAME TO jw_customers")
+
+        conn.commit()
         _migrate_invoice_customer_keys(cur, has_id)
         _migrate_loyalty_customer_keys(cur, has_id)
-    finally:
         conn.commit()
+    finally:
         conn.execute("PRAGMA foreign_keys=ON")
 
 

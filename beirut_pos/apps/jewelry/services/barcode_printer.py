@@ -121,17 +121,20 @@ def print_barcode_label_image(
     *,
     printer_name: str,
 ) -> None:
-    if printer_name and printer_name != "auto" and printer_service._IS_WINDOWS:
-        printer_service.win_print_image(printer_name, img.convert("RGB"))
-        return
+    try:
+        if printer_name and printer_name != "auto" and printer_service._IS_WINDOWS:
+            printer_service.win_print_image(printer_name, img.convert("RGB"))
+            return
 
-    escpos_printer = printer_service._find_thermal_printer()
-    if not escpos_printer:
-        raise RuntimeError("No ESC/POS printer detected.")
+        escpos_printer = printer_service._find_thermal_printer()
+        if not escpos_printer:
+            raise RuntimeError("No ESC/POS printer detected.")
 
-    raster = pil_image_to_escpos_raster(img)
-    if hasattr(escpos_printer, "_raw"):
-        escpos_printer._raw(raster)
-    elif hasattr(escpos_printer, "image"):
-        escpos_printer.image(img)
-    printer_service._post_feed_and_cut(escpos_printer)
+        raster = pil_image_to_escpos_raster(img)
+        if hasattr(escpos_printer, "_raw"):
+            escpos_printer._raw(raster)
+        elif hasattr(escpos_printer, "image"):
+            escpos_printer.image(img)
+        printer_service._post_feed_and_cut(escpos_printer)
+    except BaseException as exc:
+        raise RuntimeError(f"Barcode printing failed: {exc}") from exc

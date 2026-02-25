@@ -1,8 +1,9 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
-from PyQt6.QtCore import QTimer, Qt
 from datetime import datetime, timezone
 import re
-from typing import Optional, Callable, Dict, Any
+from typing import Any, Callable, Dict, Optional
+
+from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 
 class PSControls(QWidget):
@@ -55,10 +56,10 @@ class PSControls(QWidget):
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self._tick)
 
-        # session data used for authoritative elapsed calculation:
+        # session data used for authoritative elapsed calculation
         self._mode: Optional[str] = None
-        self._started_at: Optional[datetime] = None   # tz-aware UTC
-        self._base_total_seconds: int = 0             # persisted/accumulated seconds before started_at
+        self._started_at: Optional[datetime] = None  # tz-aware UTC
+        self._base_total_seconds: int = 0            # persisted seconds before started_at
 
     def _safe(self, fn):
         try:
@@ -67,7 +68,6 @@ class PSControls(QWidget):
             # bubble up to the global excepthook so the app can handle/log it
             raise
 
-    # ----- helpers for parsing started_at safely -----
     @staticmethod
     def _ensure_dt(value) -> Optional[datetime]:
         """Accept datetime or ISO string. Return tz-aware UTC datetime or None."""
@@ -84,7 +84,6 @@ class PSControls(QWidget):
                         raw_value += "+00:00"
                 dt = datetime.fromisoformat(raw_value)
             except Exception:
-                # last resort: try naive parse fallback (very permissive)
                 try:
                     dt = datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%S")
                 except Exception:
@@ -100,76 +99,26 @@ class PSControls(QWidget):
         s = seconds % 60
         return f"{h:02d}:{m:02d}:{s:02d}"
 
-    # ----- public API -----
-    from datetime import datetime, timezone
+    def update_session(self, sess: Optional[Dict[str, Any]]) -> None:
+        """
+        sess: None => stop and clear
+        sess: dict with keys 'mode', 'started_at' (ISO string or datetime), 'total_seconds' (int)
+        """
+        if not sess:
+            self.show_stopped("لا توجد جلسة بلايستيشن")
+            return
 
-    class PSControls(QWidget):
-        # ... existing __init__ and methods ...
+        self._mode = str(sess.get("mode") or "P2")
+        self._base_total_seconds = int(sess.get("total_seconds", 0) or 0)
+        self._started_at = self._ensure_dt(sess.get("started_at"))
 
-        def update_session(self, sess: dict | None) -> None:
-            """
-            sess: None => stop and clear
-            sess: dict with keys 'mode', 'started_at' (ISO string or datetime), 'total_seconds' (int)
-            """
-            if not sess:
-                # stop timer + show stopped message
-                self.show_stopped("لا توجد جلسة بلايستيشن")
-                return
+        seconds = self._compute_elapsed_seconds()
+        title = "٢ لاعبين" if self._mode == "P2" else "٤ لاعبين"
+        self.status.setText(f"جلسة بلايستيشن ({title}) — {self._format_hms(seconds)}")
 
-            mode = sess.get("mode", "P2")
-            started = sess.get("started_at")
-            total_seconds = int(sess.get("total_seconds", 0) or 0)
+        if not self.timer.isActive():
+            self.timer.start()
 
-            # normalize started to datetime (tz-aware if possible)
-            if isinstance(started, str):
-                try:
-                    raw_value = started
-                    if raw_value.endswith("Z"):
-                        raw_value = raw_value[:-1]
-                        if not re.search(r"[+-]\d{2}:\d{2}$", raw_value):
-                            raw_value += "+00:00"
-                    started_dt = datetime.fromisoformat(raw_value)
-                except Exception:
-                    started_dt = datetime.now(timezone.utc)
-            elif isinstance(started, datetime):
-                started_dt = started
-            else:
-                started_dt = datetime.now(timezone.utc)
-
-            if started_dt.tzinfo is None:
-                started_dt = started_dt.replace(tzinfo=timezone.utc)
-
-            now = datetime.now(timezone.utc)
-            elapsed_since_started = max(0, int((now - started_dt).total_seconds()))
-            self._seconds = total_seconds + elapsed_since_started
-
-            # Show running UI and ensure timer is active
-            title = "٢ لاعبين" if mode == "P2" else "٤ لاعبين"
-            if not self.timer.isActive():
-                self.timer.start(1000)
-            self.status.setText(f"جلسة بلايستيشن ({title}) — {self._fmt_seconds(self._seconds)}")
-
-        def _fmt_seconds(self, seconds: int) -> str:
-            h = seconds // 3600
-            m = (seconds % 3600) // 60
-            s = seconds % 60
-            return f"{h:02d}:{m:02d}:{s:02d}"
-
-        def _tick(self):
-            self._seconds += 1
-            parts = self.status.text().split("—")
-            prefix = parts[0].strip() if parts else "جلسة بلايستيشن"
-            self.status.setText(f"{prefix} — {self._fmt_seconds(self._seconds)}")
-
-    def _stop_and_clear(self, msg: str = "لا توجد جلسة بلايستيشن") -> None:
-        if self.timer.isActive():
-            self.timer.stop()
-        self._mode = None
-        self._started_at = None
-        self._base_total_seconds = 0
-        self.status.setText(msg)
-
-    # ----- internal tick -----
     def _compute_elapsed_seconds(self) -> int:
         """Compute base_total_seconds + elapsed since started_at (if any)."""
         base = int(self._base_total_seconds or 0)
@@ -183,10 +132,10 @@ class PSControls(QWidget):
 
     def _tick(self) -> None:
         if not self._mode:
-            # nothing to do: stop timer to save CPU
             if self.timer.isActive():
                 self.timer.stop()
             return
+
         seconds = self._compute_elapsed_seconds()
         title = "٢ لاعبين" if self._mode == "P2" else "٤ لاعبين"
         self.status.setText(f"جلسة بلايستيشن ({title}) — {self._format_hms(seconds)}")
@@ -196,16 +145,22 @@ class PSControls(QWidget):
         self._mode = mode
         self._started_at = datetime.now(timezone.utc)
         self._base_total_seconds = 0
+
         if not self.timer.isActive():
             self.timer.start()
+
         title = "٢ لاعبين" if mode == "P2" else "٤ لاعبين"
         self.status.setText(f"جلسة بلايستيشن ({title}) — 00:00:00")
 
     def show_stopped(self, msg: str = "لا توجد جلسة بلايستيشن"):
-        self._stop_and_clear(msg)
+        if self.timer.isActive():
+            self.timer.stop()
+        self._mode = None
+        self._started_at = None
+        self._base_total_seconds = 0
+        self.status.setText(msg)
 
     def closeEvent(self, e):
-        # make sure timer is stopped on dispose
         if self.timer.isActive():
             self.timer.stop()
         super().closeEvent(e)

@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QPalette, QColor
 from beirut_pos.core.auth import authenticate
+from beirut_pos.utils.error_handling import report_exception
 from .forgot_password_dialog import ForgotPasswordDialog
 from .create_user_dialog import CreateUserDialog
 from .common.branding import get_logo_pixmap, get_logo_icon, build_login_stylesheet
@@ -235,7 +236,32 @@ class LoginDialog(QDialog):
     def _do_login(self):
         self.u_field.clear_status()
         self.p_field.clear_status()
-        user = authenticate(self.u.text().strip(), self.p.text())
+        username = self.u.text().strip()
+        password = self.p.text()
+
+        if not username or not password:
+            message = texts.get("login.empty_fields")
+            self.msg.setText(message)
+            self._set_message_state("error")
+            self.u_field.mark_error(message)
+            self.p_field.mark_error(message)
+            return
+
+        try:
+            user = authenticate(username, password)
+        except Exception as exc:
+            report_exception(
+                "تسجيل الدخول",
+                exc,
+                extra=f"username={username!r}",
+            )
+            message = texts.get("login.unexpected_error")
+            self.msg.setText(message)
+            self._set_message_state("error")
+            self.u_field.mark_error(message)
+            self.p_field.mark_error(message)
+            return
+
         if user:
             self._user = user
             self._set_message_state("info")

@@ -6,7 +6,7 @@ from .orders import PSSession
 
 def load_ps_session_from_db(table_code: str) -> Optional[PSSession]:
     """Load PS session from database for a table."""
-    from .core.db import get_conn
+    from beirut_pos.core.db import get_conn
 
     conn = get_conn()
     cur = conn.cursor()

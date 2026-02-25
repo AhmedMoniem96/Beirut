@@ -20,6 +20,27 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _close_open_session(cur, session_id: int, *, now: Optional[datetime] = None) -> bool:
+    cur.execute(
+        "SELECT login_at, logout_at FROM user_sessions WHERE id=?",
+        (session_id,),
+    )
+    row = cur.fetchone()
+    if not row or row["logout_at"]:
+        return False
+
+    close_time = now or datetime.utcnow()
+    login_at = _parse_iso(row["login_at"])
+    duration = 0
+    if login_at is not None:
+        duration = max(int((close_time - login_at).total_seconds()), 0)
+    cur.execute(
+        "UPDATE user_sessions SET logout_at=?, duration_seconds=? WHERE id=?",
+        (close_time.isoformat(), duration, session_id),
+    )
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Payroll helpers
 # ---------------------------------------------------------------------------
@@ -318,17 +339,70 @@ def record_salary_payment(entry: Dict[str, object]) -> None:
 # Attendance helpers
 # ---------------------------------------------------------------------------
 
-def start_session(username: str) -> Optional[int]:
+def close_stale_open_sessions(
+    username: str,
+    *,
+    workstation: str = "",
+    exclude_session_id: Optional[int] = None,
+) -> List[int]:
+    """Close stale open sessions for the given *username*/*workstation* pair.
+
+    Returns a list of closed session IDs.
+    """
+
+    clean_user = (username or "").strip()
+    clean_station = (workstation or "").strip()
+    if not clean_user:
+        return []
+
+    with db_transaction() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id
+            FROM user_sessions
+            WHERE username=? AND workstation=? AND logout_at IS NULL
+            ORDER BY login_at ASC, id ASC
+            """,
+            (clean_user, clean_station),
+        )
+        rows = [int(r["id"]) for r in cur.fetchall()]
+        closed: list[int] = []
+        now = datetime.utcnow()
+        for sid in rows:
+            if exclude_session_id and sid == int(exclude_session_id):
+                continue
+            if _close_open_session(cur, sid, now=now):
+                closed.append(sid)
+        return closed
+
+
+def start_session(username: str, *, workstation: str = "") -> Optional[int]:
     """Create a login session row for *username* and return its id."""
 
     clean = (username or "").strip()
+    clean_station = (workstation or "").strip()
     if not clean:
         return None
     with db_transaction() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO user_sessions(username, login_at) VALUES(?, ?)",
-            (clean, _now_iso()),
+            """
+            SELECT id
+            FROM user_sessions
+            WHERE username=? AND workstation=? AND logout_at IS NULL
+            ORDER BY login_at ASC, id ASC
+            """,
+            (clean, clean_station),
+        )
+        stale_ids = [int(r["id"]) for r in cur.fetchall()]
+        now = datetime.utcnow()
+        for stale_id in stale_ids:
+            _close_open_session(cur, stale_id, now=now)
+
+        cur.execute(
+            "INSERT INTO user_sessions(username, login_at, workstation) VALUES(?, ?, ?)",
+            (clean, now.isoformat(), clean_station),
         )
         return cur.lastrowid
 
@@ -340,24 +414,7 @@ def end_session(session_id: Optional[int]) -> None:
         return
     with db_transaction() as conn:
         cur = conn.cursor()
-        cur.execute(
-            "SELECT login_at, logout_at FROM user_sessions WHERE id=?",
-            (session_id,),
-        )
-        row = cur.fetchone()
-        if not row:
-            return
-        if row["logout_at"]:
-            return
-        login_at = _parse_iso(row["login_at"])
-        now = datetime.utcnow()
-        duration = 0
-        if login_at is not None:
-            duration = max(int((now - login_at).total_seconds()), 0)
-        cur.execute(
-            "UPDATE user_sessions SET logout_at=?, duration_seconds=? WHERE id=?",
-            (now.isoformat(), duration, session_id),
-        )
+        _close_open_session(cur, int(session_id))
 
 
 def summarize_session_hours(start_iso: str, end_iso: str) -> List[Dict[str, object]]:

@@ -40,6 +40,7 @@ from .admin_reports_dialog import AdminReportsDialog
 
 # NEW: settings & daily Z-report dialogs
 from .settings_dialog import SettingsDialog
+from .printer_quick_dialog import PrinterQuickDialog
 # from .zreport_dialog import ZReportDialog
 from .coffee_customizer import CoffeeCustomizerDialog
 from .product_option_dialog import ProductOptionDialog
@@ -124,6 +125,9 @@ class MainWindow(QMainWindow):
         self.act_switch = QAction(self)
         self.act_switch.triggered.connect(self._switch_user)
         bar.addAction(self.act_switch)
+        self.act_printer_quick = QAction(self)
+        self.act_printer_quick.triggered.connect(self._open_printer_quick_settings)
+        bar.addAction(self.act_printer_quick)
         self.act_manage = QAction(self)
         self.act_manage.triggered.connect(self._open_manage_products)
         self.act_users = QAction(self)
@@ -161,6 +165,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._open_settings)
         QShortcut(QKeySequence("Ctrl+Shift+T"), self, activated=self._open_tables_admin)
         QShortcut(QKeySequence("Ctrl+Shift+B"), self, activated=self._open_recovery_center)
+        QShortcut(QKeySequence("Ctrl+Shift+P"), self, activated=self._open_printer_quick_settings)
         QShortcut(QKeySequence("Ctrl+/"), self, activated=self._show_hotkeys_help)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_command_palette)
 
@@ -449,6 +454,13 @@ class MainWindow(QMainWindow):
                 "admin": False,
             },
             {
+                "key": "printer_quick",
+                "text": texts.get("main.toolbar.printer_quick", "الطابعات السريعة"),
+                "icon": QStyle.StandardPixmap.SP_DialogApplyButton,
+                "handler": self._open_printer_quick_settings,
+                "admin": False,
+            },
+            {
                 "key": "manage",
                 "text": texts.get("main.toolbar.manage", "المنتجات"),
                 "icon": QStyle.StandardPixmap.SP_FileDialogDetailedView,
@@ -618,6 +630,7 @@ class MainWindow(QMainWindow):
         labels = {
             "tables": texts.get("main.tables.title", "الطاولات"),
             "reservations": texts.get("main.toolbar.reservations", "الحجوزات"),
+            "printer_quick": texts.get("main.toolbar.printer_quick", "الطابعات السريعة"),
             "inventory": texts.get("main.toolbar.inventory", "المخزون"),
             "reports": texts.get("main.toolbar.reports", "التقارير"),
             "purchases": texts.get("main.toolbar.purchases", "المشتريات"),
@@ -698,6 +711,12 @@ class MainWindow(QMainWindow):
                 self._open_reservations,
                 shortcut="Ctrl+Shift+V",
                 subtitle="عرض وإدارة الحجوزات",
+            ),
+            build_command(
+                texts.get("main.toolbar.printer_quick", "الطابعات السريعة"),
+                self._open_printer_quick_settings,
+                shortcut="Ctrl+Shift+P",
+                subtitle="تحديث واختيار طابعة البار والكاشير بسرعة",
             ),
         ]
 
@@ -1069,6 +1088,12 @@ class MainWindow(QMainWindow):
             self._show_banner("هذه العملية للمدير فقط.", "warn")
             return
         SettingsDialog(self).exec()
+
+    def _open_printer_quick_settings(self):
+        if self.user.role not in {"admin", "cashier"}:
+            self._show_banner("غير مصرح بفتح إعدادات الطابعة.", "warn")
+            return
+        PrinterQuickDialog(self).exec()
 
     def _open_style_guide(self):
         if self.user.role != "admin":
@@ -1461,6 +1486,7 @@ class MainWindow(QMainWindow):
         self.act_purchases.setText(texts.get("main.toolbar.purchases"))
         self.act_inventory.setText(texts.get("main.toolbar.inventory"))
         self.act_settings.setText(texts.get("main.toolbar.settings"))
+        self.act_printer_quick.setText(texts.get("main.toolbar.printer_quick", "الطابعات السريعة"))
         self.act_reservations.setText(texts.get("main.toolbar.reservations"))
         self.act_style_guide.setText(texts.get("main.toolbar.style_guide", "دليل النمط"))
         self.banner_close.setText(texts.get("main.banner.close"))

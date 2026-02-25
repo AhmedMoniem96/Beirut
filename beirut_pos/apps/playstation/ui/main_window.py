@@ -59,6 +59,7 @@ from .inventory_dialog import InventoryDialog
 from .style_guide_dialog import StyleGuideDialog
 from ..services import staff as staff_service
 from .command_palette import CommandPaletteDialog, build_command
+from beirut_pos.utils.error_handling import report_exception
 
 PAGE_TABLES = 0
 PAGE_ORDER = 1
@@ -73,7 +74,10 @@ class MainWindow(QMainWindow):
         self._tablet_breakpoint = 1280
         self._current_breakpoint: str | None = None
         try:
-            self._active_session_id = staff_service.start_session(self.user.username)
+            self._active_session_id = staff_service.start_session(
+                self.user.username,
+                workstation=self._workstation_id(),
+            )
         except Exception:
             self._active_session_id = None
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
@@ -988,15 +992,36 @@ class MainWindow(QMainWindow):
         self._show_shift_summary()
         dlg = LoginDialog()
         if dlg.exec() == dlg.DialogCode.Accepted:
+            old_session_id = self._active_session_id
             try:
-                staff_service.end_session(self._active_session_id)
-            except Exception:
-                pass
+                staff_service.end_session(old_session_id)
+                self._active_session_id = None
+            except Exception as exc:
+                self._handle_staff_session_error(
+                    exc,
+                    context="إنهاء جلسة المستخدم الحالي",
+                    user_message="تعذر إنهاء الجلسة السابقة. يمكن المتابعة، لكن يُفضّل مراجعة تقرير الوردية.",
+                )
             self.user = dlg.get_user()
             try:
-                self._active_session_id = staff_service.start_session(self.user.username)
-            except Exception:
+                self._active_session_id = staff_service.start_session(
+                    self.user.username,
+                    workstation=self._workstation_id(),
+                )
+            except Exception as exc:
                 self._active_session_id = None
+                self._handle_staff_session_error(
+                    exc,
+                    context="بدء جلسة المستخدم الجديد",
+                    user_message="تم تبديل المستخدم ولكن تعذر بدء جلسة الحضور. يرجى إعادة المحاولة أو مراجعة السجلات.",
+                )
+            if not self._active_session_id:
+                self._active_session_id = None
+                self._show_banner(
+                    "تم تبديل المستخدم بدون تسجيل جلسة حضور جديدة. يرجى إعادة تسجيل الدخول عند الحاجة.",
+                    "warn",
+                    duration=10000,
+                )
             self._apply_window_title()
             is_admin = self.user.role == "admin"
             for btn in self._admin_nav_buttons:
@@ -1633,6 +1658,17 @@ class MainWindow(QMainWindow):
             msg += f"\nالتفاصيل: {detail}"
         self._show_banner(msg, "error", duration=12000)
 
+    def _handle_staff_session_error(self, exc: Exception, *, context: str, user_message: str) -> None:
+        report_exception(context, exc)
+        detail = str(exc).strip()
+        msg = user_message
+        if detail:
+            msg += f"\nالتفاصيل: {detail}"
+        self._show_banner(msg, "warn", duration=12000)
+
+    def _workstation_id(self) -> str:
+        return "playstation-main-window"
+
     def _update_session_timer(self):
         elapsed = datetime.utcnow() - self._session_started
         seconds = int(elapsed.total_seconds())
@@ -1659,8 +1695,12 @@ class MainWindow(QMainWindow):
             self._ps_snapshot_timer.stop()
         try:
             staff_service.end_session(self._active_session_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._handle_staff_session_error(
+                exc,
+                context="إنهاء الجلسة عند إغلاق النافذة",
+                user_message="تعذر إغلاق جلسة المستخدم الحالية قبل الخروج.",
+            )
         super().closeEvent(event)
 
     def _on_ps_snapshot(self):

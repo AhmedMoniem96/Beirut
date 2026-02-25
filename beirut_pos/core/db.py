@@ -315,6 +315,7 @@ def safe_migrations() -> None:
     _ensure_staff_payroll_period(cur)
     _ensure_manual_staff_table(cur)
     _ensure_payroll_history_table(cur)
+    _ensure_user_sessions_workstation_column(cur)
     _normalize_payroll_units(cur)
     conn.commit()
 
@@ -580,6 +581,16 @@ def _ensure_payroll_history_table(cur) -> None:
                 net_cents INTEGER NOT NULL DEFAULT 0
             )"""
     )
+
+
+def _ensure_user_sessions_workstation_column(cur) -> None:
+    cur.execute("PRAGMA table_info(user_sessions)")
+    cols = [str(r[1]).lower() for r in cur.fetchall()]
+    if "workstation" in cols:
+        return
+
+    _ensure_schema_backup()
+    cur.execute("ALTER TABLE user_sessions ADD COLUMN workstation TEXT NOT NULL DEFAULT ''")
 
 
 def _normalize_payroll_units(cur) -> None:

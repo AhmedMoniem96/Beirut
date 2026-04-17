@@ -37,6 +37,7 @@ from ...services.db import (
 )
 from ...services.i18n import choose_name, get_ui_language, t
 from ...services.session import get_current_user
+from ..date_utils import to_ui_date
 
 
 @dataclass
@@ -308,10 +309,12 @@ class UnpaidOrdersDialog(QDialog):
 
         self.date_from_input = QDateEdit()
         self.date_from_input.setCalendarPopup(True)
+        self.date_from_input.setDisplayFormat("dd/MM/yyyy")
         self.date_from_input.setDate(QDate(2000, 1, 1))
         self.date_from_input.dateChanged.connect(self._refresh_table)
         self.date_to_input = QDateEdit()
         self.date_to_input.setCalendarPopup(True)
+        self.date_to_input.setDisplayFormat("dd/MM/yyyy")
         self.date_to_input.setDate(QDate.currentDate())
         self.date_to_input.dateChanged.connect(self._refresh_table)
 
@@ -429,7 +432,8 @@ class UnpaidOrdersDialog(QDialog):
             self._set_item(row, 3, f"{order.total:.2f}", align_right=True)
             self._set_item(row, 4, f"{order.paid_total:.2f}", align_right=True)
             self._set_item(row, 5, f"{order.remaining_total:.2f}", align_right=True)
-            self._set_item(row, 6, order.payment_due_date or "-")
+            due_date = to_ui_date(order.payment_due_date) if order.payment_due_date else "-"
+            self._set_item(row, 6, due_date)
             self._set_item(row, 7, summary.payment_status_label)
             self._set_item(row, 8, summary.payment_order_status_label or "-")
         self._update_action_state()

@@ -389,7 +389,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "invoice.remaining_total_label": {"en": "Remaining Total", "ar": "الإجمالي المتبقي"},
     "invoice.pay_now_label": {"en": "Pay Now", "ar": "الدفع الآن"},
     "invoice.payment_due_date_label": {"en": "Payment Due Date", "ar": "تاريخ استحقاق الدفع"},
-    "invoice.payment_due_date_placeholder": {"en": "YYYY-MM-DD", "ar": "YYYY-MM-DD"},
+    "invoice.payment_due_date_placeholder": {"en": "DD/MM/YYYY", "ar": "DD/MM/YYYY"},
     "invoice.payment_order_status_label": {
         "en": "Payment Order Status",
         "ar": "حالة أمر الدفع",

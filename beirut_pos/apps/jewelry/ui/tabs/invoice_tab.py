@@ -1377,7 +1377,12 @@ class InvoiceTab(BaseTabContainer):
                     loyalty_balance=loyalty_balance,
                     loyalty_threshold=self._loyalty_alert_threshold,
                 )
-                printer.print_text_receipt(receipt_text.splitlines())
+                receipt_settings = load_gallery_settings()
+                printer.print_text_receipt(
+                    receipt_text.splitlines(),
+                    printer_name=receipt_settings.receipt_printer_name,
+                    print_mode=receipt_settings.receipt_print_mode,
+                )
         except Exception as exc:  # noqa: BLE001 - show the error and keep the app open.
             logger.exception("Failed to save invoice.")
             QMessageBox.critical(

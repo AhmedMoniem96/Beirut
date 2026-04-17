@@ -111,15 +111,28 @@ class SettingsTab(BaseTabContainer):
         self.barcode_mode.addItem("", "pdf")
         self.barcode_mode.addItem("", "direct")
 
+        windows_printers = printer_service.win_list_printers()
         self.barcode_printer = QComboBox()
         self.barcode_printer.addItem("", "auto")
-        for name in printer_service.win_list_printers():
+        for name in windows_printers:
             self.barcode_printer.addItem(name, name)
+
+        self.receipt_mode = QComboBox()
+        self.receipt_mode.addItem("", "auto")
+        self.receipt_mode.addItem("", "windows")
+        self.receipt_printer = QComboBox()
+        self.receipt_printer.addItem("", "auto")
+        for name in windows_printers:
+            self.receipt_printer.addItem(name, name)
 
         self.printer_mode_label = QLabel()
         self.printer_label = QLabel()
+        self.receipt_mode_label = QLabel()
+        self.receipt_printer_label = QLabel()
         printer_layout.addRow(self.printer_mode_label, self.barcode_mode)
         printer_layout.addRow(self.printer_label, self.barcode_printer)
+        printer_layout.addRow(self.receipt_mode_label, self.receipt_mode)
+        printer_layout.addRow(self.receipt_printer_label, self.receipt_printer)
         content_layout.addWidget(printer_box)
         self.printer_box = printer_box
 
@@ -198,6 +211,8 @@ class SettingsTab(BaseTabContainer):
         self.rtl_check.setChecked(settings.rtl_enabled)
         self._set_combo_value(self.barcode_mode, settings.barcode_print_mode)
         self._set_combo_value(self.barcode_printer, settings.barcode_printer_name)
+        self._set_combo_value(self.receipt_mode, settings.receipt_print_mode or "auto")
+        self._set_combo_value(self.receipt_printer, settings.receipt_printer_name)
         self.website_name_input.setText(settings.website_name)
         self.website_url_input.setText(settings.website_url)
         self.website_orders_check.setChecked(settings.website_orders_enabled)
@@ -214,6 +229,8 @@ class SettingsTab(BaseTabContainer):
             rtl_enabled=self.rtl_check.isChecked(),
             barcode_print_mode=self.barcode_mode.currentData() or "pdf",
             barcode_printer_name=self.barcode_printer.currentData() or "auto",
+            receipt_print_mode=self.receipt_mode.currentData() or "auto",
+            receipt_printer_name=self.receipt_printer.currentData() or "auto",
             website_name=self.website_name_input.text().strip(),
             website_url=self.website_url_input.text().strip(),
             website_orders_enabled=self.website_orders_check.isChecked(),
@@ -320,9 +337,14 @@ class SettingsTab(BaseTabContainer):
         self.font_btn.setText(t("settings.browse_font", language=language))
         self.printer_mode_label.setText(t("settings.default_mode", language=language))
         self.printer_label.setText(t("settings.printer", language=language))
+        self.receipt_mode_label.setText(t("settings.receipt_mode", language=language))
+        self.receipt_printer_label.setText(t("settings.receipt_printer", language=language))
         self.barcode_mode.setItemText(0, t("settings.barcode_mode_pdf", language=language))
         self.barcode_mode.setItemText(1, t("settings.barcode_mode_direct", language=language))
         self.barcode_printer.setItemText(0, t("settings.printer_auto", language=language))
+        self.receipt_mode.setItemText(0, t("settings.receipt_mode_auto", language=language))
+        self.receipt_mode.setItemText(1, t("settings.receipt_mode_windows", language=language))
+        self.receipt_printer.setItemText(0, t("settings.printer_auto", language=language))
         self.save_btn.setText(t("settings.save", language=language))
         self.payment_ar_label.setText(t("settings.name_ar", language=language))
         self.payment_en_label.setText(t("settings.name_en", language=language))

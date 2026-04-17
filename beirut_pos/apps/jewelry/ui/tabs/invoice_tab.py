@@ -470,7 +470,17 @@ class InvoiceTab(BaseTabContainer):
         self.pay_now_input = QDoubleSpinBox()
         self.pay_now_input.setRange(0, 999999)
         self.pay_now_input.setDecimals(2)
+        self.pay_now_input.lineEdit().setReadOnly(True)
         self.pay_now_input.valueChanged.connect(self._handle_pay_now_change)
+        self.adjust_pay_now_btn = QPushButton()
+        self.adjust_pay_now_btn.setCheckable(True)
+        self.adjust_pay_now_btn.toggled.connect(self._toggle_pay_now_manual_mode)
+        pay_now_row = QWidget()
+        pay_now_row_layout = QHBoxLayout(pay_now_row)
+        pay_now_row_layout.setContentsMargins(0, 0, 0, 0)
+        pay_now_row_layout.setSpacing(8)
+        pay_now_row_layout.addWidget(self.pay_now_input, 1)
+        pay_now_row_layout.addWidget(self.adjust_pay_now_btn)
         self.payment_due_date_label = QLabel()
         self.payment_due_date_input = QLineEdit()
         self.payment_order_status_label = QLabel()
@@ -478,7 +488,7 @@ class InvoiceTab(BaseTabContainer):
         payment_layout.addRow(self.grand_total_label, self.grand_total_value)
         payment_layout.addRow(self.paid_total_label, self.paid_total_value)
         payment_layout.addRow(self.remaining_total_label, self.remaining_total_value)
-        payment_layout.addRow(self.pay_now_label, self.pay_now_input)
+        payment_layout.addRow(self.pay_now_label, pay_now_row)
         payment_layout.addRow(self.payment_due_date_label, self.payment_due_date_input)
         payment_layout.addRow(self.payment_order_status_label, self.payment_order_status_combo)
         left_layout.addWidget(payment_box)
@@ -718,8 +728,15 @@ class InvoiceTab(BaseTabContainer):
         self._recalculate_totals()
 
     def _handle_pay_now_change(self) -> None:
-        if not self._pay_now_updating:
+        if not self._pay_now_updating and self.adjust_pay_now_btn.isChecked():
             self._pay_now_manual = True
+        self._update_payment_totals()
+
+    def _toggle_pay_now_manual_mode(self, enabled: bool) -> None:
+        self._pay_now_manual = enabled
+        self.pay_now_input.lineEdit().setReadOnly(not enabled)
+        if not enabled:
+            self._set_pay_now_value(self._current_grand_total)
         self._update_payment_totals()
 
     def refresh_products(self, _text: str | None = None) -> None:
@@ -1542,6 +1559,8 @@ class InvoiceTab(BaseTabContainer):
         self.delivery_address_input.clear()
         self.delivery_status_combo.setCurrentIndex(0)
         self._pay_now_manual = False
+        self.adjust_pay_now_btn.setChecked(False)
+        self.pay_now_input.lineEdit().setReadOnly(True)
         if not keep_customer:
             self.customer_name_input.clear()
             self.customer_phone_input.clear()
@@ -1828,6 +1847,10 @@ class InvoiceTab(BaseTabContainer):
         self.paid_total_label.setText(t("invoice.paid_total_label", language=language))
         self.remaining_total_label.setText(t("invoice.remaining_total_label", language=language))
         self.pay_now_label.setText(t("invoice.pay_now_label", language=language))
+        if language == "ar":
+            self.adjust_pay_now_btn.setText("تعديل المدفوع الآن")
+        else:
+            self.adjust_pay_now_btn.setText("Adjust Pay Now")
         self.payment_due_date_label.setText(t("invoice.payment_due_date_label", language=language))
         self.payment_due_date_input.setPlaceholderText(
             t("invoice.payment_due_date_placeholder", language=language)

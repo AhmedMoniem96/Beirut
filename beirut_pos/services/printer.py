@@ -1101,11 +1101,29 @@ class PrinterService:
             )
         return True
 
-    def print_text_receipt(self, lines: Sequence[str]) -> bool:
+    def print_text_receipt(
+        self,
+        lines: Sequence[str],
+        *,
+        printer_name: str | None = None,
+        print_mode: str | None = None,
+    ) -> bool:
         """Print tagged text lines as a receipt."""
-        if self._use_windows_cash():
+        selected_name = (printer_name or "").strip()
+        selected_mode = (print_mode or "auto").strip().lower()
+
+        target_windows_printer = ""
+        if selected_mode != "escpos":
+            if selected_name and selected_name.lower() != "auto":
+                target_windows_printer = selected_name
+            elif selected_mode == "auto" and self._use_windows_cash():
+                target_windows_printer = self._cash_win
+            elif selected_mode == "windows" and self._cash_win:
+                target_windows_printer = self._cash_win
+
+        if _IS_WINDOWS and _WIN_PRINT_OK and target_windows_printer:
             bmp = _render_lines_to_bitmap(lines)
-            win_print_image(self._cash_win, bmp.convert("RGB"))
+            win_print_image(target_windows_printer, bmp.convert("RGB"))
             return True
 
         self._refresh_escpos_printer()

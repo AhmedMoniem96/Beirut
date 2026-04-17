@@ -7,11 +7,12 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import QElapsedTimer, QEvent, QSettings, Qt, QTimer, QUrl
+from PyQt6.QtCore import QDate, QElapsedTimer, QEvent, QSettings, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDateEdit,
     QDoubleSpinBox,
     QFormLayout,
     QGridLayout,
@@ -61,6 +62,7 @@ from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
 from beirut_pos.services.printer import printer
+from ..date_utils import to_iso_date
 from .base_tab import BaseTabContainer
 
 logger = logging.getLogger(__name__)
@@ -482,7 +484,10 @@ class InvoiceTab(BaseTabContainer):
         pay_now_row_layout.addWidget(self.pay_now_input, 1)
         pay_now_row_layout.addWidget(self.adjust_pay_now_btn)
         self.payment_due_date_label = QLabel()
-        self.payment_due_date_input = QLineEdit()
+        self.payment_due_date_input = QDateEdit()
+        self.payment_due_date_input.setCalendarPopup(True)
+        self.payment_due_date_input.setDisplayFormat("dd/MM/yyyy")
+        self.payment_due_date_input.setDate(QDate.currentDate())
         self.payment_order_status_label = QLabel()
         self.payment_order_status_combo = QComboBox()
         payment_layout.addRow(self.grand_total_label, self.grand_total_value)
@@ -1227,7 +1232,7 @@ class InvoiceTab(BaseTabContainer):
         self.payment_due_date_input.setEnabled(is_partial)
         if not is_partial:
             self.payment_order_status_combo.setCurrentIndex(0)
-            self.payment_due_date_input.clear()
+            self.payment_due_date_input.setDate(QDate.currentDate())
         self._update_validation_state()
 
     def _calculate_subtotal(self) -> float:
@@ -1328,7 +1333,11 @@ class InvoiceTab(BaseTabContainer):
         payment_method = self.payment_combo.currentText()
         pay_now = min(float(self.pay_now_input.value()), total)
         is_partial = total > 0 and pay_now < total
-        payment_due_date = self.payment_due_date_input.text().strip() if is_partial else ""
+        payment_due_date = (
+            to_iso_date(self.payment_due_date_input.date().toString("dd/MM/yyyy"))
+            if is_partial
+            else ""
+        )
         payment_order_status_id = None
         if is_partial and self.payment_order_status_combo.currentIndex() > 0:
             payment_order_status_id = self.payment_order_status_combo.currentData()
@@ -1551,7 +1560,7 @@ class InvoiceTab(BaseTabContainer):
         self.discount_input.setValue(0.0)
         self.loyalty_redeem_input.setValue(0.0)
         self.pay_now_input.setValue(0.0)
-        self.payment_due_date_input.clear()
+        self.payment_due_date_input.setDate(QDate.currentDate())
         self.payment_order_status_combo.setCurrentIndex(0)
         self.delivery_enabled_checkbox.setChecked(False)
         self.delivery_company_combo.setCurrentIndex(0)
@@ -1852,9 +1861,7 @@ class InvoiceTab(BaseTabContainer):
         else:
             self.adjust_pay_now_btn.setText("Adjust Pay Now")
         self.payment_due_date_label.setText(t("invoice.payment_due_date_label", language=language))
-        self.payment_due_date_input.setPlaceholderText(
-            t("invoice.payment_due_date_placeholder", language=language)
-        )
+        self.payment_due_date_input.setToolTip(t("invoice.payment_due_date_placeholder", language=language))
         self.payment_order_status_label.setText(
             t("invoice.payment_order_status_label", language=language)
         )

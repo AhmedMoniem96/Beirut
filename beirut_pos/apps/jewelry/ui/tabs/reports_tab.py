@@ -148,6 +148,7 @@ class ReportsTab(BaseTabContainer):
         filters = QHBoxLayout()
         self.date_filter = QDateEdit()
         self.date_filter.setCalendarPopup(True)
+        self.date_filter.setDisplayFormat("dd/MM/yyyy")
         self.date_filter.setDate(QDate.currentDate())
         self.date_filter.dateChanged.connect(self._load_shift_from_db)
         self.product_filter_combo = QComboBox()

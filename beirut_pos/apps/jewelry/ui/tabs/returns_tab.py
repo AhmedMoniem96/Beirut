@@ -32,6 +32,7 @@ class ReturnsTab(BaseTabContainer):
         filters = QHBoxLayout()
         self.date_filter = QDateEdit()
         self.date_filter.setCalendarPopup(True)
+        self.date_filter.setDisplayFormat("dd/MM/yyyy")
         self.date_filter.setDate(QDate.currentDate())
         self.refresh_btn = QPushButton()
         self.refresh_btn.clicked.connect(self.refresh)

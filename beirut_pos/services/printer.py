@@ -1,6 +1,6 @@
 # beirut_pos/services/printer.py
 from __future__ import annotations
-import glob, os, re, platform
+import glob, os, re, platform, json
 from datetime import datetime
 from typing import Iterable, List, Optional, Sequence
 
@@ -116,6 +116,18 @@ USB_PRINTER_IDS = [
     (0x0FE6, 0x811E),  # Rongta RP310
 ]
 
+USB_PROBE_CANDIDATES: list[dict[str, int | None]] = [
+    {"interface": 0, "out_ep": 0x01, "in_ep": 0x81},
+    {"interface": 0, "out_ep": 0x02, "in_ep": 0x82},
+    {"interface": 1, "out_ep": 0x01, "in_ep": 0x81},
+    {"interface": 1, "out_ep": 0x02, "in_ep": 0x82},
+    {"interface": 2, "out_ep": 0x01, "in_ep": 0x81},
+    {"interface": 2, "out_ep": 0x02, "in_ep": 0x82},
+    {"interface": None, "out_ep": None, "in_ep": None},  # let python-escpos auto-pick
+]
+
+_ALLOW_USB_WITH_USBLP = os.environ.get("BEIRUT_POS_USB_TRY_BOTH", "0") == "1"
+
 # Keep in sync with bitmap renderer
 PAPER_PX = 576  # 80mm at 203 dpi usable width
 COLS_RECEIPT = [348, 60, 84, 84]  # Item, Qty, Price, Total (sum=576)
@@ -140,6 +152,14 @@ def _log(msg: str) -> None:
             h.write(f"[{ts}] {msg}\n")
     except Exception:
         pass
+
+
+def _log_struct(event: str, **fields) -> None:
+    payload = {"event": event, **fields}
+    try:
+        _log("STRUCT " + json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str))
+    except Exception:
+        _log(f"STRUCT {event} {fields}")
 
 
 def _format_qty(qty: float) -> str:
@@ -421,31 +441,85 @@ def _usblp_device_paths() -> list[str]:
     return sorted(glob.glob("/dev/usb/lp*"))
 
 
-def _try_usb_printer(*, allow_when_blocked: bool = False):
+def _try_usb_printer(*, allow_when_blocked: bool = False, usb_ids: Sequence[tuple[int, int]] | None = None):
     if not _ESCPOS_OK or Usb is None:
+        _log_struct("printer.usb.skip", reason="escpos_not_available")
         return None
     lp = _usblp_device_paths()
-    if lp and not allow_when_blocked:
+    should_skip_for_usblp = lp and not allow_when_blocked and not _ALLOW_USB_WITH_USBLP
+    if should_skip_for_usblp:
         _log(f"ℹ️  Kernel usblp driver detected ({', '.join(lp)}); skipping ESC/POS USB backend")
+        _log_struct(
+            "printer.usb.skip",
+            reason="kernel_usblp_present",
+            usblp_paths=lp,
+            allow_when_blocked=allow_when_blocked,
+            allow_try_both=_ALLOW_USB_WITH_USBLP,
+        )
         return None
-    for vendor, product in USB_PRINTER_IDS:
-        try:
-            prn = Usb(vendor, product, interface=0, in_ep=0x82, out_ep=0x01)
-            return prn
-        except Exception as e:
-            _log_printer_error("Printer connection error", e)
+    init_probe = b"\x1B@"
+    usb_id_list = list(usb_ids or USB_PRINTER_IDS)
+    for vendor, product in usb_id_list:
+        for candidate in USB_PROBE_CANDIDATES:
+            interface = candidate.get("interface")
+            out_ep = candidate.get("out_ep")
+            in_ep = candidate.get("in_ep")
+            try:
+                kwargs = {}
+                if interface is not None:
+                    kwargs["interface"] = int(interface)
+                if out_ep is not None:
+                    kwargs["out_ep"] = int(out_ep)
+                if in_ep is not None:
+                    kwargs["in_ep"] = int(in_ep)
+                _log_struct(
+                    "printer.usb.candidate",
+                    vid=f"0x{vendor:04X}",
+                    pid=f"0x{product:04X}",
+                    interface=interface,
+                    out_ep=None if out_ep is None else f"0x{int(out_ep):02X}",
+                    in_ep=None if in_ep is None else f"0x{int(in_ep):02X}",
+                )
+                prn = Usb(vendor, product, **kwargs)
+                if hasattr(prn, "_raw"):
+                    prn._raw(init_probe)
+                _log_struct(
+                    "printer.usb.selected",
+                    backend="escpos-usb",
+                    vid=f"0x{vendor:04X}",
+                    pid=f"0x{product:04X}",
+                    interface=interface,
+                    out_ep=None if out_ep is None else f"0x{int(out_ep):02X}",
+                    in_ep=None if in_ep is None else f"0x{int(in_ep):02X}",
+                    usblp_paths=lp,
+                )
+                return prn
+            except Exception as e:
+                _log_struct(
+                    "printer.usb.candidate_failed",
+                    vid=f"0x{vendor:04X}",
+                    pid=f"0x{product:04X}",
+                    interface=interface,
+                    out_ep=None if out_ep is None else f"0x{int(out_ep):02X}",
+                    in_ep=None if in_ep is None else f"0x{int(in_ep):02X}",
+                    error=str(e),
+                )
+                _log_printer_error("Printer connection error", e)
     return None
 
 
 def _try_file_printer():
     if File is None:
+        _log_struct("printer.file.skip", reason="file_backend_not_available")
         return None
     for p in _usblp_device_paths():
         try:
             prn = File(p)
             prn.open(raise_not_found=False)
+            _log_struct("printer.file.selected", backend="file", path=p)
             return prn
-        except Exception:
+        except Exception as exc:
+            _log_struct("printer.file.failed", backend="file", path=p, error=str(exc))
             continue
     return None
 
@@ -668,19 +742,54 @@ def _stack_bitmaps(bitmaps: list[Image.Image]) -> Image.Image:
 # =========================================== SINGLE BACKEND (ESC/POS)
 def _find_thermal_printer():
     if _DISABLE_ESCPOS:
+        _log_struct("printer.discovery.skip", reason="escpos_disabled")
         return None
+    # first-class order: RP310 first, then other known USB IDs
+    probe_order = [(0x0FE6, 0x811E)] + [pair for pair in USB_PRINTER_IDS if pair != (0x0FE6, 0x811E)]
+
     if RawUsbEscpos is not None and _RAW_USB_OK:
-        try:
-            return RawUsbEscpos(vid=0x0483, pid=0x5743, interface=0)
-        except Exception as e:
-            _log_printer_error("RawUsbEscpos failed", e)
-    if not _ESCPOS_OK or Usb is None:
-        return None
-    try:
-        return Usb(0x0416, 0x5011, interface=0, in_ep=0x82, out_ep=0x01)
-    except Exception:
-        pass
-    return _try_usb_printer() or _try_file_printer()
+        for vendor, product in probe_order:
+            try:
+                prn = RawUsbEscpos(vid=vendor, pid=product, interface=0)
+                _log_struct(
+                    "printer.discovery.selected",
+                    backend="raw-usb-escpos",
+                    vid=f"0x{vendor:04X}",
+                    pid=f"0x{product:04X}",
+                )
+                return prn
+            except Exception as e:
+                _log_struct(
+                    "printer.discovery.backend_failed",
+                    backend="raw-usb-escpos",
+                    vid=f"0x{vendor:04X}",
+                    pid=f"0x{product:04X}",
+                    error=str(e),
+                )
+                _log_printer_error("RawUsbEscpos failed", e)
+
+    usb_printer = _try_usb_printer(usb_ids=probe_order)
+    if usb_printer:
+        _log_struct("printer.discovery.selected", backend="escpos-usb")
+        return usb_printer
+
+    file_printer = _try_file_printer()
+    if file_printer:
+        _log_struct("printer.discovery.selected", backend="usblp-file")
+        return file_printer
+
+    if _ALLOW_USB_WITH_USBLP and _usblp_device_paths():
+        usb_after_file = _try_usb_printer(allow_when_blocked=True, usb_ids=probe_order)
+        if usb_after_file:
+            _log_struct(
+                "printer.discovery.selected",
+                backend="escpos-usb",
+                mode="fallback_after_usblp_file",
+            )
+            return usb_after_file
+
+    _log_struct("printer.discovery.failed", reason="all_backends_failed")
+    return None
 
 
 # =============================================== FLOWS (ESC/POS objects)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Sequence
 
 import importlib.util
@@ -122,19 +123,70 @@ def print_barcode_label_image(
     printer_name: str,
 ) -> None:
     try:
+        escpos_first_auto = os.environ.get("BEIRUT_POS_WINDOWS_AUTO_ESCPOS_FIRST", "1") == "1"
         if printer_name and printer_name != "auto" and printer_service._IS_WINDOWS:
             printer_service.win_print_image(printer_name, img.convert("RGB"))
+            printer_service._log_struct(
+                "barcode.print.selected",
+                backend="windows-gdi",
+                printer_name=printer_name,
+                mode="explicit_printer",
+            )
             return
 
-        escpos_printer = printer_service._find_thermal_printer()
-        if not escpos_printer:
-            raise RuntimeError("No ESC/POS printer detected.")
+        should_try_escpos = not printer_service._IS_WINDOWS or printer_name != "auto" or escpos_first_auto
+        if should_try_escpos:
+            escpos_printer = printer_service._find_thermal_printer()
+            if escpos_printer:
+                raster = pil_image_to_escpos_raster(img)
+                if hasattr(escpos_printer, "_raw"):
+                    escpos_printer._raw(raster)
+                elif hasattr(escpos_printer, "image"):
+                    escpos_printer.image(img)
+                printer_service._post_feed_and_cut(escpos_printer)
+                printer_service._log_struct(
+                    "barcode.print.selected",
+                    backend="escpos",
+                    printer_name=printer_name,
+                    mode="auto" if printer_name == "auto" else "fallback",
+                )
+                return
+            printer_service._log_struct(
+                "barcode.print.backend_failed",
+                backend="escpos",
+                reason="no_escpos_printer_detected",
+                printer_name=printer_name,
+                mode="auto" if printer_name == "auto" else "regular",
+            )
 
-        raster = pil_image_to_escpos_raster(img)
-        if hasattr(escpos_printer, "_raw"):
-            escpos_printer._raw(raster)
-        elif hasattr(escpos_printer, "image"):
-            escpos_printer.image(img)
-        printer_service._post_feed_and_cut(escpos_printer)
+        if printer_service._IS_WINDOWS and printer_name == "auto":
+            default_printer = None
+            try:
+                import win32print  # type: ignore
+
+                default_printer = win32print.GetDefaultPrinter()
+            except Exception:
+                pass
+            if not default_printer:
+                known = printer_service.win_list_printers()
+                default_printer = known[0] if known else None
+            if not default_printer:
+                raise RuntimeError("No Windows default printer detected.")
+            printer_service.win_print_image(default_printer, img.convert("RGB"))
+            printer_service._log_struct(
+                "barcode.print.selected",
+                backend="windows-gdi",
+                printer_name=default_printer,
+                mode="auto_default_fallback",
+            )
+            return
+
+        raise RuntimeError("No ESC/POS printer detected.")
     except BaseException as exc:
+        printer_service._log_struct(
+            "barcode.print.failed",
+            backend="unknown",
+            printer_name=printer_name,
+            error=str(exc),
+        )
         raise RuntimeError(f"Barcode printing failed: {exc}") from exc

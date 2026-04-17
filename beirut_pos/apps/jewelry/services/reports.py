@@ -48,15 +48,41 @@ class MaterialUsageRow:
     total_cost: float
 
 
-def sales_aggregate(start_iso: str, end_iso: str) -> SalesAggregate:
+def _invoice_filter_clause(
+    *,
+    start_iso: str,
+    end_iso: str,
+    txn_type: str,
+    product_id: int | None = None,
+) -> Tuple[str, List]:
+    clause = "txn_type = ? AND datetime BETWEEN ? AND ?"
+    params: List = [txn_type, start_iso, end_iso]
+    if product_id is not None:
+        clause += """ AND EXISTS (
+                        SELECT 1
+                        FROM jw_invoice_items ii
+                        WHERE ii.invoice_id = jw_invoices.id
+                          AND ii.product_id = ?
+                    )"""
+        params.append(product_id)
+    return clause, params
+
+
+def sales_aggregate(start_iso: str, end_iso: str, product_id: int | None = None) -> SalesAggregate:
     conn = get_conn()
     cur = conn.cursor()
+    where_clause, params = _invoice_filter_clause(
+        start_iso=start_iso,
+        end_iso=end_iso,
+        txn_type="sale",
+        product_id=product_id,
+    )
     cur.execute(
-        """SELECT COUNT(*), COALESCE(SUM(subtotal), 0),
+        f"""SELECT COUNT(*), COALESCE(SUM(subtotal), 0),
                   COALESCE(SUM(discount), 0), COALESCE(SUM(total), 0)
            FROM jw_invoices
-           WHERE txn_type = 'sale' AND datetime BETWEEN ? AND ?""",
-        (start_iso, end_iso),
+           WHERE {where_clause}""",
+        tuple(params),
     )
     row = cur.fetchone()
     conn.close()
@@ -68,48 +94,78 @@ def sales_aggregate(start_iso: str, end_iso: str) -> SalesAggregate:
     )
 
 
-def payment_breakdown(start_iso: str, end_iso: str, *, include_returns: bool = False) -> Dict[str, float]:
+def payment_breakdown(
+    start_iso: str,
+    end_iso: str,
+    *,
+    include_returns: bool = False,
+    product_id: int | None = None,
+) -> Dict[str, float]:
     conn = get_conn()
     cur = conn.cursor()
     if include_returns:
+        sale_where, sale_params = _invoice_filter_clause(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            txn_type="sale",
+            product_id=product_id,
+        )
+        return_where, return_params = _invoice_filter_clause(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            txn_type="return",
+            product_id=product_id,
+        )
         cur.execute(
-            """SELECT payment_method,
+            f"""SELECT payment_method,
                       COALESCE(SUM(CASE WHEN txn_type = 'sale' THEN total ELSE -total END), 0)
                FROM jw_invoices
-               WHERE datetime BETWEEN ? AND ?
+               WHERE ({sale_where}) OR ({return_where})
                GROUP BY payment_method""",
-            (start_iso, end_iso),
+            tuple(sale_params + return_params),
         )
     else:
+        where_clause, params = _invoice_filter_clause(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            txn_type="sale",
+            product_id=product_id,
+        )
         cur.execute(
-            """SELECT payment_method, COALESCE(SUM(total), 0)
+            f"""SELECT payment_method, COALESCE(SUM(total), 0)
                FROM jw_invoices
-               WHERE txn_type = 'sale' AND datetime BETWEEN ? AND ?
+               WHERE {where_clause}
                GROUP BY payment_method""",
-            (start_iso, end_iso),
+            tuple(params),
         )
     rows = cur.fetchall()
     conn.close()
     return {row[0]: row[1] for row in rows}
 
 
-def returns_aggregate(start_iso: str, end_iso: str) -> ReturnsAggregate:
+def returns_aggregate(start_iso: str, end_iso: str, product_id: int | None = None) -> ReturnsAggregate:
     conn = get_conn()
     cur = conn.cursor()
+    where_clause, params = _invoice_filter_clause(
+        start_iso=start_iso,
+        end_iso=end_iso,
+        txn_type="return",
+        product_id=product_id,
+    )
     cur.execute(
-        """SELECT COUNT(*), COALESCE(SUM(total), 0)
+        f"""SELECT COUNT(*), COALESCE(SUM(total), 0)
            FROM jw_invoices
-           WHERE txn_type = 'return' AND datetime BETWEEN ? AND ?""",
-        (start_iso, end_iso),
+           WHERE {where_clause}""",
+        tuple(params),
     )
     summary = cur.fetchone()
     cur.execute(
-        """SELECT return_reason, COUNT(*), COALESCE(SUM(total), 0)
+        f"""SELECT return_reason, COUNT(*), COALESCE(SUM(total), 0)
            FROM jw_invoices
-           WHERE txn_type = 'return' AND datetime BETWEEN ? AND ?
+           WHERE {where_clause}
            GROUP BY return_reason
            ORDER BY COUNT(*) DESC""",
-        (start_iso, end_iso),
+        tuple(params),
     )
     reasons = cur.fetchall()
     conn.close()
@@ -120,42 +176,60 @@ def returns_aggregate(start_iso: str, end_iso: str) -> ReturnsAggregate:
     )
 
 
-def top_products(start_iso: str, end_iso: str, limit: int = 5) -> List[ProductAggregate]:
+def top_products(
+    start_iso: str,
+    end_iso: str,
+    limit: int = 5,
+    product_id: int | None = None,
+) -> List[ProductAggregate]:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """SELECT product_name, product_code, COALESCE(SUM(qty), 0) AS total_qty
-           FROM jw_invoice_items
-           WHERE invoice_id IN (
-               SELECT id FROM jw_invoices
-               WHERE txn_type = 'sale' AND datetime BETWEEN ? AND ?
-           )
-           GROUP BY product_name, product_code
-           ORDER BY total_qty DESC
-           LIMIT ?""",
-        (start_iso, end_iso, limit),
-    )
+    query = """SELECT product_name, product_code, COALESCE(SUM(qty), 0) AS total_qty
+               FROM jw_invoice_items
+               WHERE invoice_id IN (
+                   SELECT id FROM jw_invoices
+                   WHERE txn_type = 'sale' AND datetime BETWEEN ? AND ?
+               )"""
+    params: List = [start_iso, end_iso]
+    if product_id is not None:
+        query += " AND product_id = ?"
+        params.append(product_id)
+    query += """
+               GROUP BY product_name, product_code
+               ORDER BY total_qty DESC
+               LIMIT ?"""
+    params.append(limit)
+    cur.execute(query, tuple(params))
     rows = cur.fetchall()
     conn.close()
     return [ProductAggregate(row[0], row[1], row[2]) for row in rows]
 
 
-def lowest_products(start_iso: str, end_iso: str, limit: int = 5) -> List[ProductAggregate]:
+def lowest_products(
+    start_iso: str,
+    end_iso: str,
+    limit: int = 5,
+    product_id: int | None = None,
+) -> List[ProductAggregate]:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """SELECT product_name, product_code, COALESCE(SUM(qty), 0) AS total_qty
-           FROM jw_invoice_items
-           WHERE invoice_id IN (
-               SELECT id FROM jw_invoices
-               WHERE txn_type = 'sale' AND datetime BETWEEN ? AND ?
-           )
-           GROUP BY product_name, product_code
-           HAVING total_qty > 0
-           ORDER BY total_qty ASC
-           LIMIT ?""",
-        (start_iso, end_iso, limit),
-    )
+    query = """SELECT product_name, product_code, COALESCE(SUM(qty), 0) AS total_qty
+               FROM jw_invoice_items
+               WHERE invoice_id IN (
+                   SELECT id FROM jw_invoices
+                   WHERE txn_type = 'sale' AND datetime BETWEEN ? AND ?
+               )"""
+    params: List = [start_iso, end_iso]
+    if product_id is not None:
+        query += " AND product_id = ?"
+        params.append(product_id)
+    query += """
+               GROUP BY product_name, product_code
+               HAVING total_qty > 0
+               ORDER BY total_qty ASC
+               LIMIT ?"""
+    params.append(limit)
+    cur.execute(query, tuple(params))
     rows = cur.fetchall()
     conn.close()
     return [ProductAggregate(row[0], row[1], row[2]) for row in rows]

@@ -86,6 +86,8 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "common.to": {"en": "To", "ar": "إلى"},
     "common.status": {"en": "Status", "ar": "الحالة"},
     "common.product": {"en": "Product", "ar": "المنتج"},
+    "common.product_filter": {"en": "Product Filter", "ar": "تصفية المنتج"},
+    "common.all_products": {"en": "All products", "ar": "كل المنتجات"},
     "common.qty": {"en": "Qty", "ar": "الكمية"},
     "common.code": {"en": "Code", "ar": "الكود"},
     "common.price": {"en": "Price", "ar": "السعر"},

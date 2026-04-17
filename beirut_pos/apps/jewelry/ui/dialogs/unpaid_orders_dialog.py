@@ -9,6 +9,7 @@ from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QDateEdit,
     QDialog,
     QDoubleSpinBox,
@@ -31,6 +32,7 @@ from ...services.db import (
     create_order_payment,
     fetch_invoice_details,
     list_payment_methods,
+    list_products,
     list_unpaid_orders,
 )
 from ...services.i18n import choose_name, get_ui_language, t
@@ -315,6 +317,9 @@ class UnpaidOrdersDialog(QDialog):
 
         self.date_from_label = QLabel()
         self.date_to_label = QLabel()
+        self.product_filter_label = QLabel()
+        self.product_filter_combo = QComboBox()
+        self.product_filter_combo.currentIndexChanged.connect(self._refresh_table)
 
         filters_layout.addWidget(self.search_input, 2)
         filters_layout.addWidget(self.all_dates_toggle)
@@ -322,6 +327,8 @@ class UnpaidOrdersDialog(QDialog):
         filters_layout.addWidget(self.date_from_input)
         filters_layout.addWidget(self.date_to_label)
         filters_layout.addWidget(self.date_to_input)
+        filters_layout.addWidget(self.product_filter_label)
+        filters_layout.addWidget(self.product_filter_combo, 1)
         layout.addLayout(filters_layout)
 
         self.table = QTableWidget(0, 9)
@@ -347,8 +354,23 @@ class UnpaidOrdersDialog(QDialog):
         layout.addLayout(actions)
 
         self._toggle_dates(self.all_dates_toggle.isChecked())
+        self._reload_product_filter()
         self.apply_language(self._language)
         self._refresh_table()
+
+    def _reload_product_filter(self) -> None:
+        current_product_id = self.product_filter_combo.currentData()
+        self.product_filter_combo.blockSignals(True)
+        self.product_filter_combo.clear()
+        self.product_filter_combo.addItem("", None)
+        for product in list_products():
+            product_name = choose_name(product.name_ar, product.name_en, language=self._language)
+            self.product_filter_combo.addItem(f"{product_name} ({product.sku})", product.id)
+        if current_product_id is not None:
+            index = self.product_filter_combo.findData(current_product_id)
+            if index >= 0:
+                self.product_filter_combo.setCurrentIndex(index)
+        self.product_filter_combo.blockSignals(False)
 
     def _toggle_dates(self, checked: bool) -> None:
         self.date_from_input.setEnabled(not checked)
@@ -385,11 +407,13 @@ class UnpaidOrdersDialog(QDialog):
         if not self.all_dates_toggle.isChecked():
             date_from = self.date_from_input.date().toString("yyyy-MM-dd")
             date_to = self.date_to_input.date().toString("yyyy-MM-dd")
+        product_id = self.product_filter_combo.currentData()
         orders = list_unpaid_orders(
             status_filter=status_filter,
             search=search,
             date_from=date_from,
             date_to=date_to,
+            product_id=product_id,
         )
         self.table.setRowCount(0)
         for order in orders:
@@ -507,6 +531,9 @@ class UnpaidOrdersDialog(QDialog):
         self.all_dates_toggle.setText(t("unpaid_orders.all_dates", language=language))
         self.date_from_label.setText(t("common.from", language=language))
         self.date_to_label.setText(t("common.to", language=language))
+        self._reload_product_filter()
+        self.product_filter_label.setText(f"{t('common.product_filter', language=language)}:")
+        self.product_filter_combo.setItemText(0, t("common.all_products", language=language))
         self.table.setHorizontalHeaderLabels(
             [
                 t("unpaid_orders.column_order_no", language=language),

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, Literal, Optional, Tuple
 
 from beirut_pos.core.db import get_conn
 
@@ -1883,6 +1883,23 @@ def list_unpaid_orders(
     search: str = "",
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    product_id: Optional[int] = None,
+) -> List[JewelryUnpaidOrder]:
+    return list_invoice_history(
+        status_filter=status_filter,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        product_id=product_id,
+    )
+
+
+def list_invoice_history(
+    status_filter: Optional[Literal["UNPAID", "PARTIAL", "PAID", "OVERDUE", "ALL"]] = None,
+    search: str = "",
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    product_id: Optional[int] = None,
 ) -> List[JewelryUnpaidOrder]:
     conn = get_conn()
     cur = conn.cursor()
@@ -1894,17 +1911,22 @@ def list_unpaid_orders(
                       COALESCE(s.name_ar, ''), COALESCE(s.name_en, '')
                FROM jw_invoices i
                LEFT JOIN jw_statuses s ON s.id = i.payment_order_status_id
-               WHERE i.txn_type = 'sale'
-                 AND COALESCE(i.payment_status, '') IN ('UNPAID', 'PARTIAL')"""
+               WHERE i.txn_type = 'sale'"""
     params: List = []
-    if status_filter == "UNPAID":
+    normalized_status = (status_filter or "").upper()
+    if normalized_status == "UNPAID":
         query += " AND COALESCE(i.payment_status, '') = 'UNPAID'"
-    elif status_filter == "PARTIAL":
+    elif normalized_status == "PARTIAL":
         query += " AND COALESCE(i.payment_status, '') = 'PARTIAL'"
-    elif status_filter == "OVERDUE":
+    elif normalized_status == "PAID":
+        query += " AND COALESCE(i.payment_status, '') = 'PAID'"
+    elif normalized_status == "OVERDUE":
         query += """ AND COALESCE(i.payment_due_date, '') != ''
                       AND date(i.payment_due_date) < date('now')
                       AND COALESCE(i.remaining_total, 0) > 0"""
+    else:
+        # The default invoice-history view is unpaid + partial.
+        query += " AND COALESCE(i.payment_status, '') IN ('UNPAID', 'PARTIAL')"
     if search:
         term = f"%{search.strip()}%"
         query += """ AND (
@@ -1916,6 +1938,14 @@ def list_unpaid_orders(
     if date_from and date_to:
         query += " AND date(i.datetime) BETWEEN date(?) AND date(?)"
         params.extend([date_from, date_to])
+    if product_id is not None:
+        query += """ AND EXISTS (
+                    SELECT 1
+                    FROM jw_invoice_items ii
+                    WHERE ii.invoice_id = i.id
+                      AND ii.product_id = ?
+                )"""
+        params.append(product_id)
     query += " ORDER BY datetime(i.datetime) DESC, i.id DESC"
     cur.execute(query, tuple(params))
     rows = cur.fetchall()

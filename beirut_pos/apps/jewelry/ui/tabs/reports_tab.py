@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from PyQt6.QtCore import QDate, QRectF, Qt
 from PyQt6.QtGui import QColor, QFontMetrics, QPainter
 from PyQt6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QDateEdit,
     QDateTimeEdit,
@@ -32,7 +33,7 @@ from PyQt6.QtWidgets import (
 
 from beirut_pos.utils.excel import write_protected_workbook
 
-from ...services.db import fetch_shift_session_for_date, save_shift_session
+from ...services.db import fetch_shift_session_for_date, list_products, save_shift_session
 from ...services.pdf_exports import GalleryInfo, export_daily_report_pdf
 from ...services.reports import lowest_products, payment_breakdown, returns_aggregate, sales_aggregate, stock_alerts, top_products
 from ...services.session import get_current_user
@@ -149,11 +150,16 @@ class ReportsTab(BaseTabContainer):
         self.date_filter.setCalendarPopup(True)
         self.date_filter.setDate(QDate.currentDate())
         self.date_filter.dateChanged.connect(self._load_shift_from_db)
+        self.product_filter_combo = QComboBox()
+        self.product_filter_combo.currentIndexChanged.connect(self._generate_report)
         self.refresh_btn = QPushButton()
         self.refresh_btn.clicked.connect(self._generate_report)
         self.date_label = QLabel()
+        self.product_filter_label = QLabel()
         filters.addWidget(self.date_label)
         filters.addWidget(self.date_filter)
+        filters.addWidget(self.product_filter_label)
+        filters.addWidget(self.product_filter_combo)
         filters.addWidget(self.refresh_btn)
 
         shift_box = QGroupBox()
@@ -267,6 +273,7 @@ class ReportsTab(BaseTabContainer):
         layout.addWidget(splitter)
 
         self.set_page_content_widget(content)
+        self._reload_product_filter()
         self.apply_language(self._language)
         self._initialize_shift_defaults()
         self._initialize_cashier()
@@ -290,6 +297,9 @@ class ReportsTab(BaseTabContainer):
         self._language = language
         self.header_label.setText(t("reports.header", language=language))
         self.date_label.setText(f"{t('common.date', language=language)}:")
+        self.product_filter_label.setText(f"{t('common.product_filter', language=language)}:")
+        self._reload_product_filter()
+        self.product_filter_combo.setItemText(0, t("common.all_products", language=language))
         self.refresh_btn.setText(t("reports.generate", language=language))
         self.shift_box.setTitle(t("reports.shift_box", language=language))
         self.cashier_label.setText(t("reports.cashier", language=language))
@@ -369,12 +379,19 @@ class ReportsTab(BaseTabContainer):
         start_iso = start_dt.isoformat(timespec="seconds")
         end_iso = end_dt.isoformat(timespec="seconds")
 
-        sales = sales_aggregate(start_iso, end_iso)
-        payments = payment_breakdown(start_iso, end_iso)
-        net_payments = payment_breakdown(start_iso, end_iso, include_returns=True)
-        returns = returns_aggregate(start_iso, end_iso)
-        top = top_products(start_iso, end_iso, limit=5)
-        low = lowest_products(start_iso, end_iso, limit=5)
+        product_id = self.product_filter_combo.currentData()
+
+        sales = sales_aggregate(start_iso, end_iso, product_id=product_id)
+        payments = payment_breakdown(start_iso, end_iso, product_id=product_id)
+        net_payments = payment_breakdown(
+            start_iso,
+            end_iso,
+            include_returns=True,
+            product_id=product_id,
+        )
+        returns = returns_aggregate(start_iso, end_iso, product_id=product_id)
+        top = top_products(start_iso, end_iso, limit=5, product_id=product_id)
+        low = lowest_products(start_iso, end_iso, limit=5, product_id=product_id)
         out_of_stock, near_out = stock_alerts()
 
         self._populate_table(self.payment_table, [(k, f"{v:.2f}") for k, v in payments.items()])
@@ -458,6 +475,20 @@ class ReportsTab(BaseTabContainer):
             out_of_stock=list(out_of_stock),
             near_out=list(near_out),
         )
+
+    def _reload_product_filter(self) -> None:
+        current_product_id = self.product_filter_combo.currentData()
+        self.product_filter_combo.blockSignals(True)
+        self.product_filter_combo.clear()
+        self.product_filter_combo.addItem("", None)
+        for product in list_products():
+            label = choose_name(product.name_ar, product.name_en, language=self._language)
+            self.product_filter_combo.addItem(f"{label} ({product.sku})", product.id)
+        if current_product_id is not None:
+            index = self.product_filter_combo.findData(current_product_id)
+            if index >= 0:
+                self.product_filter_combo.setCurrentIndex(index)
+        self.product_filter_combo.blockSignals(False)
 
     def _refresh_cash_diff(self) -> None:
         if not self._last_report:

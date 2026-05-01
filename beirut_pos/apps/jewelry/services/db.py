@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, List, Literal, Optional, Tuple
+from typing import Dict, Iterable, List, Literal, Optional, Tuple
 
 from beirut_pos.core.db import get_conn
 
@@ -34,6 +34,20 @@ class JewelryInvoiceItem:
     qty: float
     unit_price: float
     line_total: float
+
+
+@dataclass
+class ReturnableInvoiceItem:
+    invoice_item_id: int
+    invoice_id: int
+    invoice_no: str
+    product_id: int
+    product_name: str
+    product_code: str
+    sold_qty: float
+    returned_qty: float
+    remaining_qty: float
+    unit_price: float
 
 
 @dataclass
@@ -327,6 +341,30 @@ def init_jewelry_db() -> None:
             unit_price REAL NOT NULL,
             line_total REAL NOT NULL,
             FOREIGN KEY(invoice_id) REFERENCES jw_invoices(id)
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_invoice_links(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_invoice_id INTEGER NOT NULL,
+            return_invoice_id INTEGER NOT NULL,
+            link_type TEXT NOT NULL DEFAULT 'return',
+            created_at TEXT NOT NULL,
+            UNIQUE(source_invoice_id, return_invoice_id, link_type),
+            FOREIGN KEY(source_invoice_id) REFERENCES jw_invoices(id),
+            FOREIGN KEY(return_invoice_id) REFERENCES jw_invoices(id)
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_invoice_item_returns(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_invoice_item_id INTEGER NOT NULL,
+            return_invoice_item_id INTEGER NOT NULL,
+            qty_returned REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(source_invoice_item_id, return_invoice_item_id),
+            FOREIGN KEY(source_invoice_item_id) REFERENCES jw_invoice_items(id),
+            FOREIGN KEY(return_invoice_item_id) REFERENCES jw_invoice_items(id)
         )"""
     )
     cur.execute(
@@ -1833,6 +1871,158 @@ def create_invoice(
             points_delta = float(loyalty_earned) - float(loyalty_redeemed)
         record_loyalty_entry(customer_id, invoice_id, points_delta, reason=f"invoice:{invoice_no}")
     return invoice_no, int(invoice_id)
+
+
+def fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no: str) -> List[ReturnableInvoiceItem]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT i.id, i.invoice_no, ii.id, ii.product_id, ii.product_name, ii.product_code,
+                  ii.qty, ii.unit_price,
+                  COALESCE(SUM(iir.qty_returned), 0) AS returned_qty
+           FROM jw_invoices i
+           JOIN jw_invoice_items ii ON ii.invoice_id = i.id
+           LEFT JOIN jw_invoice_item_returns iir ON iir.source_invoice_item_id = ii.id
+           WHERE i.invoice_no = ? AND i.txn_type = 'sale'
+           GROUP BY i.id, i.invoice_no, ii.id, ii.product_id, ii.product_name, ii.product_code, ii.qty, ii.unit_price
+           ORDER BY ii.id""",
+        (invoice_no.strip(),),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    items: List[ReturnableInvoiceItem] = []
+    for row in rows:
+        sold_qty = float(row[6] or 0)
+        returned_qty = float(row[8] or 0)
+        remaining = max(sold_qty - returned_qty, 0.0)
+        if remaining <= 0:
+            continue
+        items.append(
+            ReturnableInvoiceItem(
+                invoice_item_id=int(row[2]),
+                invoice_id=int(row[0]),
+                invoice_no=row[1],
+                product_id=int(row[3] or 0),
+                product_name=row[4] or "",
+                product_code=row[5] or "",
+                sold_qty=sold_qty,
+                returned_qty=returned_qty,
+                remaining_qty=remaining,
+                unit_price=float(row[7] or 0),
+            )
+        )
+    return items
+
+
+def create_return_invoice_from_source(
+    source_invoice_no: str,
+    cashier_name: str,
+    return_reason: str,
+    selected_lines: List[Dict[str, float]],
+    payment_method: str = "Return",
+) -> Tuple[str, int]:
+    normalized_source = source_invoice_no.strip()
+    if not normalized_source:
+        raise ValueError("Source invoice is required")
+    if not selected_lines:
+        raise ValueError("Select at least one item to return")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, customer_id, customer_name, customer_phone FROM jw_invoices WHERE invoice_no = ? AND txn_type = 'sale'", (normalized_source,))
+    source = cur.fetchone()
+    if not source:
+        conn.close()
+        raise ValueError("Source sale invoice not found")
+    source_invoice_id = int(source[0])
+    now = datetime.now().isoformat(timespec="seconds")
+    try:
+        cur.execute("BEGIN")
+        created_items: List[Tuple[int, float]] = []
+        invoice_items: List[JewelryInvoiceItem] = []
+        subtotal = 0.0
+        for line in selected_lines:
+            source_item_id = int(line.get("source_invoice_item_id", 0))
+            qty = float(line.get("qty", 0) or 0)
+            if qty <= 0:
+                raise ValueError("Return quantity must be positive")
+            cur.execute(
+                """SELECT ii.product_id, ii.product_name, ii.product_code, ii.qty, ii.unit_price,
+                          COALESCE(SUM(iir.qty_returned), 0)
+                   FROM jw_invoice_items ii
+                   LEFT JOIN jw_invoice_item_returns iir ON iir.source_invoice_item_id = ii.id
+                   WHERE ii.id = ? AND ii.invoice_id = ?
+                   GROUP BY ii.id""",
+                (source_item_id, source_invoice_id),
+            )
+            item_row = cur.fetchone()
+            if not item_row:
+                raise ValueError("Invalid source item selected")
+            sold_qty = float(item_row[3] or 0)
+            already_returned = float(item_row[5] or 0)
+            remaining = max(sold_qty - already_returned, 0.0)
+            if qty > remaining:
+                raise ValueError("Cannot return more than remaining quantity")
+            line_total = float(item_row[4] or 0) * qty
+            subtotal += line_total
+            invoice_items.append(JewelryInvoiceItem(int(item_row[0] or 0), item_row[1] or "", item_row[2] or "", qty, float(item_row[4] or 0), line_total))
+            created_items.append((source_item_id, qty))
+
+        invoice_no = _next_invoice_no(cur)
+        cur.execute(
+            """INSERT INTO jw_invoices
+               (invoice_no, datetime, cashier_name, txn_type, customer_id, customer_name, customer_phone,
+                subtotal, discount, discount_type, discount_value, loyalty_earned, loyalty_redeemed, total,
+                payment_method, payment_due_date, payment_order_status_id, order_source, website_order_ref,
+                delivery_enabled, delivery_company_id, delivery_fee, delivery_address, delivery_status_id, notes, return_reason)
+               VALUES (?, ?, ?, 'return', ?, ?, ?, ?, 0, 'amount', 0, 0, 0, ?, ?, '', NULL, 'in_store', '', 0, NULL, 0, '', NULL, ?, ?)""",
+            (invoice_no, now, cashier_name, source[1], source[2], source[3], subtotal, subtotal, payment_method, f"Source invoice: {normalized_source}", return_reason.strip()),
+        )
+        return_invoice_id = int(cur.lastrowid)
+        for ii, mapping in zip(invoice_items, created_items):
+            cur.execute(
+                """INSERT INTO jw_invoice_items
+                   (invoice_id, product_id, product_name, product_code, qty, unit_price, line_total)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (return_invoice_id, ii.product_id, ii.product_name, ii.product_code, ii.qty, ii.unit_price, ii.line_total),
+            )
+            return_item_id = int(cur.lastrowid)
+            cur.execute(
+                "INSERT INTO jw_invoice_item_returns(source_invoice_item_id, return_invoice_item_id, qty_returned, created_at) VALUES (?, ?, ?, ?)",
+                (mapping[0], return_item_id, mapping[1], now),
+            )
+            _apply_stock_adjustment(cur, ii.product_id, ii.qty, "return")
+        cur.execute(
+            "INSERT OR IGNORE INTO jw_invoice_links(source_invoice_id, return_invoice_id, link_type, created_at) VALUES (?, ?, 'return', ?)",
+            (source_invoice_id, return_invoice_id, now),
+        )
+        conn.commit()
+        return invoice_no, return_invoice_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def link_return_invoice_to_source(source_invoice_no: str, return_invoice_no: str, link_type: str = "manual") -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, txn_type FROM jw_invoices WHERE invoice_no = ?", (source_invoice_no.strip(),))
+    src = cur.fetchone()
+    cur.execute("SELECT id, txn_type FROM jw_invoices WHERE invoice_no = ?", (return_invoice_no.strip(),))
+    ret = cur.fetchone()
+    if not src or src[1] != "sale":
+        conn.close()
+        raise ValueError("Source invoice must be a sale invoice")
+    if not ret or ret[1] != "return":
+        conn.close()
+        raise ValueError("Return invoice must be a return invoice")
+    cur.execute(
+        "INSERT OR IGNORE INTO jw_invoice_links(source_invoice_id, return_invoice_id, link_type, created_at) VALUES (?, ?, ?, ?)",
+        (int(src[0]), int(ret[0]), link_type.strip() or "manual", datetime.now().isoformat(timespec="seconds")),
+    )
+    conn.commit()
+    conn.close()
 
 
 def list_order_payments(invoice_id: int) -> List[JewelryPaymentRow]:

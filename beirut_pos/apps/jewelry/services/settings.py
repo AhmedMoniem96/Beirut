@@ -8,6 +8,16 @@ from typing import Optional
 from beirut_pos.core.config_store import get_config_value, set_config_value
 
 
+
+
+@dataclass
+class ScannerProfile:
+    name: str
+    input_suffix: str
+    inter_key_timeout_ms: int
+    strip_prefix: str
+    strip_suffix: str
+
 @dataclass
 class GallerySettings:
     name_en: str
@@ -60,3 +70,31 @@ def save_gallery_settings(settings: GallerySettings) -> None:
     set_config_value("jw_website_name", settings.website_name)
     set_config_value("jw_website_url", settings.website_url)
     set_config_value("jw_website_orders_enabled", settings.website_orders_enabled)
+
+
+def load_scanner_profile() -> ScannerProfile:
+    return ScannerProfile(
+        name=get_config_value("jw_scanner_profile_name", "U.POS UP-700"),
+        input_suffix=get_config_value("jw_scanner_input_suffix", "\r"),
+        inter_key_timeout_ms=int(get_config_value("jw_scanner_inter_key_timeout_ms", 60) or 60),
+        strip_prefix=get_config_value("jw_scanner_strip_prefix", ""),
+        strip_suffix=get_config_value("jw_scanner_strip_suffix", ""),
+    )
+
+
+def save_scanner_profile(profile: ScannerProfile) -> None:
+    set_config_value("jw_scanner_profile_name", profile.name)
+    set_config_value("jw_scanner_input_suffix", profile.input_suffix)
+    set_config_value("jw_scanner_inter_key_timeout_ms", profile.inter_key_timeout_ms)
+    set_config_value("jw_scanner_strip_prefix", profile.strip_prefix)
+    set_config_value("jw_scanner_strip_suffix", profile.strip_suffix)
+
+
+def normalize_scanner_payload(raw_value: str) -> str:
+    value = (raw_value or "").strip()
+    profile = load_scanner_profile()
+    if profile.strip_prefix and value.startswith(profile.strip_prefix):
+        value = value[len(profile.strip_prefix):]
+    if profile.strip_suffix and value.endswith(profile.strip_suffix):
+        value = value[:-len(profile.strip_suffix)]
+    return value.strip()

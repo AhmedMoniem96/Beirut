@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEventLoop, QTimer, Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -15,14 +15,16 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from ...services.db import add_payment_method
-from ...services.settings import GallerySettings, load_gallery_settings, save_gallery_settings
+from ...services.settings import GallerySettings, load_gallery_settings, save_gallery_settings, normalize_scanner_payload
 from ...services.demo_seed import seed_demo_data
 from ...services.i18n import get_ui_language, set_ui_language, t
+from ...services import device_health
 from ..dialogs.delivery_companies_dialog import DeliveryCompaniesDialog
 from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
 from ..dialogs.statuses_dialog import StatusesDialog
@@ -136,6 +138,27 @@ class SettingsTab(BaseTabContainer):
         content_layout.addWidget(printer_box)
         self.printer_box = printer_box
 
+        device_status_box = QGroupBox("Device Status")
+        device_status_layout = QFormLayout(device_status_box)
+        self.receipt_status = QLabel("Unknown")
+        self.barcode_status = QLabel("Unknown")
+        self.scanner_status = QLabel("Unknown")
+        device_status_layout.addRow("Receipt printer status", self.receipt_status)
+        device_status_layout.addRow("Barcode printer status", self.barcode_status)
+        device_status_layout.addRow("Barcode scanner status", self.scanner_status)
+
+        tests_row = QHBoxLayout()
+        self.test_printer_btn = QPushButton("Test Printer")
+        self.test_scanner_btn = QPushButton("Test Scanner")
+        self.test_printer_btn.clicked.connect(self._test_printers)
+        self.test_scanner_btn.clicked.connect(self._test_scanner)
+        tests_row.addWidget(self.test_printer_btn)
+        tests_row.addWidget(self.test_scanner_btn)
+        device_status_layout.addRow("", tests_row)
+
+        content_layout.addWidget(device_status_box)
+        self.device_status_box = device_status_box
+
         save_btn = QPushButton()
         save_btn.clicked.connect(self._save_settings)
         self.footer_layout.addWidget(save_btn)
@@ -217,6 +240,7 @@ class SettingsTab(BaseTabContainer):
         self.website_url_input.setText(settings.website_url)
         self.website_orders_check.setChecked(settings.website_orders_enabled)
         self._set_language_combo(get_ui_language())
+        self._refresh_device_status()
 
     def _save_settings(self) -> None:
         settings = GallerySettings(
@@ -354,6 +378,51 @@ class SettingsTab(BaseTabContainer):
         self.delivery_companies_btn.setText(t("delivery_companies.button", language=language))
         self.statuses_btn.setText(t("statuses.button", language=language))
         self._set_language_combo(language)
+
+
+    def _refresh_device_status(self) -> None:
+        receipt = device_health.check_receipt_printer(self.receipt_printer.currentData() or "auto", self.receipt_mode.currentData() or "auto")
+        barcode = device_health.check_barcode_printer(self.barcode_printer.currentData() or "auto", self.barcode_mode.currentData() or "pdf")
+        scanner = device_health.check_barcode_scanner()
+        self.receipt_status.setText(f"{receipt['status']}: {receipt['detail']}")
+        self.barcode_status.setText(f"{barcode['status']}: {barcode['detail']}")
+        self.scanner_status.setText(f"{scanner['status']}: {scanner['detail']}")
+
+    def _test_printers(self) -> None:
+        self._refresh_device_status()
+        QMessageBox.information(self, "Device Test", "Printer checks updated. Review Device Status details.")
+
+    def _test_scanner(self) -> None:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Scanner Test")
+        dialog.setText("Scan a barcode within 10 seconds.")
+        editor = QLineEdit()
+        dialog.layout().addWidget(editor, 1, 1)
+        editor.setFocus()
+        loop = QEventLoop()
+        parsed = {"value": ""}
+
+        def finish_timeout() -> None:
+            if not parsed["value"]:
+                loop.quit()
+
+        def on_return() -> None:
+            parsed["value"] = normalize_scanner_payload(editor.text())
+            loop.quit()
+
+        editor.returnPressed.connect(on_return)
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(finish_timeout)
+        timer.start(10000)
+        dialog.show()
+        loop.exec()
+        dialog.close()
+        if parsed["value"]:
+            QMessageBox.information(self, "Scanner Test", f"Scanner payload valid: {parsed['value']}")
+        else:
+            QMessageBox.warning(self, "Scanner Test", "No scanner payload received before timeout.")
+        self._refresh_device_status()
 
     def _open_loyalty_settings(self) -> None:
         dialog = LoyaltySettingsDialog(self)

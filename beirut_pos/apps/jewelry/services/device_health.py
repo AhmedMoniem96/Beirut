@@ -41,7 +41,8 @@ def check_receipt_printer(printer_name: str, mode: str) -> HealthResult:
         else:
             result = {"status": "ok", "detail": f"Windows backend ready ({effective_name})."}
     else:
-        result = {"status": "ok", "detail": "Auto backend is enabled; print a test to validate device permissions/connection."}
+        ok, detail = printer_service.probe_printer_handshake()
+        result = {"status": "ok" if ok else "error", "detail": detail}
     _persist_result("receipt_printer", result)
     return result
 

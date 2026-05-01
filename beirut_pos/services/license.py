@@ -1,4 +1,4 @@
-"""Simple 10-day trial gate enforced via a numeric unlock code."""
+"""Simple staged trial gate enforced via numeric unlock codes."""
 
 from __future__ import annotations
 
@@ -20,7 +20,8 @@ from ..core.db import setting_get, setting_set
 from . import texts
 from .settings import get_client_name
 
-_UNLOCK_CODE = 836
+_FIRST_STAGE_UNLOCK_CODE = 800
+_SECOND_STAGE_UNLOCK_CODE = 836
 
 
 def _get_first_run_at() -> datetime:
@@ -45,9 +46,22 @@ def _set_activated() -> None:
     setting_set("activated", "1")
 
 
+def _get_license_stage() -> int:
+    try:
+        value = int(setting_get("license_stage", "0") or "0")
+    except (TypeError, ValueError):
+        value = 0
+    return max(0, min(2, value))
+
+
+def _set_license_stage(stage: int) -> None:
+    setting_set("license_stage", str(max(0, min(2, int(stage)))))
+
+
 class _LicenseDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, expected_code: int, parent=None):
         super().__init__(parent)
+        self._expected_code = expected_code
         self.setWindowTitle(texts.get("license.block.title"))
         self.setModal(True)
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
@@ -108,7 +122,7 @@ class _LicenseDialog(QDialog):
         except ValueError:
             self._show_error(texts.get("license.block.error"))
             return
-        if value == _UNLOCK_CODE:
+        if value == self._expected_code:
             self.accept()
         else:
             self._show_error(texts.get("license.block.error"))
@@ -128,11 +142,25 @@ def ensure_trial_allowed(parent=None) -> bool:
     if _is_activated():
         return True
 
-    if datetime.utcnow() <= first_run + timedelta(days=10):
+    elapsed_days = (datetime.utcnow() - first_run).days
+    if elapsed_days <= 15:
         return True
 
-    gate = _LicenseDialog(parent=parent)
-    if gate.exec() == gate.DialogCode.Accepted:
-        _set_activated()
-        return True
-    return False
+    stage = _get_license_stage()
+
+    if elapsed_days > 30 and stage < 2:
+        gate = _LicenseDialog(_SECOND_STAGE_UNLOCK_CODE, parent=parent)
+        if gate.exec() == gate.DialogCode.Accepted:
+            _set_license_stage(2)
+            _set_activated()
+            return True
+        return False
+
+    if elapsed_days > 15 and stage < 1:
+        gate = _LicenseDialog(_FIRST_STAGE_UNLOCK_CODE, parent=parent)
+        if gate.exec() == gate.DialogCode.Accepted:
+            _set_license_stage(1)
+            return True
+        return False
+
+    return True

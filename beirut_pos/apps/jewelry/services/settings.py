@@ -34,6 +34,12 @@ class GallerySettings:
     website_name: str
     website_url: str
     website_orders_enabled: bool
+    printer_vendor_id: str
+    printer_product_id: str
+    printer_interface: str
+    printer_out_ep: str
+    printer_in_ep: str
+    printer_backend_priority: str
 
 
 def load_gallery_settings() -> GallerySettings:
@@ -52,6 +58,12 @@ def load_gallery_settings() -> GallerySettings:
         website_name=get_config_value("jw_website_name", ""),
         website_url=get_config_value("jw_website_url", ""),
         website_orders_enabled=bool(get_config_value("jw_website_orders_enabled", False)),
+        printer_vendor_id=str(get_config_value("jw_printer_vendor_id", "0x0FE6")),
+        printer_product_id=str(get_config_value("jw_printer_product_id", "0x811E")),
+        printer_interface=str(get_config_value("jw_printer_interface", "0")),
+        printer_out_ep=str(get_config_value("jw_printer_out_ep", "0x01")),
+        printer_in_ep=str(get_config_value("jw_printer_in_ep", "0x81")),
+        printer_backend_priority=str(get_config_value("jw_printer_backend_priority", "raw-usb-escpos,escpos-usb,file,windows")),
     )
 
 
@@ -70,6 +82,13 @@ def save_gallery_settings(settings: GallerySettings) -> None:
     set_config_value("jw_website_name", settings.website_name)
     set_config_value("jw_website_url", settings.website_url)
     set_config_value("jw_website_orders_enabled", settings.website_orders_enabled)
+    set_config_value("jw_printer_vendor_id", settings.printer_vendor_id)
+    set_config_value("jw_printer_product_id", settings.printer_product_id)
+    set_config_value("jw_printer_interface", settings.printer_interface)
+    set_config_value("jw_printer_out_ep", settings.printer_out_ep)
+    set_config_value("jw_printer_in_ep", settings.printer_in_ep)
+    set_config_value("jw_printer_backend_priority", settings.printer_backend_priority)
+    set_config_value("jw_printer_profiles", [{"name": "Admin Override", "vendor_id": settings.printer_vendor_id, "product_id": settings.printer_product_id, "interface": settings.printer_interface, "out_ep": settings.printer_out_ep, "in_ep": settings.printer_in_ep}])
 
 
 def load_scanner_profile() -> ScannerProfile:

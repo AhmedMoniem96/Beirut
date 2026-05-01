@@ -131,10 +131,29 @@ class SettingsTab(BaseTabContainer):
         self.printer_label = QLabel()
         self.receipt_mode_label = QLabel()
         self.receipt_printer_label = QLabel()
+
+        self.printer_vendor_id = QLineEdit()
+        self.printer_product_id = QLineEdit()
+        self.printer_interface = QLineEdit()
+        self.printer_out_ep = QLineEdit()
+        self.printer_in_ep = QLineEdit()
+        self.printer_backend_priority = QLineEdit()
+        self.printer_vendor_label = QLabel("Vendor ID")
+        self.printer_product_label = QLabel("Product ID")
+        self.printer_interface_label = QLabel("USB Interface")
+        self.printer_out_ep_label = QLabel("OUT Endpoint")
+        self.printer_in_ep_label = QLabel("IN Endpoint")
+        self.printer_backend_priority_label = QLabel("Backend priority")
         printer_layout.addRow(self.printer_mode_label, self.barcode_mode)
         printer_layout.addRow(self.printer_label, self.barcode_printer)
         printer_layout.addRow(self.receipt_mode_label, self.receipt_mode)
         printer_layout.addRow(self.receipt_printer_label, self.receipt_printer)
+        printer_layout.addRow(self.printer_vendor_label, self.printer_vendor_id)
+        printer_layout.addRow(self.printer_product_label, self.printer_product_id)
+        printer_layout.addRow(self.printer_interface_label, self.printer_interface)
+        printer_layout.addRow(self.printer_out_ep_label, self.printer_out_ep)
+        printer_layout.addRow(self.printer_in_ep_label, self.printer_in_ep)
+        printer_layout.addRow(self.printer_backend_priority_label, self.printer_backend_priority)
         content_layout.addWidget(printer_box)
         self.printer_box = printer_box
 
@@ -239,6 +258,12 @@ class SettingsTab(BaseTabContainer):
         self.website_name_input.setText(settings.website_name)
         self.website_url_input.setText(settings.website_url)
         self.website_orders_check.setChecked(settings.website_orders_enabled)
+        self.printer_vendor_id.setText(settings.printer_vendor_id)
+        self.printer_product_id.setText(settings.printer_product_id)
+        self.printer_interface.setText(settings.printer_interface)
+        self.printer_out_ep.setText(settings.printer_out_ep)
+        self.printer_in_ep.setText(settings.printer_in_ep)
+        self.printer_backend_priority.setText(settings.printer_backend_priority)
         self._set_language_combo(get_ui_language())
         self._refresh_device_status()
 
@@ -258,6 +283,12 @@ class SettingsTab(BaseTabContainer):
             website_name=self.website_name_input.text().strip(),
             website_url=self.website_url_input.text().strip(),
             website_orders_enabled=self.website_orders_check.isChecked(),
+            printer_vendor_id=self.printer_vendor_id.text().strip() or "0x0FE6",
+            printer_product_id=self.printer_product_id.text().strip() or "0x811E",
+            printer_interface=self.printer_interface.text().strip() or "0",
+            printer_out_ep=self.printer_out_ep.text().strip() or "0x01",
+            printer_in_ep=self.printer_in_ep.text().strip() or "0x81",
+            printer_backend_priority=self.printer_backend_priority.text().strip() or "raw-usb-escpos,escpos-usb,file,windows",
         )
         save_gallery_settings(settings)
         QMessageBox.information(

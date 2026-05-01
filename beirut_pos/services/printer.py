@@ -25,6 +25,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from ..core.paths import DATA_DIR
 from . import settings as settings_service
+from ..core.config_store import get_config_value
 from . import texts as texts_service
 from .arabic_codec import sanitize_line, shape_bidi_arabic, encode_for_printer  # keep import for other modules
 
@@ -107,24 +108,55 @@ _BAR_DIR = _OUTPUT_ROOT / "bar_tickets"
 _LOG_PATH = _OUTPUT_ROOT / "printer.log"
 _DISABLE_ESCPOS = os.environ.get("BEIRUT_POS_DISABLE_ESCPOS", "0") == "1"
 
-USB_PRINTER_IDS = [
-    (0x0483, 0x5743),
-    (0x0416, 0x5011),
-    (0x04B8, 0x0202),
-    (0x04B8, 0x0E15),
-    (0x067B, 0x2305),
-    (0x0FE6, 0x811E),  # Rongta RP310
+DEFAULT_USB_PROFILES = [
+    {"name": "Rongta RP310", "vendor_id": "0x0FE6", "product_id": "0x811E", "interface": 0, "out_ep": "0x01", "in_ep": "0x81"},
+    {"name": "Rongta RP326", "vendor_id": "0x0FE6", "product_id": "0x811E", "interface": 0, "out_ep": "0x02", "in_ep": "0x82"},
+    {"name": "Rongta 80mm Generic", "vendor_id": "0x0483", "product_id": "0x5743", "interface": 0, "out_ep": "0x01", "in_ep": "0x81"},
+    {"name": "Epson TM-T20/T88", "vendor_id": "0x04B8", "product_id": "0x0202", "interface": 0, "out_ep": "0x01", "in_ep": "0x81"},
+    {"name": "Epson TM-T20II", "vendor_id": "0x04B8", "product_id": "0x0E15", "interface": 0, "out_ep": "0x01", "in_ep": "0x81"},
+    {"name": "CH340 USB Bridge", "vendor_id": "0x067B", "product_id": "0x2305", "interface": 0, "out_ep": "0x02", "in_ep": "0x82"},
 ]
-
-USB_PROBE_CANDIDATES: list[dict[str, int | None]] = [
+DEFAULT_PROBE_CANDIDATES: list[dict[str, int | None]] = [
     {"interface": 0, "out_ep": 0x01, "in_ep": 0x81},
     {"interface": 0, "out_ep": 0x02, "in_ep": 0x82},
     {"interface": 1, "out_ep": 0x01, "in_ep": 0x81},
     {"interface": 1, "out_ep": 0x02, "in_ep": 0x82},
     {"interface": 2, "out_ep": 0x01, "in_ep": 0x81},
     {"interface": 2, "out_ep": 0x02, "in_ep": 0x82},
-    {"interface": None, "out_ep": None, "in_ep": None},  # let python-escpos auto-pick
+    {"interface": None, "out_ep": None, "in_ep": None},
 ]
+
+def _to_int(value, default=None):
+    if value in (None, "", "auto"):
+        return default
+    try:
+        return int(str(value), 0)
+    except Exception:
+        return default
+
+def get_printer_profiles() -> list[dict]:
+    profiles = get_config_value("jw_printer_profiles", DEFAULT_USB_PROFILES)
+    return profiles if isinstance(profiles, list) and profiles else DEFAULT_USB_PROFILES
+
+def get_backend_priority() -> list[str]:
+    value = str(get_config_value("jw_printer_backend_priority", "raw-usb-escpos,escpos-usb,file,windows")).strip()
+    seq = [v.strip() for v in value.split(",") if v.strip()]
+    return seq or ["raw-usb-escpos", "escpos-usb", "file", "windows"]
+
+def _build_profile_probe_order() -> tuple[list[tuple[int,int]], list[dict]]:
+    profiles = get_printer_profiles()
+    usb_ids=[]
+    candidates=[]
+    for p in profiles:
+        vid=_to_int(p.get("vendor_id")); pid=_to_int(p.get("product_id"))
+        if vid is None or pid is None:
+            continue
+        usb_ids.append((vid,pid))
+        candidates.append({"name": p.get("name", "custom"), "vendor": vid, "product": pid, "interface": _to_int(p.get("interface")), "out_ep": _to_int(p.get("out_ep")), "in_ep": _to_int(p.get("in_ep"))})
+    seen=[]; dedup=[]
+    for u in usb_ids:
+        if u not in seen: seen.append(u); dedup.append(u)
+    return dedup, candidates
 
 _ALLOW_USB_WITH_USBLP = os.environ.get("BEIRUT_POS_USB_TRY_BOTH", "0") == "1"
 
@@ -441,7 +473,7 @@ def _usblp_device_paths() -> list[str]:
     return sorted(glob.glob("/dev/usb/lp*"))
 
 
-def _try_usb_printer(*, allow_when_blocked: bool = False, usb_ids: Sequence[tuple[int, int]] | None = None):
+def _try_usb_printer(*, allow_when_blocked: bool = False, usb_ids: Sequence[tuple[int, int]] | None = None, probe_candidates: Sequence[dict[str, int | None]] | None = None):
     if not _ESCPOS_OK or Usb is None:
         _log_struct("printer.usb.skip", reason="escpos_not_available")
         return None
@@ -458,9 +490,12 @@ def _try_usb_printer(*, allow_when_blocked: bool = False, usb_ids: Sequence[tupl
         )
         return None
     init_probe = b"\x1B@"
-    usb_id_list = list(usb_ids or USB_PRINTER_IDS)
+    usb_id_list = list(usb_ids or [])
+    if not usb_id_list:
+        usb_id_list, _ = _build_profile_probe_order()
+    active_candidates = list(probe_candidates or DEFAULT_PROBE_CANDIDATES)
     for vendor, product in usb_id_list:
-        for candidate in USB_PROBE_CANDIDATES:
+        for candidate in active_candidates:
             interface = candidate.get("interface")
             out_ep = candidate.get("out_ep")
             in_ep = candidate.get("in_ep")
@@ -740,14 +775,26 @@ def _stack_bitmaps(bitmaps: list[Image.Image]) -> Image.Image:
 
 
 # =========================================== SINGLE BACKEND (ESC/POS)
+
+def probe_printer_handshake() -> tuple[bool, str]:
+    probe_order, profile_candidates = _build_profile_probe_order()
+    if not probe_order:
+        return False, "No configured printer profile IDs."
+    for c in profile_candidates:
+        prn = _try_usb_printer(usb_ids=[(c["vendor"], c["product"])], probe_candidates=[{"interface": c["interface"], "out_ep": c["out_ep"], "in_ep": c["in_ep"]}])
+        if prn:
+            _log_struct("printer.probe.success", profile=c.get("name"), vid=f"0x{c['vendor']:04X}", pid=f"0x{c['product']:04X}", interface=c.get("interface"), out_ep=c.get("out_ep"), in_ep=c.get("in_ep"))
+            return True, f"Handshake ok for {c.get('name')}"
+    return False, "No profile handshake succeeded."
+
 def _find_thermal_printer():
     if _DISABLE_ESCPOS:
         _log_struct("printer.discovery.skip", reason="escpos_disabled")
         return None
-    # first-class order: RP310 first, then other known USB IDs
-    probe_order = [(0x0FE6, 0x811E)] + [pair for pair in USB_PRINTER_IDS if pair != (0x0FE6, 0x811E)]
+    probe_order, profile_candidates = _build_profile_probe_order()
+    _log_struct("printer.profile.loaded", profiles=profile_candidates, backend_priority=get_backend_priority())
 
-    if RawUsbEscpos is not None and _RAW_USB_OK:
+    if RawUsbEscpos is not None and _RAW_USB_OK and "raw-usb-escpos" in get_backend_priority():
         for vendor, product in probe_order:
             try:
                 prn = RawUsbEscpos(vid=vendor, pid=product, interface=0)

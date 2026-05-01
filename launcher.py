@@ -7,6 +7,16 @@ os.environ.setdefault("QT_OPENGL", "software")
 os.environ.setdefault("QT_QPA_PLATFORM", "windows")
 os.environ.setdefault("QT_SCALE_FACTOR_ROUNDING_POLICY", "PassThrough")
 
+
+# Backward-compat shim for a recurring typo in some frozen builds.
+try:
+    import reportlab.graphics.barcode as _rl_barcode
+    sys.modules.setdefault("reportlab.graphics.barcorde", _rl_barcode)
+    if hasattr(_rl_barcode, "usps"):
+        sys.modules.setdefault("reportlab.graphics.barcorde.usps", _rl_barcode.usps)
+except Exception:
+    pass
+
 def _write_crash(prefix: str, exc: BaseException | None = None) -> None:
     try:
         ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")

@@ -210,6 +210,19 @@ jobs:
             '--hidden-import','PIL.ImageFile',
             '--hidden-import','PIL.ImageWin',   # <-- added
 
+            # ReportLab barcode stack (required for jewelry barcode labels)
+            '--collect-submodules','reportlab.graphics',
+            '--collect-submodules','reportlab.graphics.barcode',
+            '--hidden-import','reportlab.graphics.barcode.usps',
+            '--hidden-import','reportlab.graphics.barcode.usps4s',
+            '--hidden-import','reportlab.graphics.barcode.code128',
+            '--hidden-import','reportlab.graphics.barcode.code39',
+            '--hidden-import','reportlab.graphics.barcode.code93',
+            '--hidden-import','reportlab.graphics.barcode.qr',
+            '--hidden-import','reportlab.graphics.renderPM',
+            '--hidden-import','reportlab.graphics.renderPDF',
+            '--hidden-import','reportlab.graphics.shapes',
+
             # Windows printing
             '--hidden-import','win32print',
             '--hidden-import','win32api',

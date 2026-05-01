@@ -30,15 +30,11 @@ This guide summarizes where the Beirut POS stands today, what still needs attent
    pip install --upgrade pip
    pip install PyInstaller PyQt6
    ```
-2. **Run PyInstaller against the module entry point**
+2. **Run PyInstaller using the canonical spec file**
    ```powershell
-   pyinstaller -F -w -n BeirutPOS `
-     --collect-submodules reportlab.graphics.barcode `
-     --collect-submodules reportlab.graphics `
-     beirut_pos\__main__.py
+   pyinstaller --noconfirm --clean BeirutPOS.spec
    ```
-   * `-F -w` creates a single-windowed executable.
-   * The `--add-data` switches bundle the default database and ticket templates that the printers read.
+   * The spec centralizes entry point selection, hidden imports, and future data/binary bundling so repeat builds stay consistent.
 3. **Ship user-configurable assets alongside the EXE**
    * Place your café logo/background in the same directory as the executable or embed them via additional `--add-data` paths so the branding helper can load them at runtime.【F:beirut_pos/ui/common/branding.py†L19-L75】
 4. **First-run initialization**
@@ -50,7 +46,7 @@ This guide summarizes where the Beirut POS stands today, what still needs attent
 
 * If the build fails to locate Qt plugins, add `--collect-all PyQt6` to the PyInstaller command.
 * When printers do not appear, confirm their names are configured under **Settings → Printers** after the first launch and that the Windows account running the app has permission to print.
-* Use `pyinstaller --noconfirm --clean ...` during repeat builds to avoid reusing stale caches.
+* Fallback only (if the spec file is unavailable): use the old ad-hoc flags, e.g. `pyinstaller -F -w -n BeirutPOS --collect-submodules reportlab.graphics.barcode --collect-submodules reportlab.graphics beirut_pos\__main__.py`.
 
 With these steps, you can evaluate the remaining production gaps and deliver a Windows-friendly executable without modifying the core application code.
 

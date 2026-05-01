@@ -16,7 +16,6 @@ for pkg in (
 
 # Defensive explicit include for historically-missed modules in frozen builds.
 hiddenimports += [
-    "reportlab.graphics.barcode.usps",
     "reportlab.graphics.barcode.usps4s",
     "reportlab.graphics.barcode.code128",
     "reportlab.graphics.barcode.code39",

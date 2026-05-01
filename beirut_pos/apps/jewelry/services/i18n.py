@@ -550,6 +550,13 @@ _TEXTS: Dict[str, Dict[str, str]] = {
         "en": "Barcode labels exported.",
         "ar": "تم تصدير ملصقات الباركود.",
     },
+    "inventory.import_excel": {"en": "Import Excel", "ar": "استيراد إكسل"},
+    "inventory.download_template": {"en": "Download Template", "ar": "تنزيل النموذج"},
+    "inventory.template_saved": {"en": "Template saved.", "ar": "تم حفظ النموذج."},
+    "inventory.import_summary": {
+        "en": "Import completed. Created: {created}, Updated: {updated}, Skipped: {skipped}, Errors: {errors}",
+        "ar": "اكتمل الاستيراد. تمت الإضافة: {created}، التحديث: {updated}، التخطي: {skipped}، الأخطاء: {errors}",
+    },
     "inventory.search_status": {"en": "Search: {code}", "ar": "بحث: {code}"},
     "returns.header": {"en": "Returns", "ar": "المرتجعات"},
     "returns.refresh": {"en": "Refresh", "ar": "تحديث"},

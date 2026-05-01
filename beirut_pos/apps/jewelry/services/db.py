@@ -1149,6 +1149,69 @@ def list_products(search: Optional[str] = None, category: Optional[str] = None) 
     ]
 
 
+
+
+def upsert_product_by_sku(product: dict) -> str:
+    sku = str(product.get("sku", "")).strip()
+    if not sku:
+        raise ValueError("SKU is required")
+    barcode = str(product.get("barcode", "")).strip()
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM jw_products WHERE sku = ? LIMIT 1", (sku,))
+    existing = cur.fetchone()
+
+    if barcode:
+        if existing:
+            cur.execute(
+                "SELECT 1 FROM jw_products WHERE barcode = ? AND id != ? LIMIT 1",
+                (barcode, existing[0]),
+            )
+        else:
+            cur.execute("SELECT 1 FROM jw_products WHERE barcode = ? LIMIT 1", (barcode,))
+        if cur.fetchone():
+            conn.close()
+            raise ValueError("Duplicate barcode")
+
+    values = (
+        str(product.get("name_ar", "")).strip(),
+        str(product.get("name_en", "")).strip(),
+        sku,
+        barcode,
+        str(product.get("barcode_type", "")).strip(),
+        float(product.get("price", 0.0) or 0.0),
+        float(product.get("qty_on_hand", 0.0) or 0.0),
+        float(product.get("min_qty", 0.0) or 0.0),
+        str(product.get("category", "")).strip(),
+        1 if bool(product.get("handmade_flag", False)) else 0,
+        str(product.get("stone_type", "")).strip(),
+        str(product.get("color", "")).strip(),
+    )
+
+    if existing:
+        cur.execute(
+            """UPDATE jw_products
+               SET name_ar=?, name_en=?, sku=?, barcode=?, barcode_type=?, price=?,
+                   qty_on_hand=?, min_qty=?, category=?, handmade_flag=?,
+                   stone_type=?, color=?
+               WHERE id=?""",
+            values + (existing[0],),
+        )
+        status = "updated"
+    else:
+        cur.execute(
+            """INSERT INTO jw_products
+               (name_ar, name_en, sku, barcode, barcode_type, price, qty_on_hand,
+                min_qty, category, handmade_flag, stone_type, color)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            values,
+        )
+        status = "created"
+
+    conn.commit()
+    conn.close()
+    return status
 def save_product(
     product_id: Optional[int],
     name_ar: str,

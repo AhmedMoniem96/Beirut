@@ -2,18 +2,31 @@
 
 from PyInstaller.utils.hooks import collect_submodules
 
-hiddenimports = [
-    "beirut_pos.apps.playstation.ui.theme.tokens",
-    "beirut_pos.apps.playstation.ui.theme.components",
-    "beirut_pos.apps.playstation.ui.common.branding",
-    "beirut_pos.apps.playstation.ui.settings_branding",
+block_cipher = None
+
+hiddenimports = []
+for pkg in (
+    "reportlab.graphics",
+    "reportlab.graphics.barcode",
+    "reportlab.pdfbase",
+    "reportlab.pdfgen",
+    "reportlab.lib",
+):
+    hiddenimports += collect_submodules(pkg)
+
+# Defensive explicit include for historically-missed modules in frozen builds.
+hiddenimports += [
+    "reportlab.graphics.barcode.usps",
+    "reportlab.graphics.barcode.usps4s",
+    "reportlab.graphics.barcode.code128",
+    "reportlab.graphics.barcode.code39",
+    "reportlab.graphics.barcode.code93",
+    "reportlab.graphics.barcode.qr",
+    "reportlab.graphics.renderPM",
+    "reportlab.graphics.renderPDF",
+    "reportlab.graphics.shapes",
 ]
 
-hiddenimports.extend(collect_submodules("reportlab.graphics"))
-hiddenimports.extend(collect_submodules("reportlab.graphics.barcode"))
-hiddenimports.extend(collect_submodules("reportlab.pdfbase"))
-hiddenimports.extend(collect_submodules("reportlab.pdfgen"))
-hiddenimports.extend(collect_submodules("reportlab.lib"))
 hiddenimports = sorted(set(hiddenimports))
 
 
@@ -29,12 +42,13 @@ a = Analysis(
     excludes=[],
     noarchive=False,
 )
-pyz = PYZ(a.pure)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
+    a.zipfiles,
     a.datas,
     [],
     name="BeirutPOS",

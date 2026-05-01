@@ -174,6 +174,20 @@ class JewelryUnpaidOrder:
     payment_order_status_name_en: str
 
 
+@dataclass
+class JewelryInvoiceHistoryRow:
+    id: int
+    invoice_no: str
+    datetime: str
+    txn_type: str
+    customer_name: str
+    total: float
+    payment_status: str
+    link_state: str
+    linked_invoice_nos: str
+    consistency_ok: bool
+
+
 def init_jewelry_db() -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -351,6 +365,19 @@ def init_jewelry_db() -> None:
             link_type TEXT NOT NULL DEFAULT 'return',
             created_at TEXT NOT NULL,
             UNIQUE(source_invoice_id, return_invoice_id, link_type),
+            FOREIGN KEY(source_invoice_id) REFERENCES jw_invoices(id),
+            FOREIGN KEY(return_invoice_id) REFERENCES jw_invoices(id)
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_invoice_link_audit(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_invoice_id INTEGER NOT NULL,
+            return_invoice_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            reason TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
             FOREIGN KEY(source_invoice_id) REFERENCES jw_invoices(id),
             FOREIGN KEY(return_invoice_id) REFERENCES jw_invoices(id)
         )"""
@@ -2021,8 +2048,125 @@ def link_return_invoice_to_source(source_invoice_no: str, return_invoice_no: str
         "INSERT OR IGNORE INTO jw_invoice_links(source_invoice_id, return_invoice_id, link_type, created_at) VALUES (?, ?, ?, ?)",
         (int(src[0]), int(ret[0]), link_type.strip() or "manual", datetime.now().isoformat(timespec="seconds")),
     )
+    cur.execute(
+        """INSERT INTO jw_invoice_link_audit(source_invoice_id, return_invoice_id, action, actor, reason, created_at)
+           VALUES (?, ?, 'link', '', ?, ?)""",
+        (int(src[0]), int(ret[0]), link_type.strip() or "manual", datetime.now().isoformat(timespec="seconds")),
+    )
     conn.commit()
     conn.close()
+
+
+def unlink_return_invoice_from_source(source_invoice_no: str, return_invoice_no: str, actor: str = "", reason: str = "") -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM jw_invoices WHERE invoice_no = ?", (source_invoice_no.strip(),))
+    src = cur.fetchone()
+    cur.execute("SELECT id FROM jw_invoices WHERE invoice_no = ?", (return_invoice_no.strip(),))
+    ret = cur.fetchone()
+    if not src or not ret:
+        conn.close()
+        raise ValueError("Invoice not found")
+    cur.execute(
+        "DELETE FROM jw_invoice_links WHERE source_invoice_id = ? AND return_invoice_id = ?",
+        (int(src[0]), int(ret[0])),
+    )
+    cur.execute(
+        """INSERT INTO jw_invoice_link_audit(source_invoice_id, return_invoice_id, action, actor, reason, created_at)
+           VALUES (?, ?, 'unlink', ?, ?, ?)""",
+        (int(src[0]), int(ret[0]), actor.strip(), reason.strip(), datetime.now().isoformat(timespec="seconds")),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_linked_invoices(invoice_no: str) -> List[str]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM jw_invoices WHERE invoice_no = ?", (invoice_no.strip(),))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return []
+    invoice_id = int(row[0])
+    cur.execute(
+        """SELECT DISTINCT i2.invoice_no
+           FROM jw_invoice_links l
+           JOIN jw_invoices i1 ON i1.id = l.source_invoice_id
+           JOIN jw_invoices i2 ON i2.id = l.return_invoice_id
+           WHERE l.source_invoice_id = ? OR l.return_invoice_id = ?
+           ORDER BY i2.invoice_no""",
+        (invoice_id, invoice_id),
+    )
+    results = [r[0] for r in cur.fetchall()]
+    conn.close()
+    return results
+
+
+def list_full_invoice_history(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    customer: str = "",
+    status: str = "",
+    invoice_no: str = "",
+) -> List[JewelryInvoiceHistoryRow]:
+    conn = get_conn()
+    cur = conn.cursor()
+    query = """SELECT i.id, i.invoice_no, i.datetime, i.txn_type, COALESCE(i.customer_name, ''),
+                      COALESCE(i.total, 0), COALESCE(i.payment_status, ''),
+                      (
+                        SELECT GROUP_CONCAT(ir.invoice_no, ', ')
+                        FROM jw_invoice_links l
+                        JOIN jw_invoices ir ON ir.id = l.return_invoice_id
+                        WHERE l.source_invoice_id = i.id
+                      ) AS linked_nos,
+                      (
+                        SELECT COUNT(*) FROM jw_invoice_links l WHERE l.source_invoice_id = i.id OR l.return_invoice_id = i.id
+                      ) AS link_count
+               FROM jw_invoices i
+               WHERE 1=1"""
+    params: List[str] = []
+    if date_from:
+        query += " AND date(i.datetime) >= date(?)"
+        params.append(date_from)
+    if date_to:
+        query += " AND date(i.datetime) <= date(?)"
+        params.append(date_to)
+    if customer.strip():
+        query += " AND COALESCE(i.customer_name, '') LIKE ?"
+        params.append(f"%{customer.strip()}%")
+    if status.strip():
+        query += " AND COALESCE(i.payment_status, '') = ?"
+        params.append(status.strip().upper())
+    if invoice_no.strip():
+        query += " AND i.invoice_no LIKE ?"
+        params.append(f"%{invoice_no.strip()}%")
+    query += " ORDER BY datetime(i.datetime) DESC, i.id DESC"
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+    conn.close()
+    result: List[JewelryInvoiceHistoryRow] = []
+    for row in rows:
+        txn_type = row[3] or ""
+        link_count = int(row[8] or 0)
+        linked = row[7] or ""
+        is_linked = link_count > 0
+        consistency_ok = (txn_type == "sale" and True) or (txn_type == "return" and is_linked)
+        result.append(
+            JewelryInvoiceHistoryRow(
+                id=int(row[0]),
+                invoice_no=row[1],
+                datetime=row[2],
+                txn_type=txn_type,
+                customer_name=row[4],
+                total=float(row[5] or 0),
+                payment_status=row[6] or "",
+                link_state="linked" if is_linked else "unlinked",
+                linked_invoice_nos=linked,
+                consistency_ok=consistency_ok,
+            )
+        )
+    return result
 
 
 def list_order_payments(invoice_id: int) -> List[JewelryPaymentRow]:

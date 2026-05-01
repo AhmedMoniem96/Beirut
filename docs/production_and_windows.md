@@ -48,6 +48,7 @@ This guide summarizes where the Beirut POS stands today, what still needs attent
 * If the build fails to locate Qt plugins, add `--collect-all PyQt6` to the PyInstaller command.
 * When printers do not appear, confirm their names are configured under **Settings → Printers** after the first launch and that the Windows account running the app has permission to print.
 * Fallback only (if the spec file is unavailable): use the old ad-hoc flags, e.g. `pyinstaller -F -w -n BeirutPOS --collect-submodules reportlab.graphics.barcode --collect-submodules reportlab.graphics launcher.py`.
+* **Fallback-only note:** the launcher shim for `reportlab.graphics.barcorde` is strictly backward compatibility for legacy typo imports; release packaging still must collect the proper ReportLab submodules explicitly.
 
 With these steps, you can evaluate the remaining production gaps and deliver a Windows-friendly executable without modifying the core application code.
 

@@ -14,8 +14,11 @@ os.environ.setdefault("QT_SCALE_FACTOR_ROUNDING_POLICY", "PassThrough")
 try:
     import reportlab.graphics.barcode as _rl_barcode
     sys.modules.setdefault("reportlab.graphics.barcorde", _rl_barcode)
-    if hasattr(_rl_barcode, "usps"):
-        sys.modules.setdefault("reportlab.graphics.barcorde.usps", _rl_barcode.usps)
+    # Some ReportLab releases expose `usps4s` but not `usps`.
+    # Keep typo-compat imports working by aliasing whichever exists.
+    _legacy_usps = getattr(_rl_barcode, "usps", None) or getattr(_rl_barcode, "usps4s", None)
+    if _legacy_usps is not None:
+        sys.modules.setdefault("reportlab.graphics.barcorde.usps", _legacy_usps)
 except Exception:
     pass
 

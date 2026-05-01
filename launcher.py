@@ -18,6 +18,9 @@ try:
     # Keep typo-compat imports working by aliasing whichever exists.
     _legacy_usps = getattr(_rl_barcode, "usps", None) or getattr(_rl_barcode, "usps4s", None)
     if _legacy_usps is not None:
+        # ReportLab widgets may import `reportlab.graphics.barcode.usps` directly,
+        # while some versions only ship `usps4s`. Provide both aliases.
+        sys.modules.setdefault("reportlab.graphics.barcode.usps", _legacy_usps)
         sys.modules.setdefault("reportlab.graphics.barcorde.usps", _legacy_usps)
 except Exception:
     pass

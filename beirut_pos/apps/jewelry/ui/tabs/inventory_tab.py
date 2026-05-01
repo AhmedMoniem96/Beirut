@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...services.db import barcode_exists, delete_product, list_products, save_product
+from ...services.product_import import generate_import_template, import_products_from_excel
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
@@ -118,12 +119,18 @@ class InventoryTab(BaseTabContainer):
         self.clear_btn.clicked.connect(self._clear_form)
         self.print_barcode_btn = QPushButton()
         self.print_barcode_btn.clicked.connect(self._print_barcode_label)
+        self.import_excel_btn = QPushButton()
+        self.import_excel_btn.clicked.connect(self._import_excel)
+        self.download_template_btn = QPushButton()
+        self.download_template_btn.clicked.connect(self._download_import_template)
 
         self.add_content_widget(form_box)
         self.footer_layout.addWidget(self.save_btn)
         self.footer_layout.addWidget(self.delete_btn)
         self.footer_layout.addWidget(self.clear_btn)
         self.footer_layout.addWidget(self.print_barcode_btn)
+        self.footer_layout.addWidget(self.import_excel_btn)
+        self.footer_layout.addWidget(self.download_template_btn)
 
         self.table = QTableWidget(0, 12)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -268,6 +275,8 @@ class InventoryTab(BaseTabContainer):
         self.delete_btn.setText(t("inventory.delete", language=language))
         self.clear_btn.setText(t("inventory.clear", language=language))
         self.print_barcode_btn.setText(t("inventory.print_barcode", language=language))
+        self.import_excel_btn.setText(t("inventory.import_excel", language=language))
+        self.download_template_btn.setText(t("inventory.download_template", language=language))
         self.table.setHorizontalHeaderLabels(
             [
                 t("inventory.table_arabic", language=language),
@@ -413,6 +422,49 @@ class InventoryTab(BaseTabContainer):
         self.handmade_check.setChecked(False)
         self.stone_type_input.clear()
         self.color_input.clear()
+
+
+    def _download_import_template(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            t("inventory.download_template", language=self._language),
+            "inventory_import_template.xlsx",
+            f"{t('common.file_filter_excel', language=self._language)} (*.xlsx)",
+        )
+        if not path:
+            return
+        generate_import_template(path)
+        QMessageBox.information(self, t("common.export", language=self._language), t("inventory.template_saved", language=self._language))
+
+    def _import_excel(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            t("inventory.import_excel", language=self._language),
+            "",
+            f"{t('common.file_filter_excel', language=self._language)} (*.xlsx)",
+        )
+        if not path:
+            return
+        try:
+            report = import_products_from_excel(path)
+        except ValueError as exc:
+            QMessageBox.warning(self, t("inventory.import_excel", language=self._language), str(exc))
+            return
+        details = "\n".join(
+            f"Row {row.row_number} [{row.sku or '-'}]: {row.status}{' - ' + row.message if row.message else ''}"
+            for row in report.rows[:20]
+        )
+        if len(report.rows) > 20:
+            details += "\n..."
+        QMessageBox.information(
+            self,
+            t("inventory.import_excel", language=self._language),
+            t("inventory.import_summary", language=self._language, created=report.created, updated=report.updated, skipped=report.skipped, errors=report.errors)
+            + (f"\n\n{details}" if details else ""),
+        )
+        self.refresh()
+        if self._on_products_changed:
+            self._on_products_changed()
 
     def _print_barcode_label(self) -> None:
         if not self._selected_product_id:

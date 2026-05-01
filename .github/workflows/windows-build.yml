@@ -25,14 +25,20 @@ jobs:
         shell: pwsh
         run: |
           @"
+          import os
+
           # Force SQLAlchemy import so PyInstaller detects it
           import sqlalchemy
           import sqlalchemy.orm
           import sqlalchemy.ext.declarative
 
-          from beirut_pos.app import main
+          # Build a single, working Windows app target.
+          # Keep Jewelry as default mode for this executable.
+          os.environ.setdefault("APP_MODE", "jewelry")
+
+          from beirut_pos.app_launcher import run
           if __name__ == "__main__":
-              main()
+              run()
           "@ | Out-File -FilePath "launcher.py" -Encoding UTF8
 
       - name: Create PyInstaller hook for SQLAlchemy
@@ -259,119 +265,6 @@ jobs:
         with:
           name: BeirutPOS-win-${{ github.run_number }}
           path: dist/BeirutPOS.exe
-          retention-days: 90
-
-      - name: Build EXE with PyInstaller (Jewelry)
-        shell: pwsh
-        run: |
-          $env:APP_MODE = "jewelry"
-          $args = @(
-            'beirut_pos/apps/jewelry/entrypoint.py',
-            '--name','BeirutPOS-Jewelry',
-            '--onefile',
-            '--noconsole',
-            '--clean',
-            '--additional-hooks-dir','hooks',
-
-            # PyQt6 and UI
-            '--collect-all','PyQt6',
-            '--collect-all','PyQt6.Qt6',
-            '--collect-submodules','beirut_pos.apps.jewelry',
-
-            # Exclude PlayStation app modules
-            '--exclude-module','beirut_pos.apps.playstation',
-            '--exclude-module','beirut_pos.apps.playstation.core',
-
-            # Database (SQLAlchemy + SQLite)
-            '--collect-all','sqlalchemy',
-            '--hidden-import','sqlalchemy',
-            '--hidden-import','sqlalchemy.ext.declarative',
-            '--hidden-import','sqlalchemy.orm',
-            '--collect-all','sqlite3',
-
-            # Thermal Printing (ESC/POS)
-            '--collect-all','escpos',
-            '--hidden-import','escpos.printer',
-            '--hidden-import','escpos.constants',
-            '--hidden-import','escpos.exceptions',
-            '--hidden-import','escpos.escpos',
-            '--hidden-import','escpos.impl.epson',
-            '--hidden-import','escpos.impl.generic',
-            '--hidden-import','escpos.impl.legacy',
-            '--hidden-import','usb.backend.libusb1',
-
-            # USB/Serial communication
-            '--hidden-import','usb.core',
-            '--hidden-import','usb.util',
-            '--hidden-import','serial',
-            '--hidden-import','serial.tools',
-            '--hidden-import','serial.tools.list_ports',
-
-            # Arabic text support
-            '--collect-submodules','arabic_reshaper',
-            '--collect-submodules','bidi',
-
-            # Image handling
-            '--hidden-import','PIL',
-            '--hidden-import','PIL.Image',
-            '--hidden-import','PIL.ImageFile',
-            '--hidden-import','PIL.ImageWin',   # <-- added
-
-            # Windows printing
-            '--hidden-import','win32print',
-            '--hidden-import','win32api',
-            '--hidden-import','win32con',
-            '--hidden-import','win32gui',
-            '--hidden-import','win32ui',
-
-            # Bundle libusb DLL next to the EXE
-            '--add-binary','libusb-1.0.dll;.'
-          )
-
-          if (Test-Path 'assets/app.ico') {
-            $args += @('--icon','assets/app.ico')
-            Write-Host "Using icon: assets/app.ico"
-          }
-          if (Test-Path 'assets') {
-            $args += @('--add-data','assets;assets')
-            Write-Host "Including assets folder"
-          }
-          if (Test-Path 'beirut_pos/assets/fonts') {
-            $args += @('--add-data','beirut_pos/assets/fonts;beirut_pos/assets/fonts')
-            Write-Host "Including fonts folder"
-          }
-
-          Write-Host "Building Jewelry EXE..."
-          python -m PyInstaller @args
-
-      - name: Test built Jewelry executable (smoke test)
-        shell: pwsh
-        run: |
-          $exePath = "dist/BeirutPOS-Jewelry.exe"
-          if (Test-Path $exePath) {
-            $sizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 2)
-            Write-Host "EXE built successfully: $sizeMB MB"
-            Write-Host "Location: $exePath"
-            & $exePath --version 2>$null
-            if ($LASTEXITCODE -eq 0) { Write-Host "Version check passed" }
-            else { Write-Host "No --version flag support (GUI app) — OK" }
-          } else {
-            Write-Host "ERROR: EXE not found at $exePath!"
-            exit 1
-          }
-
-      - name: Calculate and display SHA256 (Jewelry)
-        shell: pwsh
-        run: |
-          $hash = (Get-FileHash dist/BeirutPOS-Jewelry.exe -Algorithm SHA256).Hash
-          Write-Host "SHA256 (Jewelry): $hash"
-          echo "SHA256_JEWELRY=$hash" >> $env:GITHUB_ENV
-
-      - name: Upload Jewelry artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: BeirutPOS-Jewelry-win-${{ github.run_number }}
-          path: dist/BeirutPOS-Jewelry.exe
           retention-days: 90
 
       - name: Create GitHub Release

@@ -9,6 +9,8 @@ os.environ.setdefault("QT_SCALE_FACTOR_ROUNDING_POLICY", "PassThrough")
 
 
 # Backward-compat shim for a recurring typo in some frozen builds.
+# Packaging must still include the real ReportLab barcode/graphics submodules;
+# this alias only preserves legacy typo imports ("barcorde"), not full dependency collection.
 try:
     import reportlab.graphics.barcode as _rl_barcode
     sys.modules.setdefault("reportlab.graphics.barcorde", _rl_barcode)

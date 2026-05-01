@@ -31,6 +31,7 @@ _LABEL_WIDTH_PX = printer_service.PAPER_PX
 _SUPPORTED_BARCODE_TYPES = {
     "code128": "Code128",
     "code39": "Code39",
+    "code93": "Code93",
     "qr": "QR",
 }
 
@@ -58,6 +59,14 @@ def _barcode_drawing(barcode_value: str, barcode_type: str) -> Drawing:
     if normalized == "code39":
         return createBarcodeDrawing(
             "Code39",
+            value=barcode_value,
+            barHeight=70,
+            barWidth=1.2,
+            humanReadable=False,
+        )
+    if normalized == "code93":
+        return createBarcodeDrawing(
+            "Code93",
             value=barcode_value,
             barHeight=70,
             barWidth=1.2,

@@ -11,7 +11,7 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 try:
     from reportlab.lib.pagesizes import A4
-    from reportlab.graphics.barcode import code128, code39, qr
+    from reportlab.graphics.barcode import code128, code39, code93, qr
     from reportlab.graphics import renderPDF
     from reportlab.graphics.shapes import Drawing
     from reportlab.pdfbase import pdfmetrics
@@ -36,6 +36,7 @@ class GalleryInfo:
 _SUPPORTED_BARCODE_TYPES = {
     "code128": "Code128",
     "code39": "Code39",
+    "code93": "Code93",
     "qr": "QR",
 }
 
@@ -62,6 +63,10 @@ def _draw_barcode(
         barcode_obj = code39.Standard39(barcode_value, barHeight=22, barWidth=0.6, checksum=False)
         barcode_obj.drawOn(c, x, y)
         return _SUPPORTED_BARCODE_TYPES["code39"]
+    if normalized == "code93":
+        barcode_obj = code93.Standard93(barcode_value, barHeight=22, barWidth=0.6)
+        barcode_obj.drawOn(c, x, y)
+        return _SUPPORTED_BARCODE_TYPES["code93"]
     if normalized == "qr":
         size = min(max_width, max_height, 40)
         widget = qr.QrCodeWidget(barcode_value)

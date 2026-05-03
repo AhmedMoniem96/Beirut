@@ -1362,15 +1362,18 @@ def barcode_exists(barcode: str, *, exclude_product_id: Optional[int] = None) ->
 def find_product_by_code(code: str) -> Optional[JewelryProduct]:
     if not code:
         return None
+    normalized = str(code).strip()
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """SELECT id, name_ar, name_en, sku, COALESCE(barcode, ''), COALESCE(barcode_type, ''),
                   price, qty_on_hand, min_qty, category, handmade_flag, stone_type, color
            FROM jw_products
-           WHERE sku = ? OR barcode = ?
+           WHERE sku = ?
+              OR barcode = ?
+              OR (barcode LIKE ? OR barcode LIKE ? OR barcode LIKE ? OR barcode LIKE ?)
            LIMIT 1""",
-        (code, code),
+        (normalized, normalized, f"{normalized},%", f"%,{normalized},%", f"%,{normalized}", f"{normalized}|%"),
     )
     row = cur.fetchone()
     conn.close()

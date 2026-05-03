@@ -100,6 +100,8 @@ class InvoiceTab(BaseTabContainer):
         self._category_buttons: dict[Optional[str], QPushButton] = {}
         self._categories: List[str] = []
         self._active_category: Optional[str] = None
+        self._instant_invoice_mode = False
+        self._recent_scans: list[str] = []
 
         content = QWidget()
         layout = QHBoxLayout(content)
@@ -322,15 +324,20 @@ class InvoiceTab(BaseTabContainer):
         self.barcode_input = QLineEdit()
         self.search_label = QLabel()
         self.barcode_label = QLabel()
+        self.instant_invoice_toggle = QCheckBox("فاتورة فورية")
+        self.instant_invoice_toggle.toggled.connect(self._set_instant_invoice_mode)
+        self.recent_scans_label = QLabel()
         self.barcode_input.setPlaceholderText("")
         self.barcode_input.returnPressed.connect(self._handle_barcode_submit)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("")
         self.search_input.textChanged.connect(self._handle_product_search_change)
-        product_search_layout.addWidget(self.search_label, 0, 0)
-        product_search_layout.addWidget(self.search_input, 0, 1, 1, 2)
-        product_search_layout.addWidget(self.barcode_label, 1, 0)
-        product_search_layout.addWidget(self.barcode_input, 1, 1, 1, 2)
+        product_search_layout.addWidget(self.instant_invoice_toggle, 0, 0, 1, 3)
+        product_search_layout.addWidget(self.search_label, 1, 0)
+        product_search_layout.addWidget(self.search_input, 1, 1, 1, 2)
+        product_search_layout.addWidget(self.barcode_label, 2, 0)
+        product_search_layout.addWidget(self.barcode_input, 2, 1, 1, 2)
+        product_search_layout.addWidget(self.recent_scans_label, 3, 0, 1, 3)
         right_layout.addWidget(product_search_panel)
 
         self.category_scroll = QScrollArea()
@@ -1692,12 +1699,9 @@ class InvoiceTab(BaseTabContainer):
         if not code:
             return
         self.barcode_input.clear()
-        product = find_product_by_code(code)
-        if not product:
-            self._dispatch_scan(code)
+        self._dispatch_scan(code)
+        if self._instant_invoice_mode:
             self._focus_barcode_input()
-            return
-        self._add_product_to_invoice(product, float(self.qty_input.value()))
 
     def _find_item_row(self, product_id: int) -> int:
         for row in range(self.items_table.rowCount()):
@@ -1882,6 +1886,8 @@ class InvoiceTab(BaseTabContainer):
         self.search_input.setPlaceholderText(t("invoice.search_products", language=language))
         self.search_label.setText(t("invoice.search_label", language=language))
         self.barcode_label.setText(t("invoice.barcode_label", language=language))
+        self.instant_invoice_toggle.setText("فاتورة فورية" if language == "ar" else "Instant invoice")
+        self._update_recent_scans_label()
         self.qty_label.setText(t("invoice.qty_label", language=language))
         self.add_btn.setText(t("invoice.add_item", language=language))
         self.items_box.setTitle(t("invoice.items_box", language=language))
@@ -1927,13 +1933,45 @@ class InvoiceTab(BaseTabContainer):
         normalized_code = self._normalize_scan_text(code)
         product = find_product_by_code(normalized_code)
         if not product:
+            self._show_scan_fallback_popup(normalized_code)
             return t("invoice.unknown_barcode", language=self._language, code=normalized_code)
         self._add_product_to_invoice(product, 1.0)
+        product_name = choose_name(product.name_ar, product.name_en, language=self._language)
+        self._register_recent_scan(product_name)
         return t(
             "invoice.added_product",
             language=self._language,
-            name=choose_name(product.name_ar, product.name_en, language=self._language),
+            name=product_name,
         )
+
+    def _set_instant_invoice_mode(self, enabled: bool) -> None:
+        self._instant_invoice_mode = enabled
+        if enabled:
+            self._focus_barcode_input()
+
+    def _register_recent_scan(self, product_name: str) -> None:
+        self._recent_scans.insert(0, product_name)
+        self._recent_scans = self._recent_scans[:5]
+        self._update_recent_scans_label()
+
+    def _update_recent_scans_label(self) -> None:
+        if not self._recent_scans:
+            self.recent_scans_label.setText("آخر المنتجات الممسوحة: -")
+            return
+        self.recent_scans_label.setText("آخر المنتجات الممسوحة: " + " • ".join(self._recent_scans))
+
+    def _show_scan_fallback_popup(self, code: str) -> None:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("باركود غير معروف")
+        box.setText(f"لم يتم العثور على الباركود: {code}")
+        create_btn = box.addButton("إنشاء عنصر سريع", QMessageBox.ButtonRole.AcceptRole)
+        retry_btn = box.addButton("إعادة المحاولة", QMessageBox.ButtonRole.ActionRole)
+        box.exec()
+        if box.clickedButton() is create_btn:
+            self._focus_product_search()
+        elif box.clickedButton() is retry_btn:
+            self._focus_barcode_input()
 
     def _refresh_summary_labels(self) -> None:
         subtotal = self._calculate_subtotal()

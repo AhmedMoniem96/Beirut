@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QCheckBox,
     QInputDialog,
+    QDialog,
 )
 
 from .base_tab import BaseTabContainer
@@ -66,6 +67,7 @@ from ...services.i18n import choose_name, get_ui_language, t
 from beirut_pos.services.printer import printer
 from ..date_utils import to_iso_date
 from ..theme import JEWELRY_CONTROLS, JEWELRY_SPACING, JEWELRY_TABLE, JEWELRY_TYPOGRAPHY
+from ..dialogs.quick_customer_dialog import QuickCustomerDialog
 from .base_tab import BaseTabContainer
 
 logger = logging.getLogger(__name__)
@@ -213,7 +215,15 @@ class InvoiceTab(BaseTabContainer):
         customer_search_layout = QVBoxLayout(customer_search_container)
         customer_search_layout.setContentsMargins(0, 0, 0, 0)
         customer_search_layout.setSpacing(JEWELRY_SPACING.xxs)
-        customer_search_layout.addWidget(self.customer_search_input)
+        customer_search_row = QWidget()
+        customer_search_row_layout = QHBoxLayout(customer_search_row)
+        customer_search_row_layout.setContentsMargins(0, 0, 0, 0)
+        customer_search_row_layout.setSpacing(JEWELRY_SPACING.xs)
+        self.customer_add_new_btn = QPushButton("Add New Customer")
+        self.customer_add_new_btn.clicked.connect(self._open_quick_customer_dialog)
+        customer_search_row_layout.addWidget(self.customer_search_input, 1)
+        customer_search_row_layout.addWidget(self.customer_add_new_btn)
+        customer_search_layout.addWidget(customer_search_row)
         customer_search_layout.addWidget(self.customer_dropdown_frame)
         self.customer_name_input = QLineEdit()
         self.customer_phone_input = QLineEdit()
@@ -1056,22 +1066,48 @@ class InvoiceTab(BaseTabContainer):
         self._recalculate_totals()
 
     def _create_new_customer_from_search(self) -> None:
+        self._open_quick_customer_dialog()
+
+    def _open_quick_customer_dialog(self) -> None:
         term = self.customer_search_input.text().strip()
-        if not term:
-            return
         normalized = term.replace(" ", "")
-        is_phone = normalized.lstrip("+").isdigit()
-        self._customer_id = None
-        self._customer_points = 0.0
-        self.customer_points_label.setText("0")
-        if is_phone:
-            self.customer_phone_input.setText(term)
-            self.customer_name_input.setFocus()
-        else:
-            self.customer_name_input.setText(term)
-            self.customer_phone_input.setFocus()
-        self.customer_email_input.clear()
+        is_phone = bool(term) and normalized.lstrip("+").isdigit()
+        dialog = QuickCustomerDialog(
+            self,
+            name="" if is_phone else term,
+            phone=term if is_phone else "",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        payload = dialog.values()
+        name = payload["name"]
+        phone = payload["phone"]
+        email = payload["email"]
+        notes = payload["notes"]
+        if not name or not phone:
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("invoice.customer_required", language=self._language),
+            )
+            return
+        self._customer_id = save_customer(name, phone, email)
+        self._customer_points = get_loyalty_balance(self._customer_id)
+        self.customer_points_label.setText(f"{self._customer_points:.2f}")
+        self.customer_search_input.blockSignals(True)
+        self.customer_search_input.setText(f"{name} ({phone})")
+        self.customer_search_input.blockSignals(False)
+        for field, value in (
+            (self.customer_name_input, name),
+            (self.customer_phone_input, phone),
+            (self.customer_email_input, email),
+            (self.customer_notes_input, notes),
+        ):
+            field.blockSignals(True)
+            field.setText(value)
+            field.blockSignals(False)
         self._hide_customer_dropdown()
+        self._recalculate_totals()
 
     def _clear_customer_selection(self, _text: str) -> None:
         if self._customer_id is None:
@@ -1129,6 +1165,7 @@ class InvoiceTab(BaseTabContainer):
         self.customer_search_input.blockSignals(True)
         self.customer_search_input.setText(f"{name} ({phone})")
         self.customer_search_input.blockSignals(False)
+        self._recalculate_totals()
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),

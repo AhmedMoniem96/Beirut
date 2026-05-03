@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Sequence
 
 import importlib.util
@@ -27,6 +28,25 @@ from beirut_pos.services.arabic_bitmap import pil_image_to_escpos_raster
 
 
 _LABEL_WIDTH_PX = printer_service.PAPER_PX
+
+
+
+def default_barcode_output_dir() -> Path:
+    base_dir = Path.home() / ".beirut_pos" / "data"
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            base_dir = Path(appdata) / "BeirutPOS"
+    output_dir = base_dir / "barcodes"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
+def suggest_barcode_pdf_path(sku: str) -> Path:
+    safe_sku = (sku or "item").strip().replace("/", "-").replace("\\", "-")
+    safe_sku = safe_sku or "item"
+    return default_barcode_output_dir() / f"{safe_sku}_barcode_labels.pdf"
+
 
 _SUPPORTED_BARCODE_TYPES = {
     "code128": "Code128",
@@ -124,6 +144,39 @@ def render_barcode_label_image(
 
     barcode_block = _center_on_label(barcode_img, width=_LABEL_WIDTH_PX, pad_y=8)
     return printer_service._stack_bitmaps([header_img, barcode_block])
+
+
+
+
+class BarcodePrinterError(RuntimeError):
+    """Structured barcode printer error to help UI display actionable messages."""
+
+    def __init__(self, message: str, *, code: str = "unknown") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _map_print_error(exc: BaseException) -> BarcodePrinterError:
+    msg = str(exc)
+    lowered = msg.lower()
+    if "not found" in lowered or "no windows default printer" in lowered or "no esc/pos printer" in lowered:
+        return BarcodePrinterError("Printer not found. Verify printer name or connect a printer.", code="printer_not_found")
+    if "access is denied" in lowered or "permission" in lowered or "denied" in lowered:
+        return BarcodePrinterError("Printer access denied. Check OS printer permissions.", code="access_denied")
+    return BarcodePrinterError(f"Barcode printing failed: {msg}", code="unknown")
+
+
+def try_print_barcode_label_image(img: Image.Image, *, printer_name: str, retries: int = 1) -> None:
+    attempts = max(retries, 0) + 1
+    last_error: BarcodePrinterError | None = None
+    for _ in range(attempts):
+        try:
+            print_barcode_label_image(img, printer_name=printer_name)
+            return
+        except RuntimeError as exc:
+            last_error = _map_print_error(exc)
+    if last_error is not None:
+        raise last_error
 
 
 def print_barcode_label_image(

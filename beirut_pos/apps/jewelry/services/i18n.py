@@ -541,6 +541,11 @@ _TEXTS: Dict[str, Dict[str, str]] = {
         "en": "Barcode label sent to printer.",
         "ar": "تم إرسال ملصق الباركود للطباعة.",
     },
+    "inventory.auto_save_copy": {"en": "Auto-save copy", "ar": "حفظ نسخة تلقائيًا"},
+    "inventory.auto_print": {"en": "Auto-print", "ar": "طباعة تلقائية"},
+    "inventory.open_folder": {"en": "Open Folder", "ar": "فتح المجلد"},
+    "inventory.exported_labels_path": {"en": "Barcode labels exported to:\n{path}", "ar": "تم تصدير ملصقات الباركود إلى:\n{path}"},
+    "inventory.retry_print_error": {"en": "{error}\n\nRetry printing?", "ar": "{error}\n\nهل تريد إعادة محاولة الطباعة؟"},
     "inventory.export_labels": {"en": "Export Barcode Labels", "ar": "تصدير ملصقات الباركود"},
     "inventory.export_failed": {
         "en": "Export failed: {error}",

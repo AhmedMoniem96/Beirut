@@ -38,6 +38,7 @@ from ..services import maintenance as maintenance_service
 from ..services import reports as reports_service
 from ..utils.currency import format_pounds
 from .theme.components import DSTable, KpiCard
+from .theme.tokens import CONTROLS, SPACING, TABLE, TYPOGRAPHY
 
 
 CLEANUP_STATIC_PASSWORD = "mn3mbasha"
@@ -86,8 +87,8 @@ class AdminReportsDialog(BigDialog):
         self.tabs.currentChanged.connect(self._reload_current_tab)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(SPACING.md, SPACING.md, SPACING.md, SPACING.md)
+        layout.setSpacing(SPACING.sm)
         layout.addWidget(self.tabs)
 
         self.cleanup_panel = self._build_cleanup_panel()
@@ -131,13 +132,13 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.daily_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         self.daily_from_date = QDateEdit(QDate.currentDate().addDays(-6))
         self.daily_from_date.setCalendarPopup(True)
         self.daily_from_date.setDisplayFormat("yyyy-MM-dd")
-        self.daily_from_date.setMinimumWidth(140)
+        self.daily_from_date.setMinimumWidth(CONTROLS.date_field_width)
         self.daily_from_date.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_from_date)
 
@@ -145,7 +146,7 @@ class AdminReportsDialog(BigDialog):
 
         self.daily_from_time = QTimeEdit(QTime(0, 0))
         self.daily_from_time.setDisplayFormat("hh:mm AP")
-        self.daily_from_time.setMinimumWidth(90)
+        self.daily_from_time.setMinimumWidth(CONTROLS.compact_field_width)
         self.daily_from_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_from_time)
 
@@ -153,7 +154,7 @@ class AdminReportsDialog(BigDialog):
         self.daily_to_date = QDateEdit(QDate.currentDate())
         self.daily_to_date.setCalendarPopup(True)
         self.daily_to_date.setDisplayFormat("yyyy-MM-dd")
-        self.daily_to_date.setMinimumWidth(140)
+        self.daily_to_date.setMinimumWidth(CONTROLS.date_field_width)
         self.daily_to_date.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_to_date)
 
@@ -161,7 +162,7 @@ class AdminReportsDialog(BigDialog):
 
         self.daily_to_time = QTimeEdit(QTime(23, 59))
         self.daily_to_time.setDisplayFormat("hh:mm AP")
-        self.daily_to_time.setMinimumWidth(90)
+        self.daily_to_time.setMinimumWidth(CONTROLS.compact_field_width)
         self.daily_to_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.daily_to_time)
 
@@ -280,31 +281,31 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.order_items_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
 
         self.order_items_from = QDateEdit(QDate.currentDate().addDays(-6))
         self.order_items_from.setCalendarPopup(True)
-        self.order_items_from.setMinimumWidth(150)
+        self.order_items_from.setMinimumWidth(CONTROLS.date_field_width)
         controls.addWidget(self.order_items_from)
 
         controls.addWidget(QLabel("الساعة:"))
         self.order_items_from_time = QTimeEdit(QTime(0, 0))
         self.order_items_from_time.setDisplayFormat("hh:mm AP")
-        self.order_items_from_time.setMinimumWidth(90)
+        self.order_items_from_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.order_items_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.order_items_to = QDateEdit(QDate.currentDate())
         self.order_items_to.setCalendarPopup(True)
-        self.order_items_to.setMinimumWidth(150)
+        self.order_items_to.setMinimumWidth(CONTROLS.date_field_width)
         controls.addWidget(self.order_items_to)
 
         controls.addWidget(QLabel("الساعة:"))
         self.order_items_to_time = QTimeEdit(QTime(23, 59))
         self.order_items_to_time.setDisplayFormat("hh:mm AP")
-        self.order_items_to_time.setMinimumWidth(90)
+        self.order_items_to_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.order_items_to_time)
 
         refresh = QPushButton("تحديث")
@@ -414,33 +415,33 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.cashier_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         self.cashier_from = QDateEdit(QDate.currentDate().addDays(-6))
         self.cashier_from.setCalendarPopup(True)
-        self.cashier_from.setMinimumWidth(150)
+        self.cashier_from.setMinimumWidth(CONTROLS.date_field_width)
         self.cashier_from.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_from)
 
         controls.addWidget(QLabel("الساعة:"))
         self.cashier_from_time = QTimeEdit(QTime(0, 0))
         self.cashier_from_time.setDisplayFormat("hh:mm AP")
-        self.cashier_from_time.setMinimumWidth(90)
+        self.cashier_from_time.setMinimumWidth(CONTROLS.compact_field_width)
         self.cashier_from_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.cashier_to = QDateEdit(QDate.currentDate())
         self.cashier_to.setCalendarPopup(True)
-        self.cashier_to.setMinimumWidth(150)
+        self.cashier_to.setMinimumWidth(CONTROLS.date_field_width)
         self.cashier_to.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_to)
 
         controls.addWidget(QLabel("الساعة:"))
         self.cashier_to_time = QTimeEdit(QTime(23, 59))
         self.cashier_to_time.setDisplayFormat("hh:mm AP")
-        self.cashier_to_time.setMinimumWidth(90)
+        self.cashier_to_time.setMinimumWidth(CONTROLS.compact_field_width)
         self.cashier_to_time.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.cashier_to_time)
 
@@ -595,7 +596,7 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(QLabel("الساعة:"))
         self.products_from_time = QTimeEdit(QTime(0, 0))
         self.products_from_time.setDisplayFormat("hh:mm AP")
-        self.products_from_time.setMinimumWidth(90)
+        self.products_from_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.products_from_time)
 
         controls.addWidget(QLabel("إلى:"))
@@ -606,7 +607,7 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(QLabel("الساعة:"))
         self.products_to_time = QTimeEdit(QTime(23, 59))
         self.products_to_time.setDisplayFormat("hh:mm AP")
-        self.products_to_time.setMinimumWidth(90)
+        self.products_to_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.products_to_time)
 
         refresh = QPushButton("تحديث")
@@ -680,30 +681,30 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.discounts_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         self.discounts_from = QDateEdit(QDate.currentDate().addDays(-14))
         self.discounts_from.setCalendarPopup(True)
-        self.discounts_from.setMinimumWidth(150)
+        self.discounts_from.setMinimumWidth(CONTROLS.date_field_width)
         controls.addWidget(self.discounts_from)
 
         controls.addWidget(QLabel("الساعة:"))
         self.discounts_from_time = QTimeEdit(QTime(0, 0))
         self.discounts_from_time.setDisplayFormat("hh:mm AP")
-        self.discounts_from_time.setMinimumWidth(90)
+        self.discounts_from_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.discounts_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.discounts_to = QDateEdit(QDate.currentDate())
         self.discounts_to.setCalendarPopup(True)
-        self.discounts_to.setMinimumWidth(150)
+        self.discounts_to.setMinimumWidth(CONTROLS.date_field_width)
         controls.addWidget(self.discounts_to)
 
         controls.addWidget(QLabel("الساعة:"))
         self.discounts_to_time = QTimeEdit(QTime(23, 59))
         self.discounts_to_time.setDisplayFormat("hh:mm AP")
-        self.discounts_to_time.setMinimumWidth(90)
+        self.discounts_to_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.discounts_to_time)
 
         refresh = QPushButton("تحديث")
@@ -781,30 +782,30 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.purchases_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         self.purchases_from = QDateEdit(QDate.currentDate().addDays(-30))
         self.purchases_from.setCalendarPopup(True)
-        self.purchases_from.setMinimumWidth(150)
+        self.purchases_from.setMinimumWidth(CONTROLS.date_field_width)
         controls.addWidget(self.purchases_from)
 
         controls.addWidget(QLabel("الساعة:"))
         self.purchases_from_time = QTimeEdit(QTime(0, 0))
         self.purchases_from_time.setDisplayFormat("hh:mm AP")
-        self.purchases_from_time.setMinimumWidth(90)
+        self.purchases_from_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.purchases_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.purchases_to = QDateEdit(QDate.currentDate())
         self.purchases_to.setCalendarPopup(True)
-        self.purchases_to.setMinimumWidth(150)
+        self.purchases_to.setMinimumWidth(CONTROLS.date_field_width)
         controls.addWidget(self.purchases_to)
 
         controls.addWidget(QLabel("الساعة:"))
         self.purchases_to_time = QTimeEdit(QTime(23, 59))
         self.purchases_to_time.setDisplayFormat("hh:mm AP")
-        self.purchases_to_time.setMinimumWidth(90)
+        self.purchases_to_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.purchases_to_time)
 
         refresh = QPushButton("تحديث")
@@ -990,32 +991,32 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.profit_daily_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         self.profit_from = QDateEdit(QDate.currentDate().addDays(-6))
         self.profit_from.setCalendarPopup(True)
-        self.profit_from.setMinimumWidth(150)
+        self.profit_from.setMinimumWidth(CONTROLS.date_field_width)
         self.profit_from.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.profit_from)
 
         controls.addWidget(QLabel("الساعة:"))
         self.profit_from_time = QTimeEdit(QTime(0, 0))
         self.profit_from_time.setDisplayFormat("hh:mm AP")
-        self.profit_from_time.setMinimumWidth(90)
+        self.profit_from_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.profit_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.profit_to = QDateEdit(QDate.currentDate())
         self.profit_to.setCalendarPopup(True)
-        self.profit_to.setMinimumWidth(150)
+        self.profit_to.setMinimumWidth(CONTROLS.date_field_width)
         self.profit_to.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         controls.addWidget(self.profit_to)
 
         controls.addWidget(QLabel("الساعة:"))
         self.profit_to_time = QTimeEdit(QTime(23, 59))
         self.profit_to_time.setDisplayFormat("hh:mm AP")
-        self.profit_to_time.setMinimumWidth(90)
+        self.profit_to_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.profit_to_time)
 
         refresh = QPushButton("تحديث")
@@ -1046,7 +1047,7 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.profit_monthly_table, 1)
 
         monthly_controls = QHBoxLayout()
-        monthly_controls.setSpacing(12)
+        monthly_controls.setSpacing(SPACING.sm)
         monthly_controls.setContentsMargins(8, 0, 8, 0)
         monthly_controls.addWidget(self._make_export_button(self.profit_monthly_table, "profit_monthly_report"))
         monthly_controls.addStretch(1)
@@ -1065,11 +1066,11 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.monthly_detail_strip)
 
         picker_layout = QHBoxLayout()
-        picker_layout.setSpacing(12)
+        picker_layout.setSpacing(SPACING.sm)
         picker_layout.setContentsMargins(8, 0, 8, 0)
         picker_layout.addWidget(QLabel("الشهر:"))
         self.month_picker = QComboBox()
-        self.month_picker.setMinimumWidth(140)
+        self.month_picker.setMinimumWidth(CONTROLS.date_field_width)
         picker_layout.addWidget(self.month_picker)
         picker_layout.addWidget(QLabel("السنة:"))
         self.year_picker = QComboBox()
@@ -1391,7 +1392,7 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.deleted_items_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         start_dt = QDateTime.currentDateTime()
@@ -1577,29 +1578,29 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.attendance_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.addWidget(QLabel("من:"))
         self.attendance_from = QDateEdit(QDate.currentDate().addDays(-6))
         self.attendance_from.setCalendarPopup(True)
-        self.attendance_from.setMinimumWidth(150)
+        self.attendance_from.setMinimumWidth(CONTROLS.date_field_width)
         controls.addWidget(self.attendance_from)
 
         controls.addWidget(QLabel("الساعة:"))
         self.attendance_from_time = QTimeEdit(QTime(0, 0))
         self.attendance_from_time.setDisplayFormat("hh:mm AP")
-        self.attendance_from_time.setMinimumWidth(90)
+        self.attendance_from_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.attendance_from_time)
 
         controls.addWidget(QLabel("إلى:"))
         self.attendance_to = QDateEdit(QDate.currentDate())
         self.attendance_to.setCalendarPopup(True)
-        self.attendance_to.setMinimumWidth(150)
+        self.attendance_to.setMinimumWidth(CONTROLS.date_field_width)
         controls.addWidget(self.attendance_to)
 
         controls.addWidget(QLabel("الساعة:"))
         self.attendance_to_time = QTimeEdit(QTime(23, 59))
         self.attendance_to_time.setDisplayFormat("hh:mm AP")
-        self.attendance_to_time.setMinimumWidth(90)
+        self.attendance_to_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.attendance_to_time)
 
         refresh = QPushButton("تحديث")
@@ -1674,7 +1675,7 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.shift_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         self.shift_from_date = QDateEdit(QDate.currentDate().addDays(-1))
@@ -1684,7 +1685,7 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(QLabel("الساعة:"))
         self.shift_from_time = QTimeEdit(QTime(0, 0))
         self.shift_from_time.setDisplayFormat("hh:mm AP")
-        self.shift_from_time.setMinimumWidth(90)
+        self.shift_from_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.shift_from_time)
 
         controls.addWidget(QLabel("إلى:"))
@@ -1695,7 +1696,7 @@ class AdminReportsDialog(BigDialog):
         controls.addWidget(QLabel("الساعة:"))
         self.shift_to_time = QTimeEdit(QTime(23, 59))
         self.shift_to_time.setDisplayFormat("hh:mm AP")
-        self.shift_to_time.setMinimumWidth(90)
+        self.shift_to_time.setMinimumWidth(CONTROLS.compact_field_width)
         controls.addWidget(self.shift_to_time)
 
         controls.addWidget(QLabel("الموظف:"))
@@ -1831,7 +1832,7 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.deductions_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         refresh = QPushButton("تحديث")
         refresh.clicked.connect(self._load_deductions_report)
@@ -1900,7 +1901,7 @@ class AdminReportsDialog(BigDialog):
         layout.addWidget(self.payroll_history_table, 1)
 
         controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls.setSpacing(SPACING.sm)
         controls.setContentsMargins(8, 0, 8, 0)
         controls.addWidget(QLabel("من:"))
         start_dt = QDateTime.currentDateTime()
@@ -2051,7 +2052,7 @@ class AdminReportsDialog(BigDialog):
         frame.setObjectName("CleanupPanel")
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(12)
+        layout.setSpacing(SPACING.sm)
 
         layout.addWidget(QLabel("حذف البيانات من:"))
         self.cleanup_from = QDateTimeEdit(QDateTime.currentDateTime().addDays(-30))
@@ -2275,15 +2276,18 @@ class AdminReportsDialog(BigDialog):
             thumbnail_column = 0
             labels = ["معاينة"] + labels
 
-        table = QTableWidget(0, len(labels))
+        table = DSTable(0, len(labels))
         table.setHorizontalHeaderLabels(labels)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(True)
+        table.verticalHeader().setDefaultSectionSize(TABLE.row_height)
         table.setTextElideMode(Qt.TextElideMode.ElideNone)
         table.setWordWrap(True)
         header = table.horizontalHeader()
         header.setMinimumSectionSize(110)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setFixedHeight(TABLE.header_height)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
         table.setProperty("thumbnail_column", thumbnail_column)
@@ -2309,7 +2313,12 @@ class AdminReportsDialog(BigDialog):
                 if thumb_col == c:
                     table.setCellWidget(r, c, self._build_thumbnail_widget(cell))
         if not rows:
-            table.setRowCount(0)
+            table.setRowCount(1)
+            item = QTableWidgetItem(TABLE.empty_state_text)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            table.setItem(0, 0, item)
+            table.setSpan(0, 0, 1, table.columnCount())
 
     def _thumbnail_size(self) -> int:
         return 72

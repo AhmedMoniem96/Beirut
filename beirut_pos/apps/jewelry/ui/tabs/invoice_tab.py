@@ -317,15 +317,26 @@ class InvoiceTab(BaseTabContainer):
         advanced_customer_layout.addRow(self.points_earned_label, self.loyalty_earned_label)
         advanced_box_layout.addWidget(self.advanced_customer_panel)
         self._form_layout.addRow(self.advanced_box)
-        self.recent_sold_box = QGroupBox("Recently Sold")
+        self.recent_sold_box = QGroupBox()
+        self.recent_sold_box.setMinimumHeight(220)
         recent_layout = QVBoxLayout(self.recent_sold_box)
         self.recent_sold_table = QTableWidget(0, 4)
-        self.recent_sold_table.setHorizontalHeaderLabels(["Invoice", "Date", "Total", "Actions"])
-        self.recent_sold_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.recent_sold_table.setHorizontalHeaderLabels(["", "", "", ""])
+        self.recent_sold_table.setAlternatingRowColors(True)
+        self.recent_sold_table.setMinimumHeight(180)
+        self.recent_sold_table.verticalHeader().setDefaultSectionSize(32)
+        recent_header = self.recent_sold_table.horizontalHeader()
+        recent_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        recent_header.resizeSection(0, 110)
+        recent_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        recent_header.resizeSection(1, 120)
+        recent_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        recent_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        recent_header.resizeSection(3, 96)
         recent_layout.addWidget(self.recent_sold_table)
         right_layout.addWidget(self.invoice_info_label)
-        right_layout.addWidget(self.recent_sold_box)
-        right_layout.addWidget(form_box)
+        right_layout.addWidget(self.recent_sold_box, 2)
+        right_layout.addWidget(form_box, 3)
 
         product_search_panel = QWidget()
         product_search_layout = QGridLayout(product_search_panel)
@@ -348,6 +359,8 @@ class InvoiceTab(BaseTabContainer):
         product_search_layout.addWidget(self.barcode_input, 2, 1, 1, 2)
         product_search_layout.addWidget(self.recent_scans_label, 3, 0, 1, 3)
         right_layout.addWidget(product_search_panel)
+        right_layout.setStretch(1, 2)
+        right_layout.setStretch(2, 3)
 
         self.category_scroll = QScrollArea()
         self.category_scroll.setWidgetResizable(True)
@@ -1982,6 +1995,7 @@ class InvoiceTab(BaseTabContainer):
         self.redeem_points_label.setText(t("invoice.redeem_points_label", language=language))
         self.points_earned_label.setText(t("invoice.points_earned_label", language=language))
         self.advanced_box.setTitle(t("invoice.advanced_options", language=language))
+        self.recent_sold_box.setTitle(t("invoice.recent_sold_box", language=language))
         self.product_box.setTitle(t("invoice.products_box", language=language))
         self.barcode_input.setPlaceholderText(t("invoice.scan_barcode", language=language))
         self.search_input.setPlaceholderText(t("invoice.search_products", language=language))
@@ -2001,6 +2015,14 @@ class InvoiceTab(BaseTabContainer):
                 t("invoice.items_header_line_total", language=language),
                 "-",
                 "+",
+            ]
+        )
+        self.recent_sold_table.setHorizontalHeaderLabels(
+            [
+                t("invoice.recent_sold_header_invoice", language=language),
+                t("invoice.recent_sold_header_date", language=language),
+                t("invoice.recent_sold_header_total", language=language),
+                t("invoice.recent_sold_header_actions", language=language),
             ]
         )
         self.products_table.setHorizontalHeaderLabels(

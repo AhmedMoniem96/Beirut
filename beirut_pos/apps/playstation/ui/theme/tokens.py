@@ -54,6 +54,21 @@ class SpacingTokens:
     xxl: int = 48
 
 
+
+
+@dataclass(frozen=True)
+class ControlTokens:
+    field_height: int = 38
+    compact_field_width: int = 92
+    date_field_width: int = 148
+
+
+@dataclass(frozen=True)
+class TableTokens:
+    row_height: int = 36
+    header_height: int = 42
+    empty_state_text: str = "لا توجد بيانات لعرضها"
+
 @dataclass(frozen=True)
 class RadiusTokens:
     sm: int = 8
@@ -73,6 +88,8 @@ class ShadowTokens:
 COLORS = ColorTokens()
 TYPOGRAPHY = TypographyScale()
 SPACING = SpacingTokens()
+CONTROLS = ControlTokens()
+TABLE = TableTokens()
 RADII = RadiusTokens()
 SHADOWS = ShadowTokens()
 

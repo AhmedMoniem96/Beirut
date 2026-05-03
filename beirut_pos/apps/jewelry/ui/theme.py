@@ -3,6 +3,45 @@
 from __future__ import annotations
 
 
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class JewelrySpacingTokens:
+    xxs: int = 4
+    xs: int = 8
+    sm: int = 12
+    md: int = 16
+    lg: int = 24
+
+
+@dataclass(frozen=True)
+class JewelryTypographyTokens:
+    body_size: int = 13
+    helper_size: int = 12
+    title_weight: int = 700
+
+
+@dataclass(frozen=True)
+class JewelryControlTokens:
+    field_min_height: int = 34
+    button_min_height: int = 34
+    icon_button_size: int = 32
+
+
+@dataclass(frozen=True)
+class JewelryTableTokens:
+    row_height: int = 34
+    header_height: int = 40
+    empty_state: str = "لا توجد بيانات للعرض"
+
+
+JEWELRY_SPACING = JewelrySpacingTokens()
+JEWELRY_TYPOGRAPHY = JewelryTypographyTokens()
+JEWELRY_CONTROLS = JewelryControlTokens()
+JEWELRY_TABLE = JewelryTableTokens()
+
+
 def gallery_stylesheet() -> str:
     palette = {
         "bg": "#f7f4f0",
@@ -19,7 +58,7 @@ def gallery_stylesheet() -> str:
     QWidget {{
         background-color: {palette["bg"]};
         color: {palette["text"]};
-        font-size: 13px;
+        font-size: {JEWELRY_TYPOGRAPHY.body_size}px;
     }}
     QLabel {{
         color: {palette["text"]};
@@ -42,13 +81,15 @@ def gallery_stylesheet() -> str:
         background: {palette["card"]};
         border: 1px solid {palette["border"]};
         border-radius: 6px;
-        padding: 4px 6px;
+        padding: {JEWELRY_SPACING.xxs}px {JEWELRY_SPACING.xs}px;
+        min-height: {JEWELRY_CONTROLS.field_min_height}px;
     }}
     QPushButton {{
         background-color: {palette["card"]};
         border: 1px solid {palette["border"]};
         border-radius: 8px;
-        padding: 6px 12px;
+        padding: {JEWELRY_SPACING.xs}px {JEWELRY_SPACING.sm}px;
+        min-height: {JEWELRY_CONTROLS.button_min_height}px;
     }}
     QPushButton:hover {{
         border-color: {palette["accent"]};
@@ -82,7 +123,7 @@ def gallery_stylesheet() -> str:
     }}
     QHeaderView::section {{
         background: {palette["header"]};
-        padding: 6px;
+        padding: {JEWELRY_SPACING.xs}px;
         border: none;
         font-weight: bold;
     }}

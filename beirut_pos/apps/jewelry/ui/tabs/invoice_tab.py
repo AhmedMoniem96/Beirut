@@ -784,6 +784,13 @@ class InvoiceTab(BaseTabContainer):
         self._update_payment_totals()
 
     def _toggle_pay_now_manual_mode(self) -> None:
+        if not self.advanced_box.isChecked() and not self._pay_now_manual:
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("invoice.advanced_options", language=self._language),
+            )
+            return
         self._pay_now_manual = not self._pay_now_manual
         self.pay_now_input.lineEdit().setReadOnly(not self._pay_now_manual)
         if not self._pay_now_manual:
@@ -959,9 +966,15 @@ class InvoiceTab(BaseTabContainer):
     def _discount_type(self) -> str:
         return self.discount_type_combo.currentData() or "amount"
 
-    def _calculate_discount_amount(self, subtotal: float) -> float:
-        discount_value = float(self.discount_input.value())
-        if self._discount_type() == "percent":
+    def _calculate_discount_amount(
+        self,
+        subtotal: float,
+        discount_value: Optional[float] = None,
+        discount_type: Optional[str] = None,
+    ) -> float:
+        discount_value = float(self.discount_input.value()) if discount_value is None else float(discount_value)
+        discount_type = self._discount_type() if discount_type is None else discount_type
+        if discount_type == "percent":
             return max(subtotal * (discount_value / 100.0), 0.0)
         return max(discount_value, 0.0)
 
@@ -1228,14 +1241,12 @@ class InvoiceTab(BaseTabContainer):
             self._recalculate_totals()
 
     def _recalculate_totals(self) -> None:
-        subtotal = 0.0
-        for row in range(self.items_table.rowCount()):
-            subtotal += float(self.items_table.item(row, self.ITEM_COL_LINE_TOTAL).text())
-        discount = self._calculate_discount_amount(subtotal)
-        loyalty_redeem = self._loyalty_redeem_amount(subtotal, discount)
-        net_total = max(subtotal - discount - loyalty_redeem, 0.0)
-        delivery_fee = self._delivery_fee_value()
-        grand_total = max(net_total + delivery_fee, 0.0)
+        txn_type = "return" if self.txn_type_combo.currentIndex() == 1 else "sale"
+        computed = self._compute_invoice_totals(txn_type)
+        subtotal = float(computed["subtotal"])
+        loyalty_redeem = float(computed["loyalty_redeem"])
+        net_total = float(computed["net_total"])
+        grand_total = float(computed["total"])
         self.subtotal_label.setText(
             t("invoice.subtotal", language=self._language, total=f"{subtotal:.2f}")
         )
@@ -1304,6 +1315,34 @@ class InvoiceTab(BaseTabContainer):
         for row in range(self.items_table.rowCount()):
             subtotal += float(self.items_table.item(row, self.ITEM_COL_LINE_TOTAL).text())
         return subtotal
+
+    def _compute_invoice_totals(self, txn_type: str) -> dict[str, float | str]:
+        subtotal = self._calculate_subtotal()
+        discount_type = self._discount_type()
+        adjustments_allowed = self.advanced_box.isChecked()
+        discount_value = float(self.discount_input.value()) if adjustments_allowed else 0.0
+        discount = self._calculate_discount_amount(subtotal, discount_value, discount_type) if adjustments_allowed else 0.0
+        loyalty_redeem = (
+            0.0
+            if txn_type == "return" or not adjustments_allowed
+            else self._loyalty_redeem_amount(subtotal, discount)
+        )
+        delivery_enabled = self.delivery_enabled_checkbox.isChecked()
+        delivery_fee = self._delivery_fee_value() if (delivery_enabled and adjustments_allowed) else 0.0
+        net_total = max(subtotal - discount - loyalty_redeem, 0.0)
+        total = max(net_total + delivery_fee, 0.0)
+        loyalty_earned = 0 if txn_type == "return" else self._calculate_loyalty_points(net_total)
+        return {
+            "subtotal": subtotal,
+            "discount_type": discount_type,
+            "discount_value": discount_value,
+            "discount": discount,
+            "loyalty_redeem": loyalty_redeem,
+            "delivery_fee": delivery_fee,
+            "net_total": net_total,
+            "total": total,
+            "loyalty_earned": loyalty_earned,
+        }
 
     def _validation_message(self) -> str:
         if self.items_table.rowCount() == 0:
@@ -1384,19 +1423,30 @@ class InvoiceTab(BaseTabContainer):
             self._customer_id = customer_id
             self._customer_points = get_loyalty_balance(customer_id)
             self.customer_points_label.setText(f"{self._customer_points:.2f}")
-        subtotal = self._calculate_subtotal()
-        discount_type = self._discount_type()
-        discount_value = float(self.discount_input.value())
-        discount = self._calculate_discount_amount(subtotal)
-        loyalty_redeem = 0.0 if txn_type == "return" else float(self.loyalty_redeem_input.value())
-        net_total = max(subtotal - discount - loyalty_redeem, 0.0)
+        computed = self._compute_invoice_totals(txn_type)
+        subtotal = float(computed["subtotal"])
+        discount_type = str(computed["discount_type"])
+        discount_value = float(computed["discount_value"])
+        discount = float(computed["discount"])
+        loyalty_redeem = float(computed["loyalty_redeem"])
+        net_total = float(computed["net_total"])
         delivery_enabled = self.delivery_enabled_checkbox.isChecked()
-        delivery_fee = self._delivery_fee_value() if delivery_enabled else 0.0
-        total = max(net_total + delivery_fee, 0.0)
-        loyalty_earned = 0 if txn_type == "return" else self._calculate_loyalty_points(net_total)
+        delivery_fee = float(computed["delivery_fee"])
+        total = float(computed["total"])
+        loyalty_earned = int(computed["loyalty_earned"])
         payment_method = self.payment_combo.currentText()
         pay_now = min(float(self.pay_now_input.value()), total)
-        is_partial = self._pay_now_manual and total > 0 and pay_now < total
+        if not self.advanced_box.isChecked():
+            pay_now = total
+        is_partial = self._pay_now_manual and total > 0 and pay_now < total and self.advanced_box.isChecked()
+        if abs(self._current_grand_total - total) > 0.01:
+            QMessageBox.warning(
+                self,
+                t("invoice.save_failed_title", language=self._language),
+                "Invoice totals changed. Please review totals and try saving again.",
+            )
+            self._recalculate_totals()
+            return
         payment_due_date = (
             to_iso_date(self.payment_due_date_input.date().toString("dd/MM/yyyy"))
             if is_partial
@@ -1412,6 +1462,10 @@ class InvoiceTab(BaseTabContainer):
         delivery_status_id = (
             self.delivery_status_combo.currentData() if delivery_enabled else None
         )
+        if not self.advanced_box.isChecked():
+            self._pay_now_manual = False
+            self.pay_now_input.lineEdit().setReadOnly(True)
+            self._refresh_pay_now_manual_ui()
         order_source = self.order_source_combo.currentData() or "in_store"
         website_order_ref = (
             self.website_order_input.text().strip() if order_source == "website" else ""

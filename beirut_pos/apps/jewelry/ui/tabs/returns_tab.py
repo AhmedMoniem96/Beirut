@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QInputDialog,
 )
 
+from beirut_pos.core.config_store import get_config_value
 from ...services.db import (
     create_return_invoice_from_source,
     fetch_source_invoice_items_with_remaining_returnable_qty,
@@ -282,8 +283,20 @@ class ReturnsTab(BaseTabContainer):
         self._update_summary_label()
 
     def _compute_return_total(self, lines: list[dict]) -> float:
-        mapping = {item.invoice_item_id: float(item.unit_price) for item in self._source_items}
+        pricing_basis = str(get_config_value("jw_return_pricing_basis", "original_sold_price") or "original_sold_price").strip().lower()
+        if pricing_basis == "current_catalog_price":
+            mapping = {}
+            for item in self._source_items:
+                mapping[item.invoice_item_id] = float(self._lookup_current_product_price(item.product_id))
+        else:
+            mapping = {item.invoice_item_id: float(item.unit_price) for item in self._source_items}
         return sum(float(line["qty"]) * mapping.get(line["source_invoice_item_id"], 0.0) for line in lines)
+
+    def _lookup_current_product_price(self, product_id: int) -> float:
+        for product in getattr(self, "_products", []):
+            if int(getattr(product, "id", 0)) == int(product_id):
+                return float(getattr(product, "price", 0.0) or 0.0)
+        return 0.0
 
     def _compute_exchange_total(self) -> float:
         total = 0.0

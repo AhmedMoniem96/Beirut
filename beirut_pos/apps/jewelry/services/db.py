@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Iterable, List, Literal, Optional, Tuple
 
+from beirut_pos.core.config_store import get_config_value
 from beirut_pos.core.db import get_conn
 
 
@@ -1972,6 +1973,9 @@ def create_return_invoice_from_source(
         raise ValueError("Source sale invoice not found")
     source_invoice_id = int(source[0])
     now = datetime.now().isoformat(timespec="seconds")
+    return_price_basis = str(get_config_value("jw_return_pricing_basis", "original_sold_price") or "original_sold_price").strip().lower()
+    if return_price_basis not in {"original_sold_price", "current_catalog_price"}:
+        return_price_basis = "original_sold_price"
     try:
         cur.execute("BEGIN")
         created_items: List[Tuple[int, float]] = []
@@ -1999,9 +2003,15 @@ def create_return_invoice_from_source(
             remaining = max(sold_qty - already_returned, 0.0)
             if qty > remaining:
                 raise ValueError("Cannot return more than remaining quantity")
-            line_total = float(item_row[4] or 0) * qty
+            sold_unit_price = float(item_row[4] or 0)
+            unit_price = sold_unit_price
+            if return_price_basis == "current_catalog_price":
+                cur.execute("SELECT price FROM jw_products WHERE id = ?", (int(item_row[0] or 0),))
+                product_row = cur.fetchone()
+                unit_price = float(product_row[0] or 0) if product_row else 0.0
+            line_total = unit_price * qty
             subtotal += line_total
-            invoice_items.append(JewelryInvoiceItem(int(item_row[0] or 0), item_row[1] or "", item_row[2] or "", qty, float(item_row[4] or 0), line_total))
+            invoice_items.append(JewelryInvoiceItem(int(item_row[0] or 0), item_row[1] or "", item_row[2] or "", qty, unit_price, line_total))
             created_items.append((source_item_id, qty))
 
         invoice_no = _next_invoice_no(cur)
@@ -2012,7 +2022,19 @@ def create_return_invoice_from_source(
                 payment_method, payment_due_date, payment_order_status_id, order_source, website_order_ref,
                 delivery_enabled, delivery_company_id, delivery_fee, delivery_address, delivery_status_id, notes, return_reason)
                VALUES (?, ?, ?, 'return', ?, ?, ?, ?, 0, 'amount', 0, 0, 0, ?, ?, '', NULL, 'in_store', '', 0, NULL, 0, '', NULL, ?, ?)""",
-            (invoice_no, now, cashier_name, source[1], source[2], source[3], subtotal, subtotal, payment_method, f"Source invoice: {normalized_source}", return_reason.strip()),
+            (
+                invoice_no,
+                now,
+                cashier_name,
+                source[1],
+                source[2],
+                source[3],
+                subtotal,
+                subtotal,
+                payment_method,
+                f"Source invoice: {normalized_source} | Return pricing basis: {return_price_basis}",
+                f"{return_reason.strip()} | Pricing basis: {return_price_basis}",
+            ),
         )
         return_invoice_id = int(cur.lastrowid)
         for ii, mapping in zip(invoice_items, created_items):

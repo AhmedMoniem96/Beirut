@@ -1460,8 +1460,11 @@ class InvoiceTab(BaseTabContainer):
 
     def _refresh_recently_sold(self) -> None:
         self.recent_sold_table.setRowCount(0)
-        with get_conn() as conn:
+        conn = get_conn()
+        try:
             rows = conn.execute("SELECT invoice_no, datetime, total FROM jw_invoices ORDER BY id DESC LIMIT 10").fetchall()
+        finally:
+            conn.close()
         for invoice_no, dt, total in rows:
             row = self.recent_sold_table.rowCount()
             self.recent_sold_table.insertRow(row)

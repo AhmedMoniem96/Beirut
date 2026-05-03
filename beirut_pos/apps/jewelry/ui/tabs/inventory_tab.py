@@ -434,16 +434,32 @@ class InventoryTab(BaseTabContainer):
 
 
     def _download_import_template(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
+        desktop_path = Path.home() / "Desktop"
+        if not desktop_path.exists():
+            desktop_path = Path("C:/Users/Public/Desktop")
+        target_path = desktop_path / "inventory_import_template.xlsx"
+
+        try:
+            desktop_path.mkdir(parents=True, exist_ok=True)
+            generate_import_template(str(target_path))
+        except Exception:
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                t("inventory.download_template", language=self._language),
+                "inventory_import_template.xlsx",
+                f"{t('common.file_filter_excel', language=self._language)} (*.xlsx)",
+            )
+            if not path:
+                return
+            generate_import_template(path)
+            target_path = Path(path)
+
+        QMessageBox.information(
             self,
-            t("inventory.download_template", language=self._language),
-            "inventory_import_template.xlsx",
-            f"{t('common.file_filter_excel', language=self._language)} (*.xlsx)",
+            t("common.export", language=self._language),
+            f"{t('inventory.template_saved', language=self._language)}\n{target_path}",
         )
-        if not path:
-            return
-        generate_import_template(path)
-        QMessageBox.information(self, t("common.export", language=self._language), t("inventory.template_saved", language=self._language))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_path.parent)))
 
     def _import_excel(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

@@ -333,8 +333,7 @@ class InvoiceTab(BaseTabContainer):
         recent_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         recent_header.resizeSection(1, 120)
         recent_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        recent_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        recent_header.resizeSection(3, 96)
+        recent_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         recent_layout.addWidget(self.recent_sold_table)
         right_layout.addWidget(self.invoice_info_label)
         right_layout.addWidget(self.recent_sold_box, 2)
@@ -1504,8 +1503,14 @@ class InvoiceTab(BaseTabContainer):
             actions = QWidget()
             actions_layout = QHBoxLayout(actions)
             actions_layout.setContentsMargins(0, 0, 0, 0)
-            print_btn = QPushButton("طباعة")
-            details_btn = QPushButton("فتح التفاصيل")
+            print_label = "طباعة" if self._language == "ar" else "Print"
+            details_label = "فتح التفاصيل" if self._language == "ar" else "Open Details"
+            print_btn = QPushButton(print_label)
+            details_btn = QPushButton(details_label)
+            for button in (print_btn, details_btn):
+                button.setMinimumHeight(24)
+                button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+                button.setStyleSheet("padding: 2px 6px; font-size: 11px;")
             print_btn.clicked.connect(lambda _c=False, inv=invoice_no: self._print_recent_invoice(inv))
             details_btn.clicked.connect(lambda _c=False, inv=invoice_no: self._open_recent_invoice_details(inv))
             actions_layout.addWidget(print_btn)

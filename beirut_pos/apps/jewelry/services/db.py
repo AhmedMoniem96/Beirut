@@ -1715,15 +1715,57 @@ def check_material_availability(bom_id: int, qty_multiplier: float) -> List[Tupl
     return shortages
 
 
+def _apply_production_inventory_movement(
+    cur,
+    order_id: int,
+    product_id: int,
+    qty_to_produce: float,
+    bom_id: Optional[int],
+) -> None:
+    if bom_id:
+        cur.execute(
+            """SELECT material_id, qty_required
+               FROM jw_bom_lines WHERE bom_id = ?""",
+            (bom_id,),
+        )
+        lines = cur.fetchall()
+        for material_id, qty_required in lines:
+            cur.execute(
+                "SELECT qty_on_hand, cost_per_unit FROM jw_materials WHERE id = ?",
+                (material_id,),
+            )
+            material_row = cur.fetchone()
+            if not material_row:
+                raise ValueError("Material missing")
+            qty_on_hand, cost_per_unit = material_row
+            total_required = qty_required * qty_to_produce
+            if qty_on_hand < total_required:
+                raise ValueError("Insufficient materials")
+            cur.execute(
+                "UPDATE jw_materials SET qty_on_hand = qty_on_hand - ? WHERE id = ?",
+                (total_required, material_id),
+            )
+            cur.execute(
+                """INSERT INTO jw_production_consumption
+                   (production_order_id, material_id, qty_consumed, cost_at_time)
+                   VALUES (?, ?, ?, ?)""",
+                (order_id, material_id, total_required, cost_per_unit),
+            )
+    cur.execute(
+        "UPDATE jw_products SET qty_on_hand = qty_on_hand + ? WHERE id = ?",
+        (qty_to_produce, product_id),
+    )
+
+
 def confirm_production_order(order_id: int) -> None:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT status, bom_id, qty_to_produce FROM jw_production_orders WHERE id = ?", (order_id,))
+    cur.execute("SELECT status, product_id, bom_id, qty_to_produce FROM jw_production_orders WHERE id = ?", (order_id,))
     row = cur.fetchone()
     if not row:
         conn.close()
         raise ValueError("Order not found")
-    status, bom_id, qty_to_produce = row
+    status, product_id, bom_id, qty_to_produce = row
     if status != "draft":
         conn.close()
         return
@@ -1732,10 +1774,8 @@ def confirm_production_order(order_id: int) -> None:
         if shortages:
             conn.close()
             raise ValueError("Insufficient materials")
-    cur.execute(
-        "UPDATE jw_production_orders SET status = 'confirmed' WHERE id = ?",
-        (order_id,),
-    )
+    _apply_production_inventory_movement(cur, order_id, product_id, qty_to_produce, bom_id)
+    cur.execute("UPDATE jw_production_orders SET status = 'confirmed', qty_produced = ? WHERE id = ?", (qty_to_produce, order_id))
     conn.commit()
     conn.close()
 
@@ -1756,41 +1796,8 @@ def mark_production_done(order_id: int) -> None:
     if status == "done":
         conn.close()
         return
-    if bom_id:
-        cur.execute(
-            """SELECT material_id, qty_required
-               FROM jw_bom_lines WHERE bom_id = ?""",
-            (bom_id,),
-        )
-        lines = cur.fetchall()
-        for material_id, qty_required in lines:
-            cur.execute(
-                "SELECT qty_on_hand, cost_per_unit FROM jw_materials WHERE id = ?",
-                (material_id,),
-            )
-            material_row = cur.fetchone()
-            if not material_row:
-                conn.close()
-                raise ValueError("Material missing")
-            qty_on_hand, cost_per_unit = material_row
-            total_required = qty_required * qty_to_produce
-            if qty_on_hand < total_required:
-                conn.close()
-                raise ValueError("Insufficient materials")
-            cur.execute(
-                "UPDATE jw_materials SET qty_on_hand = qty_on_hand - ? WHERE id = ?",
-                (total_required, material_id),
-            )
-            cur.execute(
-                """INSERT INTO jw_production_consumption
-                   (production_order_id, material_id, qty_consumed, cost_at_time)
-                   VALUES (?, ?, ?, ?)""",
-                (order_id, material_id, total_required, cost_per_unit),
-            )
-    cur.execute(
-        "UPDATE jw_products SET qty_on_hand = qty_on_hand + ? WHERE id = ?",
-        (qty_to_produce, product_id),
-    )
+    if status == "draft":
+        _apply_production_inventory_movement(cur, order_id, product_id, qty_to_produce, bom_id)
     cur.execute(
         """UPDATE jw_production_orders
            SET status = 'done', qty_produced = ?, labor_cost = ?, overhead_cost = ?

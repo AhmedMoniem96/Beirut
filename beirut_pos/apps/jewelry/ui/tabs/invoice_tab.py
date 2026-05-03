@@ -491,8 +491,7 @@ class InvoiceTab(BaseTabContainer):
         self.pay_now_input.lineEdit().setReadOnly(True)
         self.pay_now_input.valueChanged.connect(self._handle_pay_now_change)
         self.adjust_pay_now_btn = QPushButton()
-        self.adjust_pay_now_btn.setCheckable(True)
-        self.adjust_pay_now_btn.toggled.connect(self._toggle_pay_now_manual_mode)
+        self.adjust_pay_now_btn.clicked.connect(self._toggle_pay_now_manual_mode)
         pay_now_row = QWidget()
         pay_now_row_layout = QHBoxLayout(pay_now_row)
         pay_now_row_layout.setContentsMargins(0, 0, 0, 0)
@@ -764,16 +763,37 @@ class InvoiceTab(BaseTabContainer):
         self._recalculate_totals()
 
     def _handle_pay_now_change(self) -> None:
-        if not self._pay_now_updating and self.adjust_pay_now_btn.isChecked():
+        if not self._pay_now_updating and self._pay_now_manual:
             self._pay_now_manual = True
         self._update_payment_totals()
 
-    def _toggle_pay_now_manual_mode(self, enabled: bool) -> None:
-        self._pay_now_manual = enabled
-        self.pay_now_input.lineEdit().setReadOnly(not enabled)
-        if not enabled:
+    def _toggle_pay_now_manual_mode(self) -> None:
+        self._pay_now_manual = not self._pay_now_manual
+        self.pay_now_input.lineEdit().setReadOnly(not self._pay_now_manual)
+        if not self._pay_now_manual:
             self._set_pay_now_value(self._current_grand_total)
+        self._refresh_pay_now_manual_ui()
         self._update_payment_totals()
+
+    def _refresh_pay_now_manual_ui(self) -> None:
+        if self._language == "ar":
+            if self._pay_now_manual:
+                self.adjust_pay_now_btn.setText("تعطيل تعديل المدفوع الآن")
+                self.adjust_pay_now_btn.setToolTip("انقر للعودة إلى الدفع الكامل التلقائي")
+                self.pay_now_hint_label.setText("يمكنك تعديل مبلغ المدفوع الآن يدويًا")
+            else:
+                self.adjust_pay_now_btn.setText("تعديل المدفوع الآن")
+                self.adjust_pay_now_btn.setToolTip("انقر لتمكين إدخال مبلغ مدفوع جزئي")
+                self.pay_now_hint_label.setText("الإجمالي يُدفع كاملًا افتراضيًا")
+            return
+        if self._pay_now_manual:
+            self.adjust_pay_now_btn.setText("Disable Manual Pay Now")
+            self.adjust_pay_now_btn.setToolTip("Click to return to automatic full payment.")
+            self.pay_now_hint_label.setText("You can manually edit the Pay Now amount.")
+        else:
+            self.adjust_pay_now_btn.setText("Adjust Pay Now")
+            self.adjust_pay_now_btn.setToolTip("Click to enable manual partial payment entry.")
+            self.pay_now_hint_label.setText("Full amount is paid by default.")
 
     def refresh_products(self, _text: str | None = None) -> None:
         self.load_products(self._active_category, self.search_input.text())
@@ -1224,7 +1244,9 @@ class InvoiceTab(BaseTabContainer):
         self.loyalty_earned_label.setText(f"{display_earned}")
         self._current_grand_total = grand_total
         if self.items_table.rowCount() == 0 and self._pay_now_manual:
-            self.adjust_pay_now_btn.setChecked(False)
+            self._pay_now_manual = False
+            self.pay_now_input.lineEdit().setReadOnly(True)
+            self._refresh_pay_now_manual_ui()
         if not self._pay_now_manual:
             self._set_pay_now_value(grand_total)
         self._update_payment_totals()
@@ -1667,8 +1689,8 @@ class InvoiceTab(BaseTabContainer):
         self.delivery_address_input.clear()
         self.delivery_status_combo.setCurrentIndex(0)
         self._pay_now_manual = False
-        self.adjust_pay_now_btn.setChecked(False)
         self.pay_now_input.lineEdit().setReadOnly(True)
+        self._refresh_pay_now_manual_ui()
         if not keep_customer:
             self.customer_name_input.clear()
             self.customer_phone_input.clear()
@@ -1952,10 +1974,7 @@ class InvoiceTab(BaseTabContainer):
         self.paid_total_label.setText(t("invoice.paid_total_label", language=language))
         self.remaining_total_label.setText(t("invoice.remaining_total_label", language=language))
         self.pay_now_label.setText(t("invoice.pay_now_label", language=language))
-        if language == "ar":
-            self.adjust_pay_now_btn.setText("تعديل المدفوع الآن")
-        else:
-            self.adjust_pay_now_btn.setText("Adjust Pay Now")
+        self._refresh_pay_now_manual_ui()
         self.payment_due_date_label.setText(t("invoice.payment_due_date_label", language=language))
         self.payment_due_date_input.setToolTip(t("invoice.payment_due_date_placeholder", language=language))
         self.payment_order_status_label.setText(

@@ -483,6 +483,7 @@ class InvoiceTab(BaseTabContainer):
         pay_now_row_layout.setSpacing(8)
         pay_now_row_layout.addWidget(self.pay_now_input, 1)
         pay_now_row_layout.addWidget(self.adjust_pay_now_btn)
+        self.pay_now_hint_label = QLabel("الإجمالي يُدفع كاملًا افتراضيًا")
         self.payment_due_date_label = QLabel()
         self.payment_due_date_input = QDateEdit()
         self.payment_due_date_input.setCalendarPopup(True)
@@ -494,6 +495,7 @@ class InvoiceTab(BaseTabContainer):
         payment_layout.addRow(self.paid_total_label, self.paid_total_value)
         payment_layout.addRow(self.remaining_total_label, self.remaining_total_value)
         payment_layout.addRow(self.pay_now_label, pay_now_row)
+        payment_layout.addRow(QLabel(""), self.pay_now_hint_label)
         payment_layout.addRow(self.payment_due_date_label, self.payment_due_date_input)
         payment_layout.addRow(self.payment_order_status_label, self.payment_order_status_combo)
         left_layout.addWidget(payment_box)
@@ -1192,8 +1194,8 @@ class InvoiceTab(BaseTabContainer):
         display_earned = earned if has_customer else 0
         self.loyalty_earned_label.setText(f"{display_earned}")
         self._current_grand_total = grand_total
-        if self.items_table.rowCount() == 0:
-            self._pay_now_manual = False
+        if self.items_table.rowCount() == 0 and self._pay_now_manual:
+            self.adjust_pay_now_btn.setChecked(False)
         if not self._pay_now_manual:
             self._set_pay_now_value(grand_total)
         self._update_payment_totals()
@@ -1217,6 +1219,8 @@ class InvoiceTab(BaseTabContainer):
         if grand_total < 0:
             grand_total = 0.0
         self.pay_now_input.setMaximum(grand_total)
+        if not self._pay_now_manual:
+            self._set_pay_now_value(grand_total)
         pay_now = min(float(self.pay_now_input.value()), grand_total)
         if float(self.pay_now_input.value()) != pay_now:
             self._set_pay_now_value(pay_now)
@@ -1224,11 +1228,13 @@ class InvoiceTab(BaseTabContainer):
         self.grand_total_value.setText(f"{grand_total:.2f}")
         self.paid_total_value.setText(f"{pay_now:.2f}")
         self.remaining_total_value.setText(f"{remaining:.2f}")
-        is_partial = grand_total > 0 and pay_now < grand_total
+        is_partial = self._pay_now_manual and grand_total > 0 and pay_now < grand_total
         if is_partial != self._payment_statuses_enabled:
             self._refresh_payment_statuses(required=is_partial)
+        self.payment_due_date_label.setVisible(is_partial)
         self.payment_order_status_label.setVisible(is_partial)
         self.payment_order_status_combo.setVisible(is_partial)
+        self.payment_due_date_input.setVisible(is_partial)
         self.payment_due_date_input.setEnabled(is_partial)
         if not is_partial:
             self.payment_order_status_combo.setCurrentIndex(0)
@@ -1251,7 +1257,7 @@ class InvoiceTab(BaseTabContainer):
         has_customer = bool(self._customer_id or (customer_name and customer_phone))
         pay_now = float(self.pay_now_input.value())
         grand_total = max(self._current_grand_total, 0.0)
-        is_partial = grand_total > 0 and pay_now < grand_total
+        is_partial = self._pay_now_manual and grand_total > 0 and pay_now < grand_total
         if is_partial and not has_customer:
             return t("invoice.validation_credit_customer", language=self._language)
         if is_partial and self.payment_order_status_combo.count() > 1:
@@ -1332,7 +1338,7 @@ class InvoiceTab(BaseTabContainer):
         loyalty_earned = 0 if txn_type == "return" else self._calculate_loyalty_points(net_total)
         payment_method = self.payment_combo.currentText()
         pay_now = min(float(self.pay_now_input.value()), total)
-        is_partial = total > 0 and pay_now < total
+        is_partial = self._pay_now_manual and total > 0 and pay_now < total
         payment_due_date = (
             to_iso_date(self.payment_due_date_input.date().toString("dd/MM/yyyy"))
             if is_partial

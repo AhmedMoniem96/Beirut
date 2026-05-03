@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from beirut_pos.services.printer import _draw_line, _format_currency_simple
+from beirut_pos.services.printer import RECEIPT_WIDTH_CHARS, _draw_line, _format_currency_simple
 
 from .db import JewelryInvoice, JewelryInvoiceItem
 from .settings import GallerySettings, load_gallery_settings
 
-COL_WIDTHS = (29, 5, 7, 7)
+COL_WIDTHS = (29, 5, 7, 7)  # 48-char (80mm) model: 29+5+7+7
+_BRAND_BOX_WIDTH = min(30, RECEIPT_WIDTH_CHARS - 2)
 
 
 def _truncate(text: str, width: int) -> str:
@@ -28,7 +29,7 @@ def _format_row(columns: Iterable[str]) -> str:
     )
 
 
-def _build_brand_box(lines: list[str], box_width: int = 30) -> list[str]:
+def _build_brand_box(lines: list[str], box_width: int = _BRAND_BOX_WIDTH) -> list[str]:
     out = ["╔" + "═" * box_width + "╗"]
     for text in lines:
         trimmed = text[:box_width]

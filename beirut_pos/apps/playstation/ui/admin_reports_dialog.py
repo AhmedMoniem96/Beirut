@@ -35,6 +35,7 @@ from .common.big_dialog import BigDialog
 from ..services.orders import order_manager
 from ..services import staff as staff_service
 from ..services import maintenance as maintenance_service
+from ..services import reports as reports_service
 from ..utils.currency import format_pounds
 from .theme.components import DSTable, KpiCard
 
@@ -71,6 +72,8 @@ class AdminReportsDialog(BigDialog):
         self.tabs.addTab(self._build_products_tab(), "الأصناف")
         self.tabs.addTab(self._build_discounts_tab(), "الخصومات")  # NEW!
         self.tabs.addTab(self._build_purchases_tab(), "المشتريات")  # NEW!
+        self.tabs.addTab(self._build_manufacturing_tab(), "Manufacturing | التصنيع")
+        self.tabs.addTab(self._build_opening_cash_tab(), "Opening Cash | رصيد البداية")
         self.tabs.addTab(self._build_profit_tab(), "الأرباح")
         self.tabs.addTab(self._build_price_log_tab(), "سجل الأسعار")
         self.tabs.addTab(self._build_deleted_items_tab(), "حذف العناصر")
@@ -96,6 +99,8 @@ class AdminReportsDialog(BigDialog):
         self._load_product_report()
         self._load_discounts_report()  # NEW!
         self._load_purchases_report()  # NEW!
+        self._load_manufacturing_report()
+        self._load_opening_cash_report()
         self._load_profit_report()
         self._load_price_log()
         self._load_deleted_items_report()
@@ -858,6 +863,109 @@ class AdminReportsDialog(BigDialog):
         self._populate_table(self.purchases_table, rows_list)
         self.purchases_summary.setText(
             f"عدد المشتريات: {len(rows_list)} | إجمالي المشتريات: {self._money(total_amount)}"
+        )
+
+    def _build_manufacturing_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        self.manufacturing_table = self._make_table(["Timestamp", "Category | الفئة", "Amount | المبلغ", "Notes | ملاحظات"])
+        layout.addWidget(self.manufacturing_table, 1)
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("From | من:"))
+        self.manufacturing_from = QDateEdit(QDate.currentDate().addDays(-30))
+        self.manufacturing_from.setCalendarPopup(True)
+        controls.addWidget(self.manufacturing_from)
+        controls.addWidget(QLabel("الساعة:"))
+        self.manufacturing_from_time = QTimeEdit(QTime(0, 0))
+        self.manufacturing_from_time.setDisplayFormat("hh:mm AP")
+        controls.addWidget(self.manufacturing_from_time)
+        controls.addWidget(QLabel("To | إلى:"))
+        self.manufacturing_to = QDateEdit(QDate.currentDate())
+        self.manufacturing_to.setCalendarPopup(True)
+        controls.addWidget(self.manufacturing_to)
+        controls.addWidget(QLabel("الساعة:"))
+        self.manufacturing_to_time = QTimeEdit(QTime(23, 59))
+        self.manufacturing_to_time.setDisplayFormat("hh:mm AP")
+        controls.addWidget(self.manufacturing_to_time)
+        refresh = QPushButton("Refresh | تحديث")
+        refresh.clicked.connect(self._load_manufacturing_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.manufacturing_table, "manufacturing_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+        self.manufacturing_summary = QLabel("")
+        self.manufacturing_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.manufacturing_summary)
+        return widget
+
+    def _load_manufacturing_report(self):
+        start, end = self._datetime_bounds_from_date_time(
+            self.manufacturing_from, self.manufacturing_from_time, self.manufacturing_to, self.manufacturing_to_time
+        )
+        rows = reports_service.manufacturing_expenses_report(start, end)
+        table_rows = []
+        total = 0
+        for row in rows:
+            amount = int(row["amount_cents"] or 0)
+            total += amount
+            table_rows.append([row["ts"], row["category"], self._money(amount), row["notes"]])
+        self._populate_table(self.manufacturing_table, table_rows)
+        self.manufacturing_summary.setText(
+            f"Manufacturing rows | عدد السجلات: {len(table_rows)} | Total | الإجمالي: {self._money(total)}"
+        )
+
+    def _build_opening_cash_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        self.opening_cash_table = self._make_table(
+            ["User | المستخدم", "Login | دخول", "Logout | خروج", "Duration (min)", "Cash Sales | مبيعات نقدية"]
+        )
+        layout.addWidget(self.opening_cash_table, 1)
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("From | من:"))
+        self.opening_cash_from = QDateEdit(QDate.currentDate().addDays(-7))
+        self.opening_cash_from.setCalendarPopup(True)
+        controls.addWidget(self.opening_cash_from)
+        controls.addWidget(QLabel("الساعة:"))
+        self.opening_cash_from_time = QTimeEdit(QTime(0, 0))
+        self.opening_cash_from_time.setDisplayFormat("hh:mm AP")
+        controls.addWidget(self.opening_cash_from_time)
+        controls.addWidget(QLabel("To | إلى:"))
+        self.opening_cash_to = QDateEdit(QDate.currentDate())
+        self.opening_cash_to.setCalendarPopup(True)
+        controls.addWidget(self.opening_cash_to)
+        controls.addWidget(QLabel("الساعة:"))
+        self.opening_cash_to_time = QTimeEdit(QTime(23, 59))
+        self.opening_cash_to_time.setDisplayFormat("hh:mm AP")
+        controls.addWidget(self.opening_cash_to_time)
+        refresh = QPushButton("Refresh | تحديث")
+        refresh.clicked.connect(self._load_opening_cash_report)
+        controls.addWidget(refresh)
+        controls.addWidget(self._make_export_button(self.opening_cash_table, "opening_cash_report"))
+        controls.addStretch(1)
+        layout.addLayout(controls)
+        self.opening_cash_summary = QLabel("")
+        self.opening_cash_summary.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self.opening_cash_summary)
+        return widget
+
+    def _load_opening_cash_report(self):
+        start, end = self._datetime_bounds_from_date_time(
+            self.opening_cash_from, self.opening_cash_from_time, self.opening_cash_to, self.opening_cash_to_time
+        )
+        rows = reports_service.opening_cash_report(start, end)
+        table_rows = []
+        total_cash = 0
+        for row in rows:
+            cash_sales = int(row["cash_sales_cents"] or 0)
+            total_cash += cash_sales
+            duration_minutes = round(float(row["duration_seconds"] or 0) / 60.0, 1)
+            table_rows.append(
+                [row["username"], row["login_at"], row["logout_at"] or "-", f"{duration_minutes}", self._money(cash_sales)]
+            )
+        self._populate_table(self.opening_cash_table, table_rows)
+        self.opening_cash_summary.setText(
+            f"Sessions | الجلسات: {len(table_rows)} | Cash sales | المبيعات النقدية: {self._money(total_cash)}"
         )
 
     # --------------------------------------------------------------- profits
@@ -2035,15 +2143,17 @@ class AdminReportsDialog(BigDialog):
             3: self._load_product_report,
             4: self._load_discounts_report,
             5: self._load_purchases_report,
-            6: self._load_profit_report,
-            7: self._load_price_log,
-            8: self._load_deleted_items_report,
-            9: self._load_inventory_report,
-            10: self._load_attendance_report,
-            11: self._load_shift_report,
-            12: self._load_deductions_report,
-            13: self._load_payroll_history,
-            14: self._load_stakeholder_report,
+            6: self._load_manufacturing_report,
+            7: self._load_opening_cash_report,
+            8: self._load_profit_report,
+            9: self._load_price_log,
+            10: self._load_deleted_items_report,
+            11: self._load_inventory_report,
+            12: self._load_attendance_report,
+            13: self._load_shift_report,
+            14: self._load_deductions_report,
+            15: self._load_payroll_history,
+            16: self._load_stakeholder_report,
         }
         loader = loaders.get(idx)
         if loader:
@@ -2056,6 +2166,8 @@ class AdminReportsDialog(BigDialog):
         self._load_product_report()
         self._load_discounts_report()
         self._load_purchases_report()
+        self._load_manufacturing_report()
+        self._load_opening_cash_report()
         self._load_profit_report()
         self._load_price_log()
         self._load_deleted_items_report()

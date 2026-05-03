@@ -2,6 +2,61 @@
 from ..core.db import get_conn
 from ..utils.currency import format_pounds
 
+
+def manufacturing_expenses_report(start: str, end: str):
+    """Return manufacturing-tagged expenses between timestamps."""
+    conn = get_conn()
+    cur = conn.cursor()
+    rows = cur.execute(
+        """
+        SELECT
+            ts,
+            category,
+            amount_cents,
+            COALESCE(notes, '') AS notes
+        FROM expenses
+        WHERE ts BETWEEN ? AND ?
+          AND (
+            lower(category) LIKE '%manufactur%'
+            OR category LIKE '%تصنيع%'
+            OR category LIKE '%خامات%'
+            OR category LIKE '%انتاج%'
+          )
+        ORDER BY ts DESC
+        """,
+        (start, end),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def opening_cash_report(start: str, end: str):
+    """Return user session rows with an inferred opening cash amount."""
+    conn = get_conn()
+    cur = conn.cursor()
+    rows = cur.execute(
+        """
+        SELECT
+            u.username,
+            u.login_at,
+            u.logout_at,
+            u.duration_seconds,
+            COALESCE((
+                SELECT SUM(p.amount_cents)
+                FROM payments p
+                WHERE p.method = 'cash'
+                  AND p.paid_at >= u.login_at
+                  AND (u.logout_at IS NULL OR p.paid_at <= u.logout_at)
+            ), 0) AS cash_sales_cents
+        FROM user_sessions u
+        WHERE u.login_at BETWEEN ? AND ?
+        ORDER BY u.login_at DESC
+        """,
+        (start, end),
+    ).fetchall()
+    conn.close()
+    return rows
+
 def z_report(iso_date: str):
     """
     Daily totals for ISO date 'YYYY-MM-DD'.

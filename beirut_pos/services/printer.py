@@ -539,7 +539,14 @@ def _try_usb_printer(*, allow_when_blocked: bool = False, usb_ids: Sequence[tupl
                     in_ep=None if in_ep is None else f"0x{int(in_ep):02X}",
                     error=str(e),
                 )
-                _log_printer_error("Printer connection error", e)
+                if isinstance(e, USBNotFoundError) or "Device not found" in str(e):
+                    _log(
+                        f"ℹ️  USB printer not present for candidate "
+                        f"VID:PID=0x{vendor:04X}:0x{product:04X} "
+                        f"IF={interface if interface is not None else 'auto'}"
+                    )
+                else:
+                    _log_printer_error("Printer connection error", e)
     return None
 
 

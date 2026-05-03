@@ -356,6 +356,11 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "invoice.points_earned_label": {"en": "Points Earned", "ar": "النقاط المكتسبة"},
     "invoice.advanced_options": {"en": "Advanced Options", "ar": "خيارات متقدمة"},
     "invoice.products_box": {"en": "Products", "ar": "المنتجات"},
+    "invoice.recent_sold_box": {"en": "Recently Sold", "ar": "المباع مؤخرًا"},
+    "invoice.recent_sold_header_invoice": {"en": "Invoice", "ar": "الفاتورة"},
+    "invoice.recent_sold_header_date": {"en": "Date", "ar": "التاريخ"},
+    "invoice.recent_sold_header_total": {"en": "Total", "ar": "الإجمالي"},
+    "invoice.recent_sold_header_actions": {"en": "Actions", "ar": "الإجراءات"},
     "invoice.scan_barcode": {"en": "Scan barcode...", "ar": "امسح الباركود..."},
     "invoice.search_products": {
         "en": "Search by name, SKU, barcode... (/) ",

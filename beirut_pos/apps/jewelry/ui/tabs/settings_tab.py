@@ -131,6 +131,8 @@ class SettingsTab(BaseTabContainer):
         self.printer_label = QLabel()
         self.receipt_mode_label = QLabel()
         self.receipt_printer_label = QLabel()
+        self.invoice_auto_print_after_save_check = QCheckBox()
+        self.invoice_print_preview_check = QCheckBox()
 
         self.printer_vendor_id = QLineEdit()
         self.printer_product_id = QLineEdit()
@@ -148,6 +150,8 @@ class SettingsTab(BaseTabContainer):
         printer_layout.addRow(self.printer_label, self.barcode_printer)
         printer_layout.addRow(self.receipt_mode_label, self.receipt_mode)
         printer_layout.addRow(self.receipt_printer_label, self.receipt_printer)
+        printer_layout.addRow("", self.invoice_auto_print_after_save_check)
+        printer_layout.addRow("", self.invoice_print_preview_check)
         printer_layout.addRow(self.printer_vendor_label, self.printer_vendor_id)
         printer_layout.addRow(self.printer_product_label, self.printer_product_id)
         printer_layout.addRow(self.printer_interface_label, self.printer_interface)
@@ -264,6 +268,8 @@ class SettingsTab(BaseTabContainer):
         self.printer_out_ep.setText(settings.printer_out_ep)
         self.printer_in_ep.setText(settings.printer_in_ep)
         self.printer_backend_priority.setText(settings.printer_backend_priority)
+        self.invoice_auto_print_after_save_check.setChecked(settings.invoice_auto_print_after_save)
+        self.invoice_print_preview_check.setChecked(settings.invoice_print_preview)
         self._set_language_combo(get_ui_language())
         self._refresh_device_status()
 
@@ -289,6 +295,8 @@ class SettingsTab(BaseTabContainer):
             printer_out_ep=self.printer_out_ep.text().strip() or "0x01",
             printer_in_ep=self.printer_in_ep.text().strip() or "0x81",
             printer_backend_priority=self.printer_backend_priority.text().strip() or "raw-usb-escpos,escpos-usb,file,windows",
+            invoice_auto_print_after_save=self.invoice_auto_print_after_save_check.isChecked(),
+            invoice_print_preview=self.invoice_print_preview_check.isChecked(),
         )
         save_gallery_settings(settings)
         QMessageBox.information(
@@ -400,6 +408,8 @@ class SettingsTab(BaseTabContainer):
         self.receipt_mode.setItemText(0, t("settings.receipt_mode_auto", language=language))
         self.receipt_mode.setItemText(1, t("settings.receipt_mode_windows", language=language))
         self.receipt_printer.setItemText(0, t("settings.printer_auto", language=language))
+        self.invoice_auto_print_after_save_check.setText("طباعة تلقائية بعد الحفظ" if language == "ar" else "Auto print after save")
+        self.invoice_print_preview_check.setText("معاينة سريعة قبل الطباعة" if language == "ar" else "Quick preview before print")
         self.save_btn.setText(t("settings.save", language=language))
         self.payment_ar_label.setText(t("settings.name_ar", language=language))
         self.payment_en_label.setText(t("settings.name_en", language=language))

@@ -596,11 +596,9 @@ class InvoiceTab(BaseTabContainer):
         self.export_btn.clicked.connect(self._export_invoice_pdf)
         self.print_btn = QPushButton()
         self.print_btn.clicked.connect(self._print_invoice)
-        self.auto_print_after_save_checkbox = QCheckBox("طباعة تلقائية بعد الحفظ")
         self.print_mode_combo = QComboBox()
         self.print_mode_combo.addItem("Direct printer", "direct")
         self.print_mode_combo.addItem("PDF", "pdf")
-        self.print_preview_checkbox = QCheckBox("Quick preview before print")
         self.printer_status_label = QLabel()
         self.clear_btn = QPushButton()
         self.clear_btn.clicked.connect(self._clear_invoice)
@@ -613,9 +611,7 @@ class InvoiceTab(BaseTabContainer):
         actions_layout.addWidget(self.save_btn)
         actions_layout.addWidget(self.validation_label)
         actions_layout.addLayout(print_actions_row)
-        actions_layout.addWidget(self.auto_print_after_save_checkbox)
         actions_layout.addWidget(self.print_mode_combo)
-        actions_layout.addWidget(self.print_preview_checkbox)
         actions_layout.addWidget(self.printer_status_label)
         actions_layout.addWidget(self.clear_btn)
         left_layout.addLayout(actions_layout)
@@ -642,7 +638,6 @@ class InvoiceTab(BaseTabContainer):
         self._apply_invoice_styles()
         self._update_advanced_panels()
         self._update_delivery_state(self.delivery_enabled_checkbox.isChecked())
-        self._load_print_preferences()
         self._refresh_printer_status_badge()
         self._refresh_recently_sold()
         self.apply_language(self._language)
@@ -1553,7 +1548,7 @@ class InvoiceTab(BaseTabContainer):
             self.invoice_info_label.setText(
                 t("invoice.info_number", language=self._language, invoice_no=invoice_no)
             )
-            if self.auto_print_after_save_checkbox.isChecked():
+            if load_gallery_settings().invoice_auto_print_after_save:
                 self._print_invoice()
         except Exception as exc:  # noqa: BLE001 - show the error and keep the app open.
             logger.exception("Failed to save invoice.")
@@ -1700,7 +1695,7 @@ class InvoiceTab(BaseTabContainer):
                     loyalty_balance=loyalty_balance,
                     loyalty_threshold=self._loyalty_alert_threshold,
                 )
-                if self.print_preview_checkbox.isChecked():
+                if load_gallery_settings().invoice_print_preview:
                     QMessageBox.information(self, "Preview", "\n".join(receipt_text.splitlines()[:12]))
                 receipt_settings = load_gallery_settings()
                 printer.print_text_receipt(
@@ -1749,24 +1744,6 @@ class InvoiceTab(BaseTabContainer):
         except Exception as exc:
             QMessageBox.critical(self, t("common.print", language=self._language), f"فشلت الطباعة: {exc}")
         self._refresh_printer_status_badge()
-
-    def _load_print_preferences(self) -> None:
-        settings = QSettings()
-        self.auto_print_after_save_checkbox.setChecked(
-            settings.value("invoice_auto_print_after_save", False, bool)
-        )
-        mode = settings.value("invoice_print_mode", "direct", str)
-        self.print_mode_combo.setCurrentIndex(0 if mode == "direct" else 1)
-        self.print_preview_checkbox.setChecked(settings.value("invoice_quick_preview", False, bool))
-        self.auto_print_after_save_checkbox.toggled.connect(
-            lambda v: settings.setValue("invoice_auto_print_after_save", v)
-        )
-        self.print_mode_combo.currentIndexChanged.connect(
-            lambda: settings.setValue("invoice_print_mode", self.print_mode_combo.currentData())
-        )
-        self.print_preview_checkbox.toggled.connect(
-            lambda v: settings.setValue("invoice_quick_preview", v)
-        )
 
     def _refresh_printer_status_badge(self) -> None:
         status = printer.printer_status_text()
@@ -2151,8 +2128,6 @@ class InvoiceTab(BaseTabContainer):
         self.save_btn.setText(t("invoice.save_invoice", language=language))
         self.export_btn.setText(t("invoice.export_pdf", language=language))
         self.print_btn.setText(t("invoice.print", language=language))
-        self.auto_print_after_save_checkbox.setText("طباعة تلقائية بعد الحفظ" if language == "ar" else "Auto print after save")
-        self.print_preview_checkbox.setText("معاينة سريعة قبل الطباعة" if language == "ar" else "Quick preview before print")
         self.print_mode_combo.setItemText(0, "طابعة مباشرة" if language == "ar" else "Direct printer")
         self.print_mode_combo.setItemText(1, "PDF")
         self._refresh_printer_status_badge()

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QElapsedTimer, QEvent, Qt
+from pathlib import Path
+
+from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QUrl
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -11,6 +13,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QDesktopServices,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -123,6 +126,8 @@ class InventoryTab(BaseTabContainer):
         self.import_excel_btn.clicked.connect(self._import_excel)
         self.download_template_btn = QPushButton()
         self.download_template_btn.clicked.connect(self._download_import_template)
+        self.auto_save_barcode_check = QCheckBox()
+        self.auto_print_barcode_check = QCheckBox()
 
         self.add_content_widget(form_box)
         self.footer_layout.addWidget(self.save_btn)
@@ -131,6 +136,8 @@ class InventoryTab(BaseTabContainer):
         self.footer_layout.addWidget(self.print_barcode_btn)
         self.footer_layout.addWidget(self.import_excel_btn)
         self.footer_layout.addWidget(self.download_template_btn)
+        self.footer_layout.addWidget(self.auto_save_barcode_check)
+        self.footer_layout.addWidget(self.auto_print_barcode_check)
 
         self.table = QTableWidget(0, 12)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -275,6 +282,8 @@ class InventoryTab(BaseTabContainer):
         self.delete_btn.setText(t("inventory.delete", language=language))
         self.clear_btn.setText(t("inventory.clear", language=language))
         self.print_barcode_btn.setText(t("inventory.print_barcode", language=language))
+        self.auto_save_barcode_check.setText(t("inventory.auto_save_copy", language=language))
+        self.auto_print_barcode_check.setText(t("inventory.auto_print", language=language))
         self.import_excel_btn.setText(t("inventory.import_excel", language=language))
         self.download_template_btn.setText(t("inventory.download_template", language=language))
         self.table.setHorizontalHeaderLabels(
@@ -468,93 +477,86 @@ class InventoryTab(BaseTabContainer):
 
     def _print_barcode_label(self) -> None:
         if not self._selected_product_id:
-            QMessageBox.warning(
-                self,
-                t("common.select", language=self._language),
-                t("inventory.select_product", language=self._language),
-            )
+            QMessageBox.warning(self, t("common.select", language=self._language), t("inventory.select_product", language=self._language))
             return
         product = next((p for p in self._products if p.id == self._selected_product_id), None)
         if not product:
             return
         if not product.barcode:
-            QMessageBox.warning(
-                self,
-                t("common.select", language=self._language),
-                t("inventory.barcode_missing", language=self._language),
-            )
+            QMessageBox.warning(self, t("common.select", language=self._language), t("inventory.barcode_missing", language=self._language))
             return
         barcode_type_value = self._validated_barcode_type(product.barcode_type)
         if barcode_type_value is None:
             return
-        settings = load_gallery_settings()
-        if settings.barcode_print_mode == "direct":
-            try:
-                from ...services.barcode_printer import (
-                    print_barcode_label_image,
-                    render_barcode_label_image,
-                )
-            except RuntimeError:
-                QMessageBox.critical(
-                    self,
-                    t("inventory.print_failed", language=self._language),
-                    "Barcode printing is unavailable because required dependencies are missing.",
-                )
-                return
-            try:
-                label_img = render_barcode_label_image(
-                    product_name=choose_name(product.name_ar, product.name_en, language=self._language),
-                    sku=product.sku,
-                    barcode_value=product.barcode,
-                    barcode_type=barcode_type_value,
-                )
-                print_barcode_label_image(
-                    label_img,
-                    printer_name=settings.barcode_printer_name,
-                )
-            except BaseException as exc:
-                QMessageBox.critical(
-                    self,
-                    t("inventory.print_failed", language=self._language),
-                    t("inventory.direct_print_failed", language=self._language, error=exc),
-                )
-                return
-            QMessageBox.information(
-                self,
-                t("common.print", language=self._language),
-                t("inventory.printed", language=self._language),
-            )
-            return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            t("inventory.export_labels", language=self._language),
-            f"{product.sku}_barcode_labels.pdf",
-            f"{t('common.file_filter_pdf', language=self._language)} (*.pdf)",
-        )
-        if not path:
-            return
+        from ...services.barcode_printer import suggest_barcode_pdf_path
+        save_path = str(suggest_barcode_pdf_path(product.sku))
+        should_auto_save = self.auto_save_barcode_check.isChecked()
+        should_auto_print = self.auto_print_barcode_check.isChecked()
+
+        if not should_auto_save:
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                t("inventory.export_labels", language=self._language),
+                save_path,
+                f"{t('common.file_filter_pdf', language=self._language)} (*.pdf)",
+            )
+            if path:
+                save_path = path
+        self._export_barcode_pdf(save_path, product, barcode_type_value)
+
+        if should_auto_print:
+            self._print_barcode_direct(product, barcode_type_value)
+
+    def _export_barcode_pdf(self, path: str, product, barcode_type_value: str) -> None:
         try:
             from ...services.pdf_exports import export_barcode_labels_pdf
         except RuntimeError:
-            QMessageBox.critical(
-                self,
-                t("common.export", language=self._language),
-                "PDF export is unavailable. Please install or rebuild with the missing dependency.",
-            )
+            QMessageBox.critical(self, t("common.export", language=self._language), "PDF export is unavailable. Please install or rebuild with the missing dependency.")
             return
-        export_barcode_labels_pdf(
-            path,
-            choose_name(product.name_ar, product.name_en, language=self._language),
-            product.sku,
-            product.barcode,
-            barcode_type_value,
+        export_barcode_labels_pdf(path, choose_name(product.name_ar, product.name_en, language=self._language), product.sku, product.barcode, barcode_type_value)
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle(t("common.export", language=self._language))
+        msg.setText(t("inventory.exported_labels_path", language=self._language, path=path))
+        open_btn = msg.addButton(t("inventory.open_folder", language=self._language), QMessageBox.ButtonRole.ActionRole)
+        msg.addButton(QMessageBox.StandardButton.Ok)
+        msg.exec()
+        if msg.clickedButton() is open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
+
+    def _print_barcode_direct(self, product, barcode_type_value: str) -> None:
+        settings = load_gallery_settings()
+        try:
+            from ...services.barcode_printer import render_barcode_label_image, try_print_barcode_label_image, BarcodePrinterError
+        except RuntimeError:
+            QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
+            return
+        label_img = render_barcode_label_image(
+            product_name=choose_name(product.name_ar, product.name_en, language=self._language),
+            sku=product.sku,
+            barcode_value=product.barcode,
+            barcode_type=barcode_type_value,
         )
-        QMessageBox.information(
-            self,
-            t("common.export", language=self._language),
-            t("inventory.exported_labels", language=self._language),
-        )
+        for attempt in range(2):
+            try:
+                try_print_barcode_label_image(label_img, printer_name=settings.barcode_printer_name, retries=0)
+                QMessageBox.information(self, t("common.print", language=self._language), t("inventory.printed", language=self._language))
+                return
+            except BarcodePrinterError as exc:
+                if attempt == 0:
+                    retry = QMessageBox.question(
+                        self,
+                        t("inventory.print_failed", language=self._language),
+                        t("inventory.retry_print_error", language=self._language, error=str(exc)),
+                        QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Cancel,
+                        QMessageBox.StandardButton.Retry,
+                    )
+                    if retry == QMessageBox.StandardButton.Retry:
+                        continue
+                QMessageBox.critical(self, t("inventory.print_failed", language=self._language), t("inventory.direct_print_failed", language=self._language, error=exc))
+                return
+
 
     def handle_scan(self, code: str) -> str:
         normalized_code = self._normalize_scan_text(code)

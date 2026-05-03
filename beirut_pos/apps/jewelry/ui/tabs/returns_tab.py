@@ -70,6 +70,10 @@ class ReturnsTab(BaseTabContainer):
         source_row.addWidget(self.load_source_btn)
         layout.addLayout(source_row)
 
+        self.stepper_label = QLabel("1) اختيار الفاتورة → 2) اختيار العناصر المرتجعة → 3) استرداد/استبدال")
+        self.stepper_label.setStyleSheet("font-weight: 600; color: #1f2937;")
+        layout.addWidget(self.stepper_label)
+
         self.source_items_table = QTableWidget(0, 6)
         self.source_items_table.setHorizontalHeaderLabels(["Return?", "Item", "Sold", "Returned", "Remaining", "Qty to return"])
         self.source_items_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -77,8 +81,10 @@ class ReturnsTab(BaseTabContainer):
         layout.addWidget(self.source_items_table)
 
         action_row = QHBoxLayout()
-        self.create_return_btn = QPushButton("Create Return Invoice")
-        self.create_return_btn.clicked.connect(self.create_return_invoice)
+        self.create_return_btn = QPushButton("مرتجع نقدي")
+        self.create_return_btn.clicked.connect(lambda: self.create_return_invoice(is_exchange=False))
+        self.exchange_btn = QPushButton("استبدال")
+        self.exchange_btn.clicked.connect(self.start_exchange_flow)
         self.manual_source_edit = QLineEdit()
         self.manual_source_edit.setPlaceholderText("Manual source invoice")
         self.manual_return_edit = QLineEdit()
@@ -86,10 +92,41 @@ class ReturnsTab(BaseTabContainer):
         self.manual_link_btn = QPushButton("Link Return ↔ Source")
         self.manual_link_btn.clicked.connect(self.manual_link_return)
         action_row.addWidget(self.create_return_btn)
+        action_row.addWidget(self.exchange_btn)
         action_row.addWidget(self.manual_source_edit)
         action_row.addWidget(self.manual_return_edit)
         action_row.addWidget(self.manual_link_btn)
         layout.addLayout(action_row)
+
+        self.exchange_cart_label = QLabel("Mini-cart البدائل (في حالة الاستبدال)")
+        layout.addWidget(self.exchange_cart_label)
+        self.exchange_cart_table = QTableWidget(0, 4)
+        self.exchange_cart_table.setHorizontalHeaderLabels(["المنتج", "الكمية", "سعر الوحدة", "الإجمالي"])
+        self.exchange_cart_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.exchange_cart_table)
+
+        exchange_controls = QHBoxLayout()
+        self.exchange_product_edit = QLineEdit()
+        self.exchange_product_edit.setPlaceholderText("اسم/كود المنتج البديل")
+        self.exchange_qty_spin = QDoubleSpinBox()
+        self.exchange_qty_spin.setDecimals(3)
+        self.exchange_qty_spin.setRange(0.001, 9999)
+        self.exchange_qty_spin.setValue(1.0)
+        self.exchange_price_spin = QDoubleSpinBox()
+        self.exchange_price_spin.setDecimals(2)
+        self.exchange_price_spin.setRange(0.01, 9999999)
+        self.exchange_price_spin.setValue(1.0)
+        self.add_exchange_item_btn = QPushButton("إضافة بديل")
+        self.add_exchange_item_btn.clicked.connect(self.add_exchange_item)
+        exchange_controls.addWidget(self.exchange_product_edit)
+        exchange_controls.addWidget(self.exchange_qty_spin)
+        exchange_controls.addWidget(self.exchange_price_spin)
+        exchange_controls.addWidget(self.add_exchange_item_btn)
+        layout.addLayout(exchange_controls)
+
+        self.summary_label = QLabel("الملخص النهائي: إجمالي المرتجع 0.00 | إجمالي البديل 0.00 | صافي الفرق 0.00")
+        self.summary_label.setStyleSheet("font-weight: 600;")
+        layout.addWidget(self.summary_label)
 
         history_filters = QHBoxLayout()
         self.history_from = QDateEdit()
@@ -183,7 +220,7 @@ class ReturnsTab(BaseTabContainer):
             qty_spin.setValue(0.0)
             self.source_items_table.setCellWidget(row, 5, qty_spin)
 
-    def create_return_invoice(self) -> None:
+    def create_return_invoice(self, is_exchange: bool = False) -> None:
         lines = []
         for idx, item in enumerate(self._source_items):
             check_item = self.source_items_table.item(idx, 0)
@@ -198,11 +235,24 @@ class ReturnsTab(BaseTabContainer):
         if not lines:
             QMessageBox.warning(self, "Validation", "Select at least one line with quantity.")
             return
+        return_total = self._compute_return_total(lines)
+        replacement_total = self._compute_exchange_total() if is_exchange else 0.0
+        net_diff = replacement_total - return_total
+        ref = f"RET-EX-{QDate.currentDate().toString('yyyyMMdd')}-{self.source_invoice_edit.text().strip()}"
+        reason = "Exchange" if is_exchange else "Cash return"
+        summary_msg = (
+            f"الملخص النهائي\nإجمالي المرتجع: {return_total:.2f}\n"
+            f"إجمالي البديل: {replacement_total:.2f}\n"
+            f"صافي الفرق: {net_diff:.2f}\n"
+            f"الرقم المرجعي الموحد: {ref}"
+        )
+        self._update_summary_label(return_total)
+        QMessageBox.information(self, "Summary", summary_msg)
         try:
             invoice_no, _ = create_return_invoice_from_source(
                 source_invoice_no=self.source_invoice_edit.text().strip(),
                 cashier_name="Returns Tab",
-                return_reason="Manual return from returns tab",
+                return_reason=f"{reason} | Ref: {ref} | Replacement: {replacement_total:.2f} | Net: {net_diff:.2f}",
                 selected_lines=lines,
             )
         except Exception as exc:
@@ -211,6 +261,44 @@ class ReturnsTab(BaseTabContainer):
         QMessageBox.information(self, "Success", f"Return invoice created: {invoice_no}")
         self.load_source_invoice()
         self.refresh()
+
+    def start_exchange_flow(self) -> None:
+        QMessageBox.information(self, "Exchange", "تم فتح mini-cart لاختيار المنتجات البديلة.")
+        self.create_return_invoice(is_exchange=True)
+
+    def add_exchange_item(self) -> None:
+        name = self.exchange_product_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Validation", "أدخل اسم/كود المنتج البديل أولاً.")
+            return
+        qty = float(self.exchange_qty_spin.value())
+        unit_price = float(self.exchange_price_spin.value())
+        row = self.exchange_cart_table.rowCount()
+        self.exchange_cart_table.insertRow(row)
+        line_total = qty * unit_price
+        for col, value in enumerate((name, f"{qty:.3f}", f"{unit_price:.2f}", f"{line_total:.2f}")):
+            self.exchange_cart_table.setItem(row, col, QTableWidgetItem(value))
+        self.exchange_product_edit.clear()
+        self._update_summary_label()
+
+    def _compute_return_total(self, lines: list[dict]) -> float:
+        mapping = {item.invoice_item_id: float(item.unit_price) for item in self._source_items}
+        return sum(float(line["qty"]) * mapping.get(line["source_invoice_item_id"], 0.0) for line in lines)
+
+    def _compute_exchange_total(self) -> float:
+        total = 0.0
+        for row in range(self.exchange_cart_table.rowCount()):
+            item = self.exchange_cart_table.item(row, 3)
+            if item:
+                total += float(item.text())
+        return total
+
+    def _update_summary_label(self, return_total: float = 0.0) -> None:
+        replacement_total = self._compute_exchange_total()
+        net_diff = replacement_total - return_total
+        self.summary_label.setText(
+            f"الملخص النهائي: إجمالي المرتجع {return_total:.2f} | إجمالي البديل {replacement_total:.2f} | صافي الفرق {net_diff:.2f}"
+        )
 
     def manual_link_return(self) -> None:
         user = get_current_user()

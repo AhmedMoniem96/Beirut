@@ -388,6 +388,12 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "invoice.paid_total_label": {"en": "Paid Total", "ar": "إجمالي المدفوع"},
     "invoice.remaining_total_label": {"en": "Remaining Total", "ar": "الإجمالي المتبقي"},
     "invoice.pay_now_label": {"en": "Pay Now", "ar": "الدفع الآن"},
+    "invoice.pay_now_hint_default": {"en": "Full amount is paid by default.", "ar": "الإجمالي يُدفع كاملًا افتراضيًا"},
+    "invoice.pay_now_hint_partial": {"en": "You can manually edit the Pay Now amount.", "ar": "يمكنك تعديل مبلغ المدفوع الآن يدويًا"},
+    "invoice.pay_now_manual_enable": {"en": "Adjust Pay Now", "ar": "تعديل المدفوع الآن"},
+    "invoice.pay_now_manual_disable": {"en": "Disable Manual Pay Now", "ar": "تعطيل تعديل المدفوع الآن"},
+    "invoice.pay_now_manual_enable_tooltip": {"en": "Click to enable manual partial payment entry.", "ar": "انقر لتمكين إدخال مبلغ مدفوع جزئي"},
+    "invoice.pay_now_manual_disable_tooltip": {"en": "Click to return to automatic full payment.", "ar": "انقر للعودة إلى الدفع الكامل التلقائي"},
     "invoice.payment_due_date_label": {"en": "Payment Due Date", "ar": "تاريخ استحقاق الدفع"},
     "invoice.payment_due_date_placeholder": {"en": "DD/MM/YYYY", "ar": "DD/MM/YYYY"},
     "invoice.payment_order_status_label": {

@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
     QCheckBox,
+    QInputDialog,
 )
 
 from .base_tab import BaseTabContainer
@@ -562,12 +563,22 @@ class InvoiceTab(BaseTabContainer):
         self.export_btn.clicked.connect(self._export_invoice_pdf)
         self.print_btn = QPushButton()
         self.print_btn.clicked.connect(self._print_invoice)
+        self.auto_print_after_save_checkbox = QCheckBox("طباعة تلقائية بعد الحفظ")
+        self.print_mode_combo = QComboBox()
+        self.print_mode_combo.addItem("Direct printer", "direct")
+        self.print_mode_combo.addItem("PDF", "pdf")
+        self.print_preview_checkbox = QCheckBox("Quick preview before print")
+        self.printer_status_label = QLabel()
         self.clear_btn = QPushButton()
         self.clear_btn.clicked.connect(self._clear_invoice)
         actions_layout.addWidget(self.save_btn)
         actions_layout.addWidget(self.validation_label)
         actions_layout.addWidget(self.export_btn)
         actions_layout.addWidget(self.print_btn)
+        actions_layout.addWidget(self.auto_print_after_save_checkbox)
+        actions_layout.addWidget(self.print_mode_combo)
+        actions_layout.addWidget(self.print_preview_checkbox)
+        actions_layout.addWidget(self.printer_status_label)
         actions_layout.addWidget(self.clear_btn)
         left_layout.addLayout(actions_layout)
         left_layout.addWidget(calculator_box)
@@ -593,6 +604,8 @@ class InvoiceTab(BaseTabContainer):
         self._apply_invoice_styles()
         self._update_advanced_panels()
         self._update_delivery_state(self.delivery_enabled_checkbox.isChecked())
+        self._load_print_preferences()
+        self._refresh_printer_status_badge()
         self.apply_language(self._language)
 
     def _initialize_cashier(self) -> None:
@@ -1403,25 +1416,8 @@ class InvoiceTab(BaseTabContainer):
             self.invoice_info_label.setText(
                 t("invoice.info_number", language=self._language, invoice_no=invoice_no)
             )
-            settings = QSettings()
-            if settings.value("loyalty_auto_print", False, bool):
-                invoice, items = fetch_invoice_details(invoice_no)
-                self._load_loyalty_settings()
-                loyalty_balance = None
-                if invoice.customer_id:
-                    loyalty_balance = get_loyalty_balance(invoice.customer_id)
-                receipt_text = build_receipt_text(
-                    invoice,
-                    items,
-                    loyalty_balance=loyalty_balance,
-                    loyalty_threshold=self._loyalty_alert_threshold,
-                )
-                receipt_settings = load_gallery_settings()
-                printer.print_text_receipt(
-                    receipt_text.splitlines(),
-                    printer_name=receipt_settings.receipt_printer_name,
-                    print_mode=receipt_settings.receipt_print_mode,
-                )
+            if self.auto_print_after_save_checkbox.isChecked():
+                self._print_invoice()
         except Exception as exc:  # noqa: BLE001 - show the error and keep the app open.
             logger.exception("Failed to save invoice.")
             QMessageBox.critical(
@@ -1517,43 +1513,91 @@ class InvoiceTab(BaseTabContainer):
                 t("invoice.export_first", language=self._language),
             )
             return
-        tmp_path = Path.cwd() / f"{self._last_invoice_no}.pdf"
         invoice, items = fetch_invoice_details(self._last_invoice_no)
-        gallery_settings = load_gallery_settings()
-        gallery = GalleryInfo(
-            name_en=gallery_settings.name_en,
-            name_ar=gallery_settings.name_ar,
-            address=gallery_settings.address,
-            phone=gallery_settings.phone,
-            website_name=gallery_settings.website_name,
-            website_url=gallery_settings.website_url,
-            logo_path=gallery_settings.logo_path or None,
-            font_path=gallery_settings.font_path or None,
+        try:
+            if self.print_mode_combo.currentData() == "direct":
+                self._load_loyalty_settings()
+                loyalty_balance = get_loyalty_balance(invoice.customer_id) if invoice.customer_id else None
+                receipt_text = build_receipt_text(
+                    invoice,
+                    items,
+                    loyalty_balance=loyalty_balance,
+                    loyalty_threshold=self._loyalty_alert_threshold,
+                )
+                if self.print_preview_checkbox.isChecked():
+                    QMessageBox.information(self, "Preview", "\n".join(receipt_text.splitlines()[:12]))
+                receipt_settings = load_gallery_settings()
+                printer.print_text_receipt(
+                    receipt_text.splitlines(),
+                    printer_name=receipt_settings.receipt_printer_name,
+                    print_mode=receipt_settings.receipt_print_mode,
+                )
+            else:
+                tmp_path = Path.cwd() / f"{self._last_invoice_no}.pdf"
+                gallery_settings = load_gallery_settings()
+                gallery = GalleryInfo(
+                    name_en=gallery_settings.name_en,
+                    name_ar=gallery_settings.name_ar,
+                    address=gallery_settings.address,
+                    phone=gallery_settings.phone,
+                    website_name=gallery_settings.website_name,
+                    website_url=gallery_settings.website_url,
+                    logo_path=gallery_settings.logo_path or None,
+                    font_path=gallery_settings.font_path or None,
+                )
+                export_invoice_pdf(
+                    str(tmp_path),
+                    gallery,
+                    invoice.invoice_no,
+                    invoice.datetime,
+                    invoice.cashier_name,
+                    invoice.txn_type,
+                    invoice.customer_name,
+                    invoice.customer_phone,
+                    [(i.product_name, i.product_code, i.qty, i.unit_price, i.line_total) for i in items],
+                    invoice.subtotal,
+                    invoice.discount,
+                    invoice.discount_type,
+                    invoice.discount_value,
+                    invoice.loyalty_earned,
+                    invoice.loyalty_redeemed,
+                    invoice.total,
+                    invoice.payment_method,
+                    invoice.order_source,
+                    invoice.website_order_ref,
+                    invoice.notes,
+                    invoice.return_reason,
+                )
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(tmp_path)))
+            QMessageBox.information(self, t("common.print", language=self._language), "تمت الطباعة بنجاح.")
+        except Exception as exc:
+            QMessageBox.critical(self, t("common.print", language=self._language), f"فشلت الطباعة: {exc}")
+        self._refresh_printer_status_badge()
+
+    def _load_print_preferences(self) -> None:
+        settings = QSettings()
+        self.auto_print_after_save_checkbox.setChecked(
+            settings.value("invoice_auto_print_after_save", False, bool)
         )
-        export_invoice_pdf(
-            str(tmp_path),
-            gallery,
-            invoice.invoice_no,
-            invoice.datetime,
-            invoice.cashier_name,
-            invoice.txn_type,
-            invoice.customer_name,
-            invoice.customer_phone,
-            [(i.product_name, i.product_code, i.qty, i.unit_price, i.line_total) for i in items],
-            invoice.subtotal,
-            invoice.discount,
-            invoice.discount_type,
-            invoice.discount_value,
-            invoice.loyalty_earned,
-            invoice.loyalty_redeemed,
-            invoice.total,
-            invoice.payment_method,
-            invoice.order_source,
-            invoice.website_order_ref,
-            invoice.notes,
-            invoice.return_reason,
+        mode = settings.value("invoice_print_mode", "direct", str)
+        self.print_mode_combo.setCurrentIndex(0 if mode == "direct" else 1)
+        self.print_preview_checkbox.setChecked(settings.value("invoice_quick_preview", False, bool))
+        self.auto_print_after_save_checkbox.toggled.connect(
+            lambda v: settings.setValue("invoice_auto_print_after_save", v)
         )
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(tmp_path)))
+        self.print_mode_combo.currentIndexChanged.connect(
+            lambda: settings.setValue("invoice_print_mode", self.print_mode_combo.currentData())
+        )
+        self.print_preview_checkbox.toggled.connect(
+            lambda v: settings.setValue("invoice_quick_preview", v)
+        )
+
+    def _refresh_printer_status_badge(self) -> None:
+        status = printer.printer_status_text()
+        is_ready = status == "ready"
+        icon = "🟢" if is_ready else "🔴"
+        label = "Printer Ready" if is_ready else "Printer Offline"
+        self.printer_status_label.setText(f"{icon} {label}")
 
     def reset_invoice_state(self, keep_customer: bool = False) -> None:
         self._reset_invoice(keep_customer=keep_customer)
@@ -1920,6 +1964,11 @@ class InvoiceTab(BaseTabContainer):
         self.save_btn.setText(t("invoice.save_invoice", language=language))
         self.export_btn.setText(t("invoice.export_pdf", language=language))
         self.print_btn.setText(t("invoice.print", language=language))
+        self.auto_print_after_save_checkbox.setText("طباعة تلقائية بعد الحفظ" if language == "ar" else "Auto print after save")
+        self.print_preview_checkbox.setText("معاينة سريعة قبل الطباعة" if language == "ar" else "Quick preview before print")
+        self.print_mode_combo.setItemText(0, "طابعة مباشرة" if language == "ar" else "Direct printer")
+        self.print_mode_combo.setItemText(1, "PDF")
+        self._refresh_printer_status_badge()
         self.clear_btn.setText(t("invoice.new", language=language))
         self._refresh_payment_methods()
         self._refresh_payment_statuses()

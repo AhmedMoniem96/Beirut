@@ -991,6 +991,12 @@ class PrinterService:
             return True
         return self._refresh_escpos_printer()
 
+    def printer_status_text(self) -> str:
+        """Human-readable printer state for UI badges."""
+        if self._use_windows_bar() or self._use_windows_cash():
+            return "ready"
+        return "ready" if self._refresh_escpos_printer() else "offline"
+
     def update_printers(self, bar: Optional[str], cash: Optional[str]) -> None:
         self._bar_win = (bar or "").strip()
         self._cash_win = (cash or "").strip()

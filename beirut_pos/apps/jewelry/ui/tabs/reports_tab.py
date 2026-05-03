@@ -170,8 +170,10 @@ class ReportsTab(BaseTabContainer):
         self.cashier_input.setReadOnly(True)
         self.open_time_input = QDateTimeEdit()
         self.open_time_input.setCalendarPopup(True)
+        self.open_time_input.setDisplayFormat("dd/MM/yyyy HH:mm")
         self.close_time_input = QDateTimeEdit()
         self.close_time_input.setCalendarPopup(True)
+        self.close_time_input.setDisplayFormat("dd/MM/yyyy HH:mm")
         self.opening_cash_input = QDoubleSpinBox()
         self.opening_cash_input.setRange(0, 999999)
         self.opening_cash_input.setDecimals(2)
@@ -527,6 +529,9 @@ class ReportsTab(BaseTabContainer):
             t("common.saved_title", language=self._language),
             t("reports.shift_saved", language=self._language),
         )
+
+    def refresh_data_source(self) -> None:
+        self._generate_report()
 
     def _export_pdf(self) -> None:
         if not self._last_report:

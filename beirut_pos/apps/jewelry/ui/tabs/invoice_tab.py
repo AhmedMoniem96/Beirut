@@ -56,6 +56,7 @@ from ...services.db import (
     recalculate_invoice_payment_totals,
     search_customers,
     save_customer,
+    get_conn,
 )
 from ...services.pdf_exports import GalleryInfo, export_invoice_pdf
 from ...services.receipt import build_receipt_text
@@ -316,7 +317,14 @@ class InvoiceTab(BaseTabContainer):
         advanced_customer_layout.addRow(self.points_earned_label, self.loyalty_earned_label)
         advanced_box_layout.addWidget(self.advanced_customer_panel)
         self._form_layout.addRow(self.advanced_box)
+        self.recent_sold_box = QGroupBox("Recently Sold")
+        recent_layout = QVBoxLayout(self.recent_sold_box)
+        self.recent_sold_table = QTableWidget(0, 4)
+        self.recent_sold_table.setHorizontalHeaderLabels(["Invoice", "Date", "Total", "Actions"])
+        self.recent_sold_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        recent_layout.addWidget(self.recent_sold_table)
         right_layout.addWidget(self.invoice_info_label)
+        right_layout.addWidget(self.recent_sold_box)
         right_layout.addWidget(form_box)
 
         product_search_panel = QWidget()
@@ -606,6 +614,7 @@ class InvoiceTab(BaseTabContainer):
         self._update_delivery_state(self.delivery_enabled_checkbox.isChecked())
         self._load_print_preferences()
         self._refresh_printer_status_badge()
+        self._refresh_recently_sold()
         self.apply_language(self._language)
 
     def _initialize_cashier(self) -> None:
@@ -1445,8 +1454,38 @@ class InvoiceTab(BaseTabContainer):
             t("common.saved_title", language=self._language),
             t("invoice.saved_message", language=self._language, invoice_no=invoice_no),
         )
+        self._refresh_recently_sold()
         self.reset_invoice_state()
         self.refresh_products()
+
+    def _refresh_recently_sold(self) -> None:
+        self.recent_sold_table.setRowCount(0)
+        with get_conn() as conn:
+            rows = conn.execute("SELECT invoice_no, datetime, total FROM jw_invoices ORDER BY id DESC LIMIT 10").fetchall()
+        for invoice_no, dt, total in rows:
+            row = self.recent_sold_table.rowCount()
+            self.recent_sold_table.insertRow(row)
+            self.recent_sold_table.setItem(row, 0, QTableWidgetItem(str(invoice_no)))
+            self.recent_sold_table.setItem(row, 1, QTableWidgetItem(str(dt)))
+            self.recent_sold_table.setItem(row, 2, QTableWidgetItem(f"{float(total):.2f}"))
+            actions = QWidget()
+            actions_layout = QHBoxLayout(actions)
+            actions_layout.setContentsMargins(0, 0, 0, 0)
+            print_btn = QPushButton("طباعة")
+            details_btn = QPushButton("فتح التفاصيل")
+            print_btn.clicked.connect(lambda _c=False, inv=invoice_no: self._print_recent_invoice(inv))
+            details_btn.clicked.connect(lambda _c=False, inv=invoice_no: self._open_recent_invoice_details(inv))
+            actions_layout.addWidget(print_btn)
+            actions_layout.addWidget(details_btn)
+            self.recent_sold_table.setCellWidget(row, 3, actions)
+
+    def _print_recent_invoice(self, invoice_no: str) -> None:
+        self._last_invoice_no = invoice_no
+        self._print_invoice()
+
+    def _open_recent_invoice_details(self, invoice_no: str) -> None:
+        invoice, _items = fetch_invoice_details(invoice_no)
+        QMessageBox.information(self, "Invoice Details", f"{invoice.invoice_no}\n{invoice.datetime}\n{invoice.total:.2f}")
 
     def _export_invoice_pdf(self) -> None:
         if not self._last_invoice_no:

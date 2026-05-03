@@ -604,10 +604,15 @@ class InvoiceTab(BaseTabContainer):
         self.printer_status_label = QLabel()
         self.clear_btn = QPushButton()
         self.clear_btn.clicked.connect(self._clear_invoice)
+        print_actions_row = QHBoxLayout()
+        print_actions_row.setContentsMargins(0, 0, 0, 0)
+        print_actions_row.setSpacing(JEWELRY_SPACING.xs)
+        print_actions_row.addWidget(self.export_btn)
+        print_actions_row.addWidget(self.print_btn)
+
         actions_layout.addWidget(self.save_btn)
         actions_layout.addWidget(self.validation_label)
-        actions_layout.addWidget(self.export_btn)
-        actions_layout.addWidget(self.print_btn)
+        actions_layout.addLayout(print_actions_row)
         actions_layout.addWidget(self.auto_print_after_save_checkbox)
         actions_layout.addWidget(self.print_mode_combo)
         actions_layout.addWidget(self.print_preview_checkbox)
@@ -1201,6 +1206,9 @@ class InvoiceTab(BaseTabContainer):
         self.setTabOrder(self.customer_name_input, self.customer_phone_input)
         self.setTabOrder(self.customer_phone_input, self.discount_input)
         self.setTabOrder(self.discount_input, self.save_btn)
+        self.setTabOrder(self.save_btn, self.export_btn)
+        self.setTabOrder(self.export_btn, self.print_btn)
+        self.setTabOrder(self.print_btn, self.clear_btn)
         self.barcode_input.setFocus()
 
     def _focus_product_search(self) -> None:

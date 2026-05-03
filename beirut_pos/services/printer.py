@@ -162,6 +162,7 @@ _ALLOW_USB_WITH_USBLP = os.environ.get("BEIRUT_POS_USB_TRY_BOTH", "0") == "1"
 
 # Keep in sync with bitmap renderer
 PAPER_PX = 576  # 80mm at 203 dpi usable width
+RECEIPT_WIDTH_CHARS = 48  # 80mm text model (kept in sync with receipt previews)
 COLS_RECEIPT = [348, 60, 84, 84]  # Item, Qty, Price, Total (sum=576)
 COLS_BAR = [456, 120]  # Item, Qty
 CELL_PAD_X, CELL_PAD_Y = 8, 4
@@ -228,7 +229,7 @@ def _note_segments(note: str, *, include_sugar: bool = False, tag_sugar: bool = 
     return out
 
 
-def _draw_line(char: str = "─", width_chars: int = 48) -> str:
+def _draw_line(char: str = "─", width_chars: int = RECEIPT_WIDTH_CHARS) -> str:
     return char * width_chars
 
 
@@ -580,7 +581,7 @@ def _post_feed_and_cut(printer) -> None:
     try:
         if hasattr(printer, "_raw"):
             printer._raw(b"\n")
-            printer._raw(b"\x1B\x64\x02")  # feed 2 lines
+            printer._raw(b"\x1B\x64\x03")  # feed 3 lines
             printer._raw(b"\x1B\x4A\x30")  # feed 48 dots (~6mm)
         import time as _t
 

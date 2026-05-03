@@ -6,6 +6,7 @@ from datetime import datetime, time
 from typing import Dict, List, Optional
 
 from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -294,11 +295,13 @@ class ManufacturingTab(BaseTabContainer):
         self.orders_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.orders_table.cellClicked.connect(self._load_order)
         self.shortage_label = QLabel("")
+        self.status_legend_label = QLabel("")
         form_container = BaseTabContainer(show_header=False)
         form_content = QWidget()
         form_content_layout = QVBoxLayout(form_content)
         form_content_layout.setSpacing(12)
         form_content_layout.addWidget(form_box)
+        form_content_layout.addWidget(self.status_legend_label)
         form_content_layout.addWidget(self.shortage_label)
         form_container.set_page_content_widget(form_content)
         form_container.footer_layout.addWidget(self.order_create_btn)
@@ -315,6 +318,11 @@ class ManufacturingTab(BaseTabContainer):
         self.tabs.addTab(self.orders_tab, "")
 
         self._selected_order_id: Optional[int] = None
+        self._status_colors = {
+            "draft": QColor("#B7791F"),
+            "confirmed": QColor("#1D4ED8"),
+            "done": QColor("#15803D"),
+        }
 
     def _build_reports_tab(self) -> None:
         self.reports_tab = QWidget()
@@ -358,6 +366,9 @@ class ManufacturingTab(BaseTabContainer):
         filter_row.addWidget(self.history_product)
         filter_row.addWidget(self.history_refresh_btn)
         history_layout.addLayout(filter_row)
+        self.history_help = QLabel()
+        self.history_help.setWordWrap(True)
+        history_layout.addWidget(self.history_help)
 
         self.history_table = QTableWidget(0, 7)
         self.history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -395,10 +406,19 @@ class ManufacturingTab(BaseTabContainer):
         self.usage_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.usage_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         usage_layout.addWidget(self.usage_table)
+        self.cost_box = QGroupBox()
+        cost_layout = QVBoxLayout(self.cost_box)
+        self.cost_table = QTableWidget(0, 3)
+        self.cost_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.cost_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.cost_table.setAlternatingRowColors(True)
+        self.cost_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        cost_layout.addWidget(self.cost_table)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(history_box)
         splitter.addWidget(usage_box)
+        splitter.addWidget(self.cost_box)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter)
@@ -494,6 +514,7 @@ class ManufacturingTab(BaseTabContainer):
             self.orders_table.setItem(row, 0, QTableWidgetItem(order.order_no))
             self.orders_table.setItem(row, 1, QTableWidgetItem(order.datetime))
             self.orders_table.setItem(row, 2, QTableWidgetItem(self._status_label(order.status)))
+            self._paint_status_cell(self.orders_table.item(row, 2), order.status)
             self.orders_table.setItem(row, 3, QTableWidgetItem(product_label))
             self.orders_table.setItem(row, 4, QTableWidgetItem(f"{order.qty_to_produce:.3f}"))
             self.orders_table.setItem(row, 5, QTableWidgetItem(f"{order.qty_produced:.3f}"))
@@ -811,6 +832,7 @@ class ManufacturingTab(BaseTabContainer):
             self.history_table.setItem(row, 0, QTableWidgetItem(row_data.order_no))
             self.history_table.setItem(row, 1, QTableWidgetItem(row_data.datetime))
             self.history_table.setItem(row, 2, QTableWidgetItem(self._status_label(row_data.status)))
+            self._paint_status_cell(self.history_table.item(row, 2), row_data.status)
             self.history_table.setItem(row, 3, QTableWidgetItem(row_data.product_name))
             self.history_table.setItem(row, 4, QTableWidgetItem(f"{row_data.qty_to_produce:.3f}"))
             self.history_table.setItem(row, 5, QTableWidgetItem(f"{row_data.qty_produced:.3f}"))
@@ -830,6 +852,27 @@ class ManufacturingTab(BaseTabContainer):
             self.usage_table.setItem(row, 0, QTableWidgetItem(row_data.material_name))
             self.usage_table.setItem(row, 1, QTableWidgetItem(f"{row_data.total_qty:.3f}"))
             self.usage_table.setItem(row, 2, QTableWidgetItem(f"{row_data.total_cost:.2f}"))
+        self._refresh_cost_report()
+
+    def _refresh_cost_report(self) -> None:
+        rows = production_history(
+            datetime.combine(self.usage_start.date().toPyDate(), time.min).isoformat(timespec="seconds"),
+            datetime.combine(self.usage_end.date().toPyDate(), time.max).isoformat(timespec="seconds"),
+            self.history_status.currentData() or "all",
+            self.history_product.currentData(),
+        )
+        self.cost_table.setRowCount(0)
+        for row_data in rows:
+            row = self.cost_table.rowCount()
+            self.cost_table.insertRow(row)
+            self.cost_table.setItem(row, 0, QTableWidgetItem(row_data.order_no))
+            self.cost_table.setItem(row, 1, QTableWidgetItem(f"{row_data.qty_to_produce:.3f}"))
+            self.cost_table.setItem(row, 2, QTableWidgetItem(f"{row_data.total_cost:.2f}"))
+
+    def _paint_status_cell(self, item: QTableWidgetItem, status: str) -> None:
+        color = self._status_colors.get(status)
+        if color:
+            item.setForeground(color)
 
     def _status_label(self, status: str) -> str:
         mapping = {
@@ -873,7 +916,8 @@ class ManufacturingTab(BaseTabContainer):
         )
         self.bom_box.setTitle(t("manufacturing.bom_box", language=language))
         self.bom_product_label.setText(t("manufacturing.bom_product", language=language))
-        self.bom_name_label.setText(t("manufacturing.bom_name", language=language))
+        self.bom_name_label.setText("تركيبة التصنيع (BOM)")
+        self.bom_name_label.setToolTip("اكتب اسمًا بسيطًا يوضح مكونات التصنيع والكميات المطلوبة.")
         self.bom_active_check.setText(t("manufacturing.bom_active", language=language))
         self.lines_box.setTitle(t("manufacturing.lines_box", language=language))
         self.bom_material_label.setText(t("manufacturing.material_label", language=language))
@@ -909,6 +953,7 @@ class ManufacturingTab(BaseTabContainer):
         self.order_create_btn.setText(t("manufacturing.create_draft", language=language))
         self.order_confirm_btn.setText(t("manufacturing.confirm", language=language))
         self.order_done_btn.setText(t("manufacturing.mark_done", language=language))
+        self.status_legend_label.setText("الحالات: Draft (مسودة) / Confirmed (تم التأكيد) / Done (مكتمل)")
         self.orders_table.setHorizontalHeaderLabels(
             [
                 t("manufacturing.orders_table_order", language=language),
@@ -921,6 +966,7 @@ class ManufacturingTab(BaseTabContainer):
             ]
         )
         self.history_box.setTitle(t("manufacturing.history_box", language=language))
+        self.history_help.setText("إزاي تستخدم التصنيع في 3 خطوات: 1) اعمل المواد الخام. 2) جهّز تركيبة التصنيع (BOM). 3) أنشئ أمر، أكدّه، ثم أنهِه.")
         self.history_from_label.setText(f"{t('common.from', language=language)}:")
         self.history_to_label.setText(f"{t('common.to', language=language)}:")
         self.history_status_label.setText(f"{t('manufacturing.history_status', language=language)}:")
@@ -948,6 +994,8 @@ class ManufacturingTab(BaseTabContainer):
                 t("manufacturing.usage_table_cost", language=language),
             ]
         )
+        self.cost_box.setTitle("تقرير التكلفة")
+        self.cost_table.setHorizontalHeaderLabels(["رقم الأمر", "الكمية", "إجمالي التكلفة"])
         self.history_status.blockSignals(True)
         self.history_status.clear()
         for status in ["all", "draft", "confirmed", "done", "cancelled"]:

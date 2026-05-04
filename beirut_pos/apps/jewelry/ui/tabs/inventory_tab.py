@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QFileDialog,
-    QFormLayout,
     QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QWidget,
 )
 
@@ -66,11 +67,21 @@ class InventoryTab(BaseTabContainer):
         search_layout.addWidget(self.search_input)
         self.add_content_layout(search_layout)
 
+        self.inventory_tabs = QTabWidget()
+        self.products_tab = QWidget()
+        self.alerts_tab = QWidget()
+        self.inventory_tabs.addTab(self.products_tab, "")
+        self.inventory_tabs.addTab(self.alerts_tab, "")
+
+        products_layout = QVBoxLayout(self.products_tab)
+        products_layout.setSpacing(10)
+
         form_box = QGroupBox()
-        form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.form_box = form_box
-        form_layout = QFormLayout(form_box)
-        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form_layout = QGridLayout(form_box)
+        form_layout.setHorizontalSpacing(12)
+        form_layout.setVerticalSpacing(6)
         self.name_ar_input = QLineEdit()
         self.name_en_input = QLineEdit()
         self.sku_input = QLineEdit()
@@ -101,18 +112,44 @@ class InventoryTab(BaseTabContainer):
         self.category_label = QLabel()
         self.stone_type_label = QLabel()
         self.color_label = QLabel()
-        form_layout.addRow(self.name_ar_label, self.name_ar_input)
-        form_layout.addRow(self.name_en_label, self.name_en_input)
-        form_layout.addRow(self.sku_label, self.sku_input)
-        form_layout.addRow(self.barcode_label, self.barcode_input)
-        form_layout.addRow(self.barcode_type_label, self.barcode_type_input)
-        form_layout.addRow(self.price_label, self.price_input)
-        form_layout.addRow(self.qty_label, self.qty_input)
-        form_layout.addRow(self.min_qty_label, self.min_qty_input)
-        form_layout.addRow(self.category_label, self.category_input)
-        form_layout.addRow("", self.handmade_check)
-        form_layout.addRow(self.stone_type_label, self.stone_type_input)
-        form_layout.addRow(self.color_label, self.color_input)
+
+        info_box = QGroupBox()
+        info_layout = QGridLayout(info_box)
+        info_layout.addWidget(self.name_ar_label, 0, 0)
+        info_layout.addWidget(self.name_ar_input, 1, 0)
+        info_layout.addWidget(self.name_en_label, 0, 1)
+        info_layout.addWidget(self.name_en_input, 1, 1)
+        info_layout.addWidget(self.sku_label, 0, 2)
+        info_layout.addWidget(self.sku_input, 1, 2)
+        info_layout.addWidget(self.barcode_label, 2, 0)
+        info_layout.addWidget(self.barcode_input, 3, 0)
+        info_layout.addWidget(self.barcode_type_label, 2, 1)
+        info_layout.addWidget(self.barcode_type_input, 3, 1)
+
+        pricing_box = QGroupBox()
+        pricing_layout = QGridLayout(pricing_box)
+        pricing_layout.addWidget(self.price_label, 0, 0)
+        pricing_layout.addWidget(self.price_input, 1, 0)
+        pricing_layout.addWidget(self.qty_label, 0, 1)
+        pricing_layout.addWidget(self.qty_input, 1, 1)
+        pricing_layout.addWidget(self.min_qty_label, 0, 2)
+        pricing_layout.addWidget(self.min_qty_input, 1, 2)
+
+        attrs_box = QGroupBox()
+        attrs_layout = QGridLayout(attrs_box)
+        attrs_layout.addWidget(self.category_label, 0, 0)
+        attrs_layout.addWidget(self.category_input, 1, 0)
+        attrs_layout.addWidget(self.stone_type_label, 0, 1)
+        attrs_layout.addWidget(self.stone_type_input, 1, 1)
+        attrs_layout.addWidget(self.color_label, 0, 2)
+        attrs_layout.addWidget(self.color_input, 1, 2)
+        attrs_layout.addWidget(self.handmade_check, 1, 3)
+
+        form_layout.addWidget(info_box, 0, 0)
+        form_layout.addWidget(pricing_box, 0, 1)
+        form_layout.addWidget(attrs_box, 1, 0, 1, 2)
+        form_layout.setColumnStretch(0, 2)
+        form_layout.setColumnStretch(1, 1)
 
         self.save_btn = QPushButton()
         self.save_btn.clicked.connect(self._save_product)
@@ -129,34 +166,52 @@ class InventoryTab(BaseTabContainer):
         self.auto_save_barcode_check = QCheckBox()
         self.auto_print_barcode_check = QCheckBox()
 
-        self.add_content_widget(form_box)
-        self.footer_layout.addWidget(self.save_btn)
-        self.footer_layout.addWidget(self.delete_btn)
-        self.footer_layout.addWidget(self.clear_btn)
-        self.footer_layout.addWidget(self.print_barcode_btn)
-        self.footer_layout.addWidget(self.import_excel_btn)
+        products_layout.addWidget(form_box)
+        for btn in [self.download_template_btn, self.import_excel_btn, self.print_barcode_btn, self.clear_btn, self.delete_btn, self.save_btn]:
+            btn.setMinimumWidth(150)
+
         self.footer_layout.addWidget(self.download_template_btn)
-        self.footer_layout.addWidget(self.auto_save_barcode_check)
+        self.footer_layout.addWidget(self.import_excel_btn)
+        self.footer_layout.addSpacing(12)
+        self.footer_layout.addWidget(self.print_barcode_btn)
         self.footer_layout.addWidget(self.auto_print_barcode_check)
+        self.footer_layout.addSpacing(12)
+        self.footer_layout.addWidget(self.clear_btn)
+        self.footer_layout.addWidget(self.delete_btn)
+        self.footer_layout.addWidget(self.save_btn)
+        self.footer_layout.addWidget(self.auto_save_barcode_check)
 
         self.table = QTableWidget(0, 12)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.table.setMinimumHeight(240)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setMinimumHeight(320)
+        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
         self.table.cellClicked.connect(self._load_selected_product)
-        self.add_content_widget(self.table)
+        self.table.setColumnWidth(0, 180)
+        self.table.setColumnWidth(1, 180)
+        self.table.setColumnWidth(2, 120)
+        self.table.setColumnWidth(3, 140)
+        products_layout.addWidget(self.table, 1)
 
+        alerts_layout_root = QVBoxLayout(self.alerts_tab)
         self.alerts_box = QGroupBox()
         alerts_layout = QVBoxLayout(self.alerts_box)
         self.alerts_table = QTableWidget(0, 5)
         self.alerts_table.setAlternatingRowColors(True)
         self.alerts_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.alerts_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.alerts_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.alerts_table.horizontalHeader().setStretchLastSection(True)
+        self.alerts_table.setMinimumHeight(300)
         alerts_layout.addWidget(self.alerts_table)
-        self.add_content_widget(self.alerts_box)
+        self.no_alerts_label = QLabel()
+        alerts_layout.addWidget(self.no_alerts_label)
+        alerts_layout_root.addWidget(self.alerts_box)
+
+        self.add_content_widget(self.inventory_tabs)
 
         self.set_page_content_widget(content)
         self.apply_language(self._language)
@@ -213,6 +268,7 @@ class InventoryTab(BaseTabContainer):
         self._products = products
         self.table.setRowCount(0)
         self.alerts_table.setRowCount(0)
+        alert_count = 0
         for product in products:
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -259,12 +315,17 @@ class InventoryTab(BaseTabContainer):
                     else t("inventory.status_near", language=self._language)
                 )
                 self.alerts_table.setItem(alert_row, 4, QTableWidgetItem(status))
+                alert_count += 1
+
+        self.no_alerts_label.setVisible(alert_count == 0)
 
     def apply_language(self, language: str) -> None:
         self._language = language
         self.header_label.setText(t("inventory.header", language=language))
         self.search_label.setText(f"{t('common.search', language=language)}:")
         self.search_input.setPlaceholderText(t("inventory.search_placeholder", language=language))
+        self.inventory_tabs.setTabText(0, t("inventory.details_box", language=language))
+        self.inventory_tabs.setTabText(1, t("inventory.alerts_box", language=language))
         self.form_box.setTitle(t("inventory.details_box", language=language))
         self.name_ar_label.setText(t("inventory.name_ar", language=language))
         self.name_en_label.setText(t("inventory.name_en", language=language))
@@ -303,6 +364,7 @@ class InventoryTab(BaseTabContainer):
             ]
         )
         self.alerts_box.setTitle(t("inventory.alerts_box", language=language))
+        self.no_alerts_label.setText(t("common.no_data", language=language))
         self.alerts_table.setHorizontalHeaderLabels(
             [
                 t("invoice.products_header_name", language=language),

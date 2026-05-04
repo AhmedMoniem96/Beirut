@@ -1939,9 +1939,17 @@ class InvoiceTab(BaseTabContainer):
 
     def _open_delivery_details_dialog(self) -> bool:
         dialog = DeliveryDetailsDialog(self)
-        dialog.customer_name_input.setText(self.customer_name_input.text().strip())
-        dialog.phone_input.setText(self.customer_phone_input.text().strip())
-        dialog.address_input.setText(self.delivery_address_input.text().strip())
+        selected_customer_id = self._customer_id
+        selected_name = self.customer_name_input.text().strip()
+        selected_phone = self.customer_phone_input.text().strip()
+        prefill_name = selected_name
+        prefill_phone = selected_phone
+        prefill_address = self.delivery_address_input.text().strip()
+        logger.info("Delivery prefill selected customer id: %s", selected_customer_id)
+        logger.info("Delivery prefill name/phone used: name=%s phone=%s", prefill_name, prefill_phone)
+        dialog.customer_name_input.setText(prefill_name)
+        dialog.phone_input.setText(prefill_phone)
+        dialog.address_input.setText(prefill_address)
         dialog.delivery_fee_input.setValue(float(self.delivery_fee_input.value()))
         logger.info("Delivery dialog opened: true")
         result = dialog.exec()
@@ -1949,8 +1957,9 @@ class InvoiceTab(BaseTabContainer):
         if result != QDialog.DialogCode.Accepted:
             logger.info("Saved delivery payload: %s", {})
             return False
-        self.customer_name_input.setText(dialog.customer_name_input.text().strip())
-        self.customer_phone_input.setText(dialog.phone_input.text().strip())
+        if not self._customer_id:
+            self.customer_name_input.setText(dialog.customer_name_input.text().strip())
+            self.customer_phone_input.setText(dialog.phone_input.text().strip())
         self.delivery_address_input.setText(dialog.address_input.text().strip())
         self.delivery_fee_input.setValue(float(dialog.delivery_fee_input.value()))
         delivery_notes = dialog.notes_input.toPlainText().strip()

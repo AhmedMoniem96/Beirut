@@ -20,27 +20,23 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
-    QInputDialog,
 )
 
 from beirut_pos.core.config_store import get_config_value
 from ...services.db import (
     create_return_invoice_from_source,
     fetch_source_invoice_items_with_remaining_returnable_qty,
-    link_return_invoice_to_source,
     list_full_invoice_history,
-    list_linked_invoices,
     list_return_invoices,
-    unlink_return_invoice_from_source,
 )
 from ...services.i18n import get_ui_language, t
-from ...services.session import get_current_user
 from .base_tab import BaseTabContainer
 
 
 class ReturnsTab(BaseTabContainer):
     def __init__(self) -> None:
         super().__init__()
+        print("LOADED RETURNS TAB FILE:", __file__)
         self._language = get_ui_language()
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -108,18 +104,9 @@ class ReturnsTab(BaseTabContainer):
         self.create_return_btn = QPushButton("مرتجع نقدي")
         self.create_return_btn.setMinimumWidth(140)
         self.create_return_btn.clicked.connect(self.create_return_invoice)
-        self.manual_source_edit = QLineEdit()
-        self.manual_source_edit.setPlaceholderText("Manual source invoice")
-        self.manual_return_edit = QLineEdit()
-        self.manual_return_edit.setPlaceholderText("Manual return invoice")
-        self.manual_link_btn = QPushButton("Link Return ↔ Source")
-        self.manual_link_btn.clicked.connect(self.manual_link_return)
         action_row.addWidget(self.return_method_label)
         action_row.addWidget(self.return_method_value)
         action_row.addWidget(self.create_return_btn)
-        action_row.addWidget(self.manual_source_edit)
-        action_row.addWidget(self.manual_return_edit)
-        action_row.addWidget(self.manual_link_btn)
         layout.addLayout(action_row)
 
         self.summary_label = QLabel("Return Summary / ملخص المرتجع: 0.00")
@@ -160,15 +147,6 @@ class ReturnsTab(BaseTabContainer):
         self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.history_table)
 
-        admin_row = QHBoxLayout()
-        self.view_links_btn = QPushButton("View Linked Invoices")
-        self.unlink_btn = QPushButton("Unlink with Audit Log")
-        self.view_links_btn.clicked.connect(self.view_linked_invoices)
-        self.unlink_btn.clicked.connect(self.unlink_selected_link)
-        admin_row.addWidget(self.view_links_btn)
-        admin_row.addWidget(self.unlink_btn)
-        layout.addLayout(admin_row)
-
         self.set_page_content_widget(content)
         self.apply_language(self._language)
         self.refresh()
@@ -203,7 +181,20 @@ class ReturnsTab(BaseTabContainer):
             self.table.setItem(row, 2, QTableWidgetItem(invoice.cashier_name))
             self.table.setItem(row, 3, QTableWidgetItem(f"{invoice.total:.2f}"))
             self.table.setItem(row, 4, QTableWidgetItem(invoice.payment_method))
-            self.table.setItem(row, 5, QTableWidgetItem(invoice.return_reason))
+            self.table.setItem(row, 5, QTableWidgetItem(self._normalize_return_reason_label(invoice.return_reason)))
+
+
+    def _normalize_return_reason_label(self, reason: str | None) -> str:
+        text = (reason or "").strip()
+        if "exchange" in text.lower():
+            return text.replace("Exchange", "Return").replace("exchange", "return")
+        return text
+
+    def _normalize_txn_type_label(self, txn_type: str | None) -> str:
+        text = (txn_type or "").strip()
+        if text.lower() == "exchange":
+            return "Return"
+        return text
 
     def load_source_invoice(self) -> None:
         invoice_no = self.source_invoice_edit.text().strip()
@@ -320,22 +311,6 @@ class ReturnsTab(BaseTabContainer):
     def _update_summary_label(self, return_total: float = 0.0) -> None:
         self.summary_label.setText(f"Return Summary / ملخص المرتجع: {return_total:.2f}")
 
-    def manual_link_return(self) -> None:
-        user = get_current_user()
-        if not user or user.role != "Admin":
-            QMessageBox.warning(self, "Admin only", "This action is admin-only.")
-            return
-        try:
-            link_return_invoice_to_source(
-                source_invoice_no=self.manual_source_edit.text(),
-                return_invoice_no=self.manual_return_edit.text(),
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Link failed", str(exc))
-            return
-        QMessageBox.information(self, "Linked", "Return invoice linked to source successfully.")
-        self.load_full_history()
-
     def load_full_history(self) -> None:
         rows = list_full_invoice_history(
             date_from=self.history_from.date().toString("yyyy-MM-dd"),
@@ -351,7 +326,7 @@ class ReturnsTab(BaseTabContainer):
             values = [
                 data.invoice_no,
                 data.datetime,
-                data.txn_type,
+                self._normalize_txn_type_label(data.txn_type),
                 data.customer_name,
                 f"{data.total:.2f}",
                 data.payment_status,
@@ -367,36 +342,3 @@ class ReturnsTab(BaseTabContainer):
                     item.setBackground(QColor("#fee2e2"))
                 self.history_table.setItem(row, col, item)
 
-    def view_linked_invoices(self) -> None:
-        user = get_current_user()
-        if not user or user.role != "Admin":
-            QMessageBox.warning(self, "Admin only", "This action is admin-only.")
-            return
-        row = self.history_table.currentRow()
-        if row < 0:
-            return
-        invoice_no = self.history_table.item(row, 0).text()
-        linked = list_linked_invoices(invoice_no)
-        QMessageBox.information(self, "Linked invoices", "\n".join(linked) if linked else "No linked invoices.")
-
-    def unlink_selected_link(self) -> None:
-        user = get_current_user()
-        if not user or user.role != "Admin":
-            QMessageBox.warning(self, "Admin only", "This action is admin-only.")
-            return
-        source_no, ok1 = QInputDialog.getText(self, "Unlink", "Source invoice no:")
-        if not ok1:
-            return
-        return_no, ok2 = QInputDialog.getText(self, "Unlink", "Return invoice no:")
-        if not ok2:
-            return
-        reason, ok3 = QInputDialog.getText(self, "Audit reason", "Reason:")
-        if not ok3:
-            return
-        try:
-            unlink_return_invoice_from_source(source_no, return_no, actor=user.username, reason=reason)
-        except Exception as exc:
-            QMessageBox.critical(self, "Unlink failed", str(exc))
-            return
-        QMessageBox.information(self, "Unlinked", "Link removed and audit entry recorded.")
-        self.load_full_history()

@@ -430,6 +430,7 @@ class InvoiceTab(BaseTabContainer):
         self.products_table.cellDoubleClicked.connect(self._add_selected_product)
         self.products_table.itemSelectionChanged.connect(self._update_add_state)
 
+        self.qty_label = QLabel()
         self.qty_input = QSpinBox()
         self.qty_input.setRange(1, 1000)
         self.add_btn = QPushButton()
@@ -449,6 +450,8 @@ class InvoiceTab(BaseTabContainer):
         product_layout.addWidget(category_row_wrap)
         product_layout.addWidget(self.products_table, 4)
         qty_row = QHBoxLayout()
+        qty_row.addWidget(self.qty_label)
+        qty_row.addWidget(self.qty_input)
         qty_row.addWidget(self.add_btn)
         qty_row.addStretch()
         product_layout.addLayout(qty_row)

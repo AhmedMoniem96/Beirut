@@ -1698,11 +1698,24 @@ class InvoiceTab(BaseTabContainer):
                 if load_gallery_settings().invoice_print_preview:
                     QMessageBox.information(self, "Preview", "\n".join(receipt_text.splitlines()[:12]))
                 receipt_settings = load_gallery_settings()
-                printer.print_text_receipt(
+                did_print = printer.print_text_receipt(
                     receipt_text.splitlines(),
                     printer_name=receipt_settings.receipt_printer_name,
                     print_mode=receipt_settings.receipt_print_mode,
                 )
+                if did_print is False:
+                    QMessageBox.critical(
+                        self,
+                        t("common.print", language=self._language),
+                        (
+                            "فشلت الطباعة. "
+                            f"Backend: {printer.backend}, "
+                            f"Mode: {receipt_settings.receipt_print_mode}, "
+                            f"Printer: {receipt_settings.receipt_printer_name or '-'}"
+                        ),
+                    )
+                    self._refresh_printer_status_badge()
+                    return
             else:
                 tmp_path = Path.cwd() / f"{self._last_invoice_no}.pdf"
                 gallery_settings = load_gallery_settings()

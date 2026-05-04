@@ -43,6 +43,7 @@ class InventoryTab(BaseTabContainer):
 
     def __init__(self, on_products_changed=None) -> None:
         super().__init__()
+        print("LOADED INVENTORY TAB FILE:", __file__)
         self._on_products_changed = on_products_changed
         self._selected_product_id = None
         self._products = []
@@ -114,6 +115,7 @@ class InventoryTab(BaseTabContainer):
         self.color_label = QLabel()
 
         info_box = QGroupBox()
+        self.info_box = info_box
         info_layout = QGridLayout(info_box)
         info_layout.addWidget(self.name_ar_label, 0, 0)
         info_layout.addWidget(self.name_ar_input, 1, 0)
@@ -127,6 +129,7 @@ class InventoryTab(BaseTabContainer):
         info_layout.addWidget(self.barcode_type_input, 3, 1)
 
         pricing_box = QGroupBox()
+        self.pricing_box = pricing_box
         pricing_layout = QGridLayout(pricing_box)
         pricing_layout.addWidget(self.price_label, 0, 0)
         pricing_layout.addWidget(self.price_input, 1, 0)
@@ -136,6 +139,7 @@ class InventoryTab(BaseTabContainer):
         pricing_layout.addWidget(self.min_qty_input, 1, 2)
 
         attrs_box = QGroupBox()
+        self.attrs_box = attrs_box
         attrs_layout = QGridLayout(attrs_box)
         attrs_layout.addWidget(self.category_label, 0, 0)
         attrs_layout.addWidget(self.category_input, 1, 0)
@@ -324,9 +328,12 @@ class InventoryTab(BaseTabContainer):
         self.header_label.setText(t("inventory.header", language=language))
         self.search_label.setText(f"{t('common.search', language=language)}:")
         self.search_input.setPlaceholderText(t("inventory.search_placeholder", language=language))
-        self.inventory_tabs.setTabText(0, t("inventory.details_box", language=language))
+        self.inventory_tabs.setTabText(0, t("inventory.products_tab", language=language))
         self.inventory_tabs.setTabText(1, t("inventory.alerts_box", language=language))
-        self.form_box.setTitle(t("inventory.details_box", language=language))
+        self.form_box.setTitle("")
+        self.info_box.setTitle(t("inventory.product_info", language=language))
+        self.pricing_box.setTitle(t("inventory.pricing_stock", language=language))
+        self.attrs_box.setTitle(t("inventory.attributes", language=language))
         self.name_ar_label.setText(t("inventory.name_ar", language=language))
         self.name_en_label.setText(t("inventory.name_en", language=language))
         self.sku_label.setText(t("inventory.sku", language=language))

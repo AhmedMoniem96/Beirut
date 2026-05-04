@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+    QFormLayout, QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget, QMessageBox
 )
 
@@ -41,12 +41,13 @@ class CustomersTab(BaseTabContainer):
         self.phone_input = QLineEdit()
         self.address_input = QLineEdit()
         self.notes_input = QLineEdit()
-        self.points_label = QLabel("0")
+        self.points_input = QLineEdit("0")
+        self.points_input.setReadOnly(True)
         details.addRow("Customer Name", self.name_input)
         details.addRow("Phone", self.phone_input)
         details.addRow("Address", self.address_input)
         details.addRow("Notes", self.notes_input)
-        details.addRow("Loyalty Points", self.points_label)
+        details.addRow("Loyalty Points", self.points_input)
         layout.addLayout(details)
 
         self.invoices_table = QTableWidget(0, 6)
@@ -67,6 +68,7 @@ class CustomersTab(BaseTabContainer):
         self.set_page_content_widget(root)
         self._rows = []
         self._selected_customer_id = ""
+        self._is_new_customer_mode = True
 
         self.refresh_btn.clicked.connect(self.refresh)
         self.search_input.returnPressed.connect(self.refresh)
@@ -102,11 +104,12 @@ class CustomersTab(BaseTabContainer):
             return
         c = self._rows[row]
         self._selected_customer_id = c["phone"]
+        self._is_new_customer_mode = False
         self.name_input.setText(c["name"])
         self.phone_input.setText(c["phone"])
         self.address_input.setText(c.get("address", ""))
         self.notes_input.setText(c.get("notes", ""))
-        self.points_label.setText(f"{get_loyalty_balance(c['phone']):.2f}")
+        self.points_input.setText(f"{get_loyalty_balance(c['phone']):.2f}")
         self._refresh_invoices()
 
     def _refresh_invoices(self) -> None:
@@ -123,20 +126,44 @@ class CustomersTab(BaseTabContainer):
                 self.invoices_table.setItem(row, col, QTableWidgetItem(str(value)))
 
     def _save_customer(self) -> None:
-        cid = save_customer(self.name_input.text().strip(), self.phone_input.text().strip())
+        name = self.name_input.text().strip()
+        phone = self.phone_input.text().strip()
+        if not name or not phone:
+            QMessageBox.warning(self, "Customer", "Name and phone are required")
+            return
+        cid = save_customer(
+            name=name,
+            phone=phone,
+            address=self.address_input.text().strip(),
+            notes=self.notes_input.text().strip(),
+            selected_phone=self._selected_customer_id if not self._is_new_customer_mode else "",
+        )
         if not cid:
             QMessageBox.warning(self, "Customer", "Name and phone are required")
             return
+        self._is_new_customer_mode = False
         self._selected_customer_id = cid
         self.refresh()
+        self._select_customer_in_table(cid)
+        self._refresh_invoices()
 
     def _new_customer(self) -> None:
+        self.table.clearSelection()
         self._selected_customer_id = ""
+        self._is_new_customer_mode = True
         self.name_input.clear()
         self.phone_input.clear()
         self.address_input.clear()
         self.notes_input.clear()
-        self.points_label.setText("0")
+        self.points_input.setText("0")
+        self.invoices_table.setRowCount(0)
+        self.name_input.setFocus()
+
+    def _select_customer_in_table(self, customer_phone: str) -> None:
+        for index, row in enumerate(self._rows):
+            if row.get("phone") == customer_phone:
+                self.table.selectRow(index)
+                return
 
     def _delete_not_supported(self) -> None:
         QMessageBox.information(self, "Customers", "Delete is not currently supported.")

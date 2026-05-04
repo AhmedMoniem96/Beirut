@@ -100,3 +100,29 @@ def refresh_from_settings() -> dict[str, HealthResult]:
         "barcode": check_barcode_printer(settings.barcode_printer_name, settings.barcode_print_mode),
         "scanner": check_barcode_scanner(),
     }
+
+
+def test_receipt_bitmap_route(printer_name: str, mode: str) -> HealthResult:
+    dispatched = printer_service.printer.test_receipt_bitmap(
+        printer_name=(printer_name or "auto").strip() or "auto",
+        print_mode=(mode or "auto").strip().lower() or "auto",
+    )
+    result = {
+        "status": "ok" if dispatched else "error",
+        "detail": "Bitmap diagnostic dispatched." if dispatched else "Bitmap diagnostic failed to dispatch.",
+    }
+    _persist_result("receipt_bitmap_test", result)
+    return result
+
+
+def test_receipt_raw_text_route(printer_name: str, mode: str) -> HealthResult:
+    dispatched = printer_service.printer.test_receipt_raw_text(
+        printer_name=(printer_name or "auto").strip() or "auto",
+        print_mode=(mode or "auto").strip().lower() or "auto",
+    )
+    result = {
+        "status": "ok" if dispatched else "error",
+        "detail": "Raw-text diagnostic dispatched." if dispatched else "Raw-text diagnostic failed to dispatch.",
+    }
+    _persist_result("receipt_raw_text_test", result)
+    return result

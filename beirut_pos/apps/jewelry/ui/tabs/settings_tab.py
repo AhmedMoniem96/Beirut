@@ -442,8 +442,12 @@ class SettingsTab(BaseTabContainer):
         self.scanner_status.setText(f"{scanner['status']}: {scanner['detail']}")
 
     def _test_printers(self) -> None:
+        receipt_name = self.receipt_printer.currentData() or "auto"
+        receipt_mode = self.receipt_mode.currentData() or "auto"
+        device_health.test_receipt_bitmap_route(str(receipt_name), str(receipt_mode))
+        device_health.test_receipt_raw_text_route(str(receipt_name), str(receipt_mode))
         self._refresh_device_status()
-        QMessageBox.information(self, "Device Test", "Printer checks updated. Review Device Status details.")
+        QMessageBox.information(self, "Device Test", "Printer diagnostics sent (bitmap + raw text). Review Device Status details.")
 
     def _test_scanner(self) -> None:
         dialog = QMessageBox(self)

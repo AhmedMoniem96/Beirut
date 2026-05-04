@@ -795,7 +795,15 @@ def probe_printer_handshake() -> tuple[bool, str]:
             return True, f"Handshake ok for {c.get('name')}"
     return False, "No profile handshake succeeded."
 
-def _find_thermal_printer():
+def _find_thermal_printer(*, prefer_windows_named: bool = False, windows_printer_name: str | None = None):
+    if prefer_windows_named and _IS_WINDOWS and _WIN_PRINT_OK:
+        selected_name = (windows_printer_name or "").strip()
+        available = {name.strip().lower() for name in win_list_printers() if str(name).strip()}
+        if selected_name and selected_name.lower() in available:
+            _log_struct("printer.discovery.selected", backend="windows", mode="named_windows_preferred", printer_name=selected_name)
+            return None
+        _log_struct("printer.discovery.windows_named_missing", backend="windows", mode="named_windows_preferred", printer_name=selected_name, available_count=len(available))
+
     if _DISABLE_ESCPOS:
         _log_struct("printer.discovery.skip", reason="escpos_disabled")
         return None
@@ -1190,44 +1198,68 @@ class PrinterService:
         _log_struct("printer.print_cashier_receipt", backend="escpos", dispatched=dispatched, table_code=table_code)
         return dispatched
 
+
+    def _resolve_windows_receipt_printer(self, selected_name: str, selected_mode: str) -> str:
+        if not (_IS_WINDOWS and _WIN_PRINT_OK):
+            return ""
+        if selected_mode == "escpos":
+            return ""
+        if selected_name and selected_name.lower() != "auto":
+            return selected_name
+        if self._cash_win:
+            return self._cash_win
+        return ""
+
+    def test_receipt_bitmap(self, *, printer_name: str | None = None, print_mode: str | None = None) -> bool:
+        now = datetime.now().strftime("%Y-%m-%d %I:%M %p")
+        lines = [">>C Beirut POS", _draw_line(), f">>L Bitmap diagnostic @ {now}", ">>L مسار الرسم: Bitmap", _draw_line()]
+        return self.print_text_receipt(lines, printer_name=printer_name, print_mode=print_mode, payload_type="bitmap")
+
+    def test_receipt_raw_text(self, *, printer_name: str | None = None, print_mode: str | None = None) -> bool:
+        now = datetime.now().strftime("%Y-%m-%d %I:%M %p")
+        lines = [">>C Beirut POS", _draw_line(), f">>L Raw-text diagnostic @ {now}", ">>L مسار النقل: ESC/POS text", _draw_line()]
+        return self.print_text_receipt(lines, printer_name=printer_name, print_mode="escpos", payload_type="text")
+
     def print_text_receipt(
         self,
         lines: Sequence[str],
         *,
         printer_name: str | None = None,
         print_mode: str | None = None,
+        payload_type: str = "text",
     ) -> bool:
         """Print tagged text lines as a receipt."""
         selected_name = (printer_name or "").strip()
         selected_mode = (print_mode or "auto").strip().lower()
 
-        target_windows_printer = ""
-        if selected_mode != "escpos":
-            if selected_name and selected_name.lower() != "auto":
-                target_windows_printer = selected_name
-            elif selected_mode == "auto" and self._use_windows_cash():
-                target_windows_printer = self._cash_win
-            elif selected_mode == "windows" and self._cash_win:
-                target_windows_printer = self._cash_win
+        target_windows_printer = self._resolve_windows_receipt_printer(selected_name, selected_mode)
+        _log_struct(
+            "printer.print_text_receipt.dispatch_attempt",
+            selected_backend="windows" if target_windows_printer else "escpos",
+            mode=selected_mode,
+            printer_name=target_windows_printer or selected_name or self._cash_win or "",
+            payload_type=payload_type,
+        )
 
-        if _IS_WINDOWS and _WIN_PRINT_OK and target_windows_printer:
+        if target_windows_printer:
             bmp = _render_lines_to_bitmap(lines)
             try:
                 win_print_image(target_windows_printer, bmp.convert("RGB"))
-                _log_struct("printer.print_text_receipt", backend="windows", dispatched=True, printer_name=target_windows_printer)
+                _log_struct("printer.print_text_receipt.return", backend="windows", mode=selected_mode, dispatched=True, printer_name=target_windows_printer, payload_type="bitmap")
                 return True
             except Exception as exc:
                 _log_printer_error("Windows text receipt dispatch failed", exc)
-                _log_struct("printer.print_text_receipt", backend="windows", dispatched=False, printer_name=target_windows_printer, error=str(exc))
-                return False
+                _log_struct("printer.print_text_receipt.return", backend="windows", mode=selected_mode, dispatched=False, printer_name=target_windows_printer, payload_type="bitmap", error=str(exc))
+                if selected_mode == "windows":
+                    return False
 
         self._refresh_escpos_printer()
         if self._escpos_printer is None:
-            _log_struct("printer.print_text_receipt", backend="escpos", dispatched=False, reason="printer_unavailable_after_refresh")
+            _log_struct("printer.print_text_receipt.return", backend="escpos", mode=selected_mode, dispatched=False, payload_type=payload_type, reason="printer_unavailable_after_refresh")
             return False
         prn = self._escpos_printer
         dispatched = bool(prn and _print_escpos_lines(prn, lines))
-        _log_struct("printer.print_text_receipt", backend="escpos", dispatched=dispatched)
+        _log_struct("printer.print_text_receipt.return", backend="escpos", mode=selected_mode, dispatched=dispatched, payload_type="text")
         return dispatched
 
 

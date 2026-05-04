@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QInputDialog,
     QDialog,
+    QDialogButtonBox,
 )
 
 from .base_tab import BaseTabContainer
@@ -75,6 +76,32 @@ from ..dialogs.quick_customer_dialog import QuickCustomerDialog
 from .base_tab import BaseTabContainer
 
 logger = logging.getLogger(__name__)
+
+
+class DeliveryDetailsDialog(QDialog):
+    """Collects delivery details when enabling delivery on invoice."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Delivery Details")
+        layout = QFormLayout(self)
+        self.customer_name_input = QLineEdit()
+        self.phone_input = QLineEdit()
+        self.address_input = QLineEdit()
+        self.notes_input = QTextEdit()
+        self.notes_input.setMinimumHeight(80)
+        self.delivery_fee_input = QDoubleSpinBox()
+        self.delivery_fee_input.setRange(0, 999999)
+        self.delivery_fee_input.setDecimals(2)
+        layout.addRow("Customer Name", self.customer_name_input)
+        layout.addRow("Phone", self.phone_input)
+        layout.addRow("Address", self.address_input)
+        layout.addRow("Delivery Notes", self.notes_input)
+        layout.addRow("Delivery Fee", self.delivery_fee_input)
+        actions = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        actions.accepted.connect(self.accept)
+        actions.rejected.connect(self.reject)
+        layout.addRow(actions)
 
 
 class InvoiceTab(BaseTabContainer):
@@ -111,6 +138,7 @@ class InvoiceTab(BaseTabContainer):
         self._active_category: Optional[str] = None
         self._instant_invoice_mode = False
         self._recent_scans: list[str] = []
+        self._delivery_toggle_in_progress = False
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -813,6 +841,15 @@ class InvoiceTab(BaseTabContainer):
         self._recalculate_totals()
 
     def _update_delivery_state(self, enabled: bool) -> None:
+        logger.info("Delivery checkbox toggled: checked=%s", enabled)
+        if self._delivery_toggle_in_progress:
+            return
+        if enabled:
+            if not self._open_delivery_details_dialog():
+                self._delivery_toggle_in_progress = True
+                self.delivery_enabled_checkbox.setChecked(False)
+                self._delivery_toggle_in_progress = False
+                enabled = False
         self.delivery_panel.setVisible(enabled)
         self.delivery_panel.setEnabled(enabled)
         self.delivery_company_combo.setEnabled(enabled)
@@ -1899,6 +1936,38 @@ class InvoiceTab(BaseTabContainer):
         self._apply_website_order_settings()
         self._recalculate_totals()
         self._update_validation_state()
+
+    def _open_delivery_details_dialog(self) -> bool:
+        dialog = DeliveryDetailsDialog(self)
+        dialog.customer_name_input.setText(self.customer_name_input.text().strip())
+        dialog.phone_input.setText(self.customer_phone_input.text().strip())
+        dialog.address_input.setText(self.delivery_address_input.text().strip())
+        dialog.delivery_fee_input.setValue(float(self.delivery_fee_input.value()))
+        logger.info("Delivery dialog opened: true")
+        result = dialog.exec()
+        logger.info("Delivery dialog result: %s", "accepted" if result == QDialog.DialogCode.Accepted else "rejected")
+        if result != QDialog.DialogCode.Accepted:
+            logger.info("Saved delivery payload: %s", {})
+            return False
+        self.customer_name_input.setText(dialog.customer_name_input.text().strip())
+        self.customer_phone_input.setText(dialog.phone_input.text().strip())
+        self.delivery_address_input.setText(dialog.address_input.text().strip())
+        self.delivery_fee_input.setValue(float(dialog.delivery_fee_input.value()))
+        delivery_notes = dialog.notes_input.toPlainText().strip()
+        if delivery_notes:
+            base_notes = self.notes_input.toPlainText().strip()
+            tagged_note = f"Delivery Notes: {delivery_notes}"
+            if tagged_note not in base_notes:
+                self.notes_input.setPlainText(f"{base_notes}\n{tagged_note}".strip())
+        payload = {
+            "customer_name": self.customer_name_input.text().strip(),
+            "phone": self.customer_phone_input.text().strip(),
+            "address": self.delivery_address_input.text().strip(),
+            "delivery_fee": float(self.delivery_fee_input.value()),
+            "delivery_notes": delivery_notes,
+        }
+        logger.info("Saved delivery payload: %s", payload)
+        return True
 
     def _add_product_to_invoice(self, product, qty: float) -> None:
         for row in range(self.items_table.rowCount()):

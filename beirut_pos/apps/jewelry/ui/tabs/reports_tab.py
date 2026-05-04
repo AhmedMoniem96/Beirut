@@ -151,17 +151,15 @@ class ReportsTab(BaseTabContainer):
         self.date_filter.setDisplayFormat("dd/MM/yyyy")
         self.date_filter.setDate(QDate.currentDate())
         self.date_filter.dateChanged.connect(self._load_shift_from_db)
+        self.date_filter.dateChanged.connect(lambda *_: self._generate_report())
         self.product_filter_combo = QComboBox()
         self.product_filter_combo.currentIndexChanged.connect(self._generate_report)
-        self.refresh_btn = QPushButton()
-        self.refresh_btn.clicked.connect(self._generate_report)
         self.date_label = QLabel()
         self.product_filter_label = QLabel()
         filters.addWidget(self.date_label)
         filters.addWidget(self.date_filter)
         filters.addWidget(self.product_filter_label)
         filters.addWidget(self.product_filter_combo)
-        filters.addWidget(self.refresh_btn)
 
         shift_box = QGroupBox()
         self.shift_box = shift_box
@@ -237,8 +235,6 @@ class ReportsTab(BaseTabContainer):
         top_section = QWidget()
         top_layout = QVBoxLayout(top_section)
         top_layout.addLayout(filters)
-        top_layout.addWidget(shift_box)
-        top_layout.addWidget(save_shift_btn)
         top_layout.addWidget(self.summary_label)
 
         tables_section = QWidget()
@@ -279,6 +275,7 @@ class ReportsTab(BaseTabContainer):
         self._reload_product_filter()
         self.apply_language(self._language)
         self._initialize_shift_defaults()
+        self._generate_report()
         self._initialize_cashier()
 
     def _initialize_shift_defaults(self) -> None:
@@ -303,7 +300,6 @@ class ReportsTab(BaseTabContainer):
         self.product_filter_label.setText(f"{t('common.product_filter', language=language)}:")
         self._reload_product_filter()
         self.product_filter_combo.setItemText(0, t("common.all_products", language=language))
-        self.refresh_btn.setText(t("reports.generate", language=language))
         self.shift_box.setTitle(t("reports.shift_box", language=language))
         self.cashier_label.setText(t("reports.cashier", language=language))
         self.open_time_label.setText(t("reports.open_time", language=language))

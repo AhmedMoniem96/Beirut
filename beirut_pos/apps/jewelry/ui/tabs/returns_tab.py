@@ -65,6 +65,7 @@ class ReturnsTab(BaseTabContainer):
         source_row = QHBoxLayout()
         self.source_invoice_edit = QLineEdit()
         self.source_invoice_edit.setPlaceholderText("Source sale invoice no")
+        self.source_invoice_edit.returnPressed.connect(self.load_source_invoice)
         self.load_source_btn = QPushButton("Load")
         self.load_source_btn.clicked.connect(self.load_source_invoice)
         source_row.addWidget(self.source_invoice_edit)
@@ -80,6 +81,9 @@ class ReturnsTab(BaseTabContainer):
         self.source_items_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.source_items_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.source_items_table)
+        self.source_hint_label = QLabel("Enter a sale invoice number to open it here, then select item(s) to return.")
+        self.source_hint_label.setStyleSheet("color: #4b5563;")
+        layout.addWidget(self.source_hint_label)
 
         action_row = QHBoxLayout()
         self.create_return_btn = QPushButton("مرتجع نقدي")
@@ -204,6 +208,8 @@ class ReturnsTab(BaseTabContainer):
         if not invoice_no:
             return
         self._source_items = fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no)
+        if not self._source_items:
+            QMessageBox.information(self, "Not found", "No returnable lines found for this sale invoice.")
         self.source_items_table.setRowCount(0)
         for item in self._source_items:
             row = self.source_items_table.rowCount()
@@ -260,8 +266,14 @@ class ReturnsTab(BaseTabContainer):
             QMessageBox.critical(self, "Error", str(exc))
             return
         QMessageBox.information(self, "Success", f"Return invoice created: {invoice_no}")
+        QMessageBox.information(
+            self,
+            "Linked",
+            f"Return invoice {invoice_no} is linked to source invoice {self.source_invoice_edit.text().strip()}",
+        )
         self.load_source_invoice()
         self.refresh()
+        self.load_full_history()
 
     def start_exchange_flow(self) -> None:
         QMessageBox.information(self, "Exchange", "تم فتح mini-cart لاختيار المنتجات البديلة.")

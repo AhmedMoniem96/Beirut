@@ -505,24 +505,12 @@ class InventoryTab(BaseTabContainer):
         if barcode_type_value is None:
             return
 
-        from ...services.barcode_printer import suggest_barcode_pdf_path
-        save_path = str(suggest_barcode_pdf_path(product.sku))
-        should_auto_save = self.auto_save_barcode_check.isChecked()
-        should_auto_print = self.auto_print_barcode_check.isChecked()
-
-        if not should_auto_save:
-            path, _ = QFileDialog.getSaveFileName(
+        if not self._dispatch_barcode_print(product, barcode_type_value):
+            QMessageBox.critical(
                 self,
-                t("inventory.export_labels", language=self._language),
-                save_path,
-                f"{t('common.file_filter_pdf', language=self._language)} (*.pdf)",
+                t("inventory.print_failed", language=self._language),
+                t("inventory.direct_print_failed", language=self._language, error="Dispatch failed."),
             )
-            if path:
-                save_path = path
-        self._export_barcode_pdf(save_path, product, barcode_type_value)
-
-        if should_auto_print:
-            self._print_barcode_direct(product, barcode_type_value)
 
     def _export_barcode_pdf(self, path: str, product, barcode_type_value: str) -> None:
         try:
@@ -541,13 +529,40 @@ class InventoryTab(BaseTabContainer):
         if msg.clickedButton() is open_btn:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
-    def _print_barcode_direct(self, product, barcode_type_value: str) -> None:
+    def _dispatch_barcode_print(self, product, barcode_type_value: str) -> bool:
+        settings = load_gallery_settings()
+        mode = (settings.barcode_print_mode or "pdf").strip().lower() or "pdf"
+        if mode == "pdf":
+            return self._print_barcode_via_pdf_dispatch(product, barcode_type_value)
+        return self._print_barcode_direct(product, barcode_type_value)
+
+    def _print_barcode_via_pdf_dispatch(self, product, barcode_type_value: str) -> bool:
+        try:
+            from ...services.barcode_printer import render_barcode_label_image, try_print_barcode_label_image, BarcodePrinterError
+        except RuntimeError:
+            QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
+            return False
+        label_img = render_barcode_label_image(
+            product_name=choose_name(product.name_ar, product.name_en, language=self._language),
+            sku=product.sku,
+            barcode_value=product.barcode,
+            barcode_type=barcode_type_value,
+        )
+        try:
+            try_print_barcode_label_image(label_img, printer_name=load_gallery_settings().barcode_printer_name, retries=0)
+            QMessageBox.information(self, t("common.print", language=self._language), t("inventory.printed", language=self._language))
+            return True
+        except BarcodePrinterError as exc:
+            QMessageBox.critical(self, t("inventory.print_failed", language=self._language), t("inventory.direct_print_failed", language=self._language, error=exc))
+            return False
+
+    def _print_barcode_direct(self, product, barcode_type_value: str) -> bool:
         settings = load_gallery_settings()
         try:
             from ...services.barcode_printer import render_barcode_label_image, try_print_barcode_label_image, BarcodePrinterError
         except RuntimeError:
             QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
-            return
+            return False
         label_img = render_barcode_label_image(
             product_name=choose_name(product.name_ar, product.name_en, language=self._language),
             sku=product.sku,
@@ -558,7 +573,7 @@ class InventoryTab(BaseTabContainer):
             try:
                 try_print_barcode_label_image(label_img, printer_name=settings.barcode_printer_name, retries=0)
                 QMessageBox.information(self, t("common.print", language=self._language), t("inventory.printed", language=self._language))
-                return
+                return True
             except BarcodePrinterError as exc:
                 if attempt == 0:
                     retry = QMessageBox.question(
@@ -571,7 +586,7 @@ class InventoryTab(BaseTabContainer):
                     if retry == QMessageBox.StandardButton.Retry:
                         continue
                 QMessageBox.critical(self, t("inventory.print_failed", language=self._language), t("inventory.direct_print_failed", language=self._language, error=exc))
-                return
+                return False
 
 
     def handle_scan(self, code: str) -> str:

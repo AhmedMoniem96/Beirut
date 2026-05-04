@@ -125,8 +125,41 @@ def _center_on_label(img: Image.Image, *, width: int, height: int, pad_y: int = 
     return canvas
 
 
-def _render_label_lines(lines: Sequence[str]) -> Image.Image:
-    return printer_service._render_lines_to_bitmap(list(lines))
+def _render_label_lines_at_width(lines: Sequence[str], width: int = _QR_LABEL_WIDTH_PX) -> Image.Image:
+    """Render tagged label lines (>>C/>>R/>>L) at label width, not receipt width."""
+    width = max(1, int(width))
+
+    if getattr(printer_service, "_BITMAP_OK", False):
+        rows = []
+        font = printer_service.load_font(size=28)
+        for raw in lines:
+            align, txt = "left", raw
+            if raw.startswith(">>C "):
+                align, txt = "center", raw[4:]
+            elif raw.startswith(">>R "):
+                align, txt = "right", raw[4:]
+            elif raw.startswith(">>L "):
+                align, txt = "left", raw[4:]
+
+            shaped = printer_service._shape_for_bitmap(txt)
+            rows.append(
+                printer_service.render_line_bitmap(
+                    shaped,
+                    paper_px=width,
+                    font=font,
+                    align=align,
+                )
+            )
+
+        total_h = sum(im.height for im in rows) or 1
+        canvas = Image.new("1", (width, total_h), 1)
+        y = 0
+        for im in rows:
+            canvas.paste(im, (0, y))
+            y += im.height
+        return canvas
+
+    return printer_service._render_lines_bitmap_fallback(lines, width=width)
 
 
 def render_barcode_label_image(
@@ -142,13 +175,22 @@ def render_barcode_label_image(
     type_label = _SUPPORTED_BARCODE_TYPES.get(normalized_type, barcode_type.strip() or "Barcode")
     barcode_line = f"{type_label}: {barcode_value}".strip()
 
-    header_img = _render_label_lines([">>C " + title, ">>C " + sku_line, ">>C " + barcode_line])
+    header_img = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line, ">>C " + barcode_line], _QR_LABEL_WIDTH_PX)
 
     try:
         barcode_drawing = _barcode_drawing(barcode_value, barcode_type)
         barcode_img = renderPM.drawToPIL(barcode_drawing).convert("1")
     except Exception:
         barcode_img = printer_service._render_lines_to_bitmap([">>C [BARCODE]"])
+
+    if header_img.width > _QR_LABEL_WIDTH_PX:
+        header_img = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line, ">>C " + barcode_line], _QR_LABEL_WIDTH_PX)
+        if header_img.width > _QR_LABEL_WIDTH_PX:
+            scale = _QR_LABEL_WIDTH_PX / max(header_img.width, 1)
+            header_img = header_img.resize(
+                (max(1, int(header_img.width * scale)), max(1, int(header_img.height * scale))),
+                Image.NEAREST,
+            )
 
     max_inner_w = _QR_LABEL_WIDTH_PX - (_QR_LABEL_PADDING_PX * 2)
     max_inner_h = _QR_LABEL_HEIGHT_PX - (_QR_LABEL_PADDING_PX * 2)

@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QDateTimeEdit,
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -23,7 +24,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -143,9 +144,9 @@ class ReportsTab(BaseTabContainer):
         self._language = get_ui_language()
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
 
-        filters = QHBoxLayout()
         self.date_filter = QDateEdit()
         self.date_filter.setCalendarPopup(True)
         self.date_filter.setDisplayFormat("dd/MM/yyyy")
@@ -156,10 +157,10 @@ class ReportsTab(BaseTabContainer):
         self.product_filter_combo.currentIndexChanged.connect(self._generate_report)
         self.date_label = QLabel()
         self.product_filter_label = QLabel()
-        filters.addWidget(self.date_label)
-        filters.addWidget(self.date_filter)
-        filters.addWidget(self.product_filter_label)
-        filters.addWidget(self.product_filter_combo)
+        self.summary_filter_row = self._build_filters_row(include_product=True)
+        self.returns_filter_row = self._build_filters_row(include_product=True)
+        self.products_filter_row = self._build_filters_row(include_product=True)
+        self.stock_filter_row = self._build_filters_row(include_product=False)
 
         shift_box = QGroupBox()
         self.shift_box = shift_box
@@ -207,6 +208,10 @@ class ReportsTab(BaseTabContainer):
         self.save_shift_btn = save_shift_btn
 
         self.summary_label = QLabel()
+        self.total_sales_kpi = QLabel()
+        self.total_returns_kpi = QLabel()
+        self.net_revenue_kpi = QLabel()
+        self.orders_count_kpi = QLabel()
 
         self.payment_table = QTableWidget(0, 2)
         self.returns_table = QTableWidget(0, 3)
@@ -222,7 +227,7 @@ class ReportsTab(BaseTabContainer):
         ]:
             table.setAlternatingRowColors(True)
             table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self._style_report_table(table)
 
         export_layout = QHBoxLayout()
         self.export_pdf_btn = QPushButton()
@@ -232,44 +237,17 @@ class ReportsTab(BaseTabContainer):
         export_layout.addWidget(self.export_pdf_btn)
         export_layout.addWidget(self.export_excel_btn)
 
-        top_section = QWidget()
-        top_layout = QVBoxLayout(top_section)
-        top_layout.addLayout(filters)
-        top_layout.addWidget(self.summary_label)
-
-        tables_section = QWidget()
-        tables_layout = QVBoxLayout(tables_section)
+        self.tabs = QTabWidget()
         self.payment_breakdown_label = QLabel()
-        tables_layout.addWidget(self.payment_breakdown_label)
-        tables_layout.addWidget(self.payment_table)
         self.return_reasons_label = QLabel()
-        tables_layout.addWidget(self.return_reasons_label)
-        tables_layout.addWidget(self.returns_table)
         self.top_products_label = QLabel()
-        tables_layout.addWidget(self.top_products_label)
-        self.top_products_chart = MostSellingChart()
-        self.top_products_chart.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.MinimumExpanding,
-        )
-        self.top_products_chart.setMinimumHeight(320)
-        tables_layout.addWidget(self.top_products_chart)
-        tables_layout.addWidget(self.top_table)
         self.low_products_label = QLabel()
-        tables_layout.addWidget(self.low_products_label)
-        tables_layout.addWidget(self.low_table)
         self.stock_alerts_label = QLabel()
-        tables_layout.addWidget(self.stock_alerts_label)
-        tables_layout.addWidget(self.stock_table)
-        tables_layout.addLayout(export_layout)
-        tables_layout.addStretch()
-
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(top_section)
-        splitter.addWidget(tables_section)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        layout.addWidget(splitter)
+        self.tabs.addTab(self._build_summary_tab(export_layout), "")
+        self.tabs.addTab(self._build_returns_tab(), "")
+        self.tabs.addTab(self._build_products_tab(), "")
+        self.tabs.addTab(self._build_stock_tab(), "")
+        layout.addWidget(self.tabs)
 
         self.set_page_content_widget(content)
         self._reload_product_filter()
@@ -288,6 +266,82 @@ class ReportsTab(BaseTabContainer):
         user = get_current_user()
         if user and not self.cashier_input.text().strip():
             self.cashier_input.setText(user.full_name)
+
+    def _build_filters_row(self, include_product: bool = True) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addWidget(self.date_label)
+        row.addWidget(self.date_filter)
+        if include_product:
+            row.addWidget(self.product_filter_label)
+            row.addWidget(self.product_filter_combo)
+        row.addStretch()
+        return row
+
+    def _style_report_table(self, table: QTableWidget) -> None:
+        table.setAlternatingRowColors(True)
+        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        table.setMinimumHeight(160)
+        table.verticalHeader().setDefaultSectionSize(28)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(table.columnCount() - 1, QHeaderView.ResizeMode.Stretch)
+
+    def _build_summary_tab(self, export_layout: QHBoxLayout) -> QWidget:
+        tab = QWidget()
+        vbox = QVBoxLayout(tab)
+        vbox.setContentsMargins(12, 12, 12, 12)
+        vbox.setSpacing(10)
+        vbox.addLayout(self.summary_filter_row)
+        kpi_grid = QGridLayout()
+        kpi_grid.setSpacing(8)
+        for i, widget in enumerate([self.total_sales_kpi, self.total_returns_kpi, self.net_revenue_kpi, self.orders_count_kpi]):
+            widget.setStyleSheet("padding: 8px; border: 1px solid #d9d9d9; border-radius: 6px;")
+            kpi_grid.addWidget(widget, i // 2, i % 2)
+        vbox.addLayout(kpi_grid)
+        vbox.addWidget(self.summary_label)
+        vbox.addWidget(self.payment_breakdown_label)
+        vbox.addWidget(self.payment_table, 1)
+        vbox.addLayout(export_layout)
+        return tab
+
+    def _build_returns_tab(self) -> QWidget:
+        tab = QWidget()
+        vbox = QVBoxLayout(tab)
+        vbox.setContentsMargins(12, 12, 12, 12)
+        vbox.setSpacing(10)
+        vbox.addLayout(self.returns_filter_row)
+        vbox.addWidget(self.return_reasons_label)
+        vbox.addWidget(self.returns_table, 1)
+        return tab
+
+    def _build_products_tab(self) -> QWidget:
+        tab = QWidget()
+        vbox = QVBoxLayout(tab)
+        vbox.setContentsMargins(12, 12, 12, 12)
+        vbox.setSpacing(10)
+        vbox.addLayout(self.products_filter_row)
+        vbox.addWidget(self.top_products_label)
+        vbox.addWidget(self.top_table, 1)
+        vbox.addWidget(self.low_products_label)
+        vbox.addWidget(self.low_table, 1)
+        return tab
+
+    def _build_stock_tab(self) -> QWidget:
+        tab = QWidget()
+        vbox = QVBoxLayout(tab)
+        vbox.setContentsMargins(12, 12, 12, 12)
+        vbox.setSpacing(10)
+        vbox.addLayout(self.stock_filter_row)
+        vbox.addWidget(self.stock_alerts_label)
+        vbox.addWidget(self.stock_table, 1)
+        return tab
+
+    def _normalize_return_reason(self, reason: str) -> str:
+        normalized_tokens = ("exchange", "replacement", "استبدال", "البديل")
+        if any(token in reason.lower() for token in normalized_tokens):
+            return "Return | Ref: Legacy Exchange"
+        return reason
 
     def set_cashier_name(self, name: str) -> None:
         if not self.cashier_input.text().strip():
@@ -355,6 +409,10 @@ class ReportsTab(BaseTabContainer):
         self.top_products_label.setText(t("reports.top_products", language=language))
         self.low_products_label.setText(t("reports.low_products", language=language))
         self.stock_alerts_label.setText(t("reports.stock_alerts", language=language))
+        self.tabs.setTabText(0, t("reports.summary_tab", language=language) if t("reports.summary_tab", language=language) != "reports.summary_tab" else "Summary")
+        self.tabs.setTabText(1, t("reports.returns_tab", language=language) if t("reports.returns_tab", language=language) != "reports.returns_tab" else "Returns")
+        self.tabs.setTabText(2, t("reports.products_tab", language=language) if t("reports.products_tab", language=language) != "reports.products_tab" else "Products")
+        self.tabs.setTabText(3, t("reports.stock_tab", language=language) if t("reports.stock_tab", language=language) != "reports.stock_tab" else "Stock")
 
     def _load_shift_from_db(self) -> None:
         date_iso = self.date_filter.date().toString("yyyy-MM-dd")
@@ -394,15 +452,17 @@ class ReportsTab(BaseTabContainer):
         out_of_stock, near_out = stock_alerts()
 
         self._populate_table(self.payment_table, [(k, f"{v:.2f}") for k, v in payments.items()])
+        normalized_reasons = [
+            (self._normalize_return_reason(reason), count, total) for reason, count, total in returns.reasons
+        ]
         self._populate_table(
             self.returns_table,
-            [(reason, str(count), f"{total:.2f}") for reason, count, total in returns.reasons],
+            [(reason, str(count), f"{total:.2f}") for reason, count, total in normalized_reasons],
         )
         self._populate_table(
             self.top_table,
             [(p.name, p.code, f"{p.qty:.2f}") for p in top],
         )
-        self.top_products_chart.set_data([(p.name, p.qty) for p in top])
         self._populate_table(
             self.low_table,
             [(p.name, p.code, f"{p.qty:.2f}") for p in low],
@@ -449,6 +509,10 @@ class ReportsTab(BaseTabContainer):
                 net=f"{sales.net_sales:.2f}",
             )
         )
+        self.total_sales_kpi.setText(f"Total Sales\n{sales.subtotal:.2f}")
+        self.total_returns_kpi.setText(f"Total Returns\n{returns.return_total:.2f}")
+        self.net_revenue_kpi.setText(f"Net Revenue\n{sales.net_sales - returns.return_total:.2f}")
+        self.orders_count_kpi.setText(f"Orders Count\n{sales.invoice_count}")
 
         self._last_report = ReportData(
             report_date=date_iso,
@@ -468,7 +532,7 @@ class ReportsTab(BaseTabContainer):
             ),
             payment_breakdown=list(payments.items()),
             returns_summary=(returns.return_count, returns.return_total),
-            return_reasons=returns.reasons,
+            return_reasons=normalized_reasons,
             top_products=[(p.name, p.code, p.qty) for p in top],
             low_products=[(p.name, p.code, p.qty) for p in low],
             out_of_stock=list(out_of_stock),

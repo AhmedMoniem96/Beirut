@@ -1081,15 +1081,20 @@ def search_customers(term: str, limit: int = 8) -> List[JewelryCustomer]:
     if not normalized:
         return []
     like_term = f"%{normalized}%"
+    normalized_phone_term = normalized.replace(" ", "").replace("-", "").replace("+", "")
+    like_phone_term = f"%{normalized_phone_term}%"
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """SELECT phone, name, COALESCE(email, ''), created_at
            FROM jw_customers
-           WHERE phone LIKE ? OR name LIKE ? OR email LIKE ?
+           WHERE name LIKE ? COLLATE NOCASE
+              OR phone LIKE ?
+              OR REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') LIKE ?
+              OR email LIKE ? COLLATE NOCASE
            ORDER BY name
            LIMIT ?""",
-        (like_term, like_term, like_term, int(limit)),
+        (like_term, like_term, like_phone_term, like_term, int(limit)),
     )
     rows = cur.fetchall()
     conn.close()

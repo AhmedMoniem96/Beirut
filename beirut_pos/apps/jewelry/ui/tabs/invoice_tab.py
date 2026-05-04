@@ -52,6 +52,7 @@ from ...services.db import (
     create_invoice,
     fetch_invoice_details,
     find_product_by_code,
+    find_customer_by_phone,
     get_loyalty_balance,
     list_active_statuses,
     list_delivery_companies,
@@ -139,6 +140,10 @@ class InvoiceTab(BaseTabContainer):
         self._instant_invoice_mode = False
         self._recent_scans: list[str] = []
         self._delivery_toggle_in_progress = False
+        self._delivery_customer_name = ""
+        self._delivery_phone = ""
+        self._delivery_address = ""
+        self._delivery_notes = ""
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -552,9 +557,11 @@ class InvoiceTab(BaseTabContainer):
         self.subtotal_label = QLabel()
         self.discount_summary_label = QLabel()
         self.loyalty_summary_label = QLabel()
+        self.delivery_fee_summary_label = QLabel()
         breakdown_layout.addWidget(self.subtotal_label)
         breakdown_layout.addWidget(self.discount_summary_label)
         breakdown_layout.addWidget(self.loyalty_summary_label)
+        breakdown_layout.addWidget(self.delivery_fee_summary_label)
         totals_layout.addWidget(breakdown_frame)
         self.payment_summary_label = QLabel()
         totals_layout.addWidget(self.payment_summary_label)
@@ -862,6 +869,10 @@ class InvoiceTab(BaseTabContainer):
             self.delivery_fee_input.blockSignals(True)
             self.delivery_fee_input.setValue(0.0)
             self.delivery_fee_input.blockSignals(False)
+            self._delivery_customer_name = ""
+            self._delivery_phone = ""
+            self._delivery_address = ""
+            self._delivery_notes = ""
         else:
             self._handle_delivery_company_change()
         self._recalculate_totals()
@@ -1447,7 +1458,7 @@ class InvoiceTab(BaseTabContainer):
             else self._loyalty_redeem_amount(subtotal, discount)
         )
         delivery_enabled = self.delivery_enabled_checkbox.isChecked()
-        delivery_fee = self._delivery_fee_value() if (delivery_enabled and adjustments_allowed) else 0.0
+        delivery_fee = self._delivery_fee_value() if delivery_enabled else 0.0
         net_total = max(subtotal - discount - loyalty_redeem, 0.0)
         total = max(net_total + delivery_fee, 0.0)
         loyalty_earned = 0 if txn_type == "return" else self._calculate_loyalty_points(net_total)
@@ -1538,7 +1549,7 @@ class InvoiceTab(BaseTabContainer):
                     t("invoice.customer_required", language=self._language),
                 )
                 return
-            customer_id = save_customer(customer_name, customer_phone, customer_email)
+            customer_id = save_customer(customer_name, customer_phone, customer_email, self._delivery_address)
             self._customer_id = customer_id
             self._customer_points = get_loyalty_balance(customer_id)
             self.customer_points_label.setText(f"{self._customer_points:.2f}")
@@ -1612,9 +1623,12 @@ class InvoiceTab(BaseTabContainer):
                 order_source,
                 website_order_ref,
                 delivery_enabled,
+                self._delivery_customer_name,
+                self._delivery_phone,
                 delivery_company_id,
                 delivery_fee,
                 delivery_address,
+                self._delivery_notes,
                 delivery_status_id,
                 notes,
                 return_reason,
@@ -1942,9 +1956,13 @@ class InvoiceTab(BaseTabContainer):
         selected_customer_id = self._customer_id
         selected_name = self.customer_name_input.text().strip()
         selected_phone = self.customer_phone_input.text().strip()
+        customer_address = ""
+        if selected_customer_id:
+            customer = find_customer_by_phone(selected_customer_id)
+            customer_address = customer.address if customer else ""
         prefill_name = selected_name
         prefill_phone = selected_phone
-        prefill_address = self.delivery_address_input.text().strip()
+        prefill_address = self.delivery_address_input.text().strip() or customer_address
         logger.info("Delivery prefill selected customer id: %s", selected_customer_id)
         logger.info("Delivery prefill name/phone used: name=%s phone=%s", prefill_name, prefill_phone)
         dialog.customer_name_input.setText(prefill_name)
@@ -1963,6 +1981,10 @@ class InvoiceTab(BaseTabContainer):
         self.delivery_address_input.setText(dialog.address_input.text().strip())
         self.delivery_fee_input.setValue(float(dialog.delivery_fee_input.value()))
         delivery_notes = dialog.notes_input.toPlainText().strip()
+        self._delivery_customer_name = dialog.customer_name_input.text().strip()
+        self._delivery_phone = dialog.phone_input.text().strip()
+        self._delivery_address = dialog.address_input.text().strip()
+        self._delivery_notes = delivery_notes
         if delivery_notes:
             base_notes = self.notes_input.toPlainText().strip()
             tagged_note = f"Delivery Notes: {delivery_notes}"
@@ -2359,8 +2381,11 @@ class InvoiceTab(BaseTabContainer):
             self._focus_barcode_input()
 
     def _refresh_summary_labels(self) -> None:
-        subtotal = self._calculate_subtotal()
-        discount_amount = self._calculate_discount_amount(subtotal)
+        txn_type = "return" if self.txn_type_combo.currentIndex() == 1 else "sale"
+        computed = self._compute_invoice_totals(txn_type)
+        subtotal = float(computed["subtotal"])
+        discount_amount = float(computed["discount"])
+        delivery_fee = float(computed["delivery_fee"])
         if self._discount_type() == "percent":
             discount_value = float(self.discount_input.value())
             discount_text = f"{discount_value:.2f}% ({discount_amount:.2f})"
@@ -2373,6 +2398,7 @@ class InvoiceTab(BaseTabContainer):
         self.payment_summary_label.setText(
             t("invoice.payment_summary", language=self._language, method=payment_method)
         )
+        self.delivery_fee_summary_label.setText(f"Delivery Fee: {delivery_fee:.2f}" if delivery_fee > 0 else "")
 
     def _normalize_scan_text(self, code: str) -> str:
         return code.rstrip("\r\n")

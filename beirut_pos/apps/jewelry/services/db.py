@@ -83,6 +83,7 @@ class JewelryCustomer:
     phone: str
     name: str
     email: str
+    address: str
     created_at: str
 
 
@@ -279,6 +280,8 @@ def init_jewelry_db() -> None:
             customer_id TEXT,
             customer_name TEXT DEFAULT '',
             customer_phone TEXT DEFAULT '',
+            delivery_customer_name TEXT DEFAULT '',
+            delivery_phone TEXT DEFAULT '',
             subtotal REAL NOT NULL,
             discount REAL NOT NULL,
             discount_type TEXT NOT NULL DEFAULT 'amount',
@@ -312,6 +315,8 @@ def init_jewelry_db() -> None:
     _ensure_column(cur, "jw_invoices", "customer_id", "TEXT")
     _ensure_column(cur, "jw_invoices", "customer_name", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_invoices", "customer_phone", "TEXT DEFAULT ''")
+    _ensure_column(cur, "jw_invoices", "delivery_customer_name", "TEXT DEFAULT ''")
+    _ensure_column(cur, "jw_invoices", "delivery_phone", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_invoices", "loyalty_earned", "REAL NOT NULL DEFAULT 0")
     _ensure_column(cur, "jw_invoices", "loyalty_redeemed", "REAL NOT NULL DEFAULT 0")
     _ensure_column(cur, "jw_invoices", "order_source", "TEXT NOT NULL DEFAULT 'in_store'")
@@ -333,10 +338,12 @@ def init_jewelry_db() -> None:
             phone TEXT NOT NULL PRIMARY KEY,
             name TEXT NOT NULL,
             email TEXT NOT NULL DEFAULT '',
+            address TEXT DEFAULT '',
             created_at TEXT NOT NULL
         )"""
     )
     _ensure_column(cur, "jw_customers", "email", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(cur, "jw_customers", "address", "TEXT DEFAULT ''")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_loyalty_ledger(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1036,7 +1043,7 @@ def find_customer_by_phone(phone: str) -> Optional[JewelryCustomer]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT phone, name, COALESCE(email, ''), created_at
+        """SELECT phone, name, COALESCE(email, ''), COALESCE(address, ''), created_at
            FROM jw_customers WHERE phone = ? LIMIT 1""",
         (normalized,),
     )
@@ -1048,7 +1055,8 @@ def find_customer_by_phone(phone: str) -> Optional[JewelryCustomer]:
         phone=row[0] or "",
         name=row[1],
         email=row[2] or "",
-        created_at=row[3],
+        address=row[3] or "",
+        created_at=row[4],
     )
 
 
@@ -1056,20 +1064,23 @@ def save_customer(
     name: str,
     phone: str,
     email: str = "",
+    address: str = "",
 ) -> str:
     normalized_phone = (phone or "").strip()
     normalized_name = name.strip()
     normalized_email = (email or "").strip()
+    normalized_address = (address or "").strip()
     if not normalized_phone or not normalized_name:
         return ""
     conn = get_conn()
     cur = conn.cursor()
     created_at = datetime.now().isoformat(timespec="seconds")
     cur.execute(
-        """INSERT INTO jw_customers(phone, name, email, created_at)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(phone) DO UPDATE SET name = excluded.name, email = excluded.email""",
-        (normalized_phone, normalized_name, normalized_email, created_at),
+        """INSERT INTO jw_customers(phone, name, email, address, created_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(phone) DO UPDATE SET
+           name = excluded.name, email = excluded.email, address = excluded.address""",
+        (normalized_phone, normalized_name, normalized_email, normalized_address, created_at),
     )
     conn.commit()
     conn.close()
@@ -1086,7 +1097,7 @@ def search_customers(term: str, limit: int = 8) -> List[JewelryCustomer]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT phone, name, COALESCE(email, ''), created_at
+        """SELECT phone, name, COALESCE(email, ''), COALESCE(address, ''), created_at
            FROM jw_customers
            WHERE name LIKE ? COLLATE NOCASE
               OR phone LIKE ?
@@ -1103,7 +1114,8 @@ def search_customers(term: str, limit: int = 8) -> List[JewelryCustomer]:
             phone=row[0] or "",
             name=row[1],
             email=row[2] or "",
-            created_at=row[3],
+            address=row[3] or "",
+            created_at=row[4],
         )
         for row in rows
     ]
@@ -1919,9 +1931,12 @@ def create_invoice(
     order_source: str,
     website_order_ref: str,
     delivery_enabled: bool,
+    delivery_customer_name: str,
+    delivery_phone: str,
     delivery_company_id: Optional[int],
     delivery_fee: float,
     delivery_address: str,
+    delivery_notes: str,
     delivery_status_id: Optional[int],
     notes: str,
     return_reason: str,
@@ -1936,9 +1951,9 @@ def create_invoice(
            (invoice_no, datetime, cashier_name, txn_type, customer_id, customer_name, customer_phone,
             subtotal, discount, discount_type, discount_value, loyalty_earned, loyalty_redeemed,
             total, payment_method, payment_due_date, payment_order_status_id,
-            order_source, website_order_ref, delivery_enabled, delivery_company_id, delivery_fee,
-            delivery_address, delivery_status_id, notes, return_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            order_source, website_order_ref, delivery_enabled, delivery_customer_name, delivery_phone,
+            delivery_company_id, delivery_fee, delivery_address, delivery_status_id, notes, return_reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             invoice_no,
             invoice_datetime,
@@ -1960,11 +1975,13 @@ def create_invoice(
             order_source,
             website_order_ref,
             int(bool(delivery_enabled)),
+            delivery_customer_name.strip() if delivery_customer_name else "",
+            delivery_phone.strip() if delivery_phone else "",
             delivery_company_id,
             float(delivery_fee),
             delivery_address.strip() if delivery_address else "",
             delivery_status_id,
-            notes,
+            "\n".join(v for v in [notes.strip(), delivery_notes.strip()] if v),
             return_reason,
         ),
     )

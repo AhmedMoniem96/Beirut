@@ -202,6 +202,7 @@ class InvoiceTab(BaseTabContainer):
         discount_layout.addRow(self.discount_value_label, self.discount_input)
         self.customer_search_input = QLineEdit()
         self.customer_search_input.textChanged.connect(self._queue_customer_search)
+        self.customer_search_input.returnPressed.connect(self._perform_customer_search)
         self.customer_search_timer = QTimer(self)
         self.customer_search_timer.setSingleShot(True)
         self.customer_search_timer.setInterval(250)
@@ -1024,7 +1025,7 @@ class InvoiceTab(BaseTabContainer):
         if self.customer_search_timer.isActive():
             self.customer_search_timer.stop()
         term = self.customer_search_input.text().strip()
-        if len(term) < 2:
+        if len(term) < 1:
             self._hide_customer_dropdown()
             self.customer_dropdown.clear()
             self.customer_no_results_label.setVisible(False)
@@ -1034,7 +1035,7 @@ class InvoiceTab(BaseTabContainer):
 
     def _perform_customer_search(self) -> None:
         term = self.customer_search_input.text().strip()
-        if len(term) < 2:
+        if len(term) < 1:
             self._hide_customer_dropdown()
             return
         results = search_customers(term, limit=8)
@@ -1058,12 +1059,12 @@ class InvoiceTab(BaseTabContainer):
     def _format_customer_option(self, customer, points: float) -> str:
         points_label = t("invoice.points_label", language=self._language)
         base = (
-            f"{self._isolate(customer.name)} • "
-            f"{self._isolate(customer.phone)} • "
+            f"{self._isolate(customer.name)} | "
+            f"{self._isolate(customer.phone)} | "
             f"{self._isolate(points_label)} {points:.0f}"
         )
         if customer.email:
-            return f"{base} • {self._isolate(customer.email)}"
+            return f"{base} | {self._isolate(customer.email)}"
         return base
 
     @staticmethod

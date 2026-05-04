@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QDate
+from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -212,12 +212,14 @@ class ReturnsTab(BaseTabContainer):
             return
         logger = logging.getLogger(__name__)
         logger.debug("Returns load requested for invoice=%s", invoice_no)
+        logger.debug("Returns load handler input invoice number entered=%s", invoice_no)
         try:
             self._source_items = fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no)
         except Exception as exc:
             logger.exception("Returns load failed for invoice=%s", invoice_no)
             QMessageBox.warning(self, "Load failed", f"Could not load invoice {invoice_no}: {exc}")
             return
+        logger.debug("Returns load lookup result count=%s for invoice=%s", len(self._source_items), invoice_no)
         if not self._source_items:
             history = list_full_invoice_history(
                 date_from="1900-01-01",
@@ -240,11 +242,14 @@ class ReturnsTab(BaseTabContainer):
                     )
             logger.debug("Returns load produced no returnable items for invoice=%s", invoice_no)
         self.source_items_table.setRowCount(0)
+        loaded_order_id = self._source_items[0].invoice_id if self._source_items else None
+        logger.debug("Returns load order_id=%s for invoice=%s", loaded_order_id, invoice_no)
         for item in self._source_items:
+            logger.debug("Returns load item invoice=%s item_id=%s qty=%s returned_qty=%s remaining_qty=%s", invoice_no, item.invoice_item_id, item.sold_qty, item.returned_qty, item.remaining_qty)
             row = self.source_items_table.rowCount()
             self.source_items_table.insertRow(row)
             check_item = QTableWidgetItem()
-            check_item.setCheckState(check_item.CheckState.Unchecked)
+            check_item.setCheckState(Qt.CheckState.Unchecked)
             self.source_items_table.setItem(row, 0, check_item)
             self.source_items_table.setItem(row, 1, QTableWidgetItem(f"{item.product_name} ({item.product_code})"))
             self.source_items_table.setItem(row, 2, QTableWidgetItem(f"{item.sold_qty:.2f}"))
@@ -260,7 +265,7 @@ class ReturnsTab(BaseTabContainer):
         lines = []
         for idx, item in enumerate(self._source_items):
             check_item = self.source_items_table.item(idx, 0)
-            if not check_item or check_item.checkState() != check_item.CheckState.Checked:
+            if not check_item or check_item.checkState() != Qt.CheckState.Checked:
                 continue
             qty_widget = self.source_items_table.cellWidget(idx, 5)
             qty = float(qty_widget.value()) if isinstance(qty_widget, QDoubleSpinBox) else 0.0
@@ -328,6 +333,7 @@ class ReturnsTab(BaseTabContainer):
         if pricing_basis == "current_catalog_price":
             mapping = {}
             for item in self._source_items:
+            logger.debug("Returns load item invoice=%s item_id=%s qty=%s returned_qty=%s remaining_qty=%s", invoice_no, item.invoice_item_id, item.sold_qty, item.returned_qty, item.remaining_qty)
                 mapping[item.invoice_item_id] = float(self._lookup_current_product_price(item.product_id))
         else:
             mapping = {item.invoice_item_id: float(item.unit_price) for item in self._source_items}

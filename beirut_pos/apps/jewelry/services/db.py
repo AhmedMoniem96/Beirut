@@ -636,7 +636,6 @@ def _migrate_customer_tables(cur) -> None:
 def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
     cur.execute("PRAGMA table_info(jw_invoices)")
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     if not rows:
         return
     columns = {row[1]: row for row in rows}
@@ -733,7 +732,6 @@ def _migrate_invoice_customer_keys(cur, use_id_map: bool) -> None:
 def _migrate_loyalty_customer_keys(cur, use_id_map: bool) -> None:
     cur.execute("PRAGMA table_info(jw_loyalty_ledger)")
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     if not rows:
         return
     columns = {row[1]: row for row in rows}
@@ -775,7 +773,6 @@ def list_payment_methods() -> List[Tuple[int, str, str]]:
         "SELECT id, name_ar, name_en FROM jw_payment_methods WHERE active = 1 ORDER BY id"
     )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [(row[0], row[1], row[2]) for row in rows]
 
@@ -792,7 +789,6 @@ def list_delivery_companies(include_inactive: bool = True) -> List[JewelryDelive
     query += " ORDER BY id"
     cur.execute(query, params)
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryDeliveryCompany(
@@ -902,7 +898,6 @@ def list_statuses(
     query += " ORDER BY status_group, sort_order, id"
     cur.execute(query, tuple(params))
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryStatusItem(
@@ -995,7 +990,6 @@ def list_active_statuses(status_group: str) -> List[JewelryStatusItem]:
         (normalized_group,),
     )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryStatusItem(
@@ -1023,7 +1017,6 @@ def list_customers(search: Optional[str] = None) -> List[JewelryCustomer]:
     query += " ORDER BY created_at DESC"
     cur.execute(query, params)
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryCustomer(
@@ -1099,7 +1092,6 @@ def search_customers(term: str, limit: int = 8) -> List[JewelryCustomer]:
         (like_term, like_term, like_term, int(limit)),
     )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryCustomer(
@@ -1179,7 +1171,6 @@ def list_product_categories() -> List[str]:
            ORDER BY category COLLATE NOCASE"""
     )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [row[0] for row in rows if row[0]]
 
@@ -1207,7 +1198,6 @@ def list_products(search: Optional[str] = None, category: Optional[str] = None) 
     query += " ORDER BY id DESC"
     cur.execute(query, tuple(params))
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryProduct(
@@ -1427,7 +1417,6 @@ def list_materials() -> List[JewelryMaterial]:
            FROM jw_materials ORDER BY id DESC"""
     )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryMaterial(
@@ -1507,7 +1496,6 @@ def list_boms() -> List[JewelryBom]:
            FROM jw_boms ORDER BY id DESC"""
     )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryBom(
@@ -1529,7 +1517,6 @@ def list_bom_lines(bom_id: int) -> List[JewelryBomLine]:
         (bom_id,),
     )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryBomLine(
@@ -1666,7 +1653,6 @@ def list_production_orders(
     query += " ORDER BY datetime DESC"
     cur.execute(query, tuple(params))
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryProductionOrder(
@@ -1725,7 +1711,6 @@ def check_material_availability(bom_id: int, qty_multiplier: float) -> List[Tupl
         (bom_id,),
     )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     shortages = []
     for name_en, qty_on_hand, qty_required in rows:
@@ -1938,7 +1923,8 @@ def fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no: str) ->
     conn = get_conn()
     cur = conn.cursor()
     logger.debug("Returns lookup started for invoice=%s", normalized_invoice_no)
-    lookup_sql = """SELECT i.id, i.invoice_no, i.payment_status, ii.id, ii.product_id, ii.product_name, ii.product_code,
+    cur.execute(
+        """SELECT i.id, i.invoice_no, i.payment_status, ii.id, ii.product_id, ii.product_name, ii.product_code,
                   ii.qty, ii.unit_price,
                   COALESCE(SUM(iir.qty_returned), 0) AS returned_qty
            FROM jw_invoices i
@@ -1946,11 +1932,10 @@ def fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no: str) ->
            LEFT JOIN jw_invoice_item_returns iir ON iir.source_invoice_item_id = ii.id
            WHERE i.invoice_no = ? AND i.txn_type = 'sale'
            GROUP BY i.id, i.invoice_no, i.payment_status, ii.id, ii.product_id, ii.product_name, ii.product_code, ii.qty, ii.unit_price
-           ORDER BY ii.id"""
-    logger.debug("Returns lookup SQL=%s params=%s", " ".join(lookup_sql.split()), (normalized_invoice_no,))
-    cur.execute(lookup_sql, (normalized_invoice_no,))
+           ORDER BY ii.id""",
+        (normalized_invoice_no,),
+    )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     if not rows:
         cur.execute(
             "SELECT id, txn_type, COALESCE(payment_status, '') FROM jw_invoices WHERE invoice_no = ?",
@@ -2229,7 +2214,6 @@ def list_full_invoice_history(
     query += " ORDER BY datetime(i.datetime) DESC, i.id DESC"
     cur.execute(query, tuple(params))
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     result: List[JewelryInvoiceHistoryRow] = []
     for row in rows:
@@ -2267,7 +2251,6 @@ def list_order_payments(invoice_id: int) -> List[JewelryPaymentRow]:
         (invoice_id,),
     )
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryPaymentRow(
@@ -2433,7 +2416,6 @@ def list_invoice_history(
     query += " ORDER BY datetime(i.datetime) DESC, i.id DESC"
     cur.execute(query, tuple(params))
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryUnpaidOrder(
@@ -2487,7 +2469,6 @@ def list_return_invoices(date_iso: Optional[str] = None) -> List[JewelryInvoice]
     query += " ORDER BY datetime DESC"
     cur.execute(query, params)
     rows = cur.fetchall()
-    logger.debug("Returns lookup raw row count=%s for invoice=%s", len(rows), normalized_invoice_no)
     conn.close()
     return [
         JewelryInvoice(

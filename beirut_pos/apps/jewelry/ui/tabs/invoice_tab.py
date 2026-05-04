@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import math
 import logging
+import os
+import platform
+import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -1752,11 +1756,52 @@ class InvoiceTab(BaseTabContainer):
                     invoice.notes,
                     invoice.return_reason,
                 )
-                QDesktopServices.openUrl(QUrl.fromLocalFile(str(tmp_path)))
+                if gallery_settings.invoice_print_preview:
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(str(tmp_path)))
+                elif not self._dispatch_pdf_to_printer(tmp_path):
+                    QMessageBox.warning(
+                        self,
+                        t("common.print", language=self._language),
+                        "تعذر تنفيذ أمر الطباعة من النظام. سيتم فتح الملف للمعاينة اليدوية.",
+                    )
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(str(tmp_path)))
             QMessageBox.information(self, t("common.print", language=self._language), "تمت الطباعة بنجاح.")
         except Exception as exc:
             QMessageBox.critical(self, t("common.print", language=self._language), f"فشلت الطباعة: {exc}")
         self._refresh_printer_status_badge()
+
+    def _dispatch_pdf_to_printer(self, pdf_path: Path) -> bool:
+        system_name = platform.system().lower()
+        try:
+            if system_name.startswith("win"):
+                if hasattr(os, "startfile"):
+                    os.startfile(str(pdf_path), "print")  # type: ignore[attr-defined]
+                    return True
+                logger.warning("Windows print verb unavailable: os.startfile is missing")
+                return False
+
+            if system_name == "darwin":
+                result = subprocess.run(["lp", str(pdf_path)], check=False, capture_output=True, text=True)
+                if result.returncode == 0:
+                    return True
+                logger.warning("macOS lp print failed: %s", (result.stderr or result.stdout).strip())
+                return False
+
+            for cmd in ("lp", "lpr"):
+                binary = shutil.which(cmd)
+                if not binary:
+                    continue
+                result = subprocess.run([binary, str(pdf_path)], check=False, capture_output=True, text=True)
+                if result.returncode == 0:
+                    return True
+                logger.warning("%s print failed: %s", cmd, (result.stderr or result.stdout).strip())
+
+            logger.warning("No system print command available for PDF dispatch")
+            return False
+        except Exception:
+            logger.exception("Failed to dispatch PDF to system printer")
+            return False
+
 
     def _refresh_printer_status_badge(self) -> None:
         status = printer.printer_status_text()

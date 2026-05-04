@@ -5,9 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Iterable, List, Literal, Optional, Tuple
+import logging
 
 from beirut_pos.core.config_store import get_config_value
 from beirut_pos.core.db import get_conn
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -1912,43 +1916,77 @@ def create_invoice(
 
 
 def fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no: str) -> List[ReturnableInvoiceItem]:
+    normalized_invoice_no = str(invoice_no or "").strip()
+    if not normalized_invoice_no:
+        logger.debug("Returns lookup skipped: empty invoice number")
+        return []
     conn = get_conn()
     cur = conn.cursor()
+    logger.debug("Returns lookup started for invoice=%s", normalized_invoice_no)
     cur.execute(
-        """SELECT i.id, i.invoice_no, ii.id, ii.product_id, ii.product_name, ii.product_code,
+        """SELECT i.id, i.invoice_no, i.payment_status, ii.id, ii.product_id, ii.product_name, ii.product_code,
                   ii.qty, ii.unit_price,
                   COALESCE(SUM(iir.qty_returned), 0) AS returned_qty
            FROM jw_invoices i
            JOIN jw_invoice_items ii ON ii.invoice_id = i.id
            LEFT JOIN jw_invoice_item_returns iir ON iir.source_invoice_item_id = ii.id
            WHERE i.invoice_no = ? AND i.txn_type = 'sale'
-           GROUP BY i.id, i.invoice_no, ii.id, ii.product_id, ii.product_name, ii.product_code, ii.qty, ii.unit_price
+           GROUP BY i.id, i.invoice_no, i.payment_status, ii.id, ii.product_id, ii.product_name, ii.product_code, ii.qty, ii.unit_price
            ORDER BY ii.id""",
-        (invoice_no.strip(),),
+        (normalized_invoice_no,),
     )
     rows = cur.fetchall()
+    if not rows:
+        cur.execute(
+            "SELECT id, txn_type, COALESCE(payment_status, '') FROM jw_invoices WHERE invoice_no = ?",
+            (normalized_invoice_no,),
+        )
+        meta = cur.fetchone()
+        conn.close()
+        if meta:
+            logger.debug(
+                "Returns lookup found invoice without returnable rows: invoice=%s txn_type=%s payment_status=%s",
+                normalized_invoice_no,
+                meta[1],
+                meta[2],
+            )
+        else:
+            logger.debug("Returns lookup invoice not found: invoice=%s", normalized_invoice_no)
+        return []
     conn.close()
     items: List[ReturnableInvoiceItem] = []
+    skipped_rows = 0
     for row in rows:
-        sold_qty = float(row[6] or 0)
-        returned_qty = float(row[8] or 0)
+        try:
+            sold_qty = float(row[7] or 0)
+            returned_qty = float(row[9] or 0)
+        except (TypeError, ValueError):
+            skipped_rows += 1
+            logger.warning("Returns lookup skipped malformed quantity row for invoice=%s row=%s", normalized_invoice_no, row)
+            continue
         remaining = max(sold_qty - returned_qty, 0.0)
         if remaining <= 0:
             continue
         items.append(
             ReturnableInvoiceItem(
-                invoice_item_id=int(row[2]),
+                invoice_item_id=int(row[3]),
                 invoice_id=int(row[0]),
                 invoice_no=row[1],
-                product_id=int(row[3] or 0),
-                product_name=row[4] or "",
-                product_code=row[5] or "",
+                product_id=int(row[4] or 0),
+                product_name=row[5] or "",
+                product_code=row[6] or "",
                 sold_qty=sold_qty,
                 returned_qty=returned_qty,
                 remaining_qty=remaining,
-                unit_price=float(row[7] or 0),
+                unit_price=float(row[8] or 0),
             )
         )
+    logger.debug(
+        "Returns lookup completed for invoice=%s, loaded_items=%s, skipped_rows=%s",
+        normalized_invoice_no,
+        len(items),
+        skipped_rows,
+    )
     return items
 
 

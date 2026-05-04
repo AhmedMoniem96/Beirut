@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from PyQt6.QtCore import QDate
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
@@ -206,10 +208,37 @@ class ReturnsTab(BaseTabContainer):
     def load_source_invoice(self) -> None:
         invoice_no = self.source_invoice_edit.text().strip()
         if not invoice_no:
+            QMessageBox.information(self, "Validation", "Please enter an invoice number.")
             return
-        self._source_items = fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no)
+        logger = logging.getLogger(__name__)
+        logger.debug("Returns load requested for invoice=%s", invoice_no)
+        try:
+            self._source_items = fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no)
+        except Exception as exc:
+            logger.exception("Returns load failed for invoice=%s", invoice_no)
+            QMessageBox.warning(self, "Load failed", f"Could not load invoice {invoice_no}: {exc}")
+            return
         if not self._source_items:
-            QMessageBox.information(self, "Not found", "No returnable lines found for this sale invoice.")
+            history = list_full_invoice_history(
+                date_from="1900-01-01",
+                date_to=QDate.currentDate().toString("yyyy-MM-dd"),
+                invoice_no=invoice_no,
+            )
+            if not history:
+                QMessageBox.information(self, "Not found", f"Invoice {invoice_no} was not found.")
+            else:
+                row = history[0]
+                if (row.txn_type or "").strip().lower() != "sale":
+                    QMessageBox.information(self, "Validation", f"Invoice {invoice_no} is not a sale invoice.")
+                elif (row.payment_status or "").strip().upper() != "PAID":
+                    QMessageBox.information(self, "Validation", f"Invoice {invoice_no} is not PAID yet.")
+                else:
+                    QMessageBox.information(
+                        self,
+                        "No returnable items",
+                        f"Invoice {invoice_no} has no returnable quantity (already returned or no items).",
+                    )
+            logger.debug("Returns load produced no returnable items for invoice=%s", invoice_no)
         self.source_items_table.setRowCount(0)
         for item in self._source_items:
             row = self.source_items_table.rowCount()

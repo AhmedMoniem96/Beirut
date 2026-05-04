@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QDate
+from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -244,7 +244,11 @@ class ReturnsTab(BaseTabContainer):
             row = self.source_items_table.rowCount()
             self.source_items_table.insertRow(row)
             check_item = QTableWidgetItem()
-            check_item.setCheckState(check_item.CheckState.Unchecked)
+            check_item.setFlags(
+                Qt.ItemFlag.ItemIsUserCheckable |
+                Qt.ItemFlag.ItemIsEnabled
+            )
+            check_item.setCheckState(Qt.CheckState.Unchecked)
             self.source_items_table.setItem(row, 0, check_item)
             self.source_items_table.setItem(row, 1, QTableWidgetItem(f"{item.product_name} ({item.product_code})"))
             self.source_items_table.setItem(row, 2, QTableWidgetItem(f"{item.sold_qty:.2f}"))
@@ -260,7 +264,7 @@ class ReturnsTab(BaseTabContainer):
         lines = []
         for idx, item in enumerate(self._source_items):
             check_item = self.source_items_table.item(idx, 0)
-            if not check_item or check_item.checkState() != check_item.CheckState.Checked:
+            if not check_item or check_item.checkState() != Qt.CheckState.Checked:
                 continue
             qty_widget = self.source_items_table.cellWidget(idx, 5)
             qty = float(qty_widget.value()) if isinstance(qty_widget, QDoubleSpinBox) else 0.0

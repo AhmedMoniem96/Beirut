@@ -84,8 +84,8 @@ class JewelryCustomer:
     name: str
     email: str
     address: str
-    notes: str = ""
     created_at: str
+    notes: str = ""
 
 
 @dataclass

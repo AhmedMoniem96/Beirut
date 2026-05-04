@@ -1109,6 +1109,82 @@ def search_customers(term: str, limit: int = 8) -> List[JewelryCustomer]:
     ]
 
 
+
+def get_customer_invoices(customer_id: str, limit: int = 100) -> List[dict]:
+    normalized = (customer_id or "").strip()
+    if not normalized:
+        return []
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT invoice_no, datetime, total,
+                  COALESCE(payment_status, ''), COALESCE(payment_method, ''),
+                  COALESCE(loyalty_earned, 0), COALESCE(loyalty_redeemed, 0)
+           FROM jw_invoices
+           WHERE COALESCE(customer_id, '') = ? OR COALESCE(customer_phone, '') = ?
+           ORDER BY id DESC
+           LIMIT ?""",
+        (normalized, normalized, int(limit)),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "invoice_no": row[0],
+            "date": row[1],
+            "total": float(row[2] or 0),
+            "status": row[3] or "",
+            "payment_method": row[4] or "",
+            "loyalty_earned": float(row[5] or 0),
+            "loyalty_redeemed": float(row[6] or 0),
+        }
+        for row in rows
+    ]
+
+
+def get_customer_summary_rows(search: Optional[str] = None) -> List[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    params = []
+    where = ""
+    if search:
+        like = f"%{search.strip()}%"
+        normalized = search.strip().replace(" ", "").replace("-", "").replace("+", "")
+        phone_like = f"%{normalized}%"
+        where = (
+            " WHERE c.name LIKE ? COLLATE NOCASE OR c.phone LIKE ? OR "
+            "REPLACE(REPLACE(REPLACE(c.phone, ' ', ''), '-', ''), '+', '') LIKE ? "
+        )
+        params.extend([like, like, phone_like])
+    cur.execute(
+        f"""SELECT c.phone, c.name, COALESCE(c.email, ''), COALESCE(c.created_at, ''),
+                  COALESCE(SUM(CASE WHEN i.txn_type='sale' THEN i.total ELSE 0 END), 0) AS total_spend,
+                  COUNT(i.id) AS invoice_count,
+                  MAX(i.datetime) AS last_invoice_date
+           FROM jw_customers c
+           LEFT JOIN jw_invoices i ON (COALESCE(i.customer_id, '') = c.phone OR COALESCE(i.customer_phone, '') = c.phone)
+           {where}
+           GROUP BY c.phone, c.name, c.email, c.created_at
+           ORDER BY c.name COLLATE NOCASE""",
+        tuple(params),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "phone": row[0] or "",
+            "name": row[1] or "",
+            "email": row[2] or "",
+            "notes": "",
+            "address": "",
+            "created_at": row[3] or "",
+            "total_spend": float(row[4] or 0),
+            "invoice_count": int(row[5] or 0),
+            "last_invoice_date": row[6] or "",
+        }
+        for row in rows
+    ]
+
 def get_loyalty_balance(customer_phone: str) -> float:
     normalized_phone = (customer_phone or "").strip()
     if not normalized_phone:

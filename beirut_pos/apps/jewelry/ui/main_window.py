@@ -28,6 +28,7 @@ from .tabs.manufacturing_tab import ManufacturingTab
 from .tabs.reports_tab import ReportsTab
 from .tabs.returns_tab import ReturnsTab
 from .tabs.settings_tab import SettingsTab
+from .tabs.customers_tab import CustomersTab
 from .theme import gallery_stylesheet
 
 logger = logging.getLogger(__name__)
@@ -91,13 +92,15 @@ class JewelryMainWindow(QMainWindow):
             on_language_changed=self._apply_language,
         )
         self.manufacturing_tab = ManufacturingTab()
+        self.customers_tab = CustomersTab()
 
-        self.tabs.addTab(self.invoice_tab, "")
-        self.tabs.addTab(self.returns_tab, "")
-        self.tabs.addTab(self.inventory_tab, "")
-        self.tabs.addTab(self.manufacturing_tab, "")
-        self.tabs.addTab(self.reports_tab, "")
         self.tabs.addTab(self.settings_tab, "")
+        self.tabs.addTab(self.reports_tab, "")
+        self.tabs.addTab(self.manufacturing_tab, "")
+        self.tabs.addTab(self.inventory_tab, "")
+        self.tabs.addTab(self.returns_tab, "")
+        self.tabs.addTab(self.invoice_tab, "")
+        self.tabs.addTab(self.customers_tab, "")
         self.tabs.currentChanged.connect(self._handle_tab_change)
         self.manufacturing_tab.order_done_btn.clicked.connect(self.inventory_tab.refresh)
         self.manufacturing_tab.order_confirm_btn.clicked.connect(self.inventory_tab.refresh)
@@ -166,12 +169,13 @@ class JewelryMainWindow(QMainWindow):
     def _apply_language(self, language: str | None = None) -> None:
         self._language = language or get_ui_language()
         self.setWindowTitle(t("app.title", language=self._language))
-        self.tabs.setTabText(0, t("tab.invoice", language=self._language))
-        self.tabs.setTabText(1, t("tab.returns", language=self._language))
-        self.tabs.setTabText(2, t("tab.inventory", language=self._language))
-        self.tabs.setTabText(3, t("tab.manufacturing", language=self._language))
-        self.tabs.setTabText(4, t("tab.reports", language=self._language))
-        self.tabs.setTabText(5, t("tab.settings", language=self._language))
+        self.tabs.setTabText(0, "Settings")
+        self.tabs.setTabText(1, "Reports")
+        self.tabs.setTabText(2, "Manufacturing")
+        self.tabs.setTabText(3, "Inventory")
+        self.tabs.setTabText(4, "Returns")
+        self.tabs.setTabText(5, "New Invoice")
+        self.tabs.setTabText(6, "Customers")
         self.orders_menu.setTitle(t("menu.orders", language=self._language))
         self.unpaid_orders_action.setText(t("menu.unpaid_orders", language=self._language))
         self.invoice_tab.apply_language(self._language)
@@ -180,6 +184,7 @@ class JewelryMainWindow(QMainWindow):
         self.manufacturing_tab.apply_language(self._language)
         self.reports_tab.apply_language(self._language)
         self.settings_tab.apply_language(self._language)
+        self.customers_tab.apply_language(self._language)
 
     def _apply_settings(self) -> None:
         settings = load_gallery_settings()

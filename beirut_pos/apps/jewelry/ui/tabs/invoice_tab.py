@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import QDate, QElapsedTimer, QEvent, QSettings, Qt, QTimer, QUrl
+from PyQt6.QtCore import QDate, QElapsedTimer, QEvent, QPoint, QSettings, Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -201,16 +201,18 @@ class InvoiceTab(BaseTabContainer):
         discount_layout.addRow(self.discount_type_label, self.discount_type_combo)
         discount_layout.addRow(self.discount_value_label, self.discount_input)
         self.customer_search_input = QLineEdit()
+        self.customer_search_input.setMinimumWidth(220)
+        self.customer_search_input.setMaximumWidth(320)
         self.customer_search_input.textChanged.connect(self._queue_customer_search)
         self.customer_search_input.returnPressed.connect(self._perform_customer_search)
         self.customer_search_timer = QTimer(self)
         self.customer_search_timer.setSingleShot(True)
         self.customer_search_timer.setInterval(250)
         self.customer_search_timer.timeout.connect(self._perform_customer_search)
-        self.customer_dropdown_frame = QFrame()
+        self.customer_dropdown_frame = QFrame(self, Qt.WindowType.Popup)
         self.customer_dropdown_frame.setObjectName("customerDropdown")
         self.customer_dropdown_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        self.customer_dropdown_frame.setVisible(False)
+        self.customer_dropdown_frame.hide()
         dropdown_layout = QVBoxLayout(self.customer_dropdown_frame)
         dropdown_layout.setContentsMargins(6, 6, 6, 6)
         dropdown_layout.setSpacing(JEWELRY_SPACING.xxs)
@@ -240,7 +242,6 @@ class InvoiceTab(BaseTabContainer):
         customer_search_row_layout.addWidget(self.customer_search_input, 1)
         customer_search_row_layout.addWidget(self.customer_add_new_btn)
         customer_search_layout.addWidget(customer_search_row)
-        customer_search_layout.addWidget(self.customer_dropdown_frame)
         self.customer_name_input = QLineEdit()
         self.customer_phone_input = QLineEdit()
         self.customer_email_input = QLineEdit()
@@ -372,7 +373,7 @@ class InvoiceTab(BaseTabContainer):
         header_row.addWidget(self.cashier_label_compact)
         header_row.addWidget(self.cashier_label_value)
         header_row.addWidget(self.customer_label_compact)
-        header_row.addWidget(self.customer_search_input, 1)
+        header_row.addWidget(self.customer_search_input, 0)
         header_row.addWidget(self.customer_add_new_btn)
         header_row.addWidget(self.delivery_enabled_checkbox)
         header_row.addStretch()
@@ -1038,7 +1039,9 @@ class InvoiceTab(BaseTabContainer):
         if len(term) < 1:
             self._hide_customer_dropdown()
             return
+        logger.debug("Customer search term: %r", term)
         results = search_customers(term, limit=8)
+        logger.debug("Customer search matches: %d", len(results))
         self.customer_dropdown.clear()
         if results:
             for customer in results:
@@ -1153,10 +1156,16 @@ class InvoiceTab(BaseTabContainer):
     def _show_customer_dropdown(self) -> None:
         if self.customer_dropdown.count() == 0 and not self.customer_create_btn.isVisible():
             return
-        self.customer_dropdown_frame.setVisible(True)
+        anchor = self.customer_search_input.mapToGlobal(QPoint(0, self.customer_search_input.height()))
+        popup_width = self.customer_search_input.width()
+        self.customer_dropdown_frame.setFixedWidth(popup_width)
+        self.customer_dropdown_frame.move(anchor)
+        self.customer_dropdown_frame.raise_()
+        self.customer_dropdown_frame.show()
+        logger.debug("Customer dropdown shown: items=%d create_visible=%s", self.customer_dropdown.count(), self.customer_create_btn.isVisible())
 
     def _hide_customer_dropdown(self) -> None:
-        self.customer_dropdown_frame.setVisible(False)
+        self.customer_dropdown_frame.hide()
 
     def _handle_customer_dropdown_key(self, event) -> bool:
         if event.key() == Qt.Key.Key_Escape:

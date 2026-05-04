@@ -864,7 +864,7 @@ def _print_escpos_receipt(
     customer_name: str | None = None,
     loyalty_balance: int | None = None,
     loyalty_delta: int | None = None,
-) -> None:
+) -> bool:
     head = _build_receipt_header_meta(
         table_code,
         cashier,
@@ -873,26 +873,30 @@ def _print_escpos_receipt(
         loyalty_balance=loyalty_balance,
         loyalty_delta=loyalty_delta,
     )
-    _emit_lines_to_printer(printer, head)
+    ok = _emit_lines_to_printer(printer, head)
 
     headers, rows, calc_sub, total_qty = _build_items_table(items)
 
     if hasattr(printer, "print_table"):
-        printer.print_table(
-            headers,
-            rows,
-            footer_rows=None,
-            font_size=int(os.getenv("BEIRUT_POS_TABLE_FONT", "28")),
-            col_widths_px=COLS_RECEIPT,
-            col_align=("left", "center", "right", "right"),
-            cell_pad=(CELL_PAD_X, CELL_PAD_Y),
-            draw_borders=True,
-        )
+        try:
+            printer.print_table(
+                headers,
+                rows,
+                footer_rows=None,
+                font_size=int(os.getenv("BEIRUT_POS_TABLE_FONT", "28")),
+                col_widths_px=COLS_RECEIPT,
+                col_align=("left", "center", "right", "right"),
+                cell_pad=(CELL_PAD_X, CELL_PAD_Y),
+                draw_borders=True,
+            )
+        except Exception as exc:
+            _log_printer_error("Print table failed", exc)
+            ok = False
     else:
-        _emit_lines_to_printer(
+        ok = _emit_lines_to_printer(
             printer,
             [" | ".join(headers)] + [" | ".join(map(str, r)) for r in rows],
-        )
+        ) and ok
     footer_lines = _build_receipt_footer_lines(
         subtotal,
         discount,
@@ -901,12 +905,13 @@ def _print_escpos_receipt(
         tax=tax,
         discount_label=discount_label,
     )
-    _print_escpos_lines(printer, footer_lines)
+    ok = _print_escpos_lines(printer, footer_lines) and ok
+    return ok
 
 
-def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]) -> None:
+def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]) -> bool:
     now = datetime.now().strftime("%I:%M %p")
-    _emit_lines_to_printer(
+    ok = _emit_lines_to_printer(
         printer,
         [
             ">>C " + f"{now}  |  {table_code}",
@@ -915,22 +920,27 @@ def _print_escpos_bar_ticket(printer, table_code: str, items: List[dict]) -> Non
     )
     headers, rows = _build_bar_table(items)
     if hasattr(printer, "print_table"):
-        printer.print_table(
-            headers,
-            rows,
-            footer_rows=None,
-            font_size=int(os.getenv("BEIRUT_POS_TABLE_FONT", "28")),
-            col_widths_px=COLS_BAR,
-            col_align=("left", "center"),
-            cell_pad=(CELL_PAD_X, CELL_PAD_Y),
-            draw_borders=True,
-        )
+        try:
+            printer.print_table(
+                headers,
+                rows,
+                footer_rows=None,
+                font_size=int(os.getenv("BEIRUT_POS_TABLE_FONT", "28")),
+                col_widths_px=COLS_BAR,
+                col_align=("left", "center"),
+                cell_pad=(CELL_PAD_X, CELL_PAD_Y),
+                draw_borders=True,
+            )
+        except Exception as exc:
+            _log_printer_error("Print table failed", exc)
+            ok = False
     else:
-        _emit_lines_to_printer(
+        ok = _emit_lines_to_printer(
             printer,
             [" | ".join(headers)] + [" | ".join(map(str, r)) for r in rows],
-        )
-    _print_escpos_lines(printer, [_draw_line("═")])
+        ) and ok
+    ok = _print_escpos_lines(printer, [_draw_line("═")]) and ok
+    return ok
 
 
 # ============================================= COLLAPSE & SERVICE
@@ -1078,14 +1088,23 @@ class PrinterService:
             )
             bmp_footer = _render_lines_to_bitmap([_draw_line("═")])
             img = _stack_bitmaps([bmp_head, bmp_tbl, bmp_footer]).convert("RGB")
-            win_print_image(self._bar_win, img)
-            return True
+            try:
+                win_print_image(self._bar_win, img)
+                _log_struct("printer.print_bar_ticket", backend="windows", dispatched=True, table_code=table_code)
+                return True
+            except Exception as exc:
+                _log_printer_error("Windows bar ticket dispatch failed", exc)
+                _log_struct("printer.print_bar_ticket", backend="windows", dispatched=False, table_code=table_code, error=str(exc))
+                return False
 
         self._refresh_escpos_printer()
+        if self._escpos_printer is None:
+            _log_struct("printer.print_bar_ticket", backend="escpos", dispatched=False, table_code=table_code, reason="printer_unavailable_after_refresh")
+            return False
         prn = self._escpos_printer
-        if prn:
-            _print_escpos_bar_ticket(prn, table_code, data)
-        return True
+        dispatched = bool(prn and _print_escpos_bar_ticket(prn, table_code, data))
+        _log_struct("printer.print_bar_ticket", backend="escpos", dispatched=dispatched, table_code=table_code)
+        return dispatched
 
     # ---------------------------- CASHIER
     def print_cashier_receipt(
@@ -1138,13 +1157,21 @@ class PrinterService:
             )
             bmp_tail = _render_lines_to_bitmap(tail_lines)
             img = _stack_bitmaps([bmp_head, bmp_tbl, bmp_tail]).convert("RGB")
-            win_print_image(self._cash_win, img)
-            return True
+            try:
+                win_print_image(self._cash_win, img)
+                _log_struct("printer.print_cashier_receipt", backend="windows", dispatched=True, table_code=table_code)
+                return True
+            except Exception as exc:
+                _log_printer_error("Windows cashier receipt dispatch failed", exc)
+                _log_struct("printer.print_cashier_receipt", backend="windows", dispatched=False, table_code=table_code, error=str(exc))
+                return False
 
         self._refresh_escpos_printer()
+        if self._escpos_printer is None:
+            _log_struct("printer.print_cashier_receipt", backend="escpos", dispatched=False, table_code=table_code, reason="printer_unavailable_after_refresh")
+            return False
         prn = self._escpos_printer
-        if prn:
-            _print_escpos_receipt(
+        dispatched = bool(prn and _print_escpos_receipt(
                 prn,
                 table_code,
                 data,
@@ -1159,8 +1186,9 @@ class PrinterService:
                 customer_name=customer_name,
                 loyalty_balance=loyalty_balance,
                 loyalty_delta=loyalty_delta,
-            )
-        return True
+            ))
+        _log_struct("printer.print_cashier_receipt", backend="escpos", dispatched=dispatched, table_code=table_code)
+        return dispatched
 
     def print_text_receipt(
         self,
@@ -1184,14 +1212,23 @@ class PrinterService:
 
         if _IS_WINDOWS and _WIN_PRINT_OK and target_windows_printer:
             bmp = _render_lines_to_bitmap(lines)
-            win_print_image(target_windows_printer, bmp.convert("RGB"))
-            return True
+            try:
+                win_print_image(target_windows_printer, bmp.convert("RGB"))
+                _log_struct("printer.print_text_receipt", backend="windows", dispatched=True, printer_name=target_windows_printer)
+                return True
+            except Exception as exc:
+                _log_printer_error("Windows text receipt dispatch failed", exc)
+                _log_struct("printer.print_text_receipt", backend="windows", dispatched=False, printer_name=target_windows_printer, error=str(exc))
+                return False
 
         self._refresh_escpos_printer()
+        if self._escpos_printer is None:
+            _log_struct("printer.print_text_receipt", backend="escpos", dispatched=False, reason="printer_unavailable_after_refresh")
+            return False
         prn = self._escpos_printer
-        if prn:
-            _print_escpos_lines(prn, lines)
-        return True
+        dispatched = bool(prn and _print_escpos_lines(prn, lines))
+        _log_struct("printer.print_text_receipt", backend="escpos", dispatched=dispatched)
+        return dispatched
 
 
 # singleton

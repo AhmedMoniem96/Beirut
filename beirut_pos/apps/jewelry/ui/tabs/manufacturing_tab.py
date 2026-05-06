@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QDateEdit,
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -186,66 +187,66 @@ class ManufacturingTab(BaseTabContainer):
     def _build_design_tab(self) -> None:
         self.boms_tab = QWidget()
         tab_layout = QVBoxLayout(self.boms_tab)
-        tab_layout.setSpacing(12)
+        tab_layout.setSpacing(8)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
 
-        form_box = QGroupBox()
-        form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.bom_box = form_box
-        form_layout = QFormLayout(form_box)
-        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        main_layout = QHBoxLayout()
+        main_layout.setSpacing(12)
+
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(8)
+
+        self.bom_box = QGroupBox("Final Product")
+        form_layout = QGridLayout(self.bom_box)
+        form_layout.setHorizontalSpacing(16)
+        form_layout.setVerticalSpacing(8)
+
         self.bom_product_combo = QComboBox()
         self.design_product_name = QLineEdit()
         self.design_product_sku = QLineEdit()
-        self.design_product_price = QDoubleSpinBox()
-        self.design_product_price.setRange(0, 999999)
-        self.design_product_price.setDecimals(2)
-        self.design_qty_produced = QDoubleSpinBox()
-        self.design_qty_produced.setRange(0, 999999)
-        self.design_qty_produced.setDecimals(3)
-        self.design_labor_cost = QDoubleSpinBox()
-        self.design_labor_cost.setRange(0, 999999)
-        self.design_packaging_cost = QDoubleSpinBox()
-        self.design_packaging_cost.setRange(0, 999999)
-        self.design_other_cost = QDoubleSpinBox()
-        self.design_other_cost.setRange(0, 999999)
-        self.design_profit_pct = QDoubleSpinBox()
-        self.design_profit_pct.setRange(0, 1000)
-        self.design_profit_pct.setValue(25)
+        self.design_product_price = QDoubleSpinBox(); self.design_product_price.setRange(0, 999999); self.design_product_price.setDecimals(2)
+        self.design_qty_produced = QDoubleSpinBox(); self.design_qty_produced.setRange(0, 999999); self.design_qty_produced.setDecimals(3)
+        self.design_labor_cost = QDoubleSpinBox(); self.design_labor_cost.setRange(0, 999999)
+        self.design_packaging_cost = QDoubleSpinBox(); self.design_packaging_cost.setRange(0, 999999)
+        self.design_other_cost = QDoubleSpinBox(); self.design_other_cost.setRange(0, 999999)
+        self.design_profit_pct = QDoubleSpinBox(); self.design_profit_pct.setRange(0, 1000); self.design_profit_pct.setValue(25)
         self.bom_name_input = QLineEdit()
         self.bom_active_check = QCheckBox()
         self.bom_product_label = QLabel()
         self.bom_name_label = QLabel()
-        form_layout.addRow(self.bom_product_label, self.bom_product_combo)
-        form_layout.addRow("Product Name", self.design_product_name)
-        form_layout.addRow("Product SKU", self.design_product_sku)
-        form_layout.addRow("Selling Price", self.design_product_price)
-        form_layout.addRow("Qty Produced", self.design_qty_produced)
-        form_layout.addRow("Labor Cost", self.design_labor_cost)
-        form_layout.addRow("Packaging Cost", self.design_packaging_cost)
-        form_layout.addRow("Other Cost", self.design_other_cost)
-        form_layout.addRow("Profit %", self.design_profit_pct)
-        form_layout.addRow(self.bom_name_label, self.bom_name_input)
-        form_layout.addRow("", self.bom_active_check)
-        lines_box = QGroupBox()
-        self.lines_box = lines_box
-        lines_layout = QVBoxLayout(lines_box)
+
+        fields = [
+            ("Product", self.bom_product_combo),
+            ("Product Name", self.design_product_name),
+            ("SKU/Code", self.design_product_sku),
+            ("Selling Price", self.design_product_price),
+            ("Qty Produced", self.design_qty_produced),
+            ("Labor Cost", self.design_labor_cost),
+            ("Packaging Cost", self.design_packaging_cost),
+            ("Other Cost", self.design_other_cost),
+        ]
+        for i, (title, widget) in enumerate(fields):
+            r = i // 2
+            c = (i % 2) * 2
+            form_layout.addWidget(QLabel(title), r, c)
+            form_layout.addWidget(widget, r, c + 1)
+        left_layout.addWidget(self.bom_box)
+
+        self.lines_box = QGroupBox("Materials Used")
+        lines_layout = QVBoxLayout(self.lines_box)
         add_line_layout = QHBoxLayout()
         self.bom_material_combo = QComboBox()
-        self.bom_qty_input = QDoubleSpinBox()
-        self.bom_qty_input.setRange(0.001, 999999)
-        self.bom_qty_input.setDecimals(3)
-        self.add_bom_line_btn = QPushButton()
+        self.bom_qty_input = QDoubleSpinBox(); self.bom_qty_input.setRange(0.001, 999999); self.bom_qty_input.setDecimals(3)
+        self.add_bom_line_btn = QPushButton("Add Material")
         self.add_bom_line_btn.clicked.connect(self._add_bom_line)
         self.bom_material_label = QLabel()
         self.bom_qty_label = QLabel()
-        add_line_layout.addWidget(self.bom_material_label)
-        add_line_layout.addWidget(self.bom_material_combo)
-        add_line_layout.addWidget(self.bom_qty_label)
-        add_line_layout.addWidget(self.bom_qty_input)
+        add_line_layout.addWidget(QLabel("Material")); add_line_layout.addWidget(self.bom_material_combo)
+        add_line_layout.addWidget(QLabel("Qty Used")); add_line_layout.addWidget(self.bom_qty_input)
         add_line_layout.addWidget(self.add_bom_line_btn)
         lines_layout.addLayout(add_line_layout)
 
-        self.bom_lines_table = QTableWidget(0, 2)
+        self.bom_lines_table = QTableWidget(0, 5)
         self.bom_lines_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.bom_lines_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.bom_lines_table.setAlternatingRowColors(True)
@@ -253,10 +254,40 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         lines_layout.addWidget(self.bom_lines_table)
 
-        remove_line_btn = QPushButton()
-        remove_line_btn.clicked.connect(self._remove_bom_line)
-        lines_layout.addWidget(remove_line_btn)
-        self.remove_line_btn = remove_line_btn
+        self.remove_line_btn = QPushButton("Remove Material")
+        self.remove_line_btn.clicked.connect(self._remove_bom_line)
+        lines_layout.addWidget(self.remove_line_btn)
+        left_layout.addWidget(self.lines_box, 1)
+
+        self.cost_summary_box = QGroupBox("Cost Summary")
+        cost_layout = QFormLayout(self.cost_summary_box)
+        self.summary_material_cost = QLabel("0.00")
+        self.summary_extra_cost = QLabel("0.00")
+        self.summary_total_cost = QLabel("0.00")
+        self.summary_selling_price = QLabel("0.00")
+        self.summary_profit = QLabel("0.00")
+        self.summary_margin = QLabel("0.00%")
+        cost_layout.addRow("Material Cost", self.summary_material_cost)
+        cost_layout.addRow("Extra Cost", self.summary_extra_cost)
+        cost_layout.addRow("Total Cost", self.summary_total_cost)
+        cost_layout.addRow("Selling Price", self.summary_selling_price)
+        cost_layout.addRow("Profit", self.summary_profit)
+        cost_layout.addRow("Margin %", self.summary_margin)
+
+        left_wrap = QWidget(); left_wrap.setLayout(left_layout)
+        main_layout.addWidget(left_wrap, 3)
+        main_layout.addWidget(self.cost_summary_box, 1)
+        tab_layout.addLayout(main_layout, 1)
+
+        self.boms_table = QTableWidget(0, 3)
+        self.boms_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.boms_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.boms_table.setAlternatingRowColors(True)
+        self.boms_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.boms_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.boms_table.cellClicked.connect(self._load_bom)
+        tab_layout.addWidget(self.boms_table)
+
         self.bom_save_btn = QPushButton()
         self.create_product_btn = QPushButton("Create Product")
         self.bom_delete_btn = QPushButton()
@@ -266,35 +297,19 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_delete_btn.clicked.connect(self._delete_bom)
         self.bom_clear_btn.clicked.connect(self._clear_bom_form)
 
-        self.boms_table = QTableWidget(0, 3)
-        self.boms_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.boms_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.boms_table.setAlternatingRowColors(True)
-        self.boms_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.boms_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.boms_table.cellClicked.connect(self._load_bom)
-        form_container = BaseTabContainer(show_header=False)
-        form_content = QWidget()
-        form_content_layout = QVBoxLayout(form_content)
-        form_content_layout.setSpacing(12)
-        form_content_layout.addWidget(form_box)
-        form_content_layout.addWidget(lines_box)
-        form_container.set_page_content_widget(form_content)
-        form_container.footer_layout.addWidget(self.bom_save_btn)
-        form_container.footer_layout.addWidget(self.create_product_btn)
-        form_container.footer_layout.addWidget(self.bom_delete_btn)
-        form_container.footer_layout.addWidget(self.bom_clear_btn)
-
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(form_container)
-        splitter.addWidget(self.boms_table)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        tab_layout.addWidget(splitter)
+        footer = QHBoxLayout(); footer.addStretch(1)
+        footer.addWidget(self.bom_clear_btn); footer.addWidget(self.create_product_btn); footer.addWidget(self.bom_save_btn)
+        tab_layout.addLayout(footer)
 
         self.tabs.addTab(self.boms_tab, "")
 
         self._selected_bom_id: Optional[int] = None
+        self.design_qty_produced.valueChanged.connect(self._refresh_design_cost_summary)
+        self.design_labor_cost.valueChanged.connect(self._refresh_design_cost_summary)
+        self.design_packaging_cost.valueChanged.connect(self._refresh_design_cost_summary)
+        self.design_other_cost.valueChanged.connect(self._refresh_design_cost_summary)
+        self.design_product_price.valueChanged.connect(self._refresh_design_cost_summary)
+        self._refresh_design_cost_summary()
 
     def _build_orders_tab(self) -> None:
         self.orders_tab = QWidget()
@@ -700,13 +715,46 @@ class ManufacturingTab(BaseTabContainer):
         row = self.bom_lines_table.rowCount()
         self.bom_lines_table.insertRow(row)
         self.bom_lines_table.setItem(row, 0, QTableWidgetItem(self.bom_material_combo.currentText()))
-        self.bom_lines_table.setItem(row, 1, QTableWidgetItem(f"{qty_required:.3f}"))
+        self.bom_lines_table.setItem(row, 1, QTableWidgetItem("0.000"))
+        self.bom_lines_table.setItem(row, 2, QTableWidgetItem(f"{qty_required:.3f}"))
+        self.bom_lines_table.setItem(row, 3, QTableWidgetItem("0.00"))
+        self.bom_lines_table.setItem(row, 4, QTableWidgetItem("0.00"))
         self.bom_lines_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, material_id)
+        self._refresh_design_cost_summary()
 
     def _remove_bom_line(self) -> None:
         row = self.bom_lines_table.currentRow()
         if row >= 0:
             self.bom_lines_table.removeRow(row)
+            self._refresh_design_cost_summary()
+
+    def _refresh_design_cost_summary(self) -> None:
+        qty_produced = float(self.design_qty_produced.value()) if hasattr(self, "design_qty_produced") else 0.0
+        materials = {m.id: m for m in list_materials()}
+        material_total_cost = 0.0
+        for row in range(self.bom_lines_table.rowCount()):
+            material_id = self.bom_lines_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            qty_used = float(self.bom_lines_table.item(row, 2).text())
+            material = materials.get(material_id)
+            if not material:
+                continue
+            line_total_qty = qty_used * qty_produced
+            line_total_cost = line_total_qty * material.cost_per_unit
+            material_total_cost += line_total_cost
+            self.bom_lines_table.setItem(row, 1, QTableWidgetItem(f"{material.qty_on_hand:.3f}"))
+            self.bom_lines_table.setItem(row, 3, QTableWidgetItem(f"{material.cost_per_unit:.2f}"))
+            self.bom_lines_table.setItem(row, 4, QTableWidgetItem(f"{line_total_cost:.2f}"))
+        extra_cost = float(self.design_labor_cost.value() + self.design_packaging_cost.value() + self.design_other_cost.value())
+        total_cost = material_total_cost + extra_cost
+        selling_price = float(self.design_product_price.value())
+        profit = selling_price - total_cost
+        margin = (profit / selling_price * 100.0) if selling_price > 0 else 0.0
+        self.summary_material_cost.setText(f"{material_total_cost:.2f}")
+        self.summary_extra_cost.setText(f"{extra_cost:.2f}")
+        self.summary_total_cost.setText(f"{total_cost:.2f}")
+        self.summary_selling_price.setText(f"{selling_price:.2f}")
+        self.summary_profit.setText(f"{profit:.2f}")
+        self.summary_margin.setText(f"{margin:.2f}%")
 
     def _save_bom(self) -> None:
         product_id = self.bom_product_combo.currentData()
@@ -727,7 +775,7 @@ class ManufacturingTab(BaseTabContainer):
         lines = []
         for row in range(self.bom_lines_table.rowCount()):
             material_id = self.bom_lines_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            qty_required = float(self.bom_lines_table.item(row, 1).text())
+            qty_required = float(self.bom_lines_table.item(row, 2).text())
             lines.append((material_id, qty_required))
         if not lines:
             QMessageBox.warning(
@@ -766,7 +814,7 @@ class ManufacturingTab(BaseTabContainer):
         material_total_cost = 0.0
         for row in range(self.bom_lines_table.rowCount()):
             material_id = self.bom_lines_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            qty_required = float(self.bom_lines_table.item(row, 1).text())
+            qty_required = float(self.bom_lines_table.item(row, 2).text())
             required_total = qty_required * qty_produced
             material = materials.get(material_id)
             if material and required_total > material.qty_on_hand:
@@ -856,6 +904,7 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_name_input.clear()
         self.bom_active_check.setChecked(False)
         self.bom_lines_table.setRowCount(0)
+        self._refresh_design_cost_summary()
 
     def _load_bom(self, row: int) -> None:
         self._selected_bom_id = self.boms_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -876,8 +925,12 @@ class ManufacturingTab(BaseTabContainer):
             row_idx = self.bom_lines_table.rowCount()
             self.bom_lines_table.insertRow(row_idx)
             self.bom_lines_table.setItem(row_idx, 0, QTableWidgetItem(material_label))
-            self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem(f"{line.qty_required:.3f}"))
+            self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem("0.000"))
+            self.bom_lines_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.qty_required:.3f}"))
+            self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
+            self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
             self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
+        self._refresh_design_cost_summary()
 
     def _create_order(self) -> None:
         product_id = self.order_product_combo.currentData()
@@ -1094,8 +1147,12 @@ class ManufacturingTab(BaseTabContainer):
                 row_idx = self.bom_lines_table.rowCount()
                 self.bom_lines_table.insertRow(row_idx)
                 self.bom_lines_table.setItem(row_idx, 0, QTableWidgetItem(material_label))
-                self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem(f"{line.qty_required:.3f}"))
+                self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem("0.000"))
+                self.bom_lines_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.qty_required:.3f}"))
+                self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
+                self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
                 self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
+        self._refresh_design_cost_summary()
 
         self.tabs.setCurrentIndex(0)
         QMessageBox.information(
@@ -1180,25 +1237,20 @@ class ManufacturingTab(BaseTabContainer):
                 "Min Qty",
             ]
         )
-        self.bom_box.setTitle(t("manufacturing.bom_box", language=language))
+        self.bom_box.setTitle("Final Product")
         self.bom_product_label.setText(t("manufacturing.bom_product", language=language))
         self.bom_name_label.setText("Workshop")
         self.bom_name_label.setToolTip("Enter a clear workshop name for this design.")
         self.bom_active_check.setText(t("manufacturing.bom_active", language=language))
-        self.lines_box.setTitle(t("manufacturing.lines_box", language=language))
+        self.lines_box.setTitle("Materials Used")
         self.bom_material_label.setText(t("manufacturing.material_label", language=language))
         self.bom_qty_label.setText(t("manufacturing.qty_required", language=language))
-        self.add_bom_line_btn.setText(t("manufacturing.add_line", language=language))
-        self.bom_lines_table.setHorizontalHeaderLabels(
-            [
-                t("manufacturing.material_label", language=language),
-                t("manufacturing.qty_required", language=language),
-            ]
-        )
-        self.remove_line_btn.setText(t("manufacturing.remove_line", language=language))
-        self.bom_save_btn.setText(t("manufacturing.save_bom", language=language))
+        self.add_bom_line_btn.setText("Add Material")
+        self.bom_lines_table.setHorizontalHeaderLabels(["Material", "Available", "Qty Used", "Unit Cost", "Total Cost"])
+        self.remove_line_btn.setText("Remove Material")
+        self.bom_save_btn.setText("Save Design")
         self.bom_delete_btn.setText(t("manufacturing.delete_bom", language=language))
-        self.bom_clear_btn.setText(t("manufacturing.clear", language=language))
+        self.bom_clear_btn.setText("Clear")
         self.boms_table.setHorizontalHeaderLabels(
             [
                 t("manufacturing.bom_table_product", language=language),

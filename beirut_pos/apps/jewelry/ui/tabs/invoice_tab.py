@@ -1106,9 +1106,7 @@ class InvoiceTab(BaseTabContainer):
         if len(term) < 1:
             self._hide_customer_dropdown()
             return
-        logger.debug("Customer search term: %r", term)
         results = search_customers(term, limit=8)
-        logger.debug("Customer search matches: %d", len(results))
         self.customer_dropdown.clear()
         if results:
             for customer in results:
@@ -1232,7 +1230,6 @@ class InvoiceTab(BaseTabContainer):
         self.customer_dropdown_frame.move(anchor)
         self.customer_dropdown_frame.raise_()
         self.customer_dropdown_frame.show()
-        logger.debug("Customer dropdown shown: items=%d create_visible=%s", self.customer_dropdown.count(), self.customer_create_btn.isVisible())
 
     def _hide_customer_dropdown(self) -> None:
         self.customer_dropdown_frame.hide()
@@ -2028,17 +2025,12 @@ class InvoiceTab(BaseTabContainer):
         prefill_name = selected_name
         prefill_phone = selected_phone
         prefill_address = self.delivery_address_input.text().strip() or customer_address
-        logger.info("Delivery prefill selected customer id: %s", selected_customer_id)
-        logger.info("Delivery prefill name/phone used: name=%s phone=%s", prefill_name, prefill_phone)
         dialog.customer_name_input.setText(prefill_name)
         dialog.phone_input.setText(prefill_phone)
         dialog.address_input.setText(prefill_address)
         dialog.delivery_fee_input.setValue(float(self.delivery_fee_input.value()))
-        logger.info("Delivery dialog opened: true")
         result = dialog.exec()
-        logger.info("Delivery dialog result: %s", "accepted" if result == QDialog.DialogCode.Accepted else "rejected")
         if result != QDialog.DialogCode.Accepted:
-            logger.info("Saved delivery payload: %s", {})
             return False
         if not self._customer_id:
             self.customer_name_input.setText(dialog.customer_name_input.text().strip())
@@ -2055,14 +2047,6 @@ class InvoiceTab(BaseTabContainer):
             tagged_note = f"Delivery Notes: {delivery_notes}"
             if tagged_note not in base_notes:
                 self.notes_input.setPlainText(f"{base_notes}\n{tagged_note}".strip())
-        payload = {
-            "customer_name": self.customer_name_input.text().strip(),
-            "phone": self.customer_phone_input.text().strip(),
-            "address": self.delivery_address_input.text().strip(),
-            "delivery_fee": float(self.delivery_fee_input.value()),
-            "delivery_notes": delivery_notes,
-        }
-        logger.info("Saved delivery payload: %s", payload)
         return True
 
     def _add_product_to_invoice(self, product, qty: float) -> None:

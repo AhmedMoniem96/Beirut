@@ -31,6 +31,73 @@ class ProductAggregate:
 
 
 @dataclass
+class CustomerAggregate:
+    customer: str
+    phone: str
+    spend: float
+    points: float
+    invoice_count: int
+    last_purchase: str
+
+
+@dataclass
+class ProductRevenueAggregate:
+    name: str
+    code: str
+    qty: float
+    revenue: float
+
+
+def top_products_by_revenue(start_iso: str, end_iso: str, limit: int = 10, product_id: int | None = None) -> List[ProductRevenueAggregate]:
+    conn = get_conn()
+    cur = conn.cursor()
+    query = """SELECT ii.product_name, ii.product_code, COALESCE(SUM(ii.qty), 0), COALESCE(SUM(ii.line_total), 0)
+               FROM jw_invoice_items ii
+               JOIN jw_invoices i ON i.id = ii.invoice_id
+               WHERE i.txn_type = 'sale' AND i.datetime BETWEEN ? AND ?"""
+    params: List = [start_iso, end_iso]
+    if product_id is not None:
+        query += " AND ii.product_id = ?"
+        params.append(product_id)
+    query += " GROUP BY ii.product_name, ii.product_code ORDER BY 4 DESC LIMIT ?"
+    params.append(limit)
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+    conn.close()
+    return [ProductRevenueAggregate(row[0], row[1], row[2], row[3]) for row in rows]
+
+
+def customer_aggregates(start_iso: str, end_iso: str, customer_term: str = '', limit: int = 20) -> List[CustomerAggregate]:
+    conn = get_conn()
+    cur = conn.cursor()
+    query = """SELECT COALESCE(NULLIF(TRIM(customer_name), ''), 'Walk-in'),
+                      COALESCE(customer_phone, ''),
+                      COALESCE(SUM(total), 0),
+                      COALESCE(SUM(loyalty_earned), 0),
+                      COUNT(*),
+                      COALESCE(MAX(datetime), '')
+               FROM jw_invoices
+               WHERE txn_type = 'sale' AND datetime BETWEEN ? AND ?"""
+    params: List = [start_iso, end_iso]
+    if customer_term.strip():
+        query += " AND (LOWER(COALESCE(customer_name,'')) LIKE ? OR COALESCE(customer_phone,'') LIKE ?)"
+        term = f"%{customer_term.strip().lower()}%"
+        params.extend([term, f"%{customer_term.strip()}%"])
+    query += " GROUP BY COALESCE(NULLIF(TRIM(customer_name), ''), 'Walk-in'), COALESCE(customer_phone, '') ORDER BY 3 DESC LIMIT ?"
+    params.append(limit)
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+    conn.close()
+    return [CustomerAggregate(*row) for row in rows]
+
+
+def inventory_value_estimate() -> float:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COALESCE(SUM(qty_on_hand * price), 0) FROM jw_products")
+    value = float(cur.fetchone()[0] or 0.0)
+    conn.close()
+    return value
 class ProductionHistoryRow:
     order_no: str
     datetime: str

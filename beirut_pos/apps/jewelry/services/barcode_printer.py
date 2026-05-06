@@ -8,7 +8,9 @@ from typing import Sequence
 
 import importlib.util
 
-from PIL import Image
+
+
+from PIL import Image, ImageDraw
 
 if importlib.util.find_spec("reportlab") is None:
     raise RuntimeError("Barcode printing dependency missing")
@@ -115,6 +117,54 @@ def _barcode_drawing(barcode_value: str, barcode_type: str) -> Drawing:
     )
 
 
+def _fit_text_to_width(
+    text: str,
+    *,
+    max_width: int,
+    min_font_size: int = 14,
+    max_font_size: int = 22,
+) -> tuple[str, object]:
+    base_text = (text or "").strip() or "-"
+    ellipsis = "…"
+    for size in range(max_font_size, min_font_size - 1, -1):
+        font = printer_service.load_font(size=size)
+        bbox = font.getbbox(base_text)
+        if (bbox[2] - bbox[0]) <= max_width:
+            return base_text, font
+
+        truncated = base_text
+        while truncated:
+            candidate = (truncated[:-1].rstrip() + ellipsis) if len(truncated) > 1 else ellipsis
+            cb = font.getbbox(candidate)
+            if (cb[2] - cb[0]) <= max_width:
+                return candidate, font
+            truncated = truncated[:-1]
+
+    fallback_font = printer_service.load_font(size=min_font_size)
+    return ellipsis, fallback_font
+
+
+def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min_font_size: int) -> Image.Image:
+    usable_width = max(1, width - (LABEL_MARGIN_PX * 2))
+    shaped = printer_service._shape_for_bitmap((text or "").strip())
+    fitted_text, font = _fit_text_to_width(
+        shaped,
+        max_width=usable_width,
+        min_font_size=min_font_size,
+        max_font_size=max_font_size,
+    )
+    bbox = font.getbbox(fitted_text)
+    line_w = max(1, bbox[2] - bbox[0])
+    line_h = max(1, bbox[3] - bbox[1])
+    canvas_h = line_h + 4
+    canvas = Image.new("1", (width, canvas_h), 1)
+    draw = ImageDraw.Draw(canvas)
+    x = max((width - line_w) // 2, LABEL_MARGIN_PX)
+    y = 2 - bbox[1]
+    draw.text((x, y), fitted_text, font=font, fill=0)
+    return canvas
+
+
 def _center_on_label(img: Image.Image, *, width: int, height: int, pad_y: int = 6) -> Image.Image:
     if img.mode != "1":
         img = img.convert("1")
@@ -126,40 +176,23 @@ def _center_on_label(img: Image.Image, *, width: int, height: int, pad_y: int = 
 
 
 def _render_label_lines_at_width(lines: Sequence[str], width: int = LABEL_WIDTH_PX) -> tuple[Image.Image, str]:
-    """Render tagged label lines (>>C/>>R/>>L) at label width, not receipt width."""
+    """Render compact centered lines for narrow barcode labels."""
     width = max(1, int(width))
 
-    if getattr(printer_service, "_BITMAP_OK", False):
-        rows = []
-        font = printer_service.load_font(size=28)
-        for raw in lines:
-            align, txt = "left", raw
-            if raw.startswith(">>C "):
-                align, txt = "center", raw[4:]
-            elif raw.startswith(">>R "):
-                align, txt = "right", raw[4:]
-            elif raw.startswith(">>L "):
-                align, txt = "left", raw[4:]
+    rows = []
+    for idx, raw in enumerate(lines):
+        txt = raw[4:] if raw.startswith((">>C ", ">>R ", ">>L ")) else raw
+        max_font = 20 if idx == 0 else 18
+        min_font = 11 if idx == 0 else 10
+        rows.append(_render_fitted_center_line(txt, width=width, max_font_size=max_font, min_font_size=min_font))
 
-            shaped = printer_service._shape_for_bitmap(txt)
-            rows.append(
-                printer_service.render_line_bitmap(
-                    shaped,
-                    paper_px=width,
-                    font=font,
-                    align=align,
-                )
-            )
-
-        total_h = sum(im.height for im in rows) or 1
-        canvas = Image.new("1", (width, total_h), 1)
-        y = 0
-        for im in rows:
-            canvas.paste(im, (0, y))
-            y += im.height
-        return canvas, "render_line_bitmap"
-
-    return printer_service._render_lines_bitmap_fallback(lines, width=width), "fallback_bitmap"
+    total_h = sum(im.height for im in rows) or 1
+    canvas = Image.new("1", (width, total_h), 1)
+    y = 0
+    for im in rows:
+        canvas.paste(im, (0, y))
+        y += im.height
+    return canvas, "fitted_center_text"
 
 
 def render_barcode_label_image(

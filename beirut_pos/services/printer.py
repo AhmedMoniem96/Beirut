@@ -160,6 +160,9 @@ def _build_profile_probe_order() -> tuple[list[tuple[int,int]], list[dict]]:
 
 _ALLOW_USB_WITH_USBLP = os.environ.get("BEIRUT_POS_USB_TRY_BOTH", "0") == "1"
 
+
+DEBUG_LOGS_ENABLED = os.environ.get("BEIRUT_POS_DEBUG", "0") == "1"
+
 # Keep in sync with bitmap renderer
 PAPER_PX = 576  # 80mm at 203 dpi usable width
 RECEIPT_WIDTH_CHARS = 48  # 80mm text model (kept in sync with receipt previews)
@@ -188,6 +191,8 @@ def _log(msg: str) -> None:
 
 
 def _log_struct(event: str, **fields) -> None:
+    if event.startswith("printer.bitmap") and not DEBUG_LOGS_ENABLED:
+        return
     payload = {"event": event, **fields}
     try:
         _log("STRUCT " + json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str))

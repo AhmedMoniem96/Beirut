@@ -94,16 +94,16 @@ def _barcode_drawing(barcode_value: str, barcode_type: str) -> Drawing:
         return createBarcodeDrawing(
             "Code39",
             value=barcode_value,
-            barHeight=70,
-            barWidth=1.2,
+            barHeight=42,
+            barWidth=0.75,
             humanReadable=False,
         )
     if normalized == "code93":
         return createBarcodeDrawing(
             "Code93",
             value=barcode_value,
-            barHeight=70,
-            barWidth=1.2,
+            barHeight=42,
+            barWidth=0.75,
             humanReadable=False,
         )
     if normalized == "qr":
@@ -111,8 +111,8 @@ def _barcode_drawing(barcode_value: str, barcode_type: str) -> Drawing:
     return createBarcodeDrawing(
         "Code128",
         value=barcode_value,
-        barHeight=70,
-        barWidth=1.2,
+        barHeight=42,
+        barWidth=0.75,
         humanReadable=False,
     )
 
@@ -175,6 +175,28 @@ def _center_on_label(img: Image.Image, *, width: int, height: int, pad_y: int = 
     return canvas
 
 
+def _fit_barcode_image(
+    barcode_img: Image.Image,
+    *,
+    max_width: int,
+    max_height: int,
+) -> Image.Image:
+    target_w = max(1, int(max_width))
+    target_h = max(1, int(max_height))
+    scale = min(
+        target_w / max(barcode_img.width, 1),
+        target_h / max(barcode_img.height, 1),
+        1.0,
+    )
+    if scale >= 1.0:
+        return barcode_img
+    new_size = (
+        max(1, int(barcode_img.width * scale)),
+        max(1, int(barcode_img.height * scale)),
+    )
+    return barcode_img.resize(new_size, Image.NEAREST)
+
+
 def _render_label_lines_at_width(lines: Sequence[str], width: int = LABEL_WIDTH_PX) -> tuple[Image.Image, str]:
     """Render compact centered lines for narrow barcode labels."""
     width = max(1, int(width))
@@ -231,9 +253,11 @@ def render_barcode_label_image(
                 Image.NEAREST,
             )
 
-    max_inner_w = LABEL_WIDTH_PX - (LABEL_MARGIN_PX * 2)
-    max_inner_h = LABEL_HEIGHT_PX - (LABEL_MARGIN_PX * 2)
-    if barcode_width_px > max_inner_w or barcode_height_px > max_inner_h:
+    label = Image.new("1", (LABEL_WIDTH_PX, LABEL_HEIGHT_PX), 1)
+    header_h_target = min(int(LABEL_HEIGHT_PX * 0.4), max(32, LABEL_HEIGHT_PX - 70))
+    barcode_h_target = max(1, LABEL_HEIGHT_PX - header_h_target - LABEL_MARGIN_PX)
+    barcode_w_target = max(1, LABEL_WIDTH_PX - (LABEL_MARGIN_PX * 2))
+    if barcode_width_px > barcode_w_target or barcode_height_px > barcode_h_target:
         printer_service._log_struct(
             "barcode.label.compose.oversize_component",
             component="barcode",
@@ -243,15 +267,14 @@ def render_barcode_label_image(
             header_height_px=header_height_px,
             barcode_width_px=barcode_width_px,
             barcode_height_px=barcode_height_px,
-            max_component_width_px=max_inner_w,
-            max_component_height_px=max_inner_h,
+            max_component_width_px=barcode_w_target,
+            max_component_height_px=barcode_h_target,
         )
-    scale = min(max_inner_w / max(barcode_img.width, 1), max_inner_h / max(barcode_img.height, 1), 1.0)
-    if scale < 1.0:
-        new_size = (max(1, int(barcode_img.width * scale)), max(1, int(barcode_img.height * scale)))
-        barcode_img = barcode_img.resize(new_size, Image.NEAREST)
-    label = Image.new("1", (LABEL_WIDTH_PX, LABEL_HEIGHT_PX), 1)
-    header_h_target = min(int(LABEL_HEIGHT_PX * 0.4), max(32, LABEL_HEIGHT_PX - 70))
+    barcode_img = _fit_barcode_image(
+        barcode_img,
+        max_width=barcode_w_target,
+        max_height=barcode_h_target,
+    )
     if header_width_px > LABEL_WIDTH_PX or header_height_px > header_h_target:
         printer_service._log_struct(
             "barcode.label.compose.oversize_component",

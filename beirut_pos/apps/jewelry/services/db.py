@@ -76,6 +76,11 @@ class JewelryInvoice:
     customer_id: Optional[int] = None
     customer_name: str = ""
     customer_phone: str = ""
+    paid_total: float = 0.0
+    remaining_total: float = 0.0
+    delivery_enabled: bool = False
+    delivery_fee: float = 0.0
+    delivery_address: str = ""
 
 
 @dataclass
@@ -2696,8 +2701,10 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
         """SELECT invoice_no, datetime, cashier_name, txn_type, customer_id, COALESCE(customer_name, ''),
                   COALESCE(customer_phone, ''), subtotal, discount, COALESCE(discount_type, 'amount'),
                   COALESCE(discount_value, 0), COALESCE(loyalty_earned, 0),
-                  COALESCE(loyalty_redeemed, 0), total, payment_method,
-                  COALESCE(order_source, 'in_store'), COALESCE(website_order_ref, ''), notes, return_reason
+                  COALESCE(loyalty_redeemed, 0), total, payment_method, COALESCE(paid_total, 0),
+                  COALESCE(remaining_total, 0), COALESCE(delivery_enabled, 0), COALESCE(delivery_fee, 0),
+                  COALESCE(delivery_address, ''), COALESCE(order_source, 'in_store'),
+                  COALESCE(website_order_ref, ''), notes, return_reason
            FROM jw_invoices WHERE invoice_no = ?""",
         (invoice_no,),
     )
@@ -2721,10 +2728,15 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
         loyalty_redeemed=row[12],
         total=row[13],
         payment_method=row[14],
-        order_source=row[15],
-        website_order_ref=row[16],
-        notes=row[17],
-        return_reason=row[18],
+        paid_total=row[15],
+        remaining_total=row[16],
+        delivery_enabled=bool(row[17]),
+        delivery_fee=row[18],
+        delivery_address=row[19],
+        order_source=row[20],
+        website_order_ref=row[21],
+        notes=row[22],
+        return_reason=row[23],
     )
     cur.execute(
         """SELECT product_id, product_name, product_code, qty, unit_price, line_total

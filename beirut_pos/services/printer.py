@@ -811,24 +811,34 @@ def _find_thermal_printer(*, prefer_windows_named: bool = False, windows_printer
     _log_struct("printer.profile.loaded", profiles=profile_candidates, backend_priority=get_backend_priority())
 
     if RawUsbEscpos is not None and _RAW_USB_OK and "raw-usb-escpos" in get_backend_priority():
+        endpoint_try_order = [None, 0x01, 0x02]
+        if profile_candidates:
+            cfg_ep = profile_candidates[0].get("out_ep")
+            if cfg_ep in (0x01, 0x02):
+                endpoint_try_order = [cfg_ep] + [ep for ep in endpoint_try_order if ep != cfg_ep]
         for vendor, product in probe_order:
             try:
-                prn = RawUsbEscpos(vid=vendor, pid=product, interface=0)
-                _log_struct(
-                    "printer.discovery.selected",
-                    backend="raw-usb-escpos",
-                    vid=f"0x{vendor:04X}",
-                    pid=f"0x{product:04X}",
-                )
-                return prn
+                for out_ep in endpoint_try_order:
+                    try:
+                        prn = RawUsbEscpos(vid=vendor, pid=product, interface=0, out_ep=out_ep)
+                        _log_struct(
+                            "printer.discovery.selected",
+                            backend="raw-usb-escpos",
+                            vid=f"0x{vendor:04X}",
+                            pid=f"0x{product:04X}",
+                            out_ep=None if out_ep is None else f"0x{int(out_ep):02X}",
+                        )
+                        return prn
+                    except Exception as ep_exc:
+                        _log_struct(
+                            "printer.discovery.backend_candidate_failed",
+                            backend="raw-usb-escpos",
+                            vid=f"0x{vendor:04X}",
+                            pid=f"0x{product:04X}",
+                            out_ep=None if out_ep is None else f"0x{int(out_ep):02X}",
+                            error=str(ep_exc),
+                        )
             except Exception as e:
-                _log_struct(
-                    "printer.discovery.backend_failed",
-                    backend="raw-usb-escpos",
-                    vid=f"0x{vendor:04X}",
-                    pid=f"0x{product:04X}",
-                    error=str(e),
-                )
                 _log_printer_error("RawUsbEscpos failed", e)
 
     usb_printer = _try_usb_printer(usb_ids=probe_order)
@@ -1165,6 +1175,7 @@ class PrinterService:
             )
             bmp_tail = _render_lines_to_bitmap(tail_lines)
             img = _stack_bitmaps([bmp_head, bmp_tbl, bmp_tail]).convert("RGB")
+            _log_struct("printer.bitmap.metrics", context="cashier_receipt_windows", width_px=img.width, height_px=img.height, target_width_px=PAPER_PX)
             try:
                 win_print_image(self._cash_win, img)
                 _log_struct("printer.print_cashier_receipt", backend="windows", dispatched=True, table_code=table_code)
@@ -1243,6 +1254,7 @@ class PrinterService:
 
         if target_windows_printer:
             bmp = _render_lines_to_bitmap(lines)
+            _log_struct("printer.bitmap.metrics", context="text_receipt_windows", width_px=bmp.width, height_px=bmp.height, target_width_px=PAPER_PX)
             try:
                 win_print_image(target_windows_printer, bmp.convert("RGB"))
                 _log_struct("printer.print_text_receipt.return", backend="windows", mode=selected_mode, dispatched=True, printer_name=target_windows_printer, payload_type="bitmap")

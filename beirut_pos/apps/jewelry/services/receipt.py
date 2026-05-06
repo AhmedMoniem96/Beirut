@@ -68,6 +68,10 @@ def build_receipt_text(
             part for part in [invoice.customer_name, invoice.customer_phone] if part
         )
     lines.append(f">>R Customer: {customer_label}")
+    if invoice.customer_phone:
+        lines.append(f">>R Phone: {invoice.customer_phone}")
+    if invoice.delivery_enabled and invoice.delivery_address:
+        lines.append(f">>R Delivery Address: {invoice.delivery_address}")
 
     lines.append(_draw_line("═"))
     lines.append(_format_row(("Item", "Qty", "Price", "Total")))
@@ -95,7 +99,12 @@ def build_receipt_text(
     if invoice.loyalty_redeemed and float(invoice.loyalty_redeemed) > 0:
         redeemed_amount = _format_currency_simple(-abs(float(invoice.loyalty_redeemed)))
         lines.append(f">>R Loyalty Redeem: {redeemed_amount}")
-    lines.append(f">>R Total: {_format_currency_simple(invoice.total)}")
+    if invoice.delivery_fee and float(invoice.delivery_fee) > 0:
+        lines.append(f">>R Delivery Fee: {_format_currency_simple(invoice.delivery_fee)}")
+    lines.append(f">>R Grand Total: {_format_currency_simple(invoice.total)}")
+    lines.append(f">>R Paid: {_format_currency_simple(invoice.paid_total)}")
+    if float(invoice.remaining_total or 0) > 0:
+        lines.append(f">>R Remaining: {_format_currency_simple(invoice.remaining_total)}")
 
     lines.append(_draw_line("═"))
     lines.append(">>C LOYALTY")

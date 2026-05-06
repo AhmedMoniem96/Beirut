@@ -228,9 +228,7 @@ def render_barcode_label_image(
     sku_line = f"SKU: {sku}".strip()
     normalized_type = _normalize_barcode_type(barcode_type)
     type_label = _SUPPORTED_BARCODE_TYPES.get(normalized_type, barcode_type.strip() or "Barcode")
-    barcode_line = f"{type_label}: {barcode_value}".strip()
-
-    header_img, header_renderer = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line, ">>C " + barcode_line], LABEL_WIDTH_PX)
+    header_img, header_renderer = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line], LABEL_WIDTH_PX)
     header_width_px = header_img.width
     header_height_px = header_img.height
 
@@ -245,18 +243,15 @@ def render_barcode_label_image(
     barcode_height_px = barcode_img.height
 
     if header_img.width > LABEL_WIDTH_PX:
-        header_img, header_renderer = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line, ">>C " + barcode_line], LABEL_WIDTH_PX)
-        if header_img.width > LABEL_WIDTH_PX:
-            scale = LABEL_WIDTH_PX / max(header_img.width, 1)
-            header_img = header_img.resize(
-                (max(1, int(header_img.width * scale)), max(1, int(header_img.height * scale))),
-                Image.NEAREST,
-            )
+        scale = LABEL_WIDTH_PX / max(header_img.width, 1)
+        header_img = header_img.resize(
+            (max(1, int(header_img.width * scale)), max(1, int(header_img.height * scale))),
+            Image.NEAREST,
+        )
 
     label = Image.new("1", (LABEL_WIDTH_PX, LABEL_HEIGHT_PX), 1)
-    header_h_target = min(int(LABEL_HEIGHT_PX * 0.4), max(32, LABEL_HEIGHT_PX - 70))
-    barcode_h_target = max(1, LABEL_HEIGHT_PX - header_h_target - LABEL_MARGIN_PX)
     barcode_w_target = max(1, LABEL_WIDTH_PX - (LABEL_MARGIN_PX * 2))
+    barcode_h_target = max(1, LABEL_HEIGHT_PX - (LABEL_MARGIN_PX * 2))
     if barcode_width_px > barcode_w_target or barcode_height_px > barcode_h_target:
         printer_service._log_struct(
             "barcode.label.compose.oversize_component",
@@ -275,7 +270,7 @@ def render_barcode_label_image(
         max_width=barcode_w_target,
         max_height=barcode_h_target,
     )
-    if header_width_px > LABEL_WIDTH_PX or header_height_px > header_h_target:
+    if header_width_px > LABEL_WIDTH_PX:
         printer_service._log_struct(
             "barcode.label.compose.oversize_component",
             component="header",
@@ -286,25 +281,50 @@ def render_barcode_label_image(
             barcode_width_px=barcode_width_px,
             barcode_height_px=barcode_height_px,
             max_component_width_px=LABEL_WIDTH_PX,
-            max_component_height_px=header_h_target,
+            max_component_height_px=LABEL_HEIGHT_PX,
         )
-    header_img = _center_on_label(header_img, width=LABEL_WIDTH_PX, height=header_h_target, pad_y=2)
-    qr_h_target = LABEL_HEIGHT_PX - header_h_target
-    barcode_block = _center_on_label(barcode_img, width=LABEL_WIDTH_PX, height=qr_h_target, pad_y=2)
-    composed = Image.new("1", (LABEL_WIDTH_PX, header_img.height + barcode_block.height), 1)
-    composed.paste(header_img, (0, 0))
-    composed.paste(barcode_block, (0, header_img.height))
-    label.paste(composed.crop((0, 0, LABEL_WIDTH_PX, min(composed.height, LABEL_HEIGHT_PX))), (0, 0))
+    gap_px = 4
+    content_h = header_img.height + gap_px + barcode_img.height
+
+    if content_h > LABEL_HEIGHT_PX:
+        available_for_barcode_h = max(1, LABEL_HEIGHT_PX - header_img.height - gap_px)
+        barcode_img = _fit_barcode_image(
+            barcode_img,
+            max_width=barcode_w_target,
+            max_height=available_for_barcode_h,
+        )
+        content_h = header_img.height + gap_px + barcode_img.height
+
+    if content_h > LABEL_HEIGHT_PX:
+        available_for_header_h = max(1, LABEL_HEIGHT_PX - barcode_img.height - gap_px)
+        if header_img.height > available_for_header_h:
+            scale = available_for_header_h / max(header_img.height, 1)
+            header_img = header_img.resize(
+                (max(1, int(header_img.width * scale)), max(1, int(header_img.height * scale))),
+                Image.NEAREST,
+            )
+            content_h = header_img.height + gap_px + barcode_img.height
+
+    top_y = max(0, (LABEL_HEIGHT_PX - content_h) // 2)
+    header_x = max(0, (LABEL_WIDTH_PX - header_img.width) // 2)
+    barcode_x = max(0, (LABEL_WIDTH_PX - barcode_img.width) // 2)
+    barcode_y = top_y + header_img.height + gap_px
+    if barcode_y + barcode_img.height > LABEL_HEIGHT_PX:
+        barcode_y = max(top_y + header_img.height, LABEL_HEIGHT_PX - barcode_img.height)
+
+    label.paste(header_img, (header_x, top_y))
+    label.paste(barcode_img, (barcode_x, barcode_y))
     printer_service._log_struct(
         "barcode.label.compose.metrics",
         label_width_px=LABEL_WIDTH_PX,
         label_height_px=LABEL_HEIGHT_PX,
-        header_width_px=header_width_px,
-        header_height_px=header_height_px,
-        barcode_width_px=barcode_width_px,
-        barcode_height_px=barcode_height_px,
-        composed_width_px=composed.width,
-        composed_height_px=composed.height,
+        text_width_px=header_img.width,
+        text_height_px=header_img.height,
+        barcode_width_px=barcode_img.width,
+        barcode_height_px=barcode_img.height,
+        final_content_height_px=content_h,
+        content_top_y_px=top_y,
+        barcode_y_px=barcode_y,
         final_canvas_width_px=label.width,
         final_canvas_height_px=label.height,
         header_renderer=header_renderer,

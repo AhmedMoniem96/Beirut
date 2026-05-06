@@ -103,8 +103,8 @@ class JewelryMainWindow(QMainWindow):
         self.tabs.addTab(self.customers_tab, "")
         self.tabs.currentChanged.connect(self._handle_tab_change)
         self.tabs.setCurrentWidget(self.manufacturing_tab)
-        self.manufacturing_tab.order_done_btn.clicked.connect(self.inventory_tab.refresh)
-        self.manufacturing_tab.order_confirm_btn.clicked.connect(self.inventory_tab.refresh)
+        if hasattr(self.manufacturing_tab, "inventory_changed"):
+            self.manufacturing_tab.inventory_changed.connect(self.inventory_tab.refresh)
 
         self._build_menu()
 

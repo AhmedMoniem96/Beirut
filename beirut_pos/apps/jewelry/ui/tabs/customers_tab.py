@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from .base_tab import BaseTabContainer
 from ...services.db import (
     get_customer_invoices,
+    get_loyalty_history,
     get_customer_summary_rows,
     get_loyalty_balance,
     save_customer,
@@ -55,6 +56,12 @@ class CustomersTab(BaseTabContainer):
             "Invoice No", "Date", "Total", "Status", "Payment Method", "Loyalty Earned/Redeemed"
         ])
         layout.addWidget(self.invoices_table)
+
+        self.loyalty_history_table = QTableWidget(0, 4)
+        self.loyalty_history_table.setHorizontalHeaderLabels([
+            "Date", "Invoice No", "Reason", "Points Delta"
+        ])
+        layout.addWidget(self.loyalty_history_table)
 
         actions = QHBoxLayout()
         self.save_btn = QPushButton("Save Customer")
@@ -114,6 +121,7 @@ class CustomersTab(BaseTabContainer):
 
     def _refresh_invoices(self) -> None:
         self.invoices_table.setRowCount(0)
+        self.loyalty_history_table.setRowCount(0)
         if not self._selected_customer_id:
             return
         rows = get_customer_invoices(self._selected_customer_id)
@@ -124,6 +132,13 @@ class CustomersTab(BaseTabContainer):
             values = [entry["invoice_no"], entry["date"], f"{entry['total']:.2f}", entry["status"], entry["payment_method"], loyalty]
             for col, value in enumerate(values):
                 self.invoices_table.setItem(row, col, QTableWidgetItem(str(value)))
+        history = get_loyalty_history(self._selected_customer_id)
+        for entry in history:
+            row = self.loyalty_history_table.rowCount()
+            self.loyalty_history_table.insertRow(row)
+            values = [entry["created_at"], entry["invoice_no"], entry["reason"], f"{entry['points_delta']:.2f}"]
+            for col, value in enumerate(values):
+                self.loyalty_history_table.setItem(row, col, QTableWidgetItem(str(value)))
 
     def _save_customer(self) -> None:
         name = self.name_input.text().strip()
@@ -157,6 +172,7 @@ class CustomersTab(BaseTabContainer):
         self.notes_input.clear()
         self.points_input.setText("0")
         self.invoices_table.setRowCount(0)
+        self.loyalty_history_table.setRowCount(0)
         self.name_input.setFocus()
 
     def _select_customer_in_table(self, customer_phone: str) -> None:

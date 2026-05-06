@@ -101,9 +101,11 @@ def build_receipt_text(
     lines.append(">>C LOYALTY")
     has_customer = bool(invoice.customer_id or invoice.customer_name or invoice.customer_phone)
     earned_points = int(invoice.loyalty_earned) if has_customer else 0
+    redeemed_points = int(abs(float(invoice.loyalty_redeemed or 0))) if has_customer else 0
     lines.append(f">>R Earned this invoice: {earned_points}")
+    lines.append(f">>R Redeemed this invoice: {redeemed_points}")
     if has_customer and loyalty_balance is not None:
-        lines.append(f">>R Total points: {int(loyalty_balance)}")
+        lines.append(f">>R Remaining points: {int(loyalty_balance)}")
     if (
         has_customer
         and loyalty_balance is not None

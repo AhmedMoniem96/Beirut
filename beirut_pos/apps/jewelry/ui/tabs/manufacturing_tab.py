@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QInputDialog,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -122,9 +123,11 @@ class ManufacturingTab(BaseTabContainer):
         self.material_save_btn = QPushButton()
         self.material_delete_btn = QPushButton()
         self.material_clear_btn = QPushButton()
+        self.material_restock_btn = QPushButton()
         self.material_save_btn.clicked.connect(self._save_material)
         self.material_delete_btn.clicked.connect(self._delete_material)
         self.material_clear_btn.clicked.connect(self._clear_material_form)
+        self.material_restock_btn.clicked.connect(self._restock_material)
 
         self.materials_table = QTableWidget(0, 7)
         self.materials_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -140,6 +143,7 @@ class ManufacturingTab(BaseTabContainer):
         form_content_layout.addWidget(form_box)
         form_container.set_page_content_widget(form_content)
         form_container.footer_layout.addWidget(self.material_save_btn)
+        form_container.footer_layout.addWidget(self.material_restock_btn)
         form_container.footer_layout.addWidget(self.material_delete_btn)
         form_container.footer_layout.addWidget(self.material_clear_btn)
 
@@ -467,8 +471,8 @@ class ManufacturingTab(BaseTabContainer):
             self.materials_table.setItem(row, 2, QTableWidgetItem(material.code))
             self.materials_table.setItem(row, 3, QTableWidgetItem(f"{material.qty_on_hand:.3f}"))
             self.materials_table.setItem(row, 4, QTableWidgetItem(material.unit))
-            self.materials_table.setItem(row, 5, QTableWidgetItem(f"{material.min_qty:.3f}"))
-            self.materials_table.setItem(row, 6, QTableWidgetItem(f"{material.cost_per_unit:.2f}"))
+            self.materials_table.setItem(row, 5, QTableWidgetItem(f"{material.cost_per_unit:.2f}"))
+            self.materials_table.setItem(row, 6, QTableWidgetItem(f"{material.min_qty:.3f}"))
             self.materials_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, material.id)
             display = f"{choose_name(material.name_ar, material.name_en, language=self._language)} ({material.code})"
             self._material_map[display] = material.id
@@ -599,6 +603,36 @@ class ManufacturingTab(BaseTabContainer):
         self._refresh_materials()
         self._clear_material_form()
 
+    def _restock_material(self) -> None:
+        if not self._selected_material_id:
+            QMessageBox.warning(self, t("common.select", language=self._language), "Select a material first.")
+            return
+        amount, ok = QInputDialog.getDouble(
+            self,
+            "Restock Material",
+            "Restock Quantity",
+            0.0,
+            0.001,
+            999999.0,
+            3,
+        )
+        if not ok:
+            return
+        new_qty = float(self.material_qty.value()) + float(amount)
+        save_material(
+            self._selected_material_id,
+            self.material_name_ar.text().strip(),
+            self.material_name_en.text().strip(),
+            self.material_code.text().strip(),
+            new_qty,
+            self.material_unit.text().strip(),
+            float(self.material_min_qty.value()),
+            float(self.material_cost.value()),
+        )
+        self.material_qty.setValue(new_qty)
+        QMessageBox.information(self, t("common.saved_title", language=self._language), "Material restocked.")
+        self._refresh_materials()
+
     def _clear_material_form(self) -> None:
         self._selected_material_id = None
         self.material_name_ar.clear()
@@ -616,8 +650,8 @@ class ManufacturingTab(BaseTabContainer):
         self.material_code.setText(self.materials_table.item(row, 2).text())
         self.material_qty.setValue(float(self.materials_table.item(row, 3).text()))
         self.material_unit.setText(self.materials_table.item(row, 4).text())
-        self.material_min_qty.setValue(float(self.materials_table.item(row, 5).text()))
-        self.material_cost.setValue(float(self.materials_table.item(row, 6).text()))
+        self.material_cost.setValue(float(self.materials_table.item(row, 5).text()))
+        self.material_min_qty.setValue(float(self.materials_table.item(row, 6).text()))
 
     def _add_bom_line(self) -> None:
         material_id = self.bom_material_combo.currentData()
@@ -1003,7 +1037,7 @@ class ManufacturingTab(BaseTabContainer):
         if self.header_label is not None:
             self.header_label.setText(t("manufacturing.header", language=language))
         self.tabs.setTabText(0, "Create Design")
-        self.tabs.setTabText(1, "Materials")
+        self.tabs.setTabText(1, "Raw Material Stock")
         self.tabs.setTabText(2, "History")
         self.materials_box.setTitle(t("manufacturing.materials_box", language=language))
         self.material_name_ar_label.setText(t("manufacturing.material_name_ar", language=language))
@@ -1013,18 +1047,19 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit_label.setText(t("manufacturing.material_unit", language=language))
         self.material_min_qty_label.setText(t("manufacturing.material_min_qty", language=language))
         self.material_cost_label.setText(t("manufacturing.material_cost", language=language))
-        self.material_save_btn.setText(t("manufacturing.save_material", language=language))
-        self.material_delete_btn.setText(t("manufacturing.delete", language=language))
-        self.material_clear_btn.setText(t("manufacturing.clear", language=language))
+        self.material_save_btn.setText("Save Material")
+        self.material_restock_btn.setText("Restock Material")
+        self.material_delete_btn.setText("Delete Material")
+        self.material_clear_btn.setText("Add Material")
         self.materials_table.setHorizontalHeaderLabels(
             [
-                t("manufacturing.table_arabic", language=language),
-                t("manufacturing.table_english", language=language),
-                t("manufacturing.table_code", language=language),
-                t("manufacturing.table_qty", language=language),
-                t("manufacturing.table_unit", language=language),
-                t("manufacturing.table_min", language=language),
-                t("manufacturing.table_cost", language=language),
+                "Material Name Arabic",
+                "Material Name English",
+                "Code",
+                "Qty On Hand",
+                "Unit",
+                "Unit Cost",
+                "Min Qty",
             ]
         )
         self.bom_box.setTitle(t("manufacturing.bom_box", language=language))

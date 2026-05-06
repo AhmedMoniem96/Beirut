@@ -10,6 +10,7 @@ import re
 from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -83,7 +84,29 @@ class ManufacturingTab(BaseTabContainer):
         self._refresh_design_products()
         self._refresh_history_products()
         self._refresh_boms()
+        self._disable_spinbox_arrows()
         self.apply_language(self._language)
+
+
+    def _disable_spinbox_arrows(self) -> None:
+        for widget_name in (
+            "material_qty",
+            "material_min_qty",
+            "material_cost",
+            "design_product_price",
+            "design_qty_produced",
+            "design_labor_cost",
+            "design_packaging_cost",
+            "design_other_cost",
+            "design_profit_pct",
+            "bom_qty_input",
+            "order_qty_input",
+            "order_labor_input",
+            "order_overhead_input",
+        ):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
     def _build_materials_tab(self) -> None:
         self.materials_tab = QWidget()
@@ -1131,8 +1154,8 @@ class ManufacturingTab(BaseTabContainer):
         self._language = language
         if self.header_label is not None:
             self.header_label.setText(t("manufacturing.header", language=language))
-        self.tabs.setTabText(0, "Create Design")
-        self.tabs.setTabText(1, "Raw Material Stock")
+        self.tabs.setTabText(0, "Design")
+        self.tabs.setTabText(1, "Materials")
         self.tabs.setTabText(2, "History")
         self.materials_box.setTitle(t("manufacturing.materials_box", language=language))
         self.material_name_ar_label.setText(t("manufacturing.material_name_ar", language=language))
@@ -1159,8 +1182,8 @@ class ManufacturingTab(BaseTabContainer):
         )
         self.bom_box.setTitle(t("manufacturing.bom_box", language=language))
         self.bom_product_label.setText(t("manufacturing.bom_product", language=language))
-        self.bom_name_label.setText("تركيبة التصنيع (BOM)")
-        self.bom_name_label.setToolTip("اكتب اسمًا بسيطًا يوضح مكونات التصنيع والكميات المطلوبة.")
+        self.bom_name_label.setText("Workshop")
+        self.bom_name_label.setToolTip("Enter a clear workshop name for this design.")
         self.bom_active_check.setText(t("manufacturing.bom_active", language=language))
         self.lines_box.setTitle(t("manufacturing.lines_box", language=language))
         self.bom_material_label.setText(t("manufacturing.material_label", language=language))
@@ -1210,7 +1233,7 @@ class ManufacturingTab(BaseTabContainer):
                 ]
             )
         self.history_box.setTitle(t("manufacturing.history_box", language=language))
-        self.history_help.setText("إزاي تستخدم التصنيع في 3 خطوات: 1) اعمل المواد الخام. 2) جهّز تركيبة التصنيع (BOM). 3) أنشئ أمر، أكدّه، ثم أنهِه.")
+        self.history_help.setText("3 steps: 1) Add materials. 2) Build a workshop design. 3) Create product and review history.")
         self.history_from_label.setText(f"{t('common.from', language=language)}:")
         self.history_to_label.setText(f"{t('common.to', language=language)}:")
         self.history_status_label.setText(f"{t('manufacturing.history_status', language=language)}:")

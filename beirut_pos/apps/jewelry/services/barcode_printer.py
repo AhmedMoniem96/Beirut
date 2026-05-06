@@ -37,9 +37,9 @@ def _mm_to_px(mm: float, dpi: int = _LABEL_DPI) -> int:
     return max(1, int(round((mm / _MM_PER_INCH) * dpi)))
 
 
-_QR_LABEL_WIDTH_PX = _mm_to_px(_QR_LABEL_WIDTH_MM)
-_QR_LABEL_HEIGHT_PX = _mm_to_px(_QR_LABEL_HEIGHT_MM)
-_QR_LABEL_PADDING_PX = 8
+LABEL_WIDTH_PX = _mm_to_px(_QR_LABEL_WIDTH_MM)
+LABEL_HEIGHT_PX = _mm_to_px(_QR_LABEL_HEIGHT_MM)
+LABEL_MARGIN_PX = 8
 
 
 
@@ -125,7 +125,7 @@ def _center_on_label(img: Image.Image, *, width: int, height: int, pad_y: int = 
     return canvas
 
 
-def _render_label_lines_at_width(lines: Sequence[str], width: int = _QR_LABEL_WIDTH_PX) -> Image.Image:
+def _render_label_lines_at_width(lines: Sequence[str], width: int = LABEL_WIDTH_PX) -> tuple[Image.Image, str]:
     """Render tagged label lines (>>C/>>R/>>L) at label width, not receipt width."""
     width = max(1, int(width))
 
@@ -157,9 +157,9 @@ def _render_label_lines_at_width(lines: Sequence[str], width: int = _QR_LABEL_WI
         for im in rows:
             canvas.paste(im, (0, y))
             y += im.height
-        return canvas
+        return canvas, "render_line_bitmap"
 
-    return printer_service._render_lines_bitmap_fallback(lines, width=width)
+    return printer_service._render_lines_bitmap_fallback(lines, width=width), "fallback_bitmap"
 
 
 def render_barcode_label_image(
@@ -175,35 +175,37 @@ def render_barcode_label_image(
     type_label = _SUPPORTED_BARCODE_TYPES.get(normalized_type, barcode_type.strip() or "Barcode")
     barcode_line = f"{type_label}: {barcode_value}".strip()
 
-    header_img = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line, ">>C " + barcode_line], _QR_LABEL_WIDTH_PX)
+    header_img, header_renderer = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line, ">>C " + barcode_line], LABEL_WIDTH_PX)
     header_width_px = header_img.width
     header_height_px = header_img.height
 
+    barcode_renderer = "reportlab"
     try:
         barcode_drawing = _barcode_drawing(barcode_value, barcode_type)
         barcode_img = renderPM.drawToPIL(barcode_drawing).convert("1")
     except Exception:
+        barcode_renderer = "printer_service._render_lines_to_bitmap"
         barcode_img = printer_service._render_lines_to_bitmap([">>C [BARCODE]"])
     barcode_width_px = barcode_img.width
     barcode_height_px = barcode_img.height
 
-    if header_img.width > _QR_LABEL_WIDTH_PX:
-        header_img = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line, ">>C " + barcode_line], _QR_LABEL_WIDTH_PX)
-        if header_img.width > _QR_LABEL_WIDTH_PX:
-            scale = _QR_LABEL_WIDTH_PX / max(header_img.width, 1)
+    if header_img.width > LABEL_WIDTH_PX:
+        header_img, header_renderer = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line, ">>C " + barcode_line], LABEL_WIDTH_PX)
+        if header_img.width > LABEL_WIDTH_PX:
+            scale = LABEL_WIDTH_PX / max(header_img.width, 1)
             header_img = header_img.resize(
                 (max(1, int(header_img.width * scale)), max(1, int(header_img.height * scale))),
                 Image.NEAREST,
             )
 
-    max_inner_w = _QR_LABEL_WIDTH_PX - (_QR_LABEL_PADDING_PX * 2)
-    max_inner_h = _QR_LABEL_HEIGHT_PX - (_QR_LABEL_PADDING_PX * 2)
+    max_inner_w = LABEL_WIDTH_PX - (LABEL_MARGIN_PX * 2)
+    max_inner_h = LABEL_HEIGHT_PX - (LABEL_MARGIN_PX * 2)
     if barcode_width_px > max_inner_w or barcode_height_px > max_inner_h:
         printer_service._log_struct(
             "barcode.label.compose.oversize_component",
             component="barcode",
-            label_width_px=_QR_LABEL_WIDTH_PX,
-            label_height_px=_QR_LABEL_HEIGHT_PX,
+            label_width_px=LABEL_WIDTH_PX,
+            label_height_px=LABEL_HEIGHT_PX,
             header_width_px=header_width_px,
             header_height_px=header_height_px,
             barcode_width_px=barcode_width_px,
@@ -215,30 +217,32 @@ def render_barcode_label_image(
     if scale < 1.0:
         new_size = (max(1, int(barcode_img.width * scale)), max(1, int(barcode_img.height * scale)))
         barcode_img = barcode_img.resize(new_size, Image.NEAREST)
-    label = Image.new("1", (_QR_LABEL_WIDTH_PX, _QR_LABEL_HEIGHT_PX), 1)
-    header_h_target = min(int(_QR_LABEL_HEIGHT_PX * 0.4), max(32, _QR_LABEL_HEIGHT_PX - 70))
-    if header_width_px > _QR_LABEL_WIDTH_PX or header_height_px > header_h_target:
+    label = Image.new("1", (LABEL_WIDTH_PX, LABEL_HEIGHT_PX), 1)
+    header_h_target = min(int(LABEL_HEIGHT_PX * 0.4), max(32, LABEL_HEIGHT_PX - 70))
+    if header_width_px > LABEL_WIDTH_PX or header_height_px > header_h_target:
         printer_service._log_struct(
             "barcode.label.compose.oversize_component",
             component="header",
-            label_width_px=_QR_LABEL_WIDTH_PX,
-            label_height_px=_QR_LABEL_HEIGHT_PX,
+            label_width_px=LABEL_WIDTH_PX,
+            label_height_px=LABEL_HEIGHT_PX,
             header_width_px=header_width_px,
             header_height_px=header_height_px,
             barcode_width_px=barcode_width_px,
             barcode_height_px=barcode_height_px,
-            max_component_width_px=_QR_LABEL_WIDTH_PX,
+            max_component_width_px=LABEL_WIDTH_PX,
             max_component_height_px=header_h_target,
         )
-    header_img = _center_on_label(header_img, width=_QR_LABEL_WIDTH_PX, height=header_h_target, pad_y=2)
-    qr_h_target = _QR_LABEL_HEIGHT_PX - header_h_target
-    barcode_block = _center_on_label(barcode_img, width=_QR_LABEL_WIDTH_PX, height=qr_h_target, pad_y=2)
-    composed = printer_service._stack_bitmaps([header_img, barcode_block])
-    label.paste(composed.crop((0, 0, _QR_LABEL_WIDTH_PX, min(composed.height, _QR_LABEL_HEIGHT_PX))), (0, 0))
+    header_img = _center_on_label(header_img, width=LABEL_WIDTH_PX, height=header_h_target, pad_y=2)
+    qr_h_target = LABEL_HEIGHT_PX - header_h_target
+    barcode_block = _center_on_label(barcode_img, width=LABEL_WIDTH_PX, height=qr_h_target, pad_y=2)
+    composed = Image.new("1", (LABEL_WIDTH_PX, header_img.height + barcode_block.height), 1)
+    composed.paste(header_img, (0, 0))
+    composed.paste(barcode_block, (0, header_img.height))
+    label.paste(composed.crop((0, 0, LABEL_WIDTH_PX, min(composed.height, LABEL_HEIGHT_PX))), (0, 0))
     printer_service._log_struct(
         "barcode.label.compose.metrics",
-        label_width_px=_QR_LABEL_WIDTH_PX,
-        label_height_px=_QR_LABEL_HEIGHT_PX,
+        label_width_px=LABEL_WIDTH_PX,
+        label_height_px=LABEL_HEIGHT_PX,
         header_width_px=header_width_px,
         header_height_px=header_height_px,
         barcode_width_px=barcode_width_px,
@@ -247,6 +251,9 @@ def render_barcode_label_image(
         composed_height_px=composed.height,
         final_canvas_width_px=label.width,
         final_canvas_height_px=label.height,
+        header_renderer=header_renderer,
+        barcode_renderer=barcode_renderer,
+        compose_renderer="label_fixed_canvas",
     )
     return label
 
@@ -294,8 +301,8 @@ def print_barcode_label_image(
         if printer_name and printer_name != "auto" and printer_service._IS_WINDOWS:
             printer_service._log_struct(
                 "barcode.label.print.payload",
-                label_width_px=_QR_LABEL_WIDTH_PX,
-                label_height_px=_QR_LABEL_HEIGHT_PX,
+                label_width_px=LABEL_WIDTH_PX,
+                label_height_px=LABEL_HEIGHT_PX,
                 header_width_px=0,
                 header_height_px=0,
                 barcode_width_px=0,
@@ -321,8 +328,8 @@ def print_barcode_label_image(
                 raster = pil_image_to_escpos_raster(img)
                 printer_service._log_struct(
                     "barcode.label.print.payload",
-                    label_width_px=_QR_LABEL_WIDTH_PX,
-                    label_height_px=_QR_LABEL_HEIGHT_PX,
+                    label_width_px=LABEL_WIDTH_PX,
+                    label_height_px=LABEL_HEIGHT_PX,
                     header_width_px=0,
                     header_height_px=0,
                     barcode_width_px=0,
@@ -368,8 +375,8 @@ def print_barcode_label_image(
                 raise RuntimeError("No Windows default printer detected.")
             printer_service._log_struct(
                 "barcode.label.print.payload",
-                label_width_px=_QR_LABEL_WIDTH_PX,
-                label_height_px=_QR_LABEL_HEIGHT_PX,
+                label_width_px=LABEL_WIDTH_PX,
+                label_height_px=LABEL_HEIGHT_PX,
                 header_width_px=0,
                 header_height_px=0,
                 barcode_width_px=0,

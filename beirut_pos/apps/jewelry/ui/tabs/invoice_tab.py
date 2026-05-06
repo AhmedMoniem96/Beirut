@@ -70,6 +70,7 @@ from ...services.receipt import build_receipt_text
 from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
+from ...services.loyalty import currency_to_points, points_to_currency
 from beirut_pos.services.printer import printer
 from ..date_utils import to_iso_date
 from ..theme import JEWELRY_CONTROLS, JEWELRY_SPACING, JEWELRY_TABLE, JEWELRY_TYPOGRAPHY
@@ -288,10 +289,13 @@ class InvoiceTab(BaseTabContainer):
         self.customer_email_input.textChanged.connect(self._clear_customer_selection)
         self.customer_name_input.textChanged.connect(self._update_validation_state)
         self.customer_phone_input.textChanged.connect(self._update_validation_state)
-        self.loyalty_redeem_input = QDoubleSpinBox()
-        self.loyalty_redeem_input.setDecimals(2)
+        self.loyalty_redeem_input = QSpinBox()
         self.loyalty_redeem_input.setRange(0, 999999)
-        self.loyalty_redeem_input.valueChanged.connect(self._recalculate_totals)
+        self.loyalty_redeem_input.valueChanged.connect(self._handle_redeem_points_changed)
+        self.loyalty_apply_btn = QPushButton("Apply Redeem")
+        self.loyalty_apply_btn.clicked.connect(self._apply_loyalty_redeem)
+        self.loyalty_available_label = QLabel("Available Points: 0")
+        self.loyalty_redeem_value_label = QLabel("Redeem Value: 0.00")
         self.loyalty_earned_label = QLabel("0")
         self.customer_save_btn = QPushButton()
         self.customer_save_btn.clicked.connect(self._save_customer_profile)
@@ -612,6 +616,17 @@ class InvoiceTab(BaseTabContainer):
         payment_layout.addRow(QLabel(""), self.pay_now_hint_label)
         payment_layout.addRow(self.payment_due_date_label, self.payment_due_date_input)
         payment_layout.addRow(self.payment_order_status_label, self.payment_order_status_combo)
+        self.loyalty_compact_box = QGroupBox("Loyalty")
+        loyalty_layout = QFormLayout(self.loyalty_compact_box)
+        loyalty_redeem_row = QWidget()
+        loyalty_redeem_row_layout = QHBoxLayout(loyalty_redeem_row)
+        loyalty_redeem_row_layout.setContentsMargins(0, 0, 0, 0)
+        loyalty_redeem_row_layout.addWidget(self.loyalty_redeem_input, 1)
+        loyalty_redeem_row_layout.addWidget(self.loyalty_apply_btn)
+        loyalty_layout.addRow(self.loyalty_available_label)
+        loyalty_layout.addRow(QLabel("Redeem Points"), loyalty_redeem_row)
+        loyalty_layout.addRow(self.loyalty_redeem_value_label)
+        right_layout.addWidget(self.loyalty_compact_box)
         right_layout.addWidget(payment_box)
 
         calculator_box = QGroupBox()
@@ -981,9 +996,10 @@ class InvoiceTab(BaseTabContainer):
     def _handle_txn_type_change(self) -> None:
         is_return = self.txn_type_combo.currentIndex() == 1
         self._update_return_reason_state()
-        self.loyalty_redeem_input.setEnabled(not is_return)
+        self.loyalty_redeem_input.setEnabled(not is_return and bool(self._customer_id) and self._customer_points > 0)
+        self.loyalty_apply_btn.setEnabled(not is_return and bool(self._customer_id) and self._customer_points > 0)
         if is_return:
-            self.loyalty_redeem_input.setValue(0.0)
+            self.loyalty_redeem_input.setValue(0)
         self._refresh_summary_labels()
         self._update_validation_state()
 
@@ -1139,6 +1155,7 @@ class InvoiceTab(BaseTabContainer):
         self._customer_id = customer.phone
         self._customer_points = points
         self.customer_points_label.setText(f"{self._customer_points:.2f}")
+        self.loyalty_redeem_input.setValue(0)
         self.customer_search_input.blockSignals(True)
         self.customer_search_input.setText(f"{customer.name} ({customer.phone})")
         self.customer_search_input.blockSignals(False)
@@ -1181,6 +1198,7 @@ class InvoiceTab(BaseTabContainer):
         self._customer_id = save_customer(name, phone, email)
         self._customer_points = get_loyalty_balance(self._customer_id)
         self.customer_points_label.setText(f"{self._customer_points:.2f}")
+        self.loyalty_redeem_input.setValue(0)
         self.customer_search_input.blockSignals(True)
         self.customer_search_input.setText(f"{name} ({phone})")
         self.customer_search_input.blockSignals(False)
@@ -1202,6 +1220,7 @@ class InvoiceTab(BaseTabContainer):
         self._customer_id = None
         self._customer_points = 0.0
         self.customer_points_label.setText("0")
+        self.loyalty_redeem_input.setValue(0)
         self._recalculate_totals()
 
     def _show_customer_dropdown(self) -> None:
@@ -1338,12 +1357,29 @@ class InvoiceTab(BaseTabContainer):
 
     def _loyalty_redeem_amount(self, subtotal: float, discount: float) -> float:
         max_redeem = max(subtotal - discount, 0.0)
-        max_redeem = min(max_redeem, float(self._customer_points))
-        if self.loyalty_redeem_input.value() > max_redeem:
+        max_redeem = min(max_redeem, points_to_currency(float(self._customer_points)))
+        redeem_value = points_to_currency(float(self.loyalty_redeem_input.value()))
+        if redeem_value > max_redeem:
+            capped_points = currency_to_points(max_redeem)
             self.loyalty_redeem_input.blockSignals(True)
-            self.loyalty_redeem_input.setValue(max_redeem)
+            self.loyalty_redeem_input.setValue(capped_points)
             self.loyalty_redeem_input.blockSignals(False)
-        return float(self.loyalty_redeem_input.value())
+            redeem_value = points_to_currency(float(capped_points))
+        return redeem_value
+
+    def _handle_redeem_points_changed(self) -> None:
+        redeem_value = points_to_currency(float(self.loyalty_redeem_input.value()))
+        self.loyalty_redeem_value_label.setText(f"Redeem Value: {redeem_value:.2f}")
+        self._recalculate_totals()
+
+    def _apply_loyalty_redeem(self) -> None:
+        if not self._customer_id:
+            QMessageBox.warning(self, "Validation", "Select a customer first.")
+            return
+        if self._customer_points <= 0:
+            QMessageBox.warning(self, "Validation", "Customer has no loyalty points.")
+            return
+        self._recalculate_totals()
 
     def _load_loyalty_settings(self) -> None:
         settings = QSettings()
@@ -1393,11 +1429,13 @@ class InvoiceTab(BaseTabContainer):
             t("invoice.subtotal", language=self._language, total=f"{subtotal:.2f}")
         )
         self.total_label.setText(t("invoice.net_total", language=self._language, total=f"{net_total:.2f}"))
+        redeemed_points = int(self.loyalty_redeem_input.value())
         self.loyalty_summary_label.setText(
-            f"Loyalty available: {self._customer_points:.2f} | "
-            f"redeemed: {loyalty_redeem:.2f} | "
+            f"Loyalty available: {self._customer_points:.0f} pts | "
+            f"redeemed: {redeemed_points} pts ({loyalty_redeem:.2f}) | "
             f"earned after payment: {float(computed['loyalty_earned']):.0f}"
         )
+        self.loyalty_available_label.setText(f"Available Points: {int(self._customer_points)}")
         customer_name = self.customer_name_input.text().strip()
         customer_phone = self.customer_phone_input.text().strip()
         has_customer = bool(self._customer_id or (customer_name and customer_phone))
@@ -1942,7 +1980,7 @@ class InvoiceTab(BaseTabContainer):
         self.payment_combo.setCurrentIndex(0)
         self.discount_type_combo.setCurrentIndex(0)
         self.discount_input.setValue(0.0)
-        self.loyalty_redeem_input.setValue(0.0)
+        self.loyalty_redeem_input.setValue(0)
         self.pay_now_input.setValue(0.0)
         self.payment_due_date_input.setDate(QDate.currentDate())
         self.payment_order_status_combo.setCurrentIndex(0)

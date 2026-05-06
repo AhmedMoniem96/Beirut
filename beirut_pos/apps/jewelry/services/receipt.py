@@ -7,6 +7,7 @@ from typing import Iterable
 from beirut_pos.services.printer import RECEIPT_WIDTH_CHARS, _draw_line, _format_currency_simple
 
 from .db import JewelryInvoice, JewelryInvoiceItem
+from .loyalty import currency_to_points
 from .settings import GallerySettings, load_gallery_settings
 
 COL_WIDTHS = (29, 5, 7, 7)  # 48-char (80mm) model: 29+5+7+7
@@ -110,7 +111,7 @@ def build_receipt_text(
     lines.append(">>C LOYALTY")
     has_customer = bool(invoice.customer_id or invoice.customer_name or invoice.customer_phone)
     earned_points = int(invoice.loyalty_earned) if has_customer else 0
-    redeemed_points = int(abs(float(invoice.loyalty_redeemed or 0))) if has_customer else 0
+    redeemed_points = currency_to_points(abs(float(invoice.loyalty_redeemed or 0))) if has_customer else 0
     lines.append(f">>R Earned this invoice: {earned_points}")
     lines.append(f">>R Redeemed this invoice: {redeemed_points}")
     if has_customer and loyalty_balance is not None:

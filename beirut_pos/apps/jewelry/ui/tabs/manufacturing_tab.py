@@ -78,9 +78,9 @@ class ManufacturingTab(BaseTabContainer):
         self._build_history_tab()
 
         self._refresh_materials()
-        self._refresh_products()
+        self._refresh_design_products()
+        self._refresh_history_products()
         self._refresh_boms()
-        self._refresh_orders()
         self.apply_language(self._language)
 
     def _build_materials_tab(self) -> None:
@@ -488,21 +488,27 @@ class ManufacturingTab(BaseTabContainer):
             self.bom_material_combo.addItem(label, self._material_map[label])
 
     def _refresh_products(self) -> None:
+        """Backward-compatible wrapper for older call sites."""
+        self._refresh_design_products()
+        self._refresh_history_products()
+
+    def _refresh_design_products(self) -> None:
         products = list_products()
         self._product_map = {
-            f"{choose_name(p.name_ar, p.name_en, language=self._language)} ({p.sku})": p.id for p in products
+            f"{choose_name(p.name_ar, p.name_en, language=self._language)} ({p.sku})": p.id
             for p in products
         }
         self.bom_product_combo.clear()
-        self.order_product_combo.clear()
-        self.history_product.clear()
         for label, product_id in self._product_map.items():
             self.bom_product_combo.addItem(label, product_id)
-            self.order_product_combo.addItem(label, product_id)
+
+    def _refresh_history_products(self) -> None:
+        if not hasattr(self, "history_product"):
+            return
+        self.history_product.clear()
         self.history_product.addItem(t("manufacturing.status_all", language=self._language), None)
         for label, product_id in self._product_map.items():
             self.history_product.addItem(label, product_id)
-        self._refresh_bom_combo()
 
     def _refresh_boms(self) -> None:
         boms = list_boms()
@@ -533,6 +539,8 @@ class ManufacturingTab(BaseTabContainer):
         self._refresh_bom_combo()
 
     def _refresh_bom_combo(self) -> None:
+        if not hasattr(self, "order_bom_combo") or not hasattr(self, "order_product_combo"):
+            return
         self.order_bom_combo.clear()
         self.order_bom_combo.addItem(t("manufacturing.select_bom_label", language=self._language), None)
         selected_product_id = self.order_product_combo.currentData()
@@ -1172,31 +1180,32 @@ class ManufacturingTab(BaseTabContainer):
                 t("manufacturing.bom_table_active", language=language),
             ]
         )
-        self.orders_box.setTitle(t("manufacturing.orders_box", language=language))
-        self.order_no_text.setText(t("manufacturing.order_no", language=language))
-        if not self.order_no_label.text().strip():
-            self.order_no_label.setText(t("common.auto", language=language))
-        self.order_product_label.setText(t("manufacturing.order_product", language=language))
-        self.order_bom_label.setText(t("manufacturing.order_bom", language=language))
-        self.order_qty_label.setText(t("manufacturing.order_qty", language=language))
-        self.order_labor_label.setText(t("manufacturing.order_labor", language=language))
-        self.order_overhead_label.setText(t("manufacturing.order_overhead", language=language))
-        self.order_notes_label.setText(t("manufacturing.order_notes", language=language))
-        self.order_create_btn.setText(t("manufacturing.create_draft", language=language))
-        self.order_confirm_btn.setText(t("manufacturing.confirm", language=language))
-        self.order_done_btn.setText(t("manufacturing.mark_done", language=language))
-        self.status_legend_label.setText("الحالات: Draft (مسودة) / Confirmed (تم التأكيد) / Done (مكتمل)")
-        self.orders_table.setHorizontalHeaderLabels(
-            [
-                t("manufacturing.orders_table_order", language=language),
-                t("manufacturing.orders_table_date", language=language),
-                t("manufacturing.orders_table_status", language=language),
-                t("manufacturing.orders_table_product", language=language),
-                t("manufacturing.orders_table_qty", language=language),
-                t("manufacturing.orders_table_produced", language=language),
-                t("manufacturing.orders_table_costs", language=language),
-            ]
-        )
+        if hasattr(self, "orders_box"):
+            self.orders_box.setTitle(t("manufacturing.orders_box", language=language))
+            self.order_no_text.setText(t("manufacturing.order_no", language=language))
+            if not self.order_no_label.text().strip():
+                self.order_no_label.setText(t("common.auto", language=language))
+            self.order_product_label.setText(t("manufacturing.order_product", language=language))
+            self.order_bom_label.setText(t("manufacturing.order_bom", language=language))
+            self.order_qty_label.setText(t("manufacturing.order_qty", language=language))
+            self.order_labor_label.setText(t("manufacturing.order_labor", language=language))
+            self.order_overhead_label.setText(t("manufacturing.order_overhead", language=language))
+            self.order_notes_label.setText(t("manufacturing.order_notes", language=language))
+            self.order_create_btn.setText(t("manufacturing.create_draft", language=language))
+            self.order_confirm_btn.setText(t("manufacturing.confirm", language=language))
+            self.order_done_btn.setText(t("manufacturing.mark_done", language=language))
+            self.status_legend_label.setText("الحالات: Draft (مسودة) / Confirmed (تم التأكيد) / Done (مكتمل)")
+            self.orders_table.setHorizontalHeaderLabels(
+                [
+                    t("manufacturing.orders_table_order", language=language),
+                    t("manufacturing.orders_table_date", language=language),
+                    t("manufacturing.orders_table_status", language=language),
+                    t("manufacturing.orders_table_product", language=language),
+                    t("manufacturing.orders_table_qty", language=language),
+                    t("manufacturing.orders_table_produced", language=language),
+                    t("manufacturing.orders_table_costs", language=language),
+                ]
+            )
         self.history_box.setTitle(t("manufacturing.history_box", language=language))
         self.history_help.setText("إزاي تستخدم التصنيع في 3 خطوات: 1) اعمل المواد الخام. 2) جهّز تركيبة التصنيع (BOM). 3) أنشئ أمر، أكدّه، ثم أنهِه.")
         self.history_from_label.setText(f"{t('common.from', language=language)}:")
@@ -1236,6 +1245,6 @@ class ManufacturingTab(BaseTabContainer):
             self.history_status.addItem(self._status_label(status), status)
         self.history_status.blockSignals(False)
         self._refresh_materials()
-        self._refresh_products()
+        self._refresh_design_products()
+        self._refresh_history_products()
         self._refresh_boms()
-        self._refresh_orders()

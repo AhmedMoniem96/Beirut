@@ -69,10 +69,9 @@ class ManufacturingTab(BaseTabContainer):
         self._product_map: Dict[str, int] = {}
         self._bom_entries: List[tuple[str, int, int]] = []
 
+        self._build_design_tab()
         self._build_materials_tab()
-        self._build_boms_tab()
-        self._build_orders_tab()
-        self._build_reports_tab()
+        self._build_history_tab()
 
         self._refresh_materials()
         self._refresh_products()
@@ -152,7 +151,7 @@ class ManufacturingTab(BaseTabContainer):
 
         self._selected_material_id: Optional[int] = None
 
-    def _build_boms_tab(self) -> None:
+    def _build_design_tab(self) -> None:
         self.boms_tab = QWidget()
         tab_layout = QVBoxLayout(self.boms_tab)
         tab_layout.setSpacing(12)
@@ -324,7 +323,7 @@ class ManufacturingTab(BaseTabContainer):
             "done": QColor("#15803D"),
         }
 
-    def _build_reports_tab(self) -> None:
+    def _build_history_tab(self) -> None:
         self.reports_tab = QWidget()
         tab_layout = QVBoxLayout(self.reports_tab)
         tab_layout.setSpacing(12)
@@ -888,10 +887,9 @@ class ManufacturingTab(BaseTabContainer):
         self._language = language
         if self.header_label is not None:
             self.header_label.setText(t("manufacturing.header", language=language))
-        self.tabs.setTabText(0, t("manufacturing.tab.materials", language=language))
-        self.tabs.setTabText(1, t("manufacturing.tab.boms", language=language))
-        self.tabs.setTabText(2, t("manufacturing.tab.orders", language=language))
-        self.tabs.setTabText(3, t("manufacturing.tab.reports", language=language))
+        self.tabs.setTabText(0, "Create Design")
+        self.tabs.setTabText(1, "Materials")
+        self.tabs.setTabText(2, "History")
         self.materials_box.setTitle(t("manufacturing.materials_box", language=language))
         self.material_name_ar_label.setText(t("manufacturing.material_name_ar", language=language))
         self.material_name_en_label.setText(t("manufacturing.material_name_en", language=language))

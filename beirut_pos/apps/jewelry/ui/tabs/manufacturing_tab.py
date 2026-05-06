@@ -388,6 +388,8 @@ class ManufacturingTab(BaseTabContainer):
         self.history_refresh_btn.clicked.connect(self._refresh_history_report)
         self.history_view_btn = QPushButton("View Details")
         self.history_view_btn.clicked.connect(self._view_history_details)
+        self.history_duplicate_btn = QPushButton("Duplicate Design")
+        self.history_duplicate_btn.clicked.connect(self._duplicate_design_from_history)
         self.history_from_label = QLabel()
         filter_row.addWidget(self.history_from_label)
         filter_row.addWidget(self.history_start)
@@ -402,6 +404,7 @@ class ManufacturingTab(BaseTabContainer):
         filter_row.addWidget(self.history_product)
         filter_row.addWidget(self.history_refresh_btn)
         filter_row.addWidget(self.history_view_btn)
+        filter_row.addWidget(self.history_duplicate_btn)
         history_layout.addLayout(filter_row)
         self.history_help = QLabel()
         self.history_help.setWordWrap(True)
@@ -1011,6 +1014,60 @@ class ManufacturingTab(BaseTabContainer):
                 f"Profit: {values[7]}\n"
                 f"Margin %: {values[8]}"
             ),
+        )
+
+    def _duplicate_design_from_history(self) -> None:
+        row = self.history_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Duplicate Design", "Select one history row first.")
+            return
+        order_no_item = self.history_table.item(row, 0)
+        order_no = order_no_item.data(Qt.ItemDataRole.UserRole) if order_no_item else None
+        if not order_no:
+            QMessageBox.warning(self, "Duplicate Design", "Missing history reference.")
+            return
+
+        source_order = next((o for o in list_production_orders() if o.order_no == order_no), None)
+        if not source_order:
+            QMessageBox.warning(self, "Duplicate Design", "Could not load selected design history.")
+            return
+        source_product = next((p for p in list_products() if p.id == source_order.product_id), None)
+        if not source_product:
+            QMessageBox.warning(self, "Duplicate Design", "Could not load source product.")
+            return
+
+        self.design_product_name.setText(source_product.name_en)
+        product_index = self.bom_product_combo.findData(source_product.id)
+        if product_index >= 0:
+            self.bom_product_combo.setCurrentIndex(product_index)
+        self._selected_bom_id = None
+        self.design_product_sku.clear()
+        self.design_product_price.setValue(float(source_product.price or 0.0))
+        self.design_qty_produced.setValue(1.0)
+        self.design_labor_cost.setValue(float(source_order.labor_cost or 0.0))
+        overhead_cost = float(source_order.overhead_cost or 0.0)
+        self.design_packaging_cost.setValue(overhead_cost)
+        self.design_other_cost.setValue(0.0)
+        self.bom_name_input.setText(f"{source_product.name_en} Design Copy")
+        self.bom_active_check.setChecked(True)
+        self.bom_lines_table.setRowCount(0)
+        if source_order.bom_id:
+            for line in list_bom_lines(source_order.bom_id):
+                material_label = next(
+                    (label for label, mid in self._material_map.items() if mid == line.material_id),
+                    f"{t('manufacturing.material_label', language=self._language)} {line.material_id}",
+                )
+                row_idx = self.bom_lines_table.rowCount()
+                self.bom_lines_table.insertRow(row_idx)
+                self.bom_lines_table.setItem(row_idx, 0, QTableWidgetItem(material_label))
+                self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem(f"{line.qty_required:.3f}"))
+                self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
+
+        self.tabs.setCurrentIndex(0)
+        QMessageBox.information(
+            self,
+            "Duplicate Design",
+            "Design copied. Review details then create product.",
         )
 
     def _refresh_usage_report(self) -> None:

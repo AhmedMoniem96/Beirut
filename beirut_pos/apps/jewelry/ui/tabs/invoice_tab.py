@@ -1394,7 +1394,9 @@ class InvoiceTab(BaseTabContainer):
         )
         self.total_label.setText(t("invoice.net_total", language=self._language, total=f"{net_total:.2f}"))
         self.loyalty_summary_label.setText(
-            t("invoice.loyalty_summary", language=self._language, total=f"{loyalty_redeem:.2f}")
+            f"Loyalty available: {self._customer_points:.2f} | "
+            f"redeemed: {loyalty_redeem:.2f} | "
+            f"earned after payment: {float(computed['loyalty_earned']):.0f}"
         )
         customer_name = self.customer_name_input.text().strip()
         customer_phone = self.customer_phone_input.text().strip()

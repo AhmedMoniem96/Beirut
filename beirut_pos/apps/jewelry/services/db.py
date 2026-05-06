@@ -1246,6 +1246,33 @@ def get_loyalty_balance(customer_phone: str) -> float:
     return balance
 
 
+def get_loyalty_history(customer_phone: str) -> List[dict]:
+    normalized_phone = (customer_phone or "").strip()
+    if not normalized_phone:
+        return []
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT l.created_at, COALESCE(i.invoice_no, ''), l.reason, l.points_delta
+           FROM jw_loyalty_ledger l
+           LEFT JOIN jw_invoices i ON i.id = l.invoice_id
+           WHERE l.customer_id = ?
+           ORDER BY l.id DESC""",
+        (normalized_phone,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "created_at": row[0] or "",
+            "invoice_no": row[1] or "",
+            "reason": row[2] or "",
+            "points_delta": float(row[3] or 0),
+        }
+        for row in rows
+    ]
+
+
 def record_loyalty_entry(
     customer_phone: str,
     invoice_id: Optional[int],
@@ -2038,12 +2065,7 @@ def create_invoice(
         _apply_stock_adjustment(cur, item.product_id, item.qty, txn_type)
     conn.commit()
     conn.close()
-    if customer_id:
-        if txn_type == "return":
-            points_delta = -abs(loyalty_earned)
-        else:
-            points_delta = float(loyalty_earned) - float(loyalty_redeemed)
-        record_loyalty_entry(customer_id, invoice_id, points_delta, reason=f"invoice:{invoice_no}")
+    recalculate_invoice_payment_totals(int(invoice_id))
     return invoice_no, int(invoice_id)
 
 
@@ -2472,9 +2494,48 @@ def recalculate_invoice_payment_totals(invoice_id: int) -> Tuple[float, float, s
            WHERE id = ?""",
         (paid_total, remaining_total, payment_status, invoice_id),
     )
+    _sync_invoice_loyalty_ledger(cur, invoice_id, payment_status)
     conn.commit()
     conn.close()
     return paid_total, remaining_total, payment_status
+
+
+def _sync_invoice_loyalty_ledger(cur, invoice_id: int, payment_status: str) -> None:
+    cur.execute(
+        """SELECT invoice_no, txn_type, customer_id,
+                  COALESCE(loyalty_earned, 0), COALESCE(loyalty_redeemed, 0)
+           FROM jw_invoices WHERE id = ?""",
+        (invoice_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return
+    invoice_no, txn_type, customer_id, loyalty_earned, loyalty_redeemed = row
+    reason = f"invoice:{invoice_no}"
+    cur.execute(
+        "DELETE FROM jw_loyalty_ledger WHERE invoice_id = ? AND reason = ?",
+        (invoice_id, reason),
+    )
+    if payment_status != "PAID" or not customer_id:
+        return
+    if txn_type == "return":
+        points_delta = -abs(float(loyalty_earned or 0))
+    else:
+        points_delta = float(loyalty_earned or 0) - float(loyalty_redeemed or 0)
+    if not points_delta:
+        return
+    cur.execute(
+        """INSERT INTO jw_loyalty_ledger
+           (customer_id, invoice_id, points_delta, reason, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (
+            customer_id,
+            int(invoice_id),
+            float(points_delta),
+            reason,
+            datetime.now().isoformat(timespec="seconds"),
+        ),
+    )
 
 
 def list_unpaid_orders(

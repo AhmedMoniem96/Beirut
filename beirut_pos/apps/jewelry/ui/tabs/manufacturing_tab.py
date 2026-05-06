@@ -112,13 +112,17 @@ class ManufacturingTab(BaseTabContainer):
     def _build_materials_tab(self) -> None:
         self.materials_tab = QWidget()
         tab_layout = QVBoxLayout(self.materials_tab)
-        tab_layout.setSpacing(12)
+        tab_layout.setSpacing(10)
 
         form_box = QGroupBox()
         form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.materials_box = form_box
-        form_layout = QFormLayout(form_box)
-        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form_layout = QGridLayout(form_box)
+        form_layout.setHorizontalSpacing(12)
+        form_layout.setVerticalSpacing(8)
+        for column in range(3):
+            form_layout.setColumnStretch(column, 1)
+
         self.material_name_ar = QLineEdit()
         self.material_name_en = QLineEdit()
         self.material_code = QLineEdit()
@@ -139,13 +143,22 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit_label = QLabel()
         self.material_min_qty_label = QLabel()
         self.material_cost_label = QLabel()
-        form_layout.addRow(self.material_name_ar_label, self.material_name_ar)
-        form_layout.addRow(self.material_name_en_label, self.material_name_en)
-        form_layout.addRow(self.material_code_label, self.material_code)
-        form_layout.addRow(self.material_qty_label, self.material_qty)
-        form_layout.addRow(self.material_unit_label, self.material_unit)
-        form_layout.addRow(self.material_min_qty_label, self.material_min_qty)
-        form_layout.addRow(self.material_cost_label, self.material_cost)
+
+        form_fields = [
+            (self.material_name_ar_label, self.material_name_ar),
+            (self.material_name_en_label, self.material_name_en),
+            (self.material_code_label, self.material_code),
+            (self.material_qty_label, self.material_qty),
+            (self.material_unit_label, self.material_unit),
+            (self.material_cost_label, self.material_cost),
+            (self.material_min_qty_label, self.material_min_qty),
+        ]
+        for index, (label, widget) in enumerate(form_fields):
+            row = (index // 3) * 2
+            column = index % 3
+            form_layout.addWidget(label, row, column)
+            form_layout.addWidget(widget, row + 1, column)
+
         self.material_save_btn = QPushButton()
         self.material_delete_btn = QPushButton()
         self.material_clear_btn = QPushButton()
@@ -155,29 +168,45 @@ class ManufacturingTab(BaseTabContainer):
         self.material_clear_btn.clicked.connect(self._clear_material_form)
         self.material_restock_btn.clicked.connect(self._restock_material)
 
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(8)
+        actions_row.addWidget(self.material_clear_btn)
+        actions_row.addWidget(self.material_save_btn)
+        actions_row.addWidget(self.material_restock_btn)
+        actions_row.addWidget(self.material_delete_btn)
+        actions_row.addStretch(1)
+
         self.materials_table = QTableWidget(0, 7)
         self.materials_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.materials_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.materials_table.setAlternatingRowColors(True)
         self.materials_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.materials_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.materials_table.verticalHeader().setVisible(False)
+        header = self.materials_table.horizontalHeader()
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         self.materials_table.cellClicked.connect(self._load_material)
-        form_container = BaseTabContainer(show_header=False)
-        form_content = QWidget()
-        form_content_layout = QVBoxLayout(form_content)
-        form_content_layout.setSpacing(12)
-        form_content_layout.addWidget(form_box)
-        form_container.set_page_content_widget(form_content)
-        form_container.footer_layout.addWidget(self.material_save_btn)
-        form_container.footer_layout.addWidget(self.material_restock_btn)
-        form_container.footer_layout.addWidget(self.material_delete_btn)
-        form_container.footer_layout.addWidget(self.material_clear_btn)
+
+        form_and_actions = QWidget()
+        form_and_actions_layout = QVBoxLayout(form_and_actions)
+        form_and_actions_layout.setContentsMargins(0, 0, 0, 0)
+        form_and_actions_layout.setSpacing(8)
+        form_and_actions_layout.addWidget(form_box)
+        form_and_actions_layout.addLayout(actions_row)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(form_container)
+        splitter.addWidget(form_and_actions)
         splitter.addWidget(self.materials_table)
+        splitter.setChildrenCollapsible(False)
         splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(1, 4)
         tab_layout.addWidget(splitter)
 
         self.tabs.addTab(self.materials_tab, "")

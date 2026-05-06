@@ -67,7 +67,8 @@ class ManufacturingTab(BaseTabContainer):
         self._language = get_ui_language()
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setSpacing(12)
+        content_layout.setContentsMargins(10, 10, 10, 10)
+        content_layout.setSpacing(8)
         self.set_page_content_widget(content)
 
         self.tabs = QTabWidget()
@@ -112,13 +113,14 @@ class ManufacturingTab(BaseTabContainer):
     def _build_materials_tab(self) -> None:
         self.materials_tab = QWidget()
         tab_layout = QVBoxLayout(self.materials_tab)
-        tab_layout.setSpacing(10)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(8)
 
         form_box = QGroupBox()
         form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.materials_box = form_box
         form_layout = QGridLayout(form_box)
-        form_layout.setHorizontalSpacing(12)
+        form_layout.setHorizontalSpacing(10)
         form_layout.setVerticalSpacing(8)
         for column in range(3):
             form_layout.setColumnStretch(column, 1)
@@ -206,7 +208,7 @@ class ManufacturingTab(BaseTabContainer):
         splitter.addWidget(self.materials_table)
         splitter.setChildrenCollapsible(False)
         splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 4)
+        splitter.setStretchFactor(1, 1)
         tab_layout.addWidget(splitter)
 
         self.tabs.addTab(self.materials_tab, "")
@@ -220,14 +222,15 @@ class ManufacturingTab(BaseTabContainer):
         tab_layout.setContentsMargins(0, 0, 0, 0)
 
         main_layout = QHBoxLayout()
-        main_layout.setSpacing(12)
+        main_layout.setSpacing(10)
 
         left_layout = QVBoxLayout()
         left_layout.setSpacing(8)
 
         self.bom_box = QGroupBox("Final Product")
+        self.bom_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         form_layout = QGridLayout(self.bom_box)
-        form_layout.setHorizontalSpacing(16)
+        form_layout.setHorizontalSpacing(10)
         form_layout.setVerticalSpacing(8)
 
         self.bom_product_combo = QComboBox()
@@ -263,7 +266,9 @@ class ManufacturingTab(BaseTabContainer):
 
         self.lines_box = QGroupBox("Materials Used")
         lines_layout = QVBoxLayout(self.lines_box)
+        lines_layout.setSpacing(8)
         add_line_layout = QHBoxLayout()
+        add_line_layout.setSpacing(8)
         self.bom_material_combo = QComboBox()
         self.bom_qty_input = QDoubleSpinBox(); self.bom_qty_input.setRange(0.001, 999999); self.bom_qty_input.setDecimals(3)
         self.add_bom_line_btn = QPushButton("Add Material")
@@ -289,7 +294,11 @@ class ManufacturingTab(BaseTabContainer):
         left_layout.addWidget(self.lines_box, 1)
 
         self.cost_summary_box = QGroupBox("Cost Summary")
+        self.cost_summary_box.setFixedWidth(300)
+        self.cost_summary_box.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         cost_layout = QFormLayout(self.cost_summary_box)
+        cost_layout.setHorizontalSpacing(10)
+        cost_layout.setVerticalSpacing(8)
         self.summary_material_cost = QLabel("0.00")
         self.summary_extra_cost = QLabel("0.00")
         self.summary_total_cost = QLabel("0.00")
@@ -315,7 +324,7 @@ class ManufacturingTab(BaseTabContainer):
         self.boms_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.boms_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.boms_table.cellClicked.connect(self._load_bom)
-        tab_layout.addWidget(self.boms_table)
+        tab_layout.addWidget(self.boms_table, 1)
 
         self.bom_save_btn = QPushButton()
         self.create_product_btn = QPushButton("Create Product")
@@ -430,19 +439,15 @@ class ManufacturingTab(BaseTabContainer):
     def _build_history_tab(self) -> None:
         self.reports_tab = QWidget()
         tab_layout = QVBoxLayout(self.reports_tab)
-        tab_layout.setSpacing(12)
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        tab_layout.addWidget(scroll_area)
-        content = QWidget()
-        scroll_area.setWidget(content)
-        layout = QVBoxLayout(content)
-        layout.setSpacing(12)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(8)
 
         history_box = QGroupBox()
         self.history_box = history_box
         history_layout = QVBoxLayout(history_box)
+        history_layout.setSpacing(8)
         filter_row = QHBoxLayout()
+        filter_row.setSpacing(8)
         self.history_start = QDateEdit()
         self.history_start.setCalendarPopup(True)
         self.history_end = QDateEdit()
@@ -485,11 +490,13 @@ class ManufacturingTab(BaseTabContainer):
         self.history_table.setAlternatingRowColors(True)
         self.history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        history_layout.addWidget(self.history_table)
+        history_layout.addWidget(self.history_table, 1)
 
         usage_box = QGroupBox()
         self.usage_box = usage_box
         usage_layout = QVBoxLayout(usage_box)
+        usage_layout.setContentsMargins(10, 10, 10, 10)
+        usage_layout.setSpacing(8)
         self.usage_table = QTableWidget(0, 3)
         self.usage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.usage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -499,8 +506,13 @@ class ManufacturingTab(BaseTabContainer):
         usage_layout.addWidget(self.usage_table)
         self.usage_box.setVisible(False)
         self.history_table.itemSelectionChanged.connect(self._refresh_selected_history_usage)
-        layout.addWidget(history_box)
-        layout.addWidget(usage_box)
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(history_box)
+        splitter.addWidget(usage_box)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        tab_layout.addWidget(splitter, 1)
 
         self.tabs.addTab(self.reports_tab, "")
 

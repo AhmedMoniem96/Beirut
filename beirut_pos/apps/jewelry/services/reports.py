@@ -98,14 +98,20 @@ def inventory_value_estimate() -> float:
     value = float(cur.fetchone()[0] or 0.0)
     conn.close()
     return value
+@dataclass
 class ProductionHistoryRow:
     order_no: str
     datetime: str
     status: str
     product_name: str
+    material_cost: float
+    extra_cost: float
+    total_cost: float
+    selling_price: float
+    profit: float
+    margin_pct: float
     qty_to_produce: float
     qty_produced: float
-    total_cost: float
 
 
 @dataclass
@@ -331,10 +337,13 @@ def production_history(
 ) -> List[ProductionHistoryRow]:
     conn = get_conn()
     cur = conn.cursor()
-    query = """SELECT o.order_no, o.datetime, o.status,
+    query = """SELECT o.id, o.order_no, o.datetime, o.status,
                       p.name_en || ' / ' || p.name_ar,
                       o.qty_to_produce, o.qty_produced,
-                      (COALESCE(SUM(c.qty_consumed * c.cost_at_time), 0) + o.labor_cost + o.overhead_cost)
+                      COALESCE(SUM(c.qty_consumed * c.cost_at_time), 0) AS material_cost,
+                      (o.labor_cost + o.overhead_cost) AS extra_cost,
+                      (COALESCE(SUM(c.qty_consumed * c.cost_at_time), 0) + o.labor_cost + o.overhead_cost) AS total_cost,
+                      (COALESCE(o.qty_produced, 0) * COALESCE(p.price, 0)) AS selling_price
                FROM jw_production_orders o
                JOIN jw_products p ON p.id = o.product_id
                LEFT JOIN jw_production_consumption c ON c.production_order_id = o.id
@@ -352,13 +361,18 @@ def production_history(
     conn.close()
     return [
         ProductionHistoryRow(
-            order_no=row[0],
-            datetime=row[1],
-            status=row[2],
-            product_name=row[3],
-            qty_to_produce=row[4],
-            qty_produced=row[5],
-            total_cost=row[6],
+            order_no=row[1],
+            datetime=row[2],
+            status=row[3],
+            product_name=row[4],
+            qty_to_produce=row[5],
+            qty_produced=row[6],
+            material_cost=row[7],
+            extra_cost=row[8],
+            total_cost=row[9],
+            selling_price=row[10],
+            profit=row[10] - row[9],
+            margin_pct=((row[10] - row[9]) / row[10] * 100.0) if row[10] > 0 else 0.0,
         )
         for row in rows
     ]

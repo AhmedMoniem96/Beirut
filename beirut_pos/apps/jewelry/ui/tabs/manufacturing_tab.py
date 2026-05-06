@@ -54,7 +54,7 @@ from ...services.db import (
     save_material,
     save_product,
 )
-from ...services.reports import material_usage, production_history
+from ...services.reports import production_history
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
 
@@ -490,24 +490,6 @@ class ManufacturingTab(BaseTabContainer):
         usage_box = QGroupBox()
         self.usage_box = usage_box
         usage_layout = QVBoxLayout(usage_box)
-        usage_filter = QHBoxLayout()
-        self.usage_start = QDateEdit()
-        self.usage_start.setCalendarPopup(True)
-        self.usage_end = QDateEdit()
-        self.usage_end.setCalendarPopup(True)
-        self.usage_start.setDate(today.addDays(-30))
-        self.usage_end.setDate(today)
-        self.usage_refresh_btn = QPushButton()
-        self.usage_refresh_btn.clicked.connect(self._refresh_usage_report)
-        self.usage_from_label = QLabel()
-        usage_filter.addWidget(self.usage_from_label)
-        usage_filter.addWidget(self.usage_start)
-        self.usage_to_label = QLabel()
-        usage_filter.addWidget(self.usage_to_label)
-        usage_filter.addWidget(self.usage_end)
-        usage_filter.addWidget(self.usage_refresh_btn)
-        usage_layout.addLayout(usage_filter)
-
         self.usage_table = QTableWidget(0, 3)
         self.usage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.usage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -515,22 +497,10 @@ class ManufacturingTab(BaseTabContainer):
         self.usage_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.usage_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         usage_layout.addWidget(self.usage_table)
-        self.cost_box = QGroupBox()
-        cost_layout = QVBoxLayout(self.cost_box)
-        self.cost_table = QTableWidget(0, 3)
-        self.cost_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.cost_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.cost_table.setAlternatingRowColors(True)
-        self.cost_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        cost_layout.addWidget(self.cost_table)
-
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(history_box)
-        splitter.addWidget(usage_box)
-        splitter.addWidget(self.cost_box)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
-        layout.addWidget(splitter)
+        self.usage_box.setVisible(False)
+        self.history_table.itemSelectionChanged.connect(self._refresh_selected_history_usage)
+        layout.addWidget(history_box)
+        layout.addWidget(usage_box)
 
         self.tabs.addTab(self.reports_tab, "")
 
@@ -1109,6 +1079,36 @@ class ManufacturingTab(BaseTabContainer):
             self.history_table.setItem(row, 7, QTableWidgetItem(f"{row_data.profit:.2f}"))
             self.history_table.setItem(row, 8, QTableWidgetItem(f"{row_data.margin_pct:.2f}%"))
             self.history_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, row_data.order_no)
+        self._refresh_selected_history_usage()
+
+    def _refresh_selected_history_usage(self) -> None:
+        row = self.history_table.currentRow()
+        self.usage_table.setRowCount(0)
+        if row < 0:
+            self.usage_box.setVisible(False)
+            return
+        order_no_item = self.history_table.item(row, 0)
+        order_no = order_no_item.data(Qt.ItemDataRole.UserRole) if order_no_item else None
+        if not order_no:
+            self.usage_box.setVisible(False)
+            return
+        source_order = next((o for o in list_production_orders() if o.order_no == order_no), None)
+        if not source_order or not source_order.bom_id:
+            self.usage_box.setVisible(False)
+            return
+        for line in list_bom_lines(source_order.bom_id):
+            material = next((m for m in list_materials() if m.id == line.material_id), None)
+            material_name = (
+                choose_name(material.name_ar, material.name_en, language=self._language)
+                if material
+                else f"{t('manufacturing.material_label', language=self._language)} {line.material_id}"
+            )
+            row_idx = self.usage_table.rowCount()
+            self.usage_table.insertRow(row_idx)
+            self.usage_table.setItem(row_idx, 0, QTableWidgetItem(material_name))
+            self.usage_table.setItem(row_idx, 1, QTableWidgetItem(f"{line.qty_required:.3f}"))
+            self.usage_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.unit_cost:.2f}"))
+        self.usage_box.setVisible(self.usage_table.rowCount() > 0)
 
     def _view_history_details(self) -> None:
         row = self.history_table.currentRow()
@@ -1189,37 +1189,6 @@ class ManufacturingTab(BaseTabContainer):
             "Duplicate Design",
             "Design copied. Review details then create product.",
         )
-
-    def _refresh_usage_report(self) -> None:
-        start_dt = datetime.combine(self.usage_start.date().toPyDate(), time.min)
-        end_dt = datetime.combine(self.usage_end.date().toPyDate(), time.max)
-        rows = material_usage(
-            start_dt.isoformat(timespec="seconds"),
-            end_dt.isoformat(timespec="seconds"),
-        )
-        self.usage_table.setRowCount(0)
-        for row_data in rows:
-            row = self.usage_table.rowCount()
-            self.usage_table.insertRow(row)
-            self.usage_table.setItem(row, 0, QTableWidgetItem(row_data.material_name))
-            self.usage_table.setItem(row, 1, QTableWidgetItem(f"{row_data.total_qty:.3f}"))
-            self.usage_table.setItem(row, 2, QTableWidgetItem(f"{row_data.total_cost:.2f}"))
-        self._refresh_cost_report()
-
-    def _refresh_cost_report(self) -> None:
-        rows = production_history(
-            datetime.combine(self.usage_start.date().toPyDate(), time.min).isoformat(timespec="seconds"),
-            datetime.combine(self.usage_end.date().toPyDate(), time.max).isoformat(timespec="seconds"),
-            self.history_status.currentData() or "all",
-            self.history_product.currentData(),
-        )
-        self.cost_table.setRowCount(0)
-        for row_data in rows:
-            row = self.cost_table.rowCount()
-            self.cost_table.insertRow(row)
-            self.cost_table.setItem(row, 0, QTableWidgetItem(row_data.order_no))
-            self.cost_table.setItem(row, 1, QTableWidgetItem(f"{row_data.qty_to_produce:.3f}"))
-            self.cost_table.setItem(row, 2, QTableWidgetItem(f"{row_data.total_cost:.2f}"))
 
     def _paint_status_cell(self, item: QTableWidgetItem, status: str) -> None:
         color = self._status_colors.get(status)
@@ -1334,9 +1303,6 @@ class ManufacturingTab(BaseTabContainer):
             ]
         )
         self.usage_box.setTitle(t("manufacturing.usage_box", language=language))
-        self.usage_from_label.setText(f"{t('common.from', language=language)}:")
-        self.usage_to_label.setText(f"{t('common.to', language=language)}:")
-        self.usage_refresh_btn.setText(t("manufacturing.history_refresh", language=language))
         self.usage_table.setHorizontalHeaderLabels(
             [
                 t("manufacturing.usage_table_material", language=language),
@@ -1344,8 +1310,6 @@ class ManufacturingTab(BaseTabContainer):
                 t("manufacturing.usage_table_cost", language=language),
             ]
         )
-        self.cost_box.setTitle("تقرير التكلفة")
-        self.cost_table.setHorizontalHeaderLabels(["رقم الأمر", "الكمية", "إجمالي التكلفة"])
         self.history_status.blockSignals(True)
         self.history_status.clear()
         for status in ["all", "draft", "confirmed", "done", "cancelled"]:

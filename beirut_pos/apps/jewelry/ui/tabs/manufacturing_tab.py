@@ -328,15 +328,17 @@ class ManufacturingTab(BaseTabContainer):
 
         self.bom_save_btn = QPushButton()
         self.create_product_btn = QPushButton("Create Product")
+        self.duplicate_design_btn = QPushButton("Duplicate Design")
         self.bom_delete_btn = QPushButton()
         self.bom_clear_btn = QPushButton()
         self.bom_save_btn.clicked.connect(self._save_bom)
         self.create_product_btn.clicked.connect(self._create_product_from_design)
+        self.duplicate_design_btn.clicked.connect(self._open_duplicate_design_picker)
         self.bom_delete_btn.clicked.connect(self._delete_bom)
         self.bom_clear_btn.clicked.connect(self._clear_bom_form)
 
         footer = QHBoxLayout(); footer.addStretch(1)
-        footer.addWidget(self.bom_clear_btn); footer.addWidget(self.create_product_btn); footer.addWidget(self.bom_save_btn)
+        footer.addWidget(self.bom_clear_btn); footer.addWidget(self.create_product_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.bom_save_btn)
         tab_layout.addLayout(footer)
 
         self.tabs.addTab(self.boms_tab, "")
@@ -462,8 +464,6 @@ class ManufacturingTab(BaseTabContainer):
         self.history_refresh_btn.clicked.connect(self._refresh_history_report)
         self.history_view_btn = QPushButton("View Details")
         self.history_view_btn.clicked.connect(self._view_history_details)
-        self.history_duplicate_btn = QPushButton("Duplicate Design")
-        self.history_duplicate_btn.clicked.connect(self._duplicate_design_from_history)
         self.history_from_label = QLabel()
         filter_row.addWidget(self.history_from_label)
         filter_row.addWidget(self.history_start)
@@ -478,7 +478,6 @@ class ManufacturingTab(BaseTabContainer):
         filter_row.addWidget(self.history_product)
         filter_row.addWidget(self.history_refresh_btn)
         filter_row.addWidget(self.history_view_btn)
-        filter_row.addWidget(self.history_duplicate_btn)
         history_layout.addLayout(filter_row)
         self.history_help = QLabel()
         self.history_help.setWordWrap(True)
@@ -1144,17 +1143,33 @@ class ManufacturingTab(BaseTabContainer):
             ),
         )
 
-    def _duplicate_design_from_history(self) -> None:
-        row = self.history_table.currentRow()
-        if row < 0:
-            QMessageBox.information(self, "Duplicate Design", "Select one history row first.")
+    def _open_duplicate_design_picker(self) -> None:
+        orders = list_production_orders()
+        if not orders:
+            QMessageBox.information(self, "Duplicate Design", "No previous designs available.")
             return
-        order_no_item = self.history_table.item(row, 0)
-        order_no = order_no_item.data(Qt.ItemDataRole.UserRole) if order_no_item else None
-        if not order_no:
+        choices: list[tuple[str, str]] = []
+        for order in orders:
+            product_name = next((p.name_en for p in list_products() if p.id == order.product_id), f"Product {order.product_id}")
+            label = f"{order.created_at:%Y-%m-%d %H:%M} | {product_name} | {order.order_no}"
+            choices.append((label, order.order_no))
+        selected_label, ok = QInputDialog.getItem(
+            self,
+            "Duplicate Design",
+            "Select a previous design:",
+            [label for label, _ in choices],
+            0,
+            False,
+        )
+        if not ok or not selected_label:
+            return
+        selected_order_no = next((order_no for label, order_no in choices if label == selected_label), None)
+        if not selected_order_no:
             QMessageBox.warning(self, "Duplicate Design", "Missing history reference.")
             return
+        self._duplicate_design_from_order(selected_order_no)
 
+    def _duplicate_design_from_order(self, order_no: str) -> None:
         source_order = next((o for o in list_production_orders() if o.order_no == order_no), None)
         if not source_order:
             QMessageBox.warning(self, "Duplicate Design", "Could not load selected design history.")
@@ -1196,11 +1211,7 @@ class ManufacturingTab(BaseTabContainer):
         self._refresh_design_cost_summary()
 
         self.tabs.setCurrentIndex(0)
-        QMessageBox.information(
-            self,
-            "Duplicate Design",
-            "Design copied. Review details then create product.",
-        )
+        QMessageBox.information(self, "Duplicate Design", "Design copied. Review details then create product.")
 
     def _paint_status_cell(self, item: QTableWidgetItem, status: str) -> None:
         color = self._status_colors.get(status)
@@ -1259,6 +1270,8 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_lines_table.setHorizontalHeaderLabels(["Material", "Available", "Qty Used", "Unit Cost", "Total Cost"])
         self.remove_line_btn.setText("Remove Material")
         self.bom_save_btn.setText("Save Design")
+        self.create_product_btn.setText("Create Product")
+        self.duplicate_design_btn.setText("Duplicate Design")
         self.bom_delete_btn.setText(t("manufacturing.delete_bom", language=language))
         self.bom_clear_btn.setText("Clear")
         self.boms_table.setHorizontalHeaderLabels(
@@ -1301,6 +1314,7 @@ class ManufacturingTab(BaseTabContainer):
         self.history_status_label.setText(f"{t('manufacturing.history_status', language=language)}:")
         self.history_product_label.setText(f"{t('manufacturing.history_product', language=language)}:")
         self.history_refresh_btn.setText(t("manufacturing.history_refresh", language=language))
+        self.history_view_btn.setText("View Details")
         self.history_table.setHorizontalHeaderLabels(
             [
                 t("manufacturing.history_table_date", language=language),

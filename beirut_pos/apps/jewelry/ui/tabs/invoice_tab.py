@@ -144,6 +144,7 @@ class InvoiceTab(BaseTabContainer):
         self._delivery_phone = ""
         self._delivery_address = ""
         self._delivery_notes = ""
+        self._save_in_progress = False
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -449,6 +450,7 @@ class InvoiceTab(BaseTabContainer):
         self.products_table = QTableWidget(0, 5)
         self.products_table.setHorizontalHeaderLabels(["Name", "SKU", "Barcode", "Price", "Stock"])
         self.products_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.products_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.products_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.products_table.setAlternatingRowColors(True)
         self.products_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -497,6 +499,7 @@ class InvoiceTab(BaseTabContainer):
         self.items_table = QTableWidget(0, 7)
         self.items_table.setHorizontalHeaderLabels(["", "", "", "", "", "-", "+"])
         self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.items_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.items_table.setAlternatingRowColors(True)
         self.items_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -1270,13 +1273,15 @@ class InvoiceTab(BaseTabContainer):
         new_invoice_shortcut.activated.connect(self._clear_invoice)
 
         new_customer_shortcut = QShortcut(QKeySequence("F2"), self)
-        new_customer_shortcut.activated.connect(self._start_new_customer_entry)
+        new_customer_shortcut.activated.connect(self._focus_product_search)
 
         discount_shortcut = QShortcut(QKeySequence("F4"), self)
-        discount_shortcut.activated.connect(self._focus_discount)
+        discount_shortcut.activated.connect(self._focus_customer_search)
 
         save_shortcut = QShortcut(QKeySequence("F8"), self)
         save_shortcut.activated.connect(self._save_invoice)
+        pay_shortcut = QShortcut(QKeySequence("F9"), self)
+        pay_shortcut.activated.connect(self._pay_now_and_save)
 
     def _configure_focus_order(self) -> None:
         self.barcode_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -1299,6 +1304,10 @@ class InvoiceTab(BaseTabContainer):
     def _focus_product_search(self) -> None:
         self.search_input.setFocus()
         self.search_input.selectAll()
+
+    def _focus_customer_search(self) -> None:
+        self.customer_search_input.setFocus()
+        self.customer_search_input.selectAll()
 
     def _submit_barcode_input(self) -> None:
         code = self.barcode_input.text().strip()
@@ -1363,12 +1372,15 @@ class InvoiceTab(BaseTabContainer):
         if not product:
             return
         self._add_product_to_invoice(product, float(self.qty_input.value()))
+        self.search_input.clear()
+        self._focus_product_search()
 
     def _remove_selected_item(self) -> None:
         row = self.items_table.currentRow()
         if row >= 0:
             self.items_table.removeRow(row)
             self._recalculate_totals()
+            self._show_status_message("Item removed")
 
     def _recalculate_totals(self) -> None:
         txn_type = "return" if self.txn_type_combo.currentIndex() == 1 else "sale"
@@ -1528,6 +1540,8 @@ class InvoiceTab(BaseTabContainer):
         return items
 
     def _save_invoice(self) -> None:
+        if self._save_in_progress:
+            return
         if self.items_table.rowCount() == 0:
             QMessageBox.warning(
                 self,
@@ -1535,6 +1549,8 @@ class InvoiceTab(BaseTabContainer):
                 t("invoice.missing_items_message", language=self._language),
             )
             return
+        self._save_in_progress = True
+        self.save_btn.setEnabled(False)
         cashier = self.cashier_input.text().strip() or "N/A"
         txn_type = "return" if self.txn_type_combo.currentIndex() == 1 else "sale"
         customer_name = self.customer_name_input.text().strip()
@@ -1548,6 +1564,8 @@ class InvoiceTab(BaseTabContainer):
                     t("common.select", language=self._language),
                     t("invoice.customer_required", language=self._language),
                 )
+                self._save_in_progress = False
+                self._update_validation_state()
                 return
             customer_id = save_customer(customer_name, customer_phone, customer_email, self._delivery_address)
             self._customer_id = customer_id
@@ -1576,6 +1594,8 @@ class InvoiceTab(BaseTabContainer):
                 "Invoice totals changed. Please review totals and try saving again.",
             )
             self._recalculate_totals()
+            self._save_in_progress = False
+            self._update_validation_state()
             return
         payment_due_date = (
             to_iso_date(self.payment_due_date_input.date().toString("dd/MM/yyyy"))
@@ -1650,6 +1670,8 @@ class InvoiceTab(BaseTabContainer):
                 t("invoice.save_failed_title", language=self._language),
                 t("invoice.save_failed_message", language=self._language, error=str(exc)),
             )
+            self._save_in_progress = False
+            self._update_validation_state()
             return
         if customer_id:
             self._load_loyalty_settings()
@@ -1673,6 +1695,9 @@ class InvoiceTab(BaseTabContainer):
         self._refresh_recently_sold()
         self.reset_invoice_state()
         self.refresh_products()
+        self._show_status_message(f"Invoice {invoice_no} saved")
+        self._save_in_progress = False
+        self._update_validation_state()
 
     def _refresh_recently_sold(self) -> None:
         self.recent_sold_table.setRowCount(0)
@@ -2014,7 +2039,7 @@ class InvoiceTab(BaseTabContainer):
                 )
                 self._attach_qty_buttons(row, product.id)
                 self._recalculate_totals()
-                self._focus_barcode_input()
+                self._focus_product_search()
                 return
         line_total = qty * product.price
         item_row = self.items_table.rowCount()
@@ -2039,7 +2064,7 @@ class InvoiceTab(BaseTabContainer):
         self.items_table.item(item_row, self.ITEM_COL_PRODUCT).setData(Qt.ItemDataRole.UserRole, product.id)
         self._attach_qty_buttons(item_row, product.id)
         self._recalculate_totals()
-        self._focus_barcode_input()
+        self._focus_product_search()
 
     def _attach_qty_buttons(self, row: int, product_id: int) -> None:
         minus_btn = QPushButton("−")
@@ -2065,6 +2090,7 @@ class InvoiceTab(BaseTabContainer):
         if new_qty <= 0:
             self.items_table.removeRow(row)
             self._recalculate_totals()
+            self._show_status_message("Item removed")
             return
         unit_price = float(self.items_table.item(row, self.ITEM_COL_UNIT_PRICE).text())
         self.items_table.setItem(row, self.ITEM_COL_QTY, QTableWidgetItem(f"{new_qty:.2f}"))
@@ -2075,6 +2101,7 @@ class InvoiceTab(BaseTabContainer):
         )
         self._recalculate_totals()
         self._focus_barcode_input()
+        self._show_status_message("Quantity updated")
 
     def _focus_barcode_input(self) -> None:
         if not self.barcode_input.isVisible():
@@ -2405,10 +2432,24 @@ class InvoiceTab(BaseTabContainer):
 
     def _dispatch_scan(self, code: str) -> None:
         message = self.handle_scan(code)
+        if message:
+            self._show_status_message(message)
+
+    def _show_status_message(self, message: str, timeout: int = 2000) -> None:
         if message and hasattr(self.window(), "statusBar"):
             status_bar = self.window().statusBar()
             if status_bar:
-                status_bar.showMessage(message, 3000)
+                status_bar.showMessage(message, timeout)
+
+    def _pay_now_and_save(self) -> None:
+        if self.items_table.rowCount() == 0:
+            return
+        self._pay_now_manual = False
+        self.pay_now_input.lineEdit().setReadOnly(True)
+        self._set_pay_now_value(self._current_grand_total)
+        self._refresh_pay_now_manual_ui()
+        self._save_invoice()
+        self._show_status_message("Paid and saved")
 
     def eventFilter(self, source, event):  # noqa: N802 - Qt naming convention
         if not self.isVisible():
@@ -2424,6 +2465,24 @@ class InvoiceTab(BaseTabContainer):
             if source is self.products_table and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self._add_selected_product()
                 return True
+            if source is self.search_input and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if self.products_table.rowCount() > 0 and self.products_table.currentRow() < 0:
+                    self.products_table.selectRow(0)
+                self._add_selected_product()
+                return True
+            if source is self.items_table and key == Qt.Key.Key_Delete:
+                self._remove_selected_item()
+                return True
+            if key == Qt.Key.Key_Escape:
+                if source is self.search_input and self.search_input.text():
+                    self.search_input.clear()
+                    return True
+                if source is self.customer_search_input and self.customer_search_input.text():
+                    self.customer_search_input.clear()
+                    return True
+                if self.customer_dropdown_frame.isVisible():
+                    self._hide_customer_dropdown()
+                    return True
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if self._scan_timer.elapsed() < 500 and len(self._scan_buffer) >= 2:
                     self._dispatch_scan(self._scan_buffer)

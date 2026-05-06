@@ -386,6 +386,8 @@ class ManufacturingTab(BaseTabContainer):
         self.history_product = QComboBox()
         self.history_refresh_btn = QPushButton()
         self.history_refresh_btn.clicked.connect(self._refresh_history_report)
+        self.history_view_btn = QPushButton("View Details")
+        self.history_view_btn.clicked.connect(self._view_history_details)
         self.history_from_label = QLabel()
         filter_row.addWidget(self.history_from_label)
         filter_row.addWidget(self.history_start)
@@ -399,12 +401,13 @@ class ManufacturingTab(BaseTabContainer):
         filter_row.addWidget(self.history_product_label)
         filter_row.addWidget(self.history_product)
         filter_row.addWidget(self.history_refresh_btn)
+        filter_row.addWidget(self.history_view_btn)
         history_layout.addLayout(filter_row)
         self.history_help = QLabel()
         self.history_help.setWordWrap(True)
         history_layout.addWidget(self.history_help)
 
-        self.history_table = QTableWidget(0, 7)
+        self.history_table = QTableWidget(0, 9)
         self.history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.history_table.setAlternatingRowColors(True)
@@ -977,14 +980,38 @@ class ManufacturingTab(BaseTabContainer):
         for row_data in rows:
             row = self.history_table.rowCount()
             self.history_table.insertRow(row)
-            self.history_table.setItem(row, 0, QTableWidgetItem(row_data.order_no))
-            self.history_table.setItem(row, 1, QTableWidgetItem(row_data.datetime))
-            self.history_table.setItem(row, 2, QTableWidgetItem(self._status_label(row_data.status)))
-            self._paint_status_cell(self.history_table.item(row, 2), row_data.status)
-            self.history_table.setItem(row, 3, QTableWidgetItem(row_data.product_name))
-            self.history_table.setItem(row, 4, QTableWidgetItem(f"{row_data.qty_to_produce:.3f}"))
-            self.history_table.setItem(row, 5, QTableWidgetItem(f"{row_data.qty_produced:.3f}"))
-            self.history_table.setItem(row, 6, QTableWidgetItem(f"{row_data.total_cost:.2f}"))
+            self.history_table.setItem(row, 0, QTableWidgetItem(row_data.datetime))
+            self.history_table.setItem(row, 1, QTableWidgetItem(row_data.product_name))
+            self.history_table.setItem(row, 2, QTableWidgetItem(f"{row_data.qty_produced:.3f}"))
+            self.history_table.setItem(row, 3, QTableWidgetItem(f"{row_data.material_cost:.2f}"))
+            self.history_table.setItem(row, 4, QTableWidgetItem(f"{row_data.extra_cost:.2f}"))
+            self.history_table.setItem(row, 5, QTableWidgetItem(f"{row_data.total_cost:.2f}"))
+            self.history_table.setItem(row, 6, QTableWidgetItem(f"{row_data.selling_price:.2f}"))
+            self.history_table.setItem(row, 7, QTableWidgetItem(f"{row_data.profit:.2f}"))
+            self.history_table.setItem(row, 8, QTableWidgetItem(f"{row_data.margin_pct:.2f}%"))
+            self.history_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, row_data.order_no)
+
+    def _view_history_details(self) -> None:
+        row = self.history_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "View Details", "Select one history row first.")
+            return
+        values = [self.history_table.item(row, col).text() if self.history_table.item(row, col) else "" for col in range(9)]
+        QMessageBox.information(
+            self,
+            "Workshop Details",
+            (
+                f"Date: {values[0]}\n"
+                f"Product: {values[1]}\n"
+                f"Qty Produced: {values[2]}\n"
+                f"Material Cost: {values[3]}\n"
+                f"Extra Cost: {values[4]}\n"
+                f"Total Cost: {values[5]}\n"
+                f"Selling Price: {values[6]}\n"
+                f"Profit: {values[7]}\n"
+                f"Margin %: {values[8]}"
+            ),
+        )
 
     def _refresh_usage_report(self) -> None:
         start_dt = datetime.combine(self.usage_start.date().toPyDate(), time.min)
@@ -1122,13 +1149,15 @@ class ManufacturingTab(BaseTabContainer):
         self.history_refresh_btn.setText(t("manufacturing.history_refresh", language=language))
         self.history_table.setHorizontalHeaderLabels(
             [
-                t("manufacturing.history_table_order", language=language),
                 t("manufacturing.history_table_date", language=language),
-                t("manufacturing.history_table_status", language=language),
                 t("manufacturing.history_table_product", language=language),
-                t("manufacturing.history_table_qty", language=language),
-                t("manufacturing.history_table_produced", language=language),
-                t("manufacturing.history_table_total_cost", language=language),
+                "Qty Produced",
+                "Material Cost",
+                "Extra Cost",
+                "Total Cost",
+                "Selling Price",
+                "Profit",
+                "Margin %",
             ]
         )
         self.usage_box.setTitle(t("manufacturing.usage_box", language=language))

@@ -36,7 +36,7 @@ from beirut_pos.utils.excel import write_protected_workbook
 
 from ...services.db import fetch_shift_session_for_date, list_products, save_shift_session
 from ...services.pdf_exports import GalleryInfo, export_daily_report_pdf
-from ...services.reports import lowest_products, payment_breakdown, returns_aggregate, sales_aggregate, stock_alerts, top_products
+from ...services.reports import customer_aggregates, inventory_value_estimate, lowest_products, payment_breakdown, returns_aggregate, sales_aggregate, stock_alerts, top_products, top_products_by_revenue
 from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
@@ -155,6 +155,18 @@ class ReportsTab(BaseTabContainer):
         self.date_filter.dateChanged.connect(lambda *_: self._generate_report())
         self.product_filter_combo = QComboBox()
         self.product_filter_combo.currentIndexChanged.connect(self._generate_report)
+        self.customer_filter_input = QLineEdit()
+        self.customer_filter_input.textChanged.connect(self._generate_report)
+        self.date_from_filter = QDateEdit()
+        self.date_from_filter.setCalendarPopup(True)
+        self.date_from_filter.setDisplayFormat("dd/MM/yyyy")
+        self.date_from_filter.setDate(QDate.currentDate())
+        self.date_from_filter.dateChanged.connect(lambda *_: self._generate_report())
+        self.date_to_filter = QDateEdit()
+        self.date_to_filter.setCalendarPopup(True)
+        self.date_to_filter.setDisplayFormat("dd/MM/yyyy")
+        self.date_to_filter.setDate(QDate.currentDate())
+        self.date_to_filter.dateChanged.connect(lambda *_: self._generate_report())
         self.date_label = QLabel()
         self.product_filter_label = QLabel()
         self.summary_filter_row = self._build_filters_row(include_product=True)
@@ -215,19 +227,24 @@ class ReportsTab(BaseTabContainer):
 
         self.payment_table = QTableWidget(0, 2)
         self.returns_table = QTableWidget(0, 3)
-        self.top_table = QTableWidget(0, 3)
-        self.low_table = QTableWidget(0, 3)
+        self.top_table = QTableWidget(0, 4)
+        self.low_table = QTableWidget(0, 4)
+        self.customer_table = QTableWidget(0, 5)
         self.stock_table = QTableWidget(0, 5)
         for table in [
             self.payment_table,
             self.returns_table,
             self.top_table,
             self.low_table,
+            self.customer_table,
             self.stock_table,
         ]:
             table.setAlternatingRowColors(True)
             table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._style_report_table(table)
+
+        self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn.clicked.connect(self._generate_report)
 
         export_layout = QHBoxLayout()
         self.export_pdf_btn = QPushButton()
@@ -244,8 +261,9 @@ class ReportsTab(BaseTabContainer):
         self.low_products_label = QLabel()
         self.stock_alerts_label = QLabel()
         self.tabs.addTab(self._build_summary_tab(export_layout), "")
-        self.tabs.addTab(self._build_returns_tab(), "")
         self.tabs.addTab(self._build_products_tab(), "")
+        self.tabs.addTab(self._build_customers_tab(), "")
+        self.tabs.addTab(self._build_returns_tab(), "")
         self.tabs.addTab(self._build_stock_tab(), "")
         layout.addWidget(self.tabs)
 
@@ -327,6 +345,14 @@ class ReportsTab(BaseTabContainer):
         vbox.addWidget(self.low_table, 1)
         return tab
 
+    def _build_customers_tab(self) -> QWidget:
+        tab = QWidget()
+        vbox = QVBoxLayout(tab)
+        vbox.setContentsMargins(12, 12, 12, 12)
+        vbox.setSpacing(10)
+        vbox.addWidget(self.customer_table, 1)
+        return tab
+
     def _build_stock_tab(self) -> QWidget:
         tab = QWidget()
         vbox = QVBoxLayout(tab)
@@ -379,20 +405,9 @@ class ReportsTab(BaseTabContainer):
                 t("common.total", language=language),
             ]
         )
-        self.top_table.setHorizontalHeaderLabels(
-            [
-                t("reports.product", language=language),
-                t("reports.sku", language=language),
-                t("reports.qty", language=language),
-            ]
-        )
-        self.low_table.setHorizontalHeaderLabels(
-            [
-                t("reports.product", language=language),
-                t("reports.sku", language=language),
-                t("reports.qty", language=language),
-            ]
-        )
+        self.top_table.setHorizontalHeaderLabels(["Product", "SKU", "Qty", "Revenue"])
+        self.low_table.setHorizontalHeaderLabels(["Product", "SKU", "Qty", "Movement"])
+        self.customer_table.setHorizontalHeaderLabels(["Customer", "Phone", "Spend", "Loyalty", "Invoices / Last Purchase"])
         self.stock_table.setHorizontalHeaderLabels(
             [
                 t("reports.product", language=language),
@@ -431,8 +446,8 @@ class ReportsTab(BaseTabContainer):
     def _generate_report(self) -> None:
         date_qt = self.date_filter.date()
         date_iso = date_qt.toString("yyyy-MM-dd")
-        start_dt = datetime.combine(date_qt.toPyDate(), time.min)
-        end_dt = datetime.combine(date_qt.toPyDate(), time.max)
+        start_dt = datetime.combine(self.date_from_filter.date().toPyDate(), time.min)
+        end_dt = datetime.combine(self.date_to_filter.date().toPyDate(), time.max)
         start_iso = start_dt.isoformat(timespec="seconds")
         end_iso = end_dt.isoformat(timespec="seconds")
 
@@ -447,9 +462,11 @@ class ReportsTab(BaseTabContainer):
             product_id=product_id,
         )
         returns = returns_aggregate(start_iso, end_iso, product_id=product_id)
-        top = top_products(start_iso, end_iso, limit=5, product_id=product_id)
         low = lowest_products(start_iso, end_iso, limit=5, product_id=product_id)
+        top_rev = top_products_by_revenue(start_iso, end_iso, limit=10, product_id=product_id)
+        customers = customer_aggregates(start_iso, end_iso, self.customer_filter_input.text())
         out_of_stock, near_out = stock_alerts()
+        inventory_value = inventory_value_estimate()
 
         self._populate_table(self.payment_table, [(k, f"{v:.2f}") for k, v in payments.items()])
         normalized_reasons = [
@@ -461,11 +478,15 @@ class ReportsTab(BaseTabContainer):
         )
         self._populate_table(
             self.top_table,
-            [(p.name, p.code, f"{p.qty:.2f}") for p in top],
+            [(p.name, p.code, f"{p.qty:.2f}", f"{p.revenue:.2f}") for p in top_rev],
         )
         self._populate_table(
             self.low_table,
-            [(p.name, p.code, f"{p.qty:.2f}") for p in low],
+            [(p.name, p.code, f"{p.qty:.2f}", "Slow") for p in low],
+        )
+        self._populate_table(
+            self.customer_table,
+            [(c.customer, c.phone, f"{c.spend:.2f}", f"{c.points:.2f}", f"{c.invoice_count} | {c.last_purchase[:10]}") for c in customers],
         )
         stock_rows = []
         for name_ar, name_en, sku, qty, min_qty in out_of_stock:
@@ -533,7 +554,7 @@ class ReportsTab(BaseTabContainer):
             payment_breakdown=list(payments.items()),
             returns_summary=(returns.return_count, returns.return_total),
             return_reasons=normalized_reasons,
-            top_products=[(p.name, p.code, p.qty) for p in top],
+            top_products=[(p.name, p.code, p.qty) for p in top_rev],
             low_products=[(p.name, p.code, p.qty) for p in low],
             out_of_stock=list(out_of_stock),
             near_out=list(near_out),

@@ -17,8 +17,17 @@ except Exception:
 
 class RawUsbEscpos:
     """pyusb ESC/POS with bitmap rendering, alignment tags, and full-width tables."""
-    def __init__(self, vid: int = 0x0483, pid: int = 0x5743, interface: int = 0) -> None:
+    def __init__(
+        self,
+        vid: int = 0x0483,
+        pid: int = 0x5743,
+        interface: int = 0,
+        out_ep: int | None = None,
+        in_ep: int | None = None,
+    ) -> None:
         self.vid, self.pid, self.interface = vid, pid, interface
+        self.out_ep = out_ep
+        self.in_ep = in_ep
         self.dev: usb.core.Device | None = None
         self.ep_out: usb.core.Endpoint | None = None
         self.encoding = "cp1256"
@@ -38,11 +47,17 @@ class RawUsbEscpos:
         dev.set_configuration()
         cfg = dev.get_active_configuration()
         intf = cfg[(self.interface, 0)]
-        ep_out = usb.util.find_descriptor(
-            intf,
-            custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress)
-            == usb.util.ENDPOINT_OUT,
-        )
+        if self.out_ep is not None:
+            ep_out = usb.util.find_descriptor(
+                intf,
+                custom_match=lambda e: int(e.bEndpointAddress) == int(self.out_ep),
+            )
+        else:
+            ep_out = usb.util.find_descriptor(
+                intf,
+                custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress)
+                == usb.util.ENDPOINT_OUT,
+            )
         if ep_out is None:
             raise RuntimeError("No BULK OUT endpoint on printer interface")
         self.dev, self.ep_out = dev, ep_out
@@ -61,7 +76,9 @@ class RawUsbEscpos:
     def _write(self, data: bytes) -> None:
         if self.ep_out is None:
             raise RuntimeError("Printer not connected (no OUT endpoint)")
-        self.ep_out.write(data)
+        chunk_size = 2048
+        for i in range(0, len(data), chunk_size):
+            self.ep_out.write(data[i : i + chunk_size])
         if self._delay_s:
             time.sleep(self._delay_s)
 

@@ -102,6 +102,7 @@ class JewelryMainWindow(QMainWindow):
         self.tabs.addTab(self.invoice_tab, "")
         self.tabs.addTab(self.customers_tab, "")
         self.tabs.currentChanged.connect(self._handle_tab_change)
+        self.tabs.setCurrentWidget(self.manufacturing_tab)
         self.manufacturing_tab.order_done_btn.clicked.connect(self.inventory_tab.refresh)
         self.manufacturing_tab.order_confirm_btn.clicked.connect(self.inventory_tab.refresh)
 
@@ -171,7 +172,7 @@ class JewelryMainWindow(QMainWindow):
         self.setWindowTitle(t("app.title", language=self._language))
         self.tabs.setTabText(0, "Settings")
         self.tabs.setTabText(1, "Reports")
-        self.tabs.setTabText(2, "Manufacturing")
+        self.tabs.setTabText(2, "Workshop")
         self.tabs.setTabText(3, "Inventory")
         self.tabs.setTabText(4, "Returns")
         self.tabs.setTabText(5, "New Invoice")

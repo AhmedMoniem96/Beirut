@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 import re
 
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -58,6 +58,8 @@ from .base_tab import BaseTabContainer
 
 
 class ManufacturingTab(BaseTabContainer):
+    inventory_changed = pyqtSignal()
+
     def __init__(self) -> None:
         super().__init__()
         self._language = get_ui_language()
@@ -809,6 +811,7 @@ class ManufacturingTab(BaseTabContainer):
         self._refresh_products()
         self._refresh_boms()
         self._refresh_history_report()
+        self.inventory_changed.emit()
 
     def _delete_bom(self) -> None:
         if not self._selected_bom_id:

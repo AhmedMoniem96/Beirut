@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, time
 from typing import Dict, List, Optional
 
+import re
+
 from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
@@ -47,6 +49,7 @@ from ...services.db import (
     mark_production_done,
     save_bom,
     save_material,
+    save_product,
 )
 from ...services.reports import material_usage, production_history
 from ...services.i18n import choose_name, get_ui_language, t
@@ -162,11 +165,36 @@ class ManufacturingTab(BaseTabContainer):
         form_layout = QFormLayout(form_box)
         form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.bom_product_combo = QComboBox()
+        self.design_product_name = QLineEdit()
+        self.design_product_sku = QLineEdit()
+        self.design_product_price = QDoubleSpinBox()
+        self.design_product_price.setRange(0, 999999)
+        self.design_product_price.setDecimals(2)
+        self.design_qty_produced = QDoubleSpinBox()
+        self.design_qty_produced.setRange(0, 999999)
+        self.design_qty_produced.setDecimals(3)
+        self.design_labor_cost = QDoubleSpinBox()
+        self.design_labor_cost.setRange(0, 999999)
+        self.design_packaging_cost = QDoubleSpinBox()
+        self.design_packaging_cost.setRange(0, 999999)
+        self.design_other_cost = QDoubleSpinBox()
+        self.design_other_cost.setRange(0, 999999)
+        self.design_profit_pct = QDoubleSpinBox()
+        self.design_profit_pct.setRange(0, 1000)
+        self.design_profit_pct.setValue(25)
         self.bom_name_input = QLineEdit()
         self.bom_active_check = QCheckBox()
         self.bom_product_label = QLabel()
         self.bom_name_label = QLabel()
         form_layout.addRow(self.bom_product_label, self.bom_product_combo)
+        form_layout.addRow("Product Name", self.design_product_name)
+        form_layout.addRow("Product SKU", self.design_product_sku)
+        form_layout.addRow("Selling Price", self.design_product_price)
+        form_layout.addRow("Qty Produced", self.design_qty_produced)
+        form_layout.addRow("Labor Cost", self.design_labor_cost)
+        form_layout.addRow("Packaging Cost", self.design_packaging_cost)
+        form_layout.addRow("Other Cost", self.design_other_cost)
+        form_layout.addRow("Profit %", self.design_profit_pct)
         form_layout.addRow(self.bom_name_label, self.bom_name_input)
         form_layout.addRow("", self.bom_active_check)
         lines_box = QGroupBox()
@@ -201,9 +229,11 @@ class ManufacturingTab(BaseTabContainer):
         lines_layout.addWidget(remove_line_btn)
         self.remove_line_btn = remove_line_btn
         self.bom_save_btn = QPushButton()
+        self.create_product_btn = QPushButton("Create Product")
         self.bom_delete_btn = QPushButton()
         self.bom_clear_btn = QPushButton()
         self.bom_save_btn.clicked.connect(self._save_bom)
+        self.create_product_btn.clicked.connect(self._create_product_from_design)
         self.bom_delete_btn.clicked.connect(self._delete_bom)
         self.bom_clear_btn.clicked.connect(self._clear_bom_form)
 
@@ -222,6 +252,7 @@ class ManufacturingTab(BaseTabContainer):
         form_content_layout.addWidget(lines_box)
         form_container.set_page_content_widget(form_content)
         form_container.footer_layout.addWidget(self.bom_save_btn)
+        form_container.footer_layout.addWidget(self.create_product_btn)
         form_container.footer_layout.addWidget(self.bom_delete_btn)
         form_container.footer_layout.addWidget(self.bom_clear_btn)
 
@@ -646,6 +677,90 @@ class ManufacturingTab(BaseTabContainer):
         )
         self._refresh_boms()
         self._clear_bom_form()
+
+    def _create_product_from_design(self) -> None:
+        name = self.design_product_name.text().strip()
+        sku = self.design_product_sku.text().strip()
+        qty_produced = float(self.design_qty_produced.value())
+        if not name:
+            QMessageBox.warning(self, "Validation", "Product name is required.")
+            return
+        if qty_produced <= 0:
+            QMessageBox.warning(self, "Validation", "Qty produced must be greater than zero.")
+            return
+        lines = []
+        materials = {m.id: m for m in list_materials()}
+        material_total_cost = 0.0
+        for row in range(self.bom_lines_table.rowCount()):
+            material_id = self.bom_lines_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            qty_required = float(self.bom_lines_table.item(row, 1).text())
+            required_total = qty_required * qty_produced
+            material = materials.get(material_id)
+            if material and required_total > material.qty_on_hand:
+                QMessageBox.warning(
+                    self,
+                    "Validation",
+                    f"Material qty cannot exceed available ({material.name_en}: {required_total:.3f} > {material.qty_on_hand:.3f}).",
+                )
+                return
+            if material:
+                material_total_cost += required_total * material.cost_per_unit
+            lines.append((material_id, qty_required))
+        labor_cost = float(self.design_labor_cost.value())
+        overhead_cost = float(self.design_packaging_cost.value() + self.design_other_cost.value())
+        total_cost = material_total_cost + labor_cost + overhead_cost
+        suggested_price = total_cost * (1 + float(self.design_profit_pct.value()) / 100.0)
+
+        existing = next((p for p in list_products() if p.name_en.strip().lower() == name.lower()), None)
+        if not sku:
+            sku = re.sub(r"[^A-Z0-9]+", "-", name.upper()).strip("-")[:20] or f"DES-{datetime.now().strftime('%H%M%S')}"
+        product_id = existing.id if existing else None
+        target_price = float(self.design_product_price.value()) or suggested_price
+        save_product(
+            product_id,
+            name_ar=name,
+            name_en=name,
+            sku=sku if not existing else existing.sku,
+            barcode="" if not existing else existing.barcode,
+            barcode_type="" if not existing else existing.barcode_type,
+            price=target_price if not existing else (existing.price or target_price),
+            qty_on_hand=existing.qty_on_hand if existing else 0.0,
+            min_qty=existing.min_qty if existing else 0.0,
+            category=existing.category if existing else "Handmade",
+            handmade_flag=True,
+            stone_type=existing.stone_type if existing else "",
+            color=existing.color if existing else "",
+        )
+        self._refresh_products()
+        product = next((p for p in list_products() if p.name_en.strip().lower() == name.lower()), None)
+        if not product:
+            QMessageBox.warning(self, "Error", "Could not create product.")
+            return
+        bom_id = save_bom(
+            self._selected_bom_id,
+            product.id,
+            self.bom_name_input.text().strip() or f"{name} Design",
+            True,
+            lines,
+        )
+        order = create_production_order(
+            product_id=product.id,
+            qty_to_produce=qty_produced,
+            labor_cost=labor_cost,
+            overhead_cost=overhead_cost,
+            notes="Create Design workflow",
+            bom_id=bom_id,
+        )
+        mark_production_done(order.id)
+        QMessageBox.information(
+            self,
+            "Success",
+            f"Product created. Total cost: {total_cost:.2f}, Suggested price: {suggested_price:.2f}",
+        )
+        self._refresh_materials()
+        self._refresh_products()
+        self._refresh_boms()
+        self._refresh_history_report()
 
     def _delete_bom(self) -> None:
         if not self._selected_bom_id:

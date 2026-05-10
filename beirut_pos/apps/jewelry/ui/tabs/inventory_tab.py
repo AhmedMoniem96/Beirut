@@ -29,7 +29,12 @@ from PyQt6.QtWidgets import (
 
 from ...services.db import barcode_exists, delete_product, list_products, save_product
 from ...services.product_import import generate_import_template, import_products_from_excel
-from ...services.settings import load_gallery_settings
+from ...services.settings import (
+    PRINTER_MODE_LABEL,
+    PRINTER_MODE_RECEIPT,
+    load_gallery_settings,
+    set_printer_mode,
+)
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
 
@@ -599,11 +604,38 @@ class InventoryTab(BaseTabContainer):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
     def _dispatch_barcode_print(self, product, barcode_type_value: str) -> bool:
+        if not self._ensure_printer_mode_for_labels():
+            return False
         settings = load_gallery_settings()
         mode = (settings.barcode_print_mode or "pdf").strip().lower() or "pdf"
         if mode == "pdf":
             return self._print_barcode_via_pdf_dispatch(product, barcode_type_value)
         return self._print_barcode_direct(product, barcode_type_value)
+
+    def _ensure_printer_mode_for_labels(self) -> bool:
+        active_mode = load_gallery_settings().printer_mode or PRINTER_MODE_RECEIPT
+        if active_mode == PRINTER_MODE_LABEL:
+            return True
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle("Printer Mode")
+        dialog.setText("Printer is in Receipt Mode. Switch to Label Mode to print labels.")
+        switch_btn = dialog.addButton("Switch Mode", QMessageBox.ButtonRole.AcceptRole)
+        dialog.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        dialog.exec()
+        if dialog.clickedButton() is not switch_btn:
+            return False
+        confirm = QMessageBox.question(
+            self,
+            t("settings.printer_mode_confirm_title", language=self._language),
+            t("settings.printer_mode_confirm_label", language=self._language),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return False
+        set_printer_mode(PRINTER_MODE_LABEL)
+        return True
 
     def _print_barcode_via_pdf_dispatch(self, product, barcode_type_value: str) -> bool:
         try:

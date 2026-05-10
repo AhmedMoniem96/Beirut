@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
+    QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QGridLayout,
@@ -24,6 +25,8 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QInputDialog,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -77,6 +80,7 @@ class ManufacturingTab(BaseTabContainer):
         self._material_map: Dict[str, int] = {}
         self._product_map: Dict[str, int] = {}
         self._bom_entries: List[tuple[str, int, int]] = []
+        self._editing_product_id: Optional[int] = None
 
         self._build_design_tab()
         self._build_materials_tab()
@@ -329,16 +333,24 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_save_btn = QPushButton()
         self.create_product_btn = QPushButton("Create Product")
         self.duplicate_design_btn = QPushButton("Duplicate Design")
+        self.edit_product_btn = QPushButton("Edit Product")
+        self.cancel_edit_btn = QPushButton("Cancel Edit")
+        self.cancel_edit_btn.setVisible(False)
+        self.editing_product_label = QLabel("")
         self.bom_delete_btn = QPushButton()
         self.bom_clear_btn = QPushButton()
         self.bom_save_btn.clicked.connect(self._save_bom)
         self.create_product_btn.clicked.connect(self._create_product_from_design)
         self.duplicate_design_btn.clicked.connect(self._open_duplicate_design_picker)
+        self.edit_product_btn.clicked.connect(self._open_edit_product_picker)
+        self.cancel_edit_btn.clicked.connect(self._cancel_edit_product)
         self.bom_delete_btn.clicked.connect(self._delete_bom)
         self.bom_clear_btn.clicked.connect(self._clear_bom_form)
 
         footer = QHBoxLayout(); footer.addStretch(1)
-        footer.addWidget(self.bom_clear_btn); footer.addWidget(self.create_product_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.bom_save_btn)
+        footer.addWidget(self.editing_product_label)
+        footer.addWidget(self.cancel_edit_btn)
+        footer.addWidget(self.bom_clear_btn); footer.addWidget(self.create_product_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.edit_product_btn); footer.addWidget(self.bom_save_btn)
         tab_layout.addLayout(footer)
 
         self.tabs.addTab(self.boms_tab, "")
@@ -842,7 +854,9 @@ class ManufacturingTab(BaseTabContainer):
         total_cost = material_total_cost + labor_cost + overhead_cost
         suggested_price = total_cost * (1 + float(self.design_profit_pct.value()) / 100.0)
 
-        existing = next((p for p in list_products() if p.name_en.strip().lower() == name.lower()), None)
+        existing = next((p for p in list_products() if p.id == self._editing_product_id), None)
+        if not existing:
+            existing = next((p for p in list_products() if p.name_en.strip().lower() == name.lower()), None)
         if not sku:
             sku = re.sub(r"[^A-Z0-9]+", "-", name.upper()).strip("-")[:20] or f"DES-{datetime.now().strftime('%H%M%S')}"
         product_id = existing.id if existing else None
@@ -886,13 +900,14 @@ class ManufacturingTab(BaseTabContainer):
         QMessageBox.information(
             self,
             "Success",
-            f"Product created. Total cost: {total_cost:.2f}, Suggested price: {suggested_price:.2f}",
+            f"Product {'updated' if existing else 'created'}. Total cost: {total_cost:.2f}, Suggested price: {suggested_price:.2f}",
         )
         self._refresh_materials()
         self._refresh_products()
         self._refresh_boms()
         self._refresh_history_report()
         self.inventory_changed.emit()
+        self._cancel_edit_product()
 
     def _delete_bom(self) -> None:
         if not self._selected_bom_id:
@@ -915,6 +930,102 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_active_check.setChecked(False)
         self.bom_lines_table.setRowCount(0)
         self._refresh_design_cost_summary()
+        self._cancel_edit_product()
+
+
+
+    def _open_edit_product_picker(self) -> None:
+        products = list_products()
+        if not products:
+            QMessageBox.information(self, "Edit Product", "No products available.")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Edit Product")
+        layout = QVBoxLayout(dialog)
+        search_input = QLineEdit()
+        search_input.setPlaceholderText("Search by product name or SKU/code")
+        results = QListWidget()
+        buttons = QHBoxLayout()
+        open_btn = QPushButton("Load")
+        cancel_btn = QPushButton("Cancel")
+        buttons.addStretch(1)
+        buttons.addWidget(cancel_btn)
+        buttons.addWidget(open_btn)
+        layout.addWidget(search_input)
+        layout.addWidget(results, 1)
+        layout.addLayout(buttons)
+
+        def populate(filter_text: str = "") -> None:
+            results.clear()
+            text = filter_text.strip().lower()
+            for product in products:
+                name = (product.name_en or "").strip()
+                sku = (product.sku or "").strip()
+                if text and text not in name.lower() and text not in sku.lower():
+                    continue
+                item = QListWidgetItem(f"{name} | SKU: {sku or '-'}")
+                item.setData(Qt.ItemDataRole.UserRole, product.id)
+                results.addItem(item)
+
+        def accept_selected() -> None:
+            if results.currentItem() is None:
+                return
+            dialog.accept()
+
+        search_input.textChanged.connect(populate)
+        open_btn.clicked.connect(accept_selected)
+        cancel_btn.clicked.connect(dialog.reject)
+        results.itemDoubleClicked.connect(lambda _: accept_selected())
+        populate()
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        selected = results.currentItem()
+        if selected is None:
+            return
+        self._load_product_for_edit(int(selected.data(Qt.ItemDataRole.UserRole)))
+
+    def _load_product_for_edit(self, product_id: int) -> None:
+        product = next((p for p in list_products() if p.id == product_id), None)
+        if not product:
+            QMessageBox.warning(self, "Edit Product", "Could not load selected product.")
+            return
+        bom = next((b for b in list_boms() if b.product_id == product.id), None)
+        self._editing_product_id = product.id
+        self.design_product_name.setText(product.name_en or "")
+        self.design_product_sku.setText(product.sku or "")
+        self.design_product_price.setValue(float(product.price or 0.0))
+        product_index = self.bom_product_combo.findData(product.id)
+        if product_index >= 0:
+            self.bom_product_combo.setCurrentIndex(product_index)
+        self.bom_lines_table.setRowCount(0)
+        if bom:
+            self._selected_bom_id = bom.id
+            self.bom_name_input.setText(bom.name)
+            self.bom_active_check.setChecked(bom.active)
+            for line in list_bom_lines(bom.id):
+                material_label = next((label for label, mid in self._material_map.items() if mid == line.material_id), f"{t('manufacturing.material_label', language=self._language)} {line.material_id}")
+                row_idx = self.bom_lines_table.rowCount()
+                self.bom_lines_table.insertRow(row_idx)
+                self.bom_lines_table.setItem(row_idx, 0, QTableWidgetItem(material_label))
+                self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem("0.000"))
+                self.bom_lines_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.qty_required:.3f}"))
+                self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
+                self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
+                self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
+        order = next((o for o in reversed(list_production_orders()) if o.product_id == product.id), None)
+        if order:
+            self.design_qty_produced.setValue(float(order.qty_to_produce or 1.0))
+            self.design_labor_cost.setValue(float(order.labor_cost or 0.0))
+            self.design_packaging_cost.setValue(float(order.overhead_cost or 0.0))
+            self.design_other_cost.setValue(0.0)
+        self.editing_product_label.setText(f"Editing Product: {product.name_en}")
+        self.cancel_edit_btn.setVisible(True)
+        self._refresh_design_cost_summary()
+
+    def _cancel_edit_product(self) -> None:
+        self._editing_product_id = None
+        self.editing_product_label.setText("")
+        self.cancel_edit_btn.setVisible(False)
 
     def _load_bom(self, row: int) -> None:
         self._selected_bom_id = self.boms_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -1179,6 +1290,7 @@ class ManufacturingTab(BaseTabContainer):
             QMessageBox.warning(self, "Duplicate Design", "Could not load source product.")
             return
 
+        self._cancel_edit_product()
         self.design_product_name.setText(source_product.name_en)
         product_index = self.bom_product_combo.findData(source_product.id)
         if product_index >= 0:
@@ -1272,6 +1384,8 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_save_btn.setText("Save Design")
         self.create_product_btn.setText("Create Product")
         self.duplicate_design_btn.setText("Duplicate Design")
+        self.edit_product_btn.setText("Edit Product")
+        self.cancel_edit_btn.setText("Cancel Edit")
         self.bom_delete_btn.setText(t("manufacturing.delete_bom", language=language))
         self.bom_clear_btn.setText("Clear")
         self.boms_table.setHorizontalHeaderLabels(

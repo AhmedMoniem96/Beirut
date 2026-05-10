@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import QDate, QElapsedTimer, QEvent, QPoint, QSettings, Qt, QTimer, QUrl
+from PyQt6.QtCore import QDate, QElapsedTimer, QEvent, QPoint, QSettings, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -83,6 +83,7 @@ from ..date_utils import to_iso_date
 from ..theme import JEWELRY_CONTROLS, JEWELRY_SPACING, JEWELRY_TABLE, JEWELRY_TYPOGRAPHY
 from ..dialogs.quick_customer_dialog import QuickCustomerDialog
 from .base_tab import BaseTabContainer
+from .printer_mode_badge import refresh_printer_mode_badge
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +227,6 @@ class InvoiceTab(BaseTabContainer):
         self._delivery_address = ""
         self._delivery_notes = ""
         self._save_in_progress = False
-        self._printer_mode_poll_timer = QTimer(self)
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -254,8 +254,6 @@ class InvoiceTab(BaseTabContainer):
         self.printer_mode_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;")
         header_row.addWidget(self.printer_mode_badge)
         self._refresh_printer_mode_badge()
-        self._printer_mode_poll_timer.timeout.connect(self._refresh_printer_mode_badge)
-        self._printer_mode_poll_timer.start(700)
 
         form_box = QGroupBox()
         self.form_box = form_box
@@ -2266,16 +2264,7 @@ class InvoiceTab(BaseTabContainer):
 
 
     def _refresh_printer_mode_badge(self) -> None:
-        active_mode = load_gallery_settings().printer_mode or PRINTER_MODE_RECEIPT
-        is_label_mode = active_mode == PRINTER_MODE_LABEL
-        mode_label = t("settings.printer_mode_label", language=self._language) if is_label_mode else t("settings.printer_mode_receipt", language=self._language)
-        badge_prefix = t("settings.printer_mode", language=self._language)
-        if is_label_mode:
-            style = "font-size: 11px; font-weight: 600; color: #664d03; background: #fff3cd; border: 1px solid #ffecb5; border-radius: 8px; padding: 2px 8px;"
-        else:
-            style = "font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;"
-        self.printer_mode_badge.setStyleSheet(style)
-        self.printer_mode_badge.setText(f"{badge_prefix}: {mode_label}")
+        refresh_printer_mode_badge(self.printer_mode_badge, self._language)
 
 
     def _refresh_printer_status_badge(self) -> None:

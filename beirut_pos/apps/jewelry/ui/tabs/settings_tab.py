@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEventLoop, QTimer, Qt
+from PyQt6.QtCore import QEventLoop, Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -30,6 +30,7 @@ from ..dialogs.delivery_companies_dialog import DeliveryCompaniesDialog
 from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
 from ..dialogs.statuses_dialog import StatusesDialog
 from .base_tab import BaseTabContainer
+from .printer_mode_badge import refresh_printer_mode_badge
 from beirut_pos.services import printer as printer_service
 
 
@@ -261,9 +262,6 @@ class SettingsTab(BaseTabContainer):
         self._load_settings()
         self.apply_language(self._language)
         self._apply_rtl_layout()
-        self._printer_mode_live_timer = QTimer(self)
-        self._printer_mode_live_timer.timeout.connect(self._refresh_printer_mode_badge)
-        self._printer_mode_live_timer.start(700)
         self.printer_mode.currentIndexChanged.connect(self._refresh_printer_mode_badge)
         self._refresh_printer_mode_badge()
 
@@ -353,6 +351,9 @@ class SettingsTab(BaseTabContainer):
         )
         if self._on_settings_changed:
             self._on_settings_changed()
+
+    def _refresh_printer_mode_badge(self) -> None:
+        refresh_printer_mode_badge(self.current_printer_mode_badge, self._language)
 
     def _add_payment_method(self) -> None:
         name_ar = self.payment_ar_input.text().strip()

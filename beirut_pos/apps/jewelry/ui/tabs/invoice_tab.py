@@ -107,6 +107,64 @@ class DeliveryDetailsDialog(QDialog):
         layout.addRow(actions)
 
 
+class WebsiteOrderDialog(QDialog):
+    """Manual website/social order capture for invoices."""
+
+    PLATFORM_OPTIONS = [
+        ("Website", "website"),
+        ("Instagram", "instagram"),
+        ("Facebook", "facebook"),
+        ("WhatsApp", "whatsapp"),
+        ("Other", "other"),
+    ]
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Website Order")
+        layout = QFormLayout(self)
+
+        self.customer_search_input = QLineEdit()
+        self.customer_search_input.setPlaceholderText("Search customer by name/phone")
+        self.customer_combo = QComboBox()
+        self.customer_combo.addItem("", None)
+        self.order_ref_input = QLineEdit()
+        self.platform_combo = QComboBox()
+        for label, value in self.PLATFORM_OPTIONS:
+            self.platform_combo.addItem(label, value)
+        self.order_notes_input = QTextEdit()
+        self.order_notes_input.setMinimumHeight(70)
+        self.delivery_required_checkbox = QCheckBox("Delivery required")
+        self.delivery_address_input = QLineEdit()
+
+        self.customer_search_input.textChanged.connect(self._search_customers)
+        self.delivery_required_checkbox.toggled.connect(self.delivery_address_input.setEnabled)
+        self.delivery_address_input.setEnabled(False)
+
+        layout.addRow("Customer", self.customer_search_input)
+        layout.addRow("Select", self.customer_combo)
+        layout.addRow("Website Order No / Reference", self.order_ref_input)
+        layout.addRow("Platform", self.platform_combo)
+        layout.addRow("Order Notes", self.order_notes_input)
+        layout.addRow("", self.delivery_required_checkbox)
+        layout.addRow("Delivery Address", self.delivery_address_input)
+
+        actions = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        actions.button(QDialogButtonBox.StandardButton.Ok).setText("Apply to Invoice")
+        actions.accepted.connect(self.accept)
+        actions.rejected.connect(self.reject)
+        layout.addRow(actions)
+
+    def _search_customers(self, text: str) -> None:
+        self.customer_combo.clear()
+        self.customer_combo.addItem("", None)
+        term = text.strip()
+        if len(term) < 2:
+            return
+        for customer in search_customers(term):
+            self.customer_combo.addItem(f"{customer.name} ({customer.phone})", customer)
+
+
+
 class InvoiceTab(BaseTabContainer):
     ITEM_COL_PRODUCT = 0
     ITEM_COL_CODE = 1
@@ -168,6 +226,8 @@ class InvoiceTab(BaseTabContainer):
         right_layout.setSpacing(8)
 
         self.invoice_info_label = QLabel()
+        self.order_source_info_label = QLabel()
+        self.order_source_info_label.setStyleSheet("font-size: 11px; color: #666;")
 
         form_box = QGroupBox()
         self.form_box = form_box
@@ -187,6 +247,8 @@ class InvoiceTab(BaseTabContainer):
         self.order_source_combo.addItem("", "in_store")
         self.order_source_combo.addItem("", "website")
         self.order_source_combo.currentIndexChanged.connect(self._handle_order_source_change)
+        self._website_order_platform = ""
+        self._website_order_notes = ""
         self.delivery_enabled_checkbox = QCheckBox()
         self.delivery_enabled_checkbox.toggled.connect(self._update_delivery_state)
         self.delivery_company_combo = QComboBox()
@@ -410,7 +472,14 @@ class InvoiceTab(BaseTabContainer):
         self.customer_add_new_btn.setText("+ Customer")
         self.invoice_history_btn = QPushButton("Invoice History")
         self.invoice_history_btn.clicked.connect(self._open_invoice_history_dialog)
-        header_row.addWidget(self.invoice_info_label)
+        header_meta_layout = QVBoxLayout()
+        header_meta_layout.setContentsMargins(0, 0, 0, 0)
+        header_meta_layout.setSpacing(2)
+        header_meta_layout.addWidget(self.invoice_info_label)
+        header_meta_layout.addWidget(self.order_source_info_label)
+        header_meta_widget = QWidget()
+        header_meta_widget.setLayout(header_meta_layout)
+        header_row.addWidget(header_meta_widget)
         header_row.addWidget(self.cashier_label_compact)
         header_row.addWidget(self.cashier_label_value)
         header_row.addWidget(self.customer_label_compact)
@@ -1010,7 +1079,16 @@ class InvoiceTab(BaseTabContainer):
     def _handle_order_source_change(self) -> None:
         if self._website_orders_enabled:
             self.order_source_combo.setCurrentIndex(self.order_source_combo.findData("website"))
+        selected_source = self.order_source_combo.currentData()
+        if selected_source == "website":
+            self._open_website_order_dialog()
+        else:
+            self._website_order_platform = ""
+            self._website_order_notes = ""
+            self.website_order_input.clear()
+            self._update_order_source_label()
         self._update_website_order_state()
+
 
     def _apply_website_order_settings(self) -> None:
         if self._website_orders_enabled:
@@ -1044,6 +1122,36 @@ class InvoiceTab(BaseTabContainer):
         self.return_reason_input.setEnabled(
             is_return and self.return_toggle.isChecked() and self.advanced_box.isChecked()
         )
+
+    def _open_website_order_dialog(self) -> None:
+        dialog = WebsiteOrderDialog(self)
+        dialog.order_ref_input.setText(self.website_order_input.text().strip())
+        if self.delivery_enabled_checkbox.isChecked():
+            dialog.delivery_required_checkbox.setChecked(True)
+            dialog.delivery_address_input.setText(self.delivery_address_input.text().strip())
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        selected_customer = dialog.customer_combo.currentData()
+        if selected_customer is not None:
+            points = get_loyalty_balance(selected_customer.phone)
+            self._apply_customer_selection(selected_customer, points)
+        self._website_order_platform = dialog.platform_combo.currentData() or "website"
+        self._website_order_notes = dialog.order_notes_input.toPlainText().strip()
+        self.website_order_input.setText(dialog.order_ref_input.text().strip())
+        if dialog.delivery_required_checkbox.isChecked():
+            if not self.delivery_enabled_checkbox.isChecked():
+                self.delivery_enabled_checkbox.setChecked(True)
+            self.delivery_address_input.setText(dialog.delivery_address_input.text().strip())
+            self._delivery_address = dialog.delivery_address_input.text().strip()
+        self._update_order_source_label()
+
+    def _update_order_source_label(self) -> None:
+        ref = self.website_order_input.text().strip()
+        platform = self._website_order_platform or self.order_source_combo.currentData() or ""
+        if platform and platform != "in_store":
+            self.order_source_info_label.setText(f"Order Source: {platform.title()} / Ref: {ref or '-'}")
+            return
+        self.order_source_info_label.setText("")
 
     def _update_website_order_state(self) -> None:
         if not self.advanced_box.isChecked() or not self.website_toggle.isChecked():
@@ -1657,11 +1765,15 @@ class InvoiceTab(BaseTabContainer):
             self._pay_now_manual = False
             self.pay_now_input.lineEdit().setReadOnly(True)
             self._refresh_pay_now_manual_ui()
-        order_source = self.order_source_combo.currentData() or "in_store"
+        order_source = (self._website_order_platform or self.order_source_combo.currentData() or "in_store")
         website_order_ref = (
             self.website_order_input.text().strip() if order_source == "website" else ""
         )
         notes = self.notes_input.toPlainText().strip()
+        if self._website_order_notes:
+            website_notes = f"Website Order Notes: {self._website_order_notes}"
+            if website_notes not in notes:
+                notes = f"{notes}\n{website_notes}".strip()
         return_reason = self.return_reason_input.text().strip() if txn_type == "return" else ""
         items = self._collect_items()
         try:
@@ -2119,6 +2231,9 @@ class InvoiceTab(BaseTabContainer):
         self.return_reason_input.clear()
         self.order_source_combo.setCurrentIndex(0)
         self.website_order_input.clear()
+        self._website_order_platform = ""
+        self._website_order_notes = ""
+        self.order_source_info_label.setText("")
         for toggle in (self.discount_toggle, self.notes_toggle, self.return_toggle, self.website_toggle):
             toggle.setChecked(False)
         self._update_advanced_panels()
@@ -2495,6 +2610,7 @@ class InvoiceTab(BaseTabContainer):
         self._refresh_printer_status_badge()
         self.clear_btn.setText(t("invoice.new", language=language))
         self.invoice_history_btn.setText("سجل الفواتير" if language == "ar" else "Invoice History")
+        self._update_order_source_label()
         self._refresh_payment_methods()
         self._refresh_payment_statuses()
         self._refresh_delivery_companies()

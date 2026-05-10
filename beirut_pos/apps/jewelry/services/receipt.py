@@ -73,6 +73,9 @@ def build_receipt_text(
         lines.append(f">>R Phone: {invoice.customer_phone}")
     if invoice.delivery_enabled and invoice.delivery_address:
         lines.append(f">>R Delivery Address: {invoice.delivery_address}")
+    if invoice.order_source and invoice.order_source != "in_store":
+        lines.append(f">>R Order Source: {invoice.order_source}")
+        lines.append(f">>R Ref: {invoice.website_order_ref or '-'}")
 
     lines.append(_draw_line("═"))
     lines.append(_format_row(("Item", "Qty", "Price", "Total")))

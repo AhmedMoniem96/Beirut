@@ -37,6 +37,7 @@ from ...services.settings import (
     PRINTER_MODE_RECEIPT,
     load_gallery_settings,
     set_printer_mode,
+    get_printer_mode,
 )
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
@@ -59,9 +60,6 @@ class InventoryTab(BaseTabContainer):
         self._scan_buffer = ""
         self._scan_timer = QElapsedTimer()
         self._scan_timer.start()
-        self._printer_mode_live_timer = QTimer(self)
-        self._printer_mode_live_timer.timeout.connect(self._refresh_printer_mode_badge)
-        self._printer_mode_live_timer.start(700)
         self._language = get_ui_language()
         self._printer_mode_poll_timer = QElapsedTimer()
         QApplication.instance().installEventFilter(self)
@@ -183,6 +181,9 @@ class InventoryTab(BaseTabContainer):
         self.auto_print_barcode_check = QCheckBox()
         self.printer_mode_badge = QLabel()
         self.printer_mode_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;")
+        self._printer_mode_live_timer = QTimer(self)
+        self._printer_mode_live_timer.timeout.connect(self._refresh_printer_mode_badge)
+        self._printer_mode_live_timer.start(700)
 
         products_layout.addWidget(form_box)
         for btn in [self.download_template_btn, self.import_excel_btn, self.print_barcode_btn, self.clear_btn, self.delete_btn, self.save_btn]:
@@ -678,6 +679,19 @@ class InventoryTab(BaseTabContainer):
         if clicked is cancel_btn:
             return "cancel"
         return "cancel"
+
+
+    def _refresh_printer_mode_badge(self) -> None:
+        active_mode = get_printer_mode()
+        is_label_mode = active_mode == PRINTER_MODE_LABEL
+        mode_label = t("settings.printer_mode_label", language=self._language) if is_label_mode else t("settings.printer_mode_receipt", language=self._language)
+        badge_prefix = t("settings.printer_mode", language=self._language)
+        if is_label_mode:
+            style = "font-size: 11px; font-weight: 600; color: #664d03; background: #fff3cd; border: 1px solid #ffecb5; border-radius: 8px; padding: 2px 8px;"
+        else:
+            style = "font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;"
+        self.printer_mode_badge.setStyleSheet(style)
+        self.printer_mode_badge.setText(f"{badge_prefix}: {mode_label}")
 
     def _ensure_printer_mode_for_labels(self) -> bool:
         active_mode = load_gallery_settings().printer_mode or PRINTER_MODE_RECEIPT

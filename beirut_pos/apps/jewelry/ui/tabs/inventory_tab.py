@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QGroupBox,
@@ -578,8 +581,19 @@ class InventoryTab(BaseTabContainer):
         barcode_type_value = self._validated_barcode_type(product.barcode_type)
         if barcode_type_value is None:
             return
+        label_img = self._build_barcode_label_image(product, barcode_type_value)
+        if label_img is None:
+            return
+        preview_action = self._show_label_preview_dialog(product, label_img)
+        if preview_action == "cancel":
+            return
+        if preview_action == "switch_mode":
+            if not self._ensure_printer_mode_for_labels():
+                return
+        elif not self._ensure_printer_mode_for_labels():
+            return
 
-        if not self._dispatch_barcode_print(product, barcode_type_value):
+        if not self._dispatch_barcode_print(product, barcode_type_value, label_img):
             QMessageBox.critical(
                 self,
                 t("inventory.print_failed", language=self._language),
@@ -603,14 +617,58 @@ class InventoryTab(BaseTabContainer):
         if msg.clickedButton() is open_btn:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
-    def _dispatch_barcode_print(self, product, barcode_type_value: str) -> bool:
-        if not self._ensure_printer_mode_for_labels():
-            return False
+    def _dispatch_barcode_print(self, product, barcode_type_value: str, label_img) -> bool:
         settings = load_gallery_settings()
         mode = (settings.barcode_print_mode or "pdf").strip().lower() or "pdf"
         if mode == "pdf":
-            return self._print_barcode_via_pdf_dispatch(product, barcode_type_value)
-        return self._print_barcode_direct(product, barcode_type_value)
+            return self._print_barcode_via_pdf_dispatch(label_img)
+        return self._print_barcode_direct(label_img)
+
+    def _build_barcode_label_image(self, product, barcode_type_value: str):
+        try:
+            from ...services.barcode_printer import render_barcode_label_image
+        except RuntimeError:
+            QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
+            return None
+        return render_barcode_label_image(
+            product_name=choose_name(product.name_ar, product.name_en, language=self._language),
+            sku=product.sku,
+            barcode_value=product.barcode,
+            barcode_type=barcode_type_value,
+        )
+
+    def _show_label_preview_dialog(self, product, label_img) -> str:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Label Preview")
+        layout = QVBoxLayout(dialog)
+        name = choose_name(product.name_ar, product.name_en, language=self._language) or "-"
+        layout.addWidget(QLabel(f"Product: {name}"))
+        layout.addWidget(QLabel(f"SKU/Barcode: {product.sku or '-'} / {product.barcode or '-'}"))
+        layout.addWidget(QLabel(f"Dimensions: {label_img.width} x {label_img.height} px"))
+
+        preview = QLabel()
+        preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        png_data = BytesIO()
+        label_img.convert("L").save(png_data, format="PNG")
+        pixmap = QPixmap()
+        pixmap.loadFromData(png_data.getvalue(), "PNG")
+        preview.setPixmap(pixmap.scaled(520, 340, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        layout.addWidget(preview)
+
+        buttons = QDialogButtonBox(dialog)
+        print_btn = buttons.addButton("Print", QDialogButtonBox.ButtonRole.AcceptRole)
+        switch_btn = buttons.addButton("Switch Printer Mode", QDialogButtonBox.ButtonRole.ActionRole)
+        cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.ButtonRole.RejectRole)
+        layout.addWidget(buttons)
+        dialog.exec()
+        clicked = buttons.clickedButton()
+        if clicked is print_btn:
+            return "print"
+        if clicked is switch_btn:
+            return "switch_mode"
+        if clicked is cancel_btn:
+            return "cancel"
+        return "cancel"
 
     def _ensure_printer_mode_for_labels(self) -> bool:
         active_mode = load_gallery_settings().printer_mode or PRINTER_MODE_RECEIPT
@@ -637,18 +695,12 @@ class InventoryTab(BaseTabContainer):
         set_printer_mode(PRINTER_MODE_LABEL)
         return True
 
-    def _print_barcode_via_pdf_dispatch(self, product, barcode_type_value: str) -> bool:
+    def _print_barcode_via_pdf_dispatch(self, label_img) -> bool:
         try:
-            from ...services.barcode_printer import render_barcode_label_image, try_print_barcode_label_image, BarcodePrinterError
+            from ...services.barcode_printer import try_print_barcode_label_image, BarcodePrinterError
         except RuntimeError:
             QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
             return False
-        label_img = render_barcode_label_image(
-            product_name=choose_name(product.name_ar, product.name_en, language=self._language),
-            sku=product.sku,
-            barcode_value=product.barcode,
-            barcode_type=barcode_type_value,
-        )
         try:
             try_print_barcode_label_image(label_img, printer_name=load_gallery_settings().barcode_printer_name, retries=0)
             QMessageBox.information(self, t("common.print", language=self._language), t("inventory.printed", language=self._language))
@@ -657,19 +709,13 @@ class InventoryTab(BaseTabContainer):
             QMessageBox.critical(self, t("inventory.print_failed", language=self._language), t("inventory.direct_print_failed", language=self._language, error=exc))
             return False
 
-    def _print_barcode_direct(self, product, barcode_type_value: str) -> bool:
+    def _print_barcode_direct(self, label_img) -> bool:
         settings = load_gallery_settings()
         try:
-            from ...services.barcode_printer import render_barcode_label_image, try_print_barcode_label_image, BarcodePrinterError
+            from ...services.barcode_printer import try_print_barcode_label_image, BarcodePrinterError
         except RuntimeError:
             QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
             return False
-        label_img = render_barcode_label_image(
-            product_name=choose_name(product.name_ar, product.name_en, language=self._language),
-            sku=product.sku,
-            barcode_value=product.barcode,
-            barcode_type=barcode_type_value,
-        )
         for attempt in range(2):
             try:
                 try_print_barcode_label_image(label_img, printer_name=settings.barcode_printer_name, retries=0)

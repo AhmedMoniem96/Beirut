@@ -146,6 +146,18 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "settings.default_mode": {"en": "Default Mode", "ar": "الوضع الافتراضي"},
     "settings.printer": {"en": "Printer", "ar": "الطابعة"},
     "settings.receipt_mode": {"en": "Receipt Mode", "ar": "وضع طباعة الإيصال"},
+    "settings.printer_mode": {"en": "Printer Mode", "ar": "وضع الطابعة"},
+    "settings.printer_mode_receipt": {"en": "Receipt Mode", "ar": "وضع الإيصال"},
+    "settings.printer_mode_label": {"en": "Label Mode", "ar": "وضع الملصق"},
+    "settings.printer_mode_confirm_title": {"en": "Confirm Printer Mode", "ar": "تأكيد وضع الطابعة"},
+    "settings.printer_mode_confirm_label": {
+        "en": "Please insert barcode labels into the printer before continuing.",
+        "ar": "يرجى إدخال ملصقات الباركود في الطابعة قبل المتابعة.",
+    },
+    "settings.printer_mode_confirm_receipt": {
+        "en": "Please insert receipt paper into the printer before continuing.",
+        "ar": "يرجى إدخال ورق الإيصال في الطابعة قبل المتابعة.",
+    },
     "settings.receipt_printer": {"en": "Receipt Printer", "ar": "طابعة الإيصال"},
     "settings.receipt_mode_auto": {"en": "Auto", "ar": "تلقائي"},
     "settings.receipt_mode_windows": {"en": "Windows Printer", "ar": "طابعة ويندوز"},

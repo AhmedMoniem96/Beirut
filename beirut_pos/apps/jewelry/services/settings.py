@@ -50,6 +50,10 @@ class GallerySettings:
     invoice_auto_print_after_save: bool
     invoice_print_preview: bool
     printer_mode: str
+    barcode_label_width_mm: float
+    barcode_label_height_mm: float
+    barcode_horizontal_offset_px: int
+    barcode_vertical_offset_px: int
 
 
 def _migrate_invoice_print_preferences() -> tuple[bool, bool]:
@@ -93,6 +97,10 @@ def load_gallery_settings() -> GallerySettings:
         invoice_auto_print_after_save=invoice_auto_print_after_save,
         invoice_print_preview=invoice_print_preview,
         printer_mode=get_printer_mode(),
+        barcode_label_width_mm=float(get_config_value("jw_barcode_label_width_mm", 38.0) or 38.0),
+        barcode_label_height_mm=float(get_config_value("jw_barcode_label_height_mm", 25.0) or 25.0),
+        barcode_horizontal_offset_px=int(get_config_value("jw_barcode_horizontal_offset_px", 0) or 0),
+        barcode_vertical_offset_px=int(get_config_value("jw_barcode_vertical_offset_px", 0) or 0),
     )
 
 
@@ -120,6 +128,10 @@ def save_gallery_settings(settings: GallerySettings) -> None:
     set_config_value("jw_invoice_auto_print_after_save", settings.invoice_auto_print_after_save)
     set_config_value("jw_invoice_print_preview", settings.invoice_print_preview)
     set_printer_mode(settings.printer_mode)
+    set_config_value("jw_barcode_label_width_mm", settings.barcode_label_width_mm)
+    set_config_value("jw_barcode_label_height_mm", settings.barcode_label_height_mm)
+    set_config_value("jw_barcode_horizontal_offset_px", settings.barcode_horizontal_offset_px)
+    set_config_value("jw_barcode_vertical_offset_px", settings.barcode_vertical_offset_px)
     set_config_value("jw_printer_profiles", [{"name": "Admin Override", "vendor_id": settings.printer_vendor_id, "product_id": settings.printer_product_id, "interface": settings.printer_interface, "out_ep": settings.printer_out_ep, "in_ep": settings.printer_in_ep}])
 
 

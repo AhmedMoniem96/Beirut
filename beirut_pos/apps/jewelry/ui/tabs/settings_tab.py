@@ -25,6 +25,7 @@ from ...services.settings import GallerySettings, load_gallery_settings, save_ga
 from ...services.demo_seed import seed_demo_data
 from ...services.i18n import get_ui_language, set_ui_language, t
 from ...services import device_health
+from ...services import barcode_printer
 from ..dialogs.delivery_companies_dialog import DeliveryCompaniesDialog
 from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
 from ..dialogs.statuses_dialog import StatusesDialog
@@ -146,8 +147,14 @@ class SettingsTab(BaseTabContainer):
         self.printer_backend_priority = QLineEdit()
         self.receipt_paper_preset = QLineEdit("80mm")
         self.qr_label_preset = QLineEdit("38×25mm")
+        self.barcode_label_width = QLineEdit("38")
+        self.barcode_label_height = QLineEdit("25")
+        self.barcode_offset_x = QLineEdit("0")
+        self.barcode_offset_y = QLineEdit("0")
+        self.print_test_label_btn = QPushButton("Print Test Label")
         self.receipt_paper_preset.setReadOnly(True)
         self.qr_label_preset.setReadOnly(True)
+        self.print_test_label_btn.clicked.connect(self._print_test_label)
         self.printer_vendor_label = QLabel("Vendor ID")
         self.printer_product_label = QLabel("Product ID")
         self.printer_interface_label = QLabel("USB Interface")
@@ -163,6 +170,11 @@ class SettingsTab(BaseTabContainer):
         printer_layout.addRow(self.active_printer_mode_label, self.printer_mode)
         printer_layout.addRow(self.receipt_paper_preset_label, self.receipt_paper_preset)
         printer_layout.addRow(self.qr_label_preset_label, self.qr_label_preset)
+        printer_layout.addRow("Label Width (mm)", self.barcode_label_width)
+        printer_layout.addRow("Label Height (mm)", self.barcode_label_height)
+        printer_layout.addRow("Horizontal Offset (px)", self.barcode_offset_x)
+        printer_layout.addRow("Vertical Offset (px)", self.barcode_offset_y)
+        printer_layout.addRow("", self.print_test_label_btn)
         printer_layout.addRow("", self.invoice_auto_print_after_save_check)
         printer_layout.addRow("", self.invoice_print_preview_check)
         printer_layout.addRow(self.printer_vendor_label, self.printer_vendor_id)
@@ -284,6 +296,10 @@ class SettingsTab(BaseTabContainer):
         self.printer_backend_priority.setText(settings.printer_backend_priority)
         self.invoice_auto_print_after_save_check.setChecked(settings.invoice_auto_print_after_save)
         self.invoice_print_preview_check.setChecked(settings.invoice_print_preview)
+        self.barcode_label_width.setText(f"{settings.barcode_label_width_mm:g}")
+        self.barcode_label_height.setText(f"{settings.barcode_label_height_mm:g}")
+        self.barcode_offset_x.setText(str(settings.barcode_horizontal_offset_px))
+        self.barcode_offset_y.setText(str(settings.barcode_vertical_offset_px))
         self._set_language_combo(get_ui_language())
         self._refresh_device_status()
 
@@ -315,6 +331,10 @@ class SettingsTab(BaseTabContainer):
             invoice_auto_print_after_save=self.invoice_auto_print_after_save_check.isChecked(),
             invoice_print_preview=self.invoice_print_preview_check.isChecked(),
             printer_mode=next_printer_mode,
+            barcode_label_width_mm=float(self.barcode_label_width.text().strip() or 38),
+            barcode_label_height_mm=float(self.barcode_label_height.text().strip() or 25),
+            barcode_horizontal_offset_px=int(self.barcode_offset_x.text().strip() or 0),
+            barcode_vertical_offset_px=int(self.barcode_offset_y.text().strip() or 0),
         )
         save_gallery_settings(settings)
         QMessageBox.information(
@@ -493,6 +513,43 @@ class SettingsTab(BaseTabContainer):
         else:
             QMessageBox.warning(self, "Scanner Test", "No scanner payload received before timeout.")
         self._refresh_device_status()
+
+    def _print_test_label(self) -> None:
+        try:
+            settings = GallerySettings(
+                name_en=self.name_en_input.text().strip(),
+                name_ar=self.name_ar_input.text().strip(),
+                address=self.address_input.text().strip(),
+                phone=self.phone_input.text().strip(),
+                logo_path=self.logo_input.text().strip(),
+                font_path=self.font_input.text().strip(),
+                rtl_enabled=self.rtl_check.isChecked(),
+                barcode_print_mode=self.barcode_mode.currentData() or "pdf",
+                barcode_printer_name=self.barcode_printer.currentData() or "auto",
+                receipt_print_mode=self.receipt_mode.currentData() or "auto",
+                receipt_printer_name=self.receipt_printer.currentData() or "auto",
+                website_name=self.website_name_input.text().strip(),
+                website_url=self.website_url_input.text().strip(),
+                website_orders_enabled=self.website_orders_check.isChecked(),
+                printer_vendor_id=self.printer_vendor_id.text().strip() or "0x0FE6",
+                printer_product_id=self.printer_product_id.text().strip() or "0x811E",
+                printer_interface=self.printer_interface.text().strip() or "0",
+                printer_out_ep=self.printer_out_ep.text().strip() or "0x01",
+                printer_in_ep=self.printer_in_ep.text().strip() or "0x81",
+                printer_backend_priority=self.printer_backend_priority.text().strip() or "raw-usb-escpos,escpos-usb,file,windows",
+                invoice_auto_print_after_save=self.invoice_auto_print_after_save_check.isChecked(),
+                invoice_print_preview=self.invoice_print_preview_check.isChecked(),
+                printer_mode=self.printer_mode.currentData() or PRINTER_MODE_RECEIPT,
+                barcode_label_width_mm=float(self.barcode_label_width.text().strip() or 38),
+                barcode_label_height_mm=float(self.barcode_label_height.text().strip() or 25),
+                barcode_horizontal_offset_px=int(self.barcode_offset_x.text().strip() or 0),
+                barcode_vertical_offset_px=int(self.barcode_offset_y.text().strip() or 0),
+            )
+            save_gallery_settings(settings)
+            barcode_printer.print_test_label(printer_name=self.barcode_printer.currentData() or "auto")
+            QMessageBox.information(self, "Barcode Calibration", "Test label sent to printer.")
+        except Exception as exc:
+            QMessageBox.warning(self, "Barcode Calibration", f"Failed to print test label: {exc}")
 
     def _open_loyalty_settings(self) -> None:
         dialog = LoyaltySettingsDialog(self)

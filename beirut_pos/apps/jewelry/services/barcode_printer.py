@@ -237,8 +237,8 @@ def render_barcode_label_image(
         barcode_drawing = _barcode_drawing(barcode_value, barcode_type)
         barcode_img = renderPM.drawToPIL(barcode_drawing).convert("1")
     except Exception:
-        barcode_renderer = "printer_service._render_lines_to_bitmap"
-        barcode_img = printer_service._render_lines_to_bitmap([">>C [BARCODE]"])
+        barcode_renderer = "render_label_bitmap"
+        barcode_img = render_label_bitmap([">>C [BARCODE]"])
     barcode_width_px = barcode_img.width
     barcode_height_px = barcode_img.height
 
@@ -365,6 +365,52 @@ def try_print_barcode_label_image(img: Image.Image, *, printer_name: str, retrie
             last_error = _map_print_error(exc)
     if last_error is not None:
         raise last_error
+
+
+
+def render_label_bitmap(lines: Sequence[str]) -> Image.Image:
+    """Render narrow label text bitmap on a fixed 38x25mm canvas."""
+    label_text_img, renderer = _render_label_lines_at_width(lines, LABEL_WIDTH_PX)
+    label_canvas = _center_on_label(label_text_img, width=LABEL_WIDTH_PX, height=LABEL_HEIGHT_PX, pad_y=2)
+    printer_service._log_struct(
+        "printer.render.selected",
+        printer_mode="label",
+        renderer="render_label_bitmap",
+        text_renderer=renderer,
+        canvas_width_px=LABEL_WIDTH_PX,
+        canvas_height_px=LABEL_HEIGHT_PX,
+        bitmap_width_px=label_canvas.width,
+        bitmap_height_px=label_canvas.height,
+    )
+    return label_canvas
+
+
+def print_barcode_label(
+    *,
+    product_name: str,
+    sku: str,
+    barcode_value: str,
+    barcode_type: str,
+    printer_name: str,
+) -> None:
+    """Public barcode/QR label printing entrypoint (label-only pipeline)."""
+    img = render_barcode_label_image(
+        product_name=product_name,
+        sku=sku,
+        barcode_value=barcode_value,
+        barcode_type=barcode_type,
+    )
+    printer_service._log_struct(
+        "printer.mode.active",
+        printer_mode="label",
+        renderer="render_label_bitmap",
+        canvas_width_px=LABEL_WIDTH_PX,
+        canvas_height_px=LABEL_HEIGHT_PX,
+        bitmap_width_px=img.width,
+        bitmap_height_px=img.height,
+        printer_name=printer_name,
+    )
+    print_barcode_label_image(img, printer_name=printer_name)
 
 
 def print_barcode_label_image(

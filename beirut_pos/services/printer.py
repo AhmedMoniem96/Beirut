@@ -1258,7 +1258,7 @@ class PrinterService:
         )
 
         if target_windows_printer:
-            bmp = _render_lines_to_bitmap(lines)
+            bmp = render_receipt_bitmap(lines)
             _log_struct("printer.bitmap.metrics", context="text_receipt_windows", width_px=bmp.width, height_px=bmp.height, target_width_px=PAPER_PX)
             try:
                 win_print_image(target_windows_printer, bmp.convert("RGB"))
@@ -1279,6 +1279,41 @@ class PrinterService:
         _log_struct("printer.print_text_receipt.return", backend="escpos", mode=selected_mode, dispatched=dispatched, payload_type="text")
         return dispatched
 
+
+
+
+def render_receipt_bitmap(lines: Sequence[str]) -> Image.Image:
+    """Render an 80mm receipt bitmap using the fixed 576px receipt canvas."""
+    bmp = _render_lines_to_bitmap(lines)
+    _log_struct(
+        "printer.render.selected",
+        printer_mode="receipt",
+        renderer="render_receipt_bitmap",
+        canvas_width_px=PAPER_PX,
+        canvas_height_px=bmp.height,
+        bitmap_width_px=bmp.width,
+        bitmap_height_px=bmp.height,
+    )
+    return bmp
+
+
+def print_receipt(
+    lines: Sequence[str],
+    *,
+    printer_name: str | None = None,
+    print_mode: str | None = None,
+) -> bool:
+    """Public receipt printing entrypoint (80mm receipt pipeline only)."""
+    _log_struct(
+        "printer.mode.active",
+        printer_mode="receipt",
+        renderer="render_receipt_bitmap",
+        canvas_width_px=PAPER_PX,
+        canvas_height_px=None,
+        requested_printer_name=(printer_name or "").strip(),
+        requested_mode=(print_mode or "auto").strip().lower(),
+    )
+    return printer.print_text_receipt(lines, printer_name=printer_name, print_mode=print_mode, payload_type="bitmap")
 
 # singleton
 printer = PrinterService()

@@ -136,6 +136,8 @@ class SettingsTab(BaseTabContainer):
         self.receipt_mode_label = QLabel()
         self.receipt_printer_label = QLabel()
         self.active_printer_mode_label = QLabel()
+        self.current_printer_mode_badge = QLabel()
+        self.current_printer_mode_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;")
         self.invoice_auto_print_after_save_check = QCheckBox()
         self.invoice_print_preview_check = QCheckBox()
 
@@ -168,6 +170,7 @@ class SettingsTab(BaseTabContainer):
         printer_layout.addRow(self.receipt_mode_label, self.receipt_mode)
         printer_layout.addRow(self.receipt_printer_label, self.receipt_printer)
         printer_layout.addRow(self.active_printer_mode_label, self.printer_mode)
+        printer_layout.addRow("", self.current_printer_mode_badge)
         printer_layout.addRow(self.receipt_paper_preset_label, self.receipt_paper_preset)
         printer_layout.addRow(self.qr_label_preset_label, self.qr_label_preset)
         printer_layout.addRow("Label Width (mm)", self.barcode_label_width)
@@ -258,6 +261,11 @@ class SettingsTab(BaseTabContainer):
         self._load_settings()
         self.apply_language(self._language)
         self._apply_rtl_layout()
+        self._printer_mode_live_timer = QTimer(self)
+        self._printer_mode_live_timer.timeout.connect(self._refresh_printer_mode_badge)
+        self._printer_mode_live_timer.start(700)
+        self.printer_mode.currentIndexChanged.connect(self._refresh_printer_mode_badge)
+        self._refresh_printer_mode_badge()
 
     def apply_rtl_layout(self, rtl_enabled: bool) -> None:
         for form_layout in self._form_layouts:
@@ -337,6 +345,7 @@ class SettingsTab(BaseTabContainer):
             barcode_vertical_offset_px=int(self.barcode_offset_y.text().strip() or 0),
         )
         save_gallery_settings(settings)
+        self._refresh_printer_mode_badge()
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),

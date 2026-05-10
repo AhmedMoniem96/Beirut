@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...services.db import add_payment_method
-from ...services.settings import GallerySettings, load_gallery_settings, save_gallery_settings, normalize_scanner_payload
+from ...services.settings import GallerySettings, load_gallery_settings, save_gallery_settings, normalize_scanner_payload, PRINTER_MODE_RECEIPT, PRINTER_MODE_LABEL
 from ...services.demo_seed import seed_demo_data
 from ...services.i18n import get_ui_language, set_ui_language, t
 from ...services import device_health
@@ -126,11 +126,15 @@ class SettingsTab(BaseTabContainer):
         self.receipt_printer.addItem("", "auto")
         for name in windows_printers:
             self.receipt_printer.addItem(name, name)
+        self.printer_mode = QComboBox()
+        self.printer_mode.addItem("", PRINTER_MODE_RECEIPT)
+        self.printer_mode.addItem("", PRINTER_MODE_LABEL)
 
         self.printer_mode_label = QLabel()
         self.printer_label = QLabel()
         self.receipt_mode_label = QLabel()
         self.receipt_printer_label = QLabel()
+        self.active_printer_mode_label = QLabel()
         self.invoice_auto_print_after_save_check = QCheckBox()
         self.invoice_print_preview_check = QCheckBox()
 
@@ -156,6 +160,7 @@ class SettingsTab(BaseTabContainer):
         printer_layout.addRow(self.printer_label, self.barcode_printer)
         printer_layout.addRow(self.receipt_mode_label, self.receipt_mode)
         printer_layout.addRow(self.receipt_printer_label, self.receipt_printer)
+        printer_layout.addRow(self.active_printer_mode_label, self.printer_mode)
         printer_layout.addRow(self.receipt_paper_preset_label, self.receipt_paper_preset)
         printer_layout.addRow(self.qr_label_preset_label, self.qr_label_preset)
         printer_layout.addRow("", self.invoice_auto_print_after_save_check)
@@ -267,6 +272,7 @@ class SettingsTab(BaseTabContainer):
         self._set_combo_value(self.barcode_printer, settings.barcode_printer_name)
         self._set_combo_value(self.receipt_mode, settings.receipt_print_mode or "auto")
         self._set_combo_value(self.receipt_printer, settings.receipt_printer_name)
+        self._set_combo_value(self.printer_mode, settings.printer_mode or PRINTER_MODE_RECEIPT)
         self.website_name_input.setText(settings.website_name)
         self.website_url_input.setText(settings.website_url)
         self.website_orders_check.setChecked(settings.website_orders_enabled)
@@ -282,6 +288,9 @@ class SettingsTab(BaseTabContainer):
         self._refresh_device_status()
 
     def _save_settings(self) -> None:
+        next_printer_mode = self.printer_mode.currentData() or PRINTER_MODE_RECEIPT
+        if not self._confirm_printer_mode_change(next_printer_mode):
+            return
         settings = GallerySettings(
             name_en=self.name_en_input.text().strip(),
             name_ar=self.name_ar_input.text().strip(),
@@ -305,6 +314,7 @@ class SettingsTab(BaseTabContainer):
             printer_backend_priority=self.printer_backend_priority.text().strip() or "raw-usb-escpos,escpos-usb,file,windows",
             invoice_auto_print_after_save=self.invoice_auto_print_after_save_check.isChecked(),
             invoice_print_preview=self.invoice_print_preview_check.isChecked(),
+            printer_mode=next_printer_mode,
         )
         save_gallery_settings(settings)
         QMessageBox.information(
@@ -410,6 +420,7 @@ class SettingsTab(BaseTabContainer):
         self.printer_label.setText(t("settings.printer", language=language))
         self.receipt_mode_label.setText(t("settings.receipt_mode", language=language))
         self.receipt_printer_label.setText(t("settings.receipt_printer", language=language))
+        self.active_printer_mode_label.setText(t("settings.printer_mode", language=language))
         self.receipt_paper_preset_label.setText("ورق الإيصال" if language == "ar" else "Receipt paper")
         self.qr_label_preset_label.setText("مقاس ملصق QR" if language == "ar" else "QR label size")
         self.receipt_paper_preset.setText("80mm (افتراضي)" if language == "ar" else "80mm (default)")
@@ -420,6 +431,8 @@ class SettingsTab(BaseTabContainer):
         self.receipt_mode.setItemText(0, t("settings.receipt_mode_auto", language=language))
         self.receipt_mode.setItemText(1, t("settings.receipt_mode_windows", language=language))
         self.receipt_printer.setItemText(0, t("settings.printer_auto", language=language))
+        self.printer_mode.setItemText(0, t("settings.printer_mode_receipt", language=language))
+        self.printer_mode.setItemText(1, t("settings.printer_mode_label", language=language))
         self.invoice_auto_print_after_save_check.setText("طباعة تلقائية بعد الحفظ" if language == "ar" else "Auto print after save")
         self.invoice_print_preview_check.setText("معاينة سريعة قبل الطباعة" if language == "ar" else "Quick preview before print")
         self.save_btn.setText(t("settings.save", language=language))
@@ -499,3 +512,17 @@ class SettingsTab(BaseTabContainer):
             if combo.itemData(idx) == value or combo.itemText(idx) == value:
                 combo.setCurrentIndex(idx)
                 return
+
+    def _confirm_printer_mode_change(self, next_mode: str) -> bool:
+        current_mode = load_gallery_settings().printer_mode or PRINTER_MODE_RECEIPT
+        if next_mode == current_mode:
+            return True
+        key = "settings.printer_mode_confirm_label" if next_mode == PRINTER_MODE_LABEL else "settings.printer_mode_confirm_receipt"
+        result = QMessageBox.question(
+            self,
+            t("settings.printer_mode_confirm_title", language=self._language),
+            t(key, language=self._language),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+        )
+        return result == QMessageBox.StandardButton.Yes

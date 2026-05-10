@@ -10,6 +10,11 @@ from PyQt6.QtCore import QSettings
 from beirut_pos.core.config_store import get_config_value, set_config_value
 
 
+PRINTER_MODE_RECEIPT = "receipt"
+PRINTER_MODE_LABEL = "label"
+DEFAULT_PRINTER_MODE = PRINTER_MODE_RECEIPT
+
+
 
 
 @dataclass
@@ -44,6 +49,7 @@ class GallerySettings:
     printer_backend_priority: str
     invoice_auto_print_after_save: bool
     invoice_print_preview: bool
+    printer_mode: str
 
 
 def _migrate_invoice_print_preferences() -> tuple[bool, bool]:
@@ -86,6 +92,7 @@ def load_gallery_settings() -> GallerySettings:
         printer_backend_priority=str(get_config_value("jw_printer_backend_priority", "raw-usb-escpos,escpos-usb,file,windows")),
         invoice_auto_print_after_save=invoice_auto_print_after_save,
         invoice_print_preview=invoice_print_preview,
+        printer_mode=get_printer_mode(),
     )
 
 
@@ -112,7 +119,22 @@ def save_gallery_settings(settings: GallerySettings) -> None:
     set_config_value("jw_printer_backend_priority", settings.printer_backend_priority)
     set_config_value("jw_invoice_auto_print_after_save", settings.invoice_auto_print_after_save)
     set_config_value("jw_invoice_print_preview", settings.invoice_print_preview)
+    set_printer_mode(settings.printer_mode)
     set_config_value("jw_printer_profiles", [{"name": "Admin Override", "vendor_id": settings.printer_vendor_id, "product_id": settings.printer_product_id, "interface": settings.printer_interface, "out_ep": settings.printer_out_ep, "in_ep": settings.printer_in_ep}])
+
+
+def get_printer_mode() -> str:
+    mode = str(get_config_value("jw_printer_mode", DEFAULT_PRINTER_MODE) or DEFAULT_PRINTER_MODE).strip().lower()
+    if mode not in {PRINTER_MODE_RECEIPT, PRINTER_MODE_LABEL}:
+        return DEFAULT_PRINTER_MODE
+    return mode
+
+
+def set_printer_mode(mode: str) -> None:
+    normalized = (mode or "").strip().lower()
+    if normalized not in {PRINTER_MODE_RECEIPT, PRINTER_MODE_LABEL}:
+        normalized = DEFAULT_PRINTER_MODE
+    set_config_value("jw_printer_mode", normalized)
 
 
 def load_scanner_profile() -> ScannerProfile:

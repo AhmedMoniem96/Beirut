@@ -64,6 +64,7 @@ from ...services.db import (
     search_customers,
     save_customer,
     get_conn,
+    list_invoice_history,
 )
 from ...services.pdf_exports import GalleryInfo, export_invoice_pdf
 from ...services.receipt import build_receipt_text
@@ -407,12 +408,15 @@ class InvoiceTab(BaseTabContainer):
         self.customer_label_compact = QLabel("Customer:")
         self.delivery_enabled_checkbox.setText("Delivery")
         self.customer_add_new_btn.setText("+ Customer")
+        self.invoice_history_btn = QPushButton("Invoice History")
+        self.invoice_history_btn.clicked.connect(self._open_invoice_history_dialog)
         header_row.addWidget(self.invoice_info_label)
         header_row.addWidget(self.cashier_label_compact)
         header_row.addWidget(self.cashier_label_value)
         header_row.addWidget(self.customer_label_compact)
         header_row.addWidget(self.customer_search_input, 0)
         header_row.addWidget(self.customer_add_new_btn)
+        header_row.addWidget(self.invoice_history_btn)
         header_row.addWidget(self.delivery_enabled_checkbox)
         header_row.addStretch()
 
@@ -1774,6 +1778,117 @@ class InvoiceTab(BaseTabContainer):
         invoice, _items = fetch_invoice_details(invoice_no)
         QMessageBox.information(self, "Invoice Details", f"{invoice.invoice_no}\n{invoice.datetime}\n{invoice.total:.2f}")
 
+    def _open_invoice_history_dialog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Invoice History")
+        dialog.resize(1100, 520)
+        layout = QVBoxLayout(dialog)
+
+        filters_row = QHBoxLayout()
+        search_input = QLineEdit()
+        search_input.setPlaceholderText("Search by invoice #, customer, or phone")
+        from_date = QDateEdit()
+        to_date = QDateEdit()
+        from_date.setCalendarPopup(True)
+        to_date.setCalendarPopup(True)
+        from_date.setDate(QDate.currentDate().addMonths(-1))
+        to_date.setDate(QDate.currentDate())
+        status_combo = QComboBox()
+        status_combo.addItem("All", "ALL")
+        status_combo.addItems(["PAID", "PARTIAL", "UNPAID", "OVERDUE"])
+        refresh_btn = QPushButton("Refresh")
+        filters_row.addWidget(search_input, 1)
+        filters_row.addWidget(QLabel("From"))
+        filters_row.addWidget(from_date)
+        filters_row.addWidget(QLabel("To"))
+        filters_row.addWidget(to_date)
+        filters_row.addWidget(QLabel("Status"))
+        filters_row.addWidget(status_combo)
+        filters_row.addWidget(refresh_btn)
+        layout.addLayout(filters_row)
+
+        table = QTableWidget(0, 9)
+        table.setHorizontalHeaderLabels(
+            ["Invoice No", "Date", "Customer", "Phone", "Total", "Payment Method", "Status", "Actions", "Invoice Id"]
+        )
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        table.setColumnHidden(8, True)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.setSortingEnabled(False)
+        layout.addWidget(table, 1)
+
+        is_admin = bool(get_current_user() and get_current_user().role == "Admin")
+
+        def load_rows() -> None:
+            rows = list_invoice_history(
+                status_filter=status_combo.currentData(),
+                search=search_input.text().strip(),
+                date_from=from_date.date().toString("yyyy-MM-dd"),
+                date_to=to_date.date().toString("yyyy-MM-dd"),
+            )
+            table.setRowCount(0)
+            for row_data in rows:
+                row = table.rowCount()
+                table.insertRow(row)
+                table.setItem(row, 0, QTableWidgetItem(row_data.invoice_no))
+                table.setItem(row, 1, QTableWidgetItem(row_data.datetime))
+                table.setItem(row, 2, QTableWidgetItem(row_data.customer_name or ""))
+                table.setItem(row, 3, QTableWidgetItem(row_data.customer_phone or ""))
+                table.setItem(row, 4, QTableWidgetItem(f"{row_data.total:.2f}"))
+                invoice, _ = fetch_invoice_details(row_data.invoice_no)
+                table.setItem(row, 5, QTableWidgetItem(invoice.payment_method or ""))
+                table.setItem(row, 6, QTableWidgetItem(row_data.payment_status or ""))
+                table.setItem(row, 8, QTableWidgetItem(str(row_data.id)))
+                actions_widget = QWidget()
+                actions_layout = QHBoxLayout(actions_widget)
+                actions_layout.setContentsMargins(0, 0, 0, 0)
+                view_btn = QPushButton("Open")
+                print_btn = QPushButton("Print")
+                return_btn = QPushButton("Return")
+                edit_btn = QPushButton("Edit")
+                edit_btn.setEnabled(is_admin)
+                if not is_admin:
+                    edit_btn.setToolTip("Only admins can edit invoices.")
+                view_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._open_recent_invoice_details(inv))
+                print_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._print_recent_invoice(inv))
+                return_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._open_returns_for_invoice(inv))
+                edit_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._edit_invoice(inv))
+                for btn in (view_btn, print_btn, return_btn, edit_btn):
+                    actions_layout.addWidget(btn)
+                table.setCellWidget(row, 7, actions_widget)
+
+        def open_selected() -> None:
+            current = table.currentRow()
+            if current < 0:
+                return
+            invoice_no = table.item(current, 0).text()
+            self._open_recent_invoice_details(invoice_no)
+
+        refresh_btn.clicked.connect(load_rows)
+        search_input.returnPressed.connect(load_rows)
+        table.cellDoubleClicked.connect(lambda _r, _c: open_selected())
+        load_rows()
+        dialog.exec()
+
+    def _open_returns_for_invoice(self, invoice_no: str) -> None:
+        parent = self.window()
+        if hasattr(parent, "tabs") and hasattr(parent, "returns_tab"):
+            parent.tabs.setCurrentWidget(parent.returns_tab)
+            parent.returns_tab.source_invoice_edit.setText(invoice_no)
+            parent.returns_tab.load_source_invoice()
+
+    def _edit_invoice(self, invoice_no: str) -> None:
+        user = get_current_user()
+        if not user or user.role != "Admin":
+            QMessageBox.warning(self, "Permission denied", "Only admins can edit invoices.")
+            return
+        self._open_recent_invoice_details(invoice_no)
+
     def _export_invoice_pdf(self) -> None:
         if not self._last_invoice_no:
             QMessageBox.warning(
@@ -2379,6 +2494,7 @@ class InvoiceTab(BaseTabContainer):
         self.print_mode_combo.setItemText(1, "PDF")
         self._refresh_printer_status_badge()
         self.clear_btn.setText(t("invoice.new", language=language))
+        self.invoice_history_btn.setText("سجل الفواتير" if language == "ar" else "Invoice History")
         self._refresh_payment_methods()
         self._refresh_payment_statuses()
         self._refresh_delivery_companies()

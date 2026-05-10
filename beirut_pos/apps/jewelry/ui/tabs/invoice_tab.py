@@ -1782,7 +1782,7 @@ class InvoiceTab(BaseTabContainer):
             self._refresh_pay_now_manual_ui()
         order_source = (self._website_order_platform or self.order_source_combo.currentData() or "in_store")
         website_order_ref = (
-            self.website_order_input.text().strip() if order_source == "website" else ""
+            self.website_order_input.text().strip() if order_source != "in_store" else ""
         )
         notes = self.notes_input.toPlainText().strip()
         if self._website_order_notes:
@@ -1934,15 +1934,16 @@ class InvoiceTab(BaseTabContainer):
         filters_row.addWidget(refresh_btn)
         layout.addLayout(filters_row)
 
-        table = QTableWidget(0, 9)
+        table = QTableWidget(0, 10)
         table.setHorizontalHeaderLabels(
-            ["Invoice No", "Date", "Customer", "Phone", "Total", "Payment Method", "Status", "Actions", "Invoice Id"]
+            ["Invoice No", "Date", "Customer", "Phone", "Total", "Source/Ref", "Payment Method", "Status", "Actions", "Invoice Id"]
         )
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
-        table.setColumnHidden(8, True)
+        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
+        table.setColumnHidden(9, True)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(True)
@@ -1968,9 +1969,13 @@ class InvoiceTab(BaseTabContainer):
                 table.setItem(row, 3, QTableWidgetItem(row_data.customer_phone or ""))
                 table.setItem(row, 4, QTableWidgetItem(f"{row_data.total:.2f}"))
                 invoice, _ = fetch_invoice_details(row_data.invoice_no)
-                table.setItem(row, 5, QTableWidgetItem(invoice.payment_method or ""))
-                table.setItem(row, 6, QTableWidgetItem(row_data.payment_status or ""))
-                table.setItem(row, 8, QTableWidgetItem(str(row_data.id)))
+                source_ref = ""
+                if (row_data.order_source or "in_store") != "in_store":
+                    source_ref = f"{row_data.order_source} / {row_data.website_order_ref or '-'}"
+                table.setItem(row, 5, QTableWidgetItem(source_ref))
+                table.setItem(row, 6, QTableWidgetItem(invoice.payment_method or ""))
+                table.setItem(row, 7, QTableWidgetItem(row_data.payment_status or ""))
+                table.setItem(row, 9, QTableWidgetItem(str(row_data.id)))
                 actions_widget = QWidget()
                 actions_layout = QHBoxLayout(actions_widget)
                 actions_layout.setContentsMargins(0, 0, 0, 0)
@@ -1987,7 +1992,7 @@ class InvoiceTab(BaseTabContainer):
                 edit_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._edit_invoice(inv))
                 for btn in (view_btn, print_btn, return_btn, edit_btn):
                     actions_layout.addWidget(btn)
-                table.setCellWidget(row, 7, actions_widget)
+                table.setCellWidget(row, 8, actions_widget)
 
         def open_selected() -> None:
             current = table.currentRow()

@@ -184,6 +184,8 @@ class JewelryUnpaidOrder:
     payment_order_status_id: Optional[int]
     payment_order_status_name_ar: str
     payment_order_status_name_en: str
+    order_source: str = "in_store"
+    website_order_ref: str = ""
 
 
 @dataclass
@@ -2573,7 +2575,8 @@ def list_invoice_history(
                       COALESCE(i.paid_total, 0), COALESCE(i.remaining_total, 0),
                       COALESCE(i.payment_due_date, ''), COALESCE(i.payment_status, ''),
                       i.payment_order_status_id,
-                      COALESCE(s.name_ar, ''), COALESCE(s.name_en, '')
+                      COALESCE(s.name_ar, ''), COALESCE(s.name_en, ''),
+                      COALESCE(i.order_source, 'in_store'), COALESCE(i.website_order_ref, '')
                FROM jw_invoices i
                LEFT JOIN jw_statuses s ON s.id = i.payment_order_status_id
                WHERE i.txn_type = 'sale'"""
@@ -2630,6 +2633,8 @@ def list_invoice_history(
             payment_order_status_id=row[10],
             payment_order_status_name_ar=row[11] or "",
             payment_order_status_name_en=row[12] or "",
+            order_source=row[13] or "in_store",
+            website_order_ref=row[14] or "",
         )
         for row in rows
     ]

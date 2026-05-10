@@ -137,6 +137,7 @@ class WebsiteOrderDialog(QDialog):
         self.delivery_address_input = QLineEdit()
 
         self.customer_search_input.textChanged.connect(self._search_customers)
+        self.customer_combo.currentIndexChanged.connect(self._select_customer)
         self.delivery_required_checkbox.toggled.connect(self.delivery_address_input.setEnabled)
         self.delivery_address_input.setEnabled(False)
 
@@ -155,13 +156,27 @@ class WebsiteOrderDialog(QDialog):
         layout.addRow(actions)
 
     def _search_customers(self, text: str) -> None:
+        self.customer_combo.blockSignals(True)
         self.customer_combo.clear()
         self.customer_combo.addItem("", None)
         term = text.strip()
         if len(term) < 2:
+            self.customer_combo.blockSignals(False)
             return
         for customer in search_customers(term):
-            self.customer_combo.addItem(f"{customer.name} ({customer.phone})", customer)
+            points = get_loyalty_balance(customer.phone)
+            label = f"{customer.name} | {customer.phone} | {points:.0f}"
+            self.customer_combo.addItem(label, customer)
+        self.customer_combo.blockSignals(False)
+
+    def _select_customer(self) -> None:
+        customer = self.customer_combo.currentData()
+        if customer is None:
+            return
+        if not self.customer_search_input.text().strip():
+            self.customer_search_input.setText(customer.name)
+        if self.delivery_required_checkbox.isChecked() and customer.address:
+            self.delivery_address_input.setText(customer.address)
 
 
 

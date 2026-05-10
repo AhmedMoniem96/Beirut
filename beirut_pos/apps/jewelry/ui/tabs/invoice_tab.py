@@ -120,7 +120,7 @@ class WebsiteOrderDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Website Order")
+        self.setWindowTitle(t("invoice.toggle_website", language=get_ui_language()))
         layout = QFormLayout(self)
 
         self.customer_search_input = QLineEdit()
@@ -141,7 +141,7 @@ class WebsiteOrderDialog(QDialog):
         self.delivery_required_checkbox.toggled.connect(self.delivery_address_input.setEnabled)
         self.delivery_address_input.setEnabled(False)
 
-        layout.addRow("Customer", self.customer_search_input)
+        layout.addRow(t("invoice.customer_compact", language=get_ui_language()), self.customer_search_input)
         layout.addRow("Select", self.customer_combo)
         layout.addRow("Website Order No / Reference", self.order_ref_input)
         layout.addRow("Platform", self.platform_combo)
@@ -370,10 +370,10 @@ class InvoiceTab(BaseTabContainer):
         self.loyalty_redeem_input = QSpinBox()
         self.loyalty_redeem_input.setRange(0, 999999)
         self.loyalty_redeem_input.valueChanged.connect(self._handle_redeem_points_changed)
-        self.loyalty_apply_btn = QPushButton("Apply Redeem")
+        self.loyalty_apply_btn = QPushButton()
         self.loyalty_apply_btn.clicked.connect(self._apply_loyalty_redeem)
-        self.loyalty_available_label = QLabel("Available Points: 0")
-        self.loyalty_redeem_value_label = QLabel("Redeem Value: 0.00")
+        self.loyalty_available_label = QLabel()
+        self.loyalty_redeem_value_label = QLabel()
         self.loyalty_earned_label = QLabel("0")
         self.customer_save_btn = QPushButton()
         self.customer_save_btn.clicked.connect(self._save_customer_profile)
@@ -478,14 +478,14 @@ class InvoiceTab(BaseTabContainer):
         recent_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         recent_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         recent_layout.addWidget(self.recent_sold_table)
-        self.invoice_info_label.setText("Invoice No: Auto")
-        self.cashier_label_compact = QLabel("Cashier:")
+        self.invoice_info_label.setText(t("invoice.info_auto", language=self._language))
+        self.cashier_label_compact = QLabel()
         self.cashier_label_value = QLabel()
         self.cashier_input.textChanged.connect(self.cashier_label_value.setText)
-        self.customer_label_compact = QLabel("Customer:")
-        self.delivery_enabled_checkbox.setText("Delivery")
-        self.customer_add_new_btn.setText("+ Customer")
-        self.invoice_history_btn = QPushButton("Invoice History")
+        self.customer_label_compact = QLabel()
+        self.delivery_enabled_checkbox.setText(t("invoice.delivery_enabled_label", language=self._language))
+        self.customer_add_new_btn.setText(t("invoice.add_customer", language=self._language))
+        self.invoice_history_btn = QPushButton()
         self.invoice_history_btn.clicked.connect(self._open_invoice_history_dialog)
         header_meta_layout = QVBoxLayout()
         header_meta_layout.setContentsMargins(0, 0, 0, 0)
@@ -520,8 +520,8 @@ class InvoiceTab(BaseTabContainer):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("")
         self.search_input.textChanged.connect(self._handle_product_search_change)
-        self.search_input.setPlaceholderText("Search by name, SKU, barcode...")
-        self.barcode_input.setPlaceholderText("Scan barcode...")
+        self.search_input.setPlaceholderText(t("invoice.search_products", language=self._language))
+        self.barcode_input.setPlaceholderText(t("invoice.scan_barcode", language=self._language))
         product_search_layout.addWidget(self.search_input, 2)
         product_search_layout.addWidget(self.barcode_input, 2)
 
@@ -540,7 +540,7 @@ class InvoiceTab(BaseTabContainer):
         self.category_scroll.setWidget(self.category_container)
 
         self.products_table = QTableWidget(0, 5)
-        self.products_table.setHorizontalHeaderLabels(["Name", "SKU", "Barcode", "Price", "Stock"])
+        self.products_table.setHorizontalHeaderLabels(["", "", "", "", ""])
         self.products_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.products_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.products_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -617,9 +617,9 @@ class InvoiceTab(BaseTabContainer):
         self.remove_btn.clicked.connect(self._remove_selected_item)
         self.clear_btn = QPushButton()
         self.clear_btn.clicked.connect(self._clear_invoice)
-        self.discount_toggle.setText("Discount")
-        self.notes_toggle.setText("Notes")
-        self.return_toggle.setText("Return Reason")
+        self.discount_toggle.setText(t("invoice.toggle_discount", language=self._language))
+        self.notes_toggle.setText(t("invoice.toggle_notes", language=self._language))
+        self.return_toggle.setText(t("invoice.toggle_return", language=self._language))
         btn_row.addWidget(self.remove_btn)
         btn_row.addWidget(self.clear_btn)
         btn_row.addStretch()
@@ -704,7 +704,7 @@ class InvoiceTab(BaseTabContainer):
         payment_layout.addRow(QLabel(""), self.pay_now_hint_label)
         payment_layout.addRow(self.payment_due_date_label, self.payment_due_date_input)
         payment_layout.addRow(self.payment_order_status_label, self.payment_order_status_combo)
-        self.loyalty_compact_box = QGroupBox("Loyalty")
+        self.loyalty_compact_box = QGroupBox()
         loyalty_layout = QFormLayout(self.loyalty_compact_box)
         loyalty_redeem_row = QWidget()
         loyalty_redeem_row_layout = QHBoxLayout(loyalty_redeem_row)
@@ -712,7 +712,7 @@ class InvoiceTab(BaseTabContainer):
         loyalty_redeem_row_layout.addWidget(self.loyalty_redeem_input, 1)
         loyalty_redeem_row_layout.addWidget(self.loyalty_apply_btn)
         loyalty_layout.addRow(self.loyalty_available_label)
-        loyalty_layout.addRow(QLabel("Redeem Points"), loyalty_redeem_row)
+        loyalty_layout.addRow(QLabel(t("invoice.redeem_points_label", language=self._language)), loyalty_redeem_row)
         loyalty_layout.addRow(self.loyalty_redeem_value_label)
         right_layout.addWidget(self.loyalty_compact_box)
         right_layout.addWidget(payment_box)
@@ -1053,7 +1053,7 @@ class InvoiceTab(BaseTabContainer):
                 widget.deleteLater()
         self._category_buttons.clear()
         categories = [None, *self._categories]
-        labels = {None: "All Products"}
+        labels = {None: t("invoice.all_products", language=self._language)}
         for category in categories:
             label = labels.get(category, str(category))
             button = QPushButton(label)
@@ -1493,12 +1493,12 @@ class InvoiceTab(BaseTabContainer):
 
     def _handle_redeem_points_changed(self) -> None:
         redeem_value = points_to_currency(float(self.loyalty_redeem_input.value()))
-        self.loyalty_redeem_value_label.setText(f"Redeem Value: {redeem_value:.2f}")
+        self.loyalty_redeem_value_label.setText(t("invoice.redeem_value_label", language=self._language) + f": {redeem_value:.2f}")
         self._recalculate_totals()
 
     def _apply_loyalty_redeem(self) -> None:
         if not self._customer_id:
-            QMessageBox.warning(self, "Validation", "Select a customer first.")
+            QMessageBox.warning(self, t("common.validation", language=self._language), t("invoice.select_customer_first", language=self._language))
             return
         if self._customer_points <= 0:
             QMessageBox.warning(self, "Validation", "Customer has no loyalty points.")
@@ -1540,7 +1540,7 @@ class InvoiceTab(BaseTabContainer):
         if row >= 0:
             self.items_table.removeRow(row)
             self._recalculate_totals()
-            self._show_status_message("Item removed")
+            self._show_status_message(t("invoice.item_removed", language=self._language))
 
     def _recalculate_totals(self) -> None:
         txn_type = "return" if self.txn_type_combo.currentIndex() == 1 else "sale"
@@ -1555,11 +1555,12 @@ class InvoiceTab(BaseTabContainer):
         self.total_label.setText(t("invoice.net_total", language=self._language, total=f"{net_total:.2f}"))
         redeemed_points = int(self.loyalty_redeem_input.value())
         self.loyalty_summary_label.setText(
-            f"Loyalty available: {self._customer_points:.0f} pts | "
-            f"redeemed: {redeemed_points} pts ({loyalty_redeem:.2f}) | "
-            f"earned after payment: {float(computed['loyalty_earned']):.0f}"
+            t("invoice.loyalty_available_summary", language=self._language, points=f"{self._customer_points:.0f}")
+            + " | "
+            + t("invoice.redeemed_summary", language=self._language, points=redeemed_points, value=f"{loyalty_redeem:.2f}")
+            + f" | {float(computed['loyalty_earned']):.0f}"
         )
-        self.loyalty_available_label.setText(f"Available Points: {int(self._customer_points)}")
+        self.loyalty_available_label.setText(t("invoice.available_points_label", language=self._language) + f": {int(self._customer_points)}")
         customer_name = self.customer_name_input.text().strip()
         customer_phone = self.customer_phone_input.text().strip()
         has_customer = bool(self._customer_id or (customer_name and customer_phone))
@@ -1907,7 +1908,7 @@ class InvoiceTab(BaseTabContainer):
 
     def _open_invoice_history_dialog(self) -> None:
         dialog = QDialog(self)
-        dialog.setWindowTitle("Invoice History")
+        dialog.setWindowTitle(t("invoice.invoice_history", language=self._language))
         dialog.resize(1100, 520)
         layout = QVBoxLayout(dialog)
 
@@ -1936,7 +1937,18 @@ class InvoiceTab(BaseTabContainer):
 
         table = QTableWidget(0, 10)
         table.setHorizontalHeaderLabels(
-            ["Invoice No", "Date", "Customer", "Phone", "Total", "Source/Ref", "Payment Method", "Status", "Actions", "Invoice Id"]
+            [
+                t("invoice.history_invoice_no", language=self._language),
+                t("invoice.history_date", language=self._language),
+                t("invoice.customer_compact", language=self._language),
+                t("invoice.history_phone", language=self._language),
+                t("invoice.history_total", language=self._language),
+                t("invoice.history_source_ref", language=self._language),
+                t("invoice.history_payment_method", language=self._language),
+                t("invoice.history_status", language=self._language),
+                t("invoice.history_actions", language=self._language),
+                t("invoice.history_invoice_id", language=self._language),
+            ]
         )
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -1985,7 +1997,7 @@ class InvoiceTab(BaseTabContainer):
                 edit_btn = QPushButton("Edit")
                 edit_btn.setEnabled(is_admin)
                 if not is_admin:
-                    edit_btn.setToolTip("Only admins can edit invoices.")
+                    edit_btn.setToolTip(t("invoice.admin_only_edit", language=self._language))
                 view_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._open_recent_invoice_details(inv))
                 print_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._print_recent_invoice(inv))
                 return_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._open_returns_for_invoice(inv))
@@ -2017,7 +2029,7 @@ class InvoiceTab(BaseTabContainer):
     def _edit_invoice(self, invoice_no: str) -> None:
         user = get_current_user()
         if not user or user.role != "Admin":
-            QMessageBox.warning(self, "Permission denied", "Only admins can edit invoices.")
+            QMessageBox.warning(self, t("common.permission_denied", language=self._language), t("invoice.admin_only_edit", language=self._language))
             return
         self._open_recent_invoice_details(invoice_no)
 
@@ -2205,7 +2217,7 @@ class InvoiceTab(BaseTabContainer):
         status = printer.printer_status_text()
         is_ready = status == "ready"
         icon = "🟢" if is_ready else "🔴"
-        label = "Printer Ready" if is_ready else "Printer Offline"
+        label = t("invoice.printer_ready", language=self._language) if is_ready else t("invoice.printer_offline", language=self._language)
         self.printer_status_label.setText(f"{icon} {label}")
 
     def reset_invoice_state(self, keep_customer: bool = False) -> None:
@@ -2364,7 +2376,7 @@ class InvoiceTab(BaseTabContainer):
         if new_qty <= 0:
             self.items_table.removeRow(row)
             self._recalculate_totals()
-            self._show_status_message("Item removed")
+            self._show_status_message(t("invoice.item_removed", language=self._language))
             return
         unit_price = float(self.items_table.item(row, self.ITEM_COL_UNIT_PRICE).text())
         self.items_table.setItem(row, self.ITEM_COL_QTY, QTableWidgetItem(f"{new_qty:.2f}"))
@@ -2628,8 +2640,13 @@ class InvoiceTab(BaseTabContainer):
         self.print_mode_combo.setItemText(0, "طابعة مباشرة" if language == "ar" else "Direct printer")
         self.print_mode_combo.setItemText(1, "PDF")
         self._refresh_printer_status_badge()
+        self.cashier_label_compact.setText(t("invoice.cashier_compact", language=language) + ":")
+        self.customer_label_compact.setText(t("invoice.customer_compact", language=language) + ":")
+        self.customer_add_new_btn.setText(t("invoice.add_customer", language=language))
+        self.loyalty_compact_box.setTitle(t("invoice.loyalty", language=language))
+        self.loyalty_apply_btn.setText(t("invoice.apply_redeem", language=language))
         self.clear_btn.setText(t("invoice.new", language=language))
-        self.invoice_history_btn.setText("سجل الفواتير" if language == "ar" else "Invoice History")
+        self.invoice_history_btn.setText(t("invoice.invoice_history", language=language))
         self._update_order_source_label()
         self._refresh_payment_methods()
         self._refresh_payment_statuses()

@@ -175,7 +175,7 @@ class JewelryMainWindow(QMainWindow):
         self.tabs.setTabText(2, "Workshop")
         self.tabs.setTabText(3, "Inventory")
         self.tabs.setTabText(4, "Returns")
-        self.tabs.setTabText(5, "New Invoice")
+        self.tabs.setTabText(5, t("tab.invoice", language=self._language))
         self.tabs.setTabText(6, "Customers")
         self.orders_menu.setTitle(t("menu.orders", language=self._language))
         self.unpaid_orders_action.setText(t("menu.unpaid_orders", language=self._language))

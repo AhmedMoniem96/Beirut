@@ -226,6 +226,9 @@ class InvoiceTab(BaseTabContainer):
         self._delivery_address = ""
         self._delivery_notes = ""
         self._save_in_progress = False
+        self._printer_mode_poll_timer = QTimer(self)
+        self._printer_mode_poll_timer.timeout.connect(self._refresh_printer_mode_badge)
+        self._printer_mode_poll_timer.start(700)
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -249,6 +252,9 @@ class InvoiceTab(BaseTabContainer):
         self.invoice_info_label = QLabel()
         self.order_source_info_label = QLabel()
         self.order_source_info_label.setStyleSheet("font-size: 11px; color: #666;")
+        self.printer_mode_badge = QLabel()
+        self.printer_mode_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;")
+        header_row.addWidget(self.printer_mode_badge)
 
         form_box = QGroupBox()
         self.form_box = form_box
@@ -828,6 +834,7 @@ class InvoiceTab(BaseTabContainer):
         self._refresh_printer_status_badge()
         self._refresh_recently_sold()
         self.apply_language(self._language)
+        self._refresh_printer_mode_badge()
 
     def _initialize_cashier(self) -> None:
         user = get_current_user()
@@ -2221,6 +2228,7 @@ class InvoiceTab(BaseTabContainer):
         if confirm != QMessageBox.StandardButton.Yes:
             return False
         set_printer_mode(PRINTER_MODE_RECEIPT)
+        self._refresh_printer_mode_badge()
         return True
 
     def _dispatch_pdf_to_printer(self, pdf_path: Path) -> bool:

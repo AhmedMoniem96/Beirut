@@ -42,7 +42,7 @@ def _mm_to_px(mm: float, dpi: int = _LABEL_DPI) -> int:
 
 LABEL_WIDTH_PX = _mm_to_px(_QR_LABEL_WIDTH_MM)
 LABEL_HEIGHT_PX = _mm_to_px(_QR_LABEL_HEIGHT_MM)
-LABEL_MARGIN_PX = 8
+LABEL_MARGIN_PX = 10
 
 
 def get_label_calibration() -> dict[str, int | float]:
@@ -219,8 +219,8 @@ def _render_label_lines_at_width(lines: Sequence[str], width: int = LABEL_WIDTH_
     rows = []
     for idx, raw in enumerate(lines):
         txt = raw[4:] if raw.startswith((">>C ", ">>R ", ">>L ")) else raw
-        max_font = 20 if idx == 0 else 18
-        min_font = 11 if idx == 0 else 10
+        max_font = 18 if idx == 0 else 16
+        min_font = 10 if idx == 0 else 9
         rows.append(_render_fitted_center_line(txt, width=width, max_font_size=max_font, min_font_size=min_font))
 
     total_h = sum(im.height for im in rows) or 1
@@ -303,7 +303,7 @@ def render_barcode_label_image(
             max_component_width_px=label_width_px,
             max_component_height_px=label_height_px,
         )
-    gap_px = 4
+    gap_px = 3
     content_h = header_img.height + gap_px + barcode_img.height
 
     if content_h > label_height_px:
@@ -325,7 +325,7 @@ def render_barcode_label_image(
             )
             content_h = header_img.height + gap_px + barcode_img.height
 
-    top_y = max(0, (label_height_px - content_h) // 2)
+    top_y = max(1, (label_height_px - content_h) // 2)
     header_x = max(0, (label_width_px - header_img.width) // 2) + offset_x
     barcode_x = max(0, (label_width_px - barcode_img.width) // 2) + offset_x
     barcode_y = top_y + header_img.height + gap_px + offset_y

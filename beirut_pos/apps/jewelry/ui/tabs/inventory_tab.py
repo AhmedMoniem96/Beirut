@@ -5,7 +5,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
-from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QUrl
+from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QUrl, QTimer
 from PyQt6.QtGui import QDesktopServices, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -59,7 +59,11 @@ class InventoryTab(BaseTabContainer):
         self._scan_buffer = ""
         self._scan_timer = QElapsedTimer()
         self._scan_timer.start()
+        self._printer_mode_live_timer = QTimer(self)
+        self._printer_mode_live_timer.timeout.connect(self._refresh_printer_mode_badge)
+        self._printer_mode_live_timer.start(700)
         self._language = get_ui_language()
+        self._printer_mode_poll_timer = QElapsedTimer()
         QApplication.instance().installEventFilter(self)
 
         content = QWidget()
@@ -177,6 +181,8 @@ class InventoryTab(BaseTabContainer):
         self.download_template_btn.clicked.connect(self._download_import_template)
         self.auto_save_barcode_check = QCheckBox()
         self.auto_print_barcode_check = QCheckBox()
+        self.printer_mode_badge = QLabel()
+        self.printer_mode_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;")
 
         products_layout.addWidget(form_box)
         for btn in [self.download_template_btn, self.import_excel_btn, self.print_barcode_btn, self.clear_btn, self.delete_btn, self.save_btn]:
@@ -186,6 +192,7 @@ class InventoryTab(BaseTabContainer):
         self.footer_layout.addWidget(self.import_excel_btn)
         self.footer_layout.addSpacing(12)
         self.footer_layout.addWidget(self.print_barcode_btn)
+        self.footer_layout.addWidget(self.printer_mode_badge)
         self.footer_layout.addWidget(self.auto_print_barcode_check)
         self.footer_layout.addSpacing(12)
         self.footer_layout.addWidget(self.clear_btn)
@@ -228,6 +235,7 @@ class InventoryTab(BaseTabContainer):
         self.set_page_content_widget(content)
         self.apply_language(self._language)
         self.refresh()
+        self._refresh_printer_mode_badge()
 
     def _normalize_barcode_type(self, barcode_type: str) -> str:
         normalized = barcode_type.strip().lower()
@@ -644,7 +652,8 @@ class InventoryTab(BaseTabContainer):
         name = choose_name(product.name_ar, product.name_en, language=self._language) or "-"
         layout.addWidget(QLabel(f"Product: {name}"))
         layout.addWidget(QLabel(f"SKU/Barcode: {product.sku or '-'} / {product.barcode or '-'}"))
-        layout.addWidget(QLabel(f"Dimensions: {label_img.width} x {label_img.height} px"))
+        settings = load_gallery_settings()
+        layout.addWidget(QLabel(f"Dimensions: {settings.barcode_label_width_mm:g} x {settings.barcode_label_height_mm:g} mm ({label_img.width} x {label_img.height} px)"))
 
         preview = QLabel()
         preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -693,6 +702,7 @@ class InventoryTab(BaseTabContainer):
         if confirm != QMessageBox.StandardButton.Yes:
             return False
         set_printer_mode(PRINTER_MODE_LABEL)
+        self._refresh_printer_mode_badge()
         return True
 
     def _print_barcode_via_pdf_dispatch(self, label_img) -> bool:

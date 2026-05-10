@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import QDate, QElapsedTimer, QEvent, QPoint, QSettings, Qt, QUrl
+from PyQt6.QtCore import QDate, QElapsedTimer, QEvent, QPoint, QSettings, QTimer, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,

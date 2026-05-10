@@ -166,10 +166,15 @@ class ManufacturingTab(BaseTabContainer):
             form_layout.addWidget(widget, row + 1, column)
 
         self.material_save_btn = QPushButton()
+        self.material_edit_btn = QPushButton()
+        self.material_cancel_edit_btn = QPushButton()
         self.material_delete_btn = QPushButton()
         self.material_clear_btn = QPushButton()
         self.material_restock_btn = QPushButton()
+        self.material_edit_indicator = QLabel()
         self.material_save_btn.clicked.connect(self._save_material)
+        self.material_edit_btn.clicked.connect(self._start_edit_material)
+        self.material_cancel_edit_btn.clicked.connect(self._clear_material_form)
         self.material_delete_btn.clicked.connect(self._delete_material)
         self.material_clear_btn.clicked.connect(self._clear_material_form)
         self.material_restock_btn.clicked.connect(self._restock_material)
@@ -177,6 +182,8 @@ class ManufacturingTab(BaseTabContainer):
         actions_row = QHBoxLayout()
         actions_row.setSpacing(8)
         actions_row.addWidget(self.material_clear_btn)
+        actions_row.addWidget(self.material_edit_btn)
+        actions_row.addWidget(self.material_cancel_edit_btn)
         actions_row.addWidget(self.material_save_btn)
         actions_row.addWidget(self.material_restock_btn)
         actions_row.addWidget(self.material_delete_btn)
@@ -205,6 +212,7 @@ class ManufacturingTab(BaseTabContainer):
         form_and_actions_layout.setContentsMargins(0, 0, 0, 0)
         form_and_actions_layout.setSpacing(8)
         form_and_actions_layout.addWidget(form_box)
+        form_and_actions_layout.addWidget(self.material_edit_indicator)
         form_and_actions_layout.addLayout(actions_row)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -218,6 +226,7 @@ class ManufacturingTab(BaseTabContainer):
         self.tabs.addTab(self.materials_tab, "")
 
         self._selected_material_id: Optional[int] = None
+        self._editing_material_id: Optional[int] = None
 
     def _build_design_tab(self) -> None:
         self.boms_tab = QWidget()
@@ -648,7 +657,7 @@ class ManufacturingTab(BaseTabContainer):
             )
             return
         save_material(
-            self._selected_material_id,
+            self._editing_material_id,
             self.material_name_ar.text().strip(),
             self.material_name_en.text().strip(),
             self.material_code.text().strip(),
@@ -708,9 +717,12 @@ class ManufacturingTab(BaseTabContainer):
         self.material_qty.setValue(new_qty)
         QMessageBox.information(self, t("common.saved_title", language=self._language), "Material restocked.")
         self._refresh_materials()
+        self._update_material_edit_ui()
 
     def _clear_material_form(self) -> None:
         self._selected_material_id = None
+        self._editing_material_id = None
+        self.materials_table.clearSelection()
         self.material_name_ar.clear()
         self.material_name_en.clear()
         self.material_code.clear()
@@ -718,9 +730,30 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit.clear()
         self.material_min_qty.setValue(0)
         self.material_cost.setValue(0)
+        self._update_material_edit_ui()
+
+
+    def _start_edit_material(self) -> None:
+        if not self._selected_material_id:
+            QMessageBox.warning(self, t("common.select", language=self._language), "Select a material first.")
+            return
+        self._editing_material_id = self._selected_material_id
+        self._update_material_edit_ui()
+
+    def _update_material_edit_ui(self) -> None:
+        in_edit_mode = self._editing_material_id is not None
+        self.material_save_btn.setText("Update Material" if in_edit_mode else "Save Material")
+        self.material_edit_btn.setEnabled(not in_edit_mode)
+        self.material_cancel_edit_btn.setVisible(in_edit_mode)
+        if in_edit_mode:
+            name = self.material_name_en.text().strip() or self.material_name_ar.text().strip() or "-"
+            self.material_edit_indicator.setText(f"Editing Material: {name}")
+        else:
+            self.material_edit_indicator.clear()
 
     def _load_material(self, row: int) -> None:
         self._selected_material_id = self.materials_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._editing_material_id = None
         self.material_name_ar.setText(self.materials_table.item(row, 0).text())
         self.material_name_en.setText(self.materials_table.item(row, 1).text())
         self.material_code.setText(self.materials_table.item(row, 2).text())
@@ -728,6 +761,7 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit.setText(self.materials_table.item(row, 4).text())
         self.material_cost.setValue(float(self.materials_table.item(row, 5).text()))
         self.material_min_qty.setValue(float(self.materials_table.item(row, 6).text()))
+        self._update_material_edit_ui()
 
     def _add_bom_line(self) -> None:
         material_id = self.bom_material_combo.currentData()
@@ -1355,10 +1389,12 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit_label.setText(t("manufacturing.material_unit", language=language))
         self.material_min_qty_label.setText(t("manufacturing.material_min_qty", language=language))
         self.material_cost_label.setText(t("manufacturing.material_cost", language=language))
-        self.material_save_btn.setText("Save Material")
         self.material_restock_btn.setText("Restock Material")
         self.material_delete_btn.setText("Delete Material")
         self.material_clear_btn.setText("Add Material")
+        self.material_edit_btn.setText("Edit Material")
+        self.material_cancel_edit_btn.setText("Cancel Edit")
+        self._update_material_edit_ui()
         self.materials_table.setHorizontalHeaderLabels(
             [
                 "Material Name Arabic",

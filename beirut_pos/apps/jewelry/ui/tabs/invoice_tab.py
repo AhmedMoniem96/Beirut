@@ -8,6 +8,7 @@ import os
 import platform
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -455,7 +456,6 @@ class InvoiceTab(BaseTabContainer):
         advanced_customer_layout.setContentsMargins(0, 0, 0, 0)
         advanced_customer_layout.setHorizontalSpacing(JEWELRY_SPACING.sm)
         advanced_customer_layout.setVerticalSpacing(JEWELRY_SPACING.xs)
-        advanced_customer_layout.addRow(self.customer_email_label, self.customer_email_input)
         advanced_customer_layout.addRow(self.customer_notes_label, self.customer_notes_input)
         advanced_customer_layout.addRow(self.loyalty_balance_label, self.customer_points_label)
         advanced_customer_layout.addRow(self.redeem_points_label, self.loyalty_redeem_input)
@@ -1097,6 +1097,7 @@ class InvoiceTab(BaseTabContainer):
         selected_source = self.order_source_combo.currentData()
         if selected_source == "website":
             self._open_website_order_dialog()
+            self._ensure_website_order_reference()
         else:
             self._website_order_platform = ""
             self._website_order_notes = ""
@@ -1153,6 +1154,7 @@ class InvoiceTab(BaseTabContainer):
         self._website_order_platform = dialog.platform_combo.currentData() or "website"
         self._website_order_notes = dialog.order_notes_input.toPlainText().strip()
         self.website_order_input.setText(dialog.order_ref_input.text().strip())
+        self._ensure_website_order_reference()
         if dialog.delivery_required_checkbox.isChecked():
             if not self.delivery_enabled_checkbox.isChecked():
                 self.delivery_enabled_checkbox.setChecked(True)
@@ -1177,6 +1179,14 @@ class InvoiceTab(BaseTabContainer):
             return
         is_website = self.order_source_combo.currentData() == "website"
         self.website_order_input.setEnabled(is_website)
+
+    def _ensure_website_order_reference(self) -> None:
+        if self.order_source_combo.currentData() != "website":
+            return
+        if self.website_order_input.text().strip():
+            return
+        auto_ref = f"WEB-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        self.website_order_input.setText(auto_ref)
 
     def apply_rtl_layout(self, rtl_enabled: bool) -> None:
         direction = Qt.LayoutDirection.RightToLeft if rtl_enabled else Qt.LayoutDirection.LeftToRight
@@ -1782,6 +1792,7 @@ class InvoiceTab(BaseTabContainer):
             self.pay_now_input.lineEdit().setReadOnly(True)
             self._refresh_pay_now_manual_ui()
         order_source = (self._website_order_platform or self.order_source_combo.currentData() or "in_store")
+        self._ensure_website_order_reference()
         website_order_ref = (
             self.website_order_input.text().strip() if order_source != "in_store" else ""
         )

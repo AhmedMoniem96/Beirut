@@ -150,10 +150,12 @@ class SettingsTab(BaseTabContainer):
         self.barcode_offset_y = QLineEdit("0")
         self.print_test_label_btn = QPushButton("Print Test Barcode Label")
         self.print_test_receipt_btn = QPushButton("Print Test Receipt")
+        self.preview_sample_receipt_btn = QPushButton("Preview Sample Receipt")
         self.receipt_paper_preset.setReadOnly(True)
         self.qr_label_preset.setReadOnly(True)
         self.print_test_label_btn.clicked.connect(self._print_test_label)
         self.print_test_receipt_btn.clicked.connect(self._print_test_receipt)
+        self.preview_sample_receipt_btn.clicked.connect(self._preview_sample_receipt)
         self.printer_vendor_label = QLabel("Vendor ID")
         self.printer_product_label = QLabel("Product ID")
         self.printer_interface_label = QLabel("USB Interface")
@@ -173,6 +175,7 @@ class SettingsTab(BaseTabContainer):
         printer_layout.addRow("Horizontal Offset (px)", self.barcode_offset_x)
         printer_layout.addRow("Vertical Offset (px)", self.barcode_offset_y)
         printer_layout.addRow("", self.print_test_receipt_btn)
+        printer_layout.addRow("", self.preview_sample_receipt_btn)
         printer_layout.addRow("", self.print_test_label_btn)
         printer_layout.addRow("", self.invoice_auto_print_after_save_check)
         printer_layout.addRow("", self.invoice_print_preview_check)
@@ -446,6 +449,7 @@ class SettingsTab(BaseTabContainer):
         self.receipt_mode.setItemText(1, t("settings.receipt_mode_windows", language=language))
         self.receipt_printer.setItemText(0, t("settings.printer_auto", language=language))
         self.print_test_receipt_btn.setText("طباعة إيصال تجريبي" if language == "ar" else "Print Test Receipt")
+        self.preview_sample_receipt_btn.setText("معاينة إيصال تجريبي" if language == "ar" else "Preview Sample Receipt")
         self.print_test_label_btn.setText("طباعة ملصق باركود تجريبي" if language == "ar" else "Print Test Barcode Label")
         self.invoice_auto_print_after_save_check.setText("طباعة تلقائية بعد الحفظ" if language == "ar" else "Auto print after save")
         self.invoice_print_preview_check.setText("معاينة سريعة قبل الطباعة" if language == "ar" else "Quick preview before print")
@@ -559,6 +563,13 @@ class SettingsTab(BaseTabContainer):
             QMessageBox.information(self, "Receipt Test", "Test receipt sent to receipt printer.")
         except Exception as exc:
             QMessageBox.warning(self, "Receipt Test", f"Failed to print test receipt: {exc}")
+
+    def _preview_sample_receipt(self) -> None:
+        try:
+            path = printer_service.render_sample_arabic_receipt_preview()
+            QMessageBox.information(self, "Receipt Preview", f"Sample Arabic receipt preview saved to:\n{path}")
+        except Exception as exc:
+            QMessageBox.warning(self, "Receipt Preview", f"Failed to render sample preview: {exc}")
 
     def _open_loyalty_settings(self) -> None:
         dialog = LoyaltySettingsDialog(self)

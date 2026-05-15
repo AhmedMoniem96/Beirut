@@ -11,8 +11,14 @@ import importlib.util
 
 
 from PIL import Image, ImageDraw
+from barcode import Code128
+from barcode.writer import ImageWriter
+from io import BytesIO
+import logging
 import string
 
+if importlib.util.find_spec("barcode") is None:
+    raise RuntimeError("Barcode printing dependency missing")
 if importlib.util.find_spec("reportlab") is None:
     raise RuntimeError("Barcode printing dependency missing")
 if importlib.util.find_spec("reportlab.graphics") is None:
@@ -148,17 +154,23 @@ def _coerce_ascii_barcode_value(*candidates: str) -> str:
     return ""
 
 
+logger = logging.getLogger(__name__)
+
+
 def _render_code128_bitmap(value: str) -> Image.Image:
-    drawing = createBarcodeDrawing(
-        "Code128",
-        value=value,
-        barHeight=42,
-        barWidth=0.78,
-        humanReadable=False,
-        quiet=True,
+    buffer = BytesIO()
+    Code128(value, writer=ImageWriter()).write(
+        buffer,
+        options={
+            "module_width": 0.25,
+            "module_height": 8.0,
+            "quiet_zone": 1.0,
+            "font_size": 0,
+            "write_text": False,
+        },
     )
-    barcode_img = renderPM.drawToPIL(drawing).convert("1")
-    return barcode_img
+    buffer.seek(0)
+    return Image.open(buffer).convert("1")
 
 def _fit_text_to_width(
     text: str,
@@ -284,12 +296,12 @@ def render_barcode_label_image(
     header_width_px = header_img.width
     header_height_px = header_img.height
 
-    barcode_renderer = "reportlab_code128"
+    barcode_renderer = "python_barcode_code128"
     try:
         barcode_img = _render_code128_bitmap(encoded_value)
-    except Exception:
-        barcode_renderer = "render_label_bitmap"
-        barcode_img = render_label_bitmap([">>C [BARCODE]"])
+    except Exception as exc:
+        logger.exception("Failed to generate barcode image", extra={"barcode_value": encoded_value})
+        raise BarcodeRenderError(f"Failed to generate barcode image: {exc}") from exc
     barcode_width_px = barcode_img.width
     barcode_height_px = barcode_img.height
 
@@ -387,6 +399,10 @@ def render_barcode_label_image(
     return label
 
 
+
+
+class BarcodeRenderError(RuntimeError):
+    """Raised when barcode image rendering fails."""
 
 
 class BarcodePrinterError(RuntimeError):

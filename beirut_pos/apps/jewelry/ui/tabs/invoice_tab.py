@@ -1883,7 +1883,7 @@ class InvoiceTab(BaseTabContainer):
         self._refresh_recently_sold()
         self.reset_invoice_state()
         self.refresh_products()
-        self._show_status_message("Invoice saved successfully.")
+        self._show_status_message(t("invoice.saved_successfully", language=self._language))
         self._save_in_progress = False
         self._update_validation_state()
 

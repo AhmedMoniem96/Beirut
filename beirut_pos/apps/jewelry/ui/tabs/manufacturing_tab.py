@@ -678,7 +678,7 @@ class ManufacturingTab(BaseTabContainer):
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),
-            t("manufacturing.material_saved", language=self._language),
+            t("manufacturing.material_saved_successfully", language=self._language),
         )
         self._refresh_materials()
         self._clear_material_form()
@@ -942,8 +942,8 @@ class ManufacturingTab(BaseTabContainer):
         mark_production_done(order.id)
         QMessageBox.information(
             self,
-            "Success",
-            f"Product {'updated' if existing else 'created'}. Total cost: {total_cost:.2f}, Suggested price: {suggested_price:.2f}",
+            t("common.saved_title", language=self._language),
+            t("inventory.product_created_successfully", language=self._language),
         )
         self._refresh_materials()
         self._refresh_products()

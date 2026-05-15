@@ -339,7 +339,7 @@ class SettingsTab(BaseTabContainer):
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),
-            t("settings.saved_message", language=self._language),
+            t("settings.saved_successfully", language=self._language),
         )
         if self._on_settings_changed:
             self._on_settings_changed()
@@ -546,9 +546,9 @@ class SettingsTab(BaseTabContainer):
             )
             save_gallery_settings(app_settings)
             barcode_printer.print_test_label(printer_name=self.barcode_printer.currentData() or "auto")
-            QMessageBox.information(self, "Barcode Calibration", "Test label sent to printer.")
+            QMessageBox.information(self, "Barcode Calibration", t("inventory.printed", language=self._language))
         except Exception as exc:
-            QMessageBox.warning(self, "Barcode Calibration", f"Failed to print test label: {exc}")
+            QMessageBox.warning(self, "Barcode Calibration", f"{t('common.failed_to_print', language=self._language)}: {exc}")
 
     def _print_test_receipt(self) -> None:
         receipt_printer = self.receipt_printer.currentData() or "auto"
@@ -561,9 +561,9 @@ class SettingsTab(BaseTabContainer):
             )
             if did_print is False:
                 raise RuntimeError(f"Printer unavailable/offline ({receipt_printer})")
-            QMessageBox.information(self, "Receipt Test", "Test receipt sent to receipt printer.")
+            QMessageBox.information(self, "Receipt Test", t("settings.receipt_sent_to_printer", language=self._language))
         except Exception as exc:
-            QMessageBox.warning(self, "Receipt Test", f"Failed to print test receipt: {exc}")
+            QMessageBox.warning(self, "Receipt Test", f"{t('common.failed_to_print', language=self._language)}: {exc}")
 
     def _preview_sample_receipt(self) -> None:
         try:

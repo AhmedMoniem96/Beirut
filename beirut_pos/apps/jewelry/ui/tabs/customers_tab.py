@@ -149,6 +149,11 @@ class CustomersTab(BaseTabContainer):
         self.notes_input.setText(c.get("notes", ""))
         self.points_input.setText(f"{get_loyalty_balance(c['phone']):.2f}")
         self._refresh_invoices()
+        QMessageBox.information(
+            self,
+            t("common.saved_title", language=self._language),
+            t("customers.saved_successfully", language=self._language),
+        )
 
     def _refresh_invoices(self) -> None:
         self.invoices_table.setRowCount(0)

@@ -36,7 +36,7 @@ from beirut_pos.utils.excel import write_protected_workbook
 
 from ...services.db import fetch_shift_session_for_date, list_products, save_shift_session
 from ...services.pdf_exports import GalleryInfo, export_daily_report_pdf
-from ...services.reports import customer_aggregates, inventory_value_estimate, lowest_products, payment_breakdown, returns_aggregate, sales_aggregate, stock_alerts, top_products, top_products_by_revenue
+from ...services.reports import customer_aggregates, inventory_value_estimate, lowest_products, payment_breakdown, production_history, returns_aggregate, sales_aggregate, stock_alerts, top_products, top_products_by_revenue
 from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
@@ -395,11 +395,11 @@ class ReportsTab(BaseTabContainer):
         self.total_revenue_kpi = QLabel()
         self.total_expenses_kpi = QLabel()
         self.net_profit_kpi = QLabel()
-        self.material_purchases_kpi = QLabel()
+        self.product_margin_kpi = QLabel()
         self.bills_kpi = QLabel()
         self.worker_wages_kpi = QLabel()
         kpi = QGridLayout()
-        for i,w in enumerate([self.total_revenue_kpi,self.total_expenses_kpi,self.net_profit_kpi,self.material_purchases_kpi,self.bills_kpi,self.worker_wages_kpi]):
+        for i,w in enumerate([self.total_revenue_kpi,self.total_expenses_kpi,self.net_profit_kpi,self.product_margin_kpi,self.bills_kpi,self.worker_wages_kpi]):
             w.setStyleSheet("padding: 8px; border: 1px solid #d9d9d9; border-radius: 6px;")
             kpi.addWidget(w, i//3, i%3)
         vbox.addLayout(kpi)
@@ -603,10 +603,11 @@ class ReportsTab(BaseTabContainer):
         revenue = sales.net_sales - returns.return_total
         expenses = expense_data["total_expenses"]
         net_profit = revenue - expenses
-        self.total_revenue_kpi.setText(f"Total Revenue\n{revenue:.2f}")
-        self.total_expenses_kpi.setText(f"Total Purchases/Expenses\n{expenses:.2f}")
-        self.net_profit_kpi.setText(f"Net Profit\n{net_profit:.2f}")
-        self.material_purchases_kpi.setText(f"Material Purchases\n{expense_data['material_expenses']:.2f}")
+        product_margin = sum(row.profit for row in production_history(start_iso, end_iso, "done", product_id))
+        self.total_revenue_kpi.setText(f"Net Revenue\n{revenue:.2f}")
+        self.total_expenses_kpi.setText(f"Total Expenses\n{expenses:.2f}")
+        self.net_profit_kpi.setText(f"Net Cash Profit\n{net_profit:.2f}")
+        self.product_margin_kpi.setText(f"Product Margin\n{product_margin:.2f}")
         self.bills_kpi.setText(f"Bills\n{expense_data['bills_expenses']:.2f}")
         self.worker_wages_kpi.setText(f"Worker Wages\n{expense_data['wages_expenses']:.2f}")
 

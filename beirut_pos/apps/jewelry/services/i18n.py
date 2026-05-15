@@ -596,7 +596,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     },
     "inventory.printed": {
         "en": "Barcode label sent to printer.",
-        "ar": "تم إرسال ملصق الباركود للطباعة.",
+        "ar": "تم إرسال ملصق الباركود إلى الطابعة.",
     },
     "inventory.auto_save_copy": {"en": "Auto-save copy", "ar": "حفظ نسخة تلقائيًا"},
     "inventory.auto_print": {"en": "Auto-print", "ar": "طباعة تلقائية"},

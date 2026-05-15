@@ -38,12 +38,6 @@ from .base_tab import BaseTabContainer
 
 
 class InventoryTab(BaseTabContainer):
-    _SUPPORTED_BARCODE_TYPES = {
-        "code128": "Code128",
-        "code39": "Code39",
-        "qr": "QR",
-    }
-
     def __init__(self, on_products_changed=None) -> None:
         super().__init__()
         print("LOADED INVENTORY TAB FILE:", __file__)
@@ -90,7 +84,6 @@ class InventoryTab(BaseTabContainer):
         self.name_en_input = QLineEdit()
         self.sku_input = QLineEdit()
         self.barcode_input = QLineEdit()
-        self.barcode_type_input = QLineEdit()
         self.price_input = QDoubleSpinBox()
         self.price_input.setRange(0, 999999)
         self.price_input.setDecimals(2)
@@ -109,7 +102,6 @@ class InventoryTab(BaseTabContainer):
         self.name_en_label = QLabel()
         self.sku_label = QLabel()
         self.barcode_label = QLabel()
-        self.barcode_type_label = QLabel()
         self.price_label = QLabel()
         self.qty_label = QLabel()
         self.min_qty_label = QLabel()
@@ -128,8 +120,6 @@ class InventoryTab(BaseTabContainer):
         info_layout.addWidget(self.sku_input, 1, 2)
         info_layout.addWidget(self.barcode_label, 2, 0)
         info_layout.addWidget(self.barcode_input, 3, 0)
-        info_layout.addWidget(self.barcode_type_label, 2, 1)
-        info_layout.addWidget(self.barcode_type_input, 3, 1)
 
         pricing_box = QGroupBox()
         self.pricing_box = pricing_box
@@ -188,7 +178,7 @@ class InventoryTab(BaseTabContainer):
         self.footer_layout.addWidget(self.save_btn)
         self.footer_layout.addWidget(self.auto_save_barcode_check)
 
-        self.table = QTableWidget(0, 12)
+        self.table = QTableWidget(0, 11)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
@@ -224,26 +214,6 @@ class InventoryTab(BaseTabContainer):
         self.apply_language(self._language)
         self.refresh()
 
-    def _normalize_barcode_type(self, barcode_type: str) -> str:
-        normalized = barcode_type.strip().lower()
-        normalized = normalized.replace(" ", "").replace("-", "")
-        if normalized == "qrcode":
-            normalized = "qr"
-        return normalized
-
-    def _validated_barcode_type(self, barcode_type: str) -> str | None:
-        if not barcode_type:
-            return ""
-        normalized = self._normalize_barcode_type(barcode_type)
-        if normalized not in self._SUPPORTED_BARCODE_TYPES:
-            supported = ", ".join(self._SUPPORTED_BARCODE_TYPES.values())
-            QMessageBox.warning(
-                self,
-                t("inventory.invalid_barcode", language=self._language),
-                t("inventory.supported_barcode", language=self._language, types=supported),
-            )
-            return None
-        return self._SUPPORTED_BARCODE_TYPES[normalized]
 
     def set_edit_permissions(self, allow_edit: bool) -> None:
         self._allow_edit = allow_edit
@@ -252,7 +222,6 @@ class InventoryTab(BaseTabContainer):
             self.name_en_input,
             self.sku_input,
             self.barcode_input,
-            self.barcode_type_input,
             self.category_input,
             self.stone_type_input,
             self.color_input,
@@ -283,22 +252,21 @@ class InventoryTab(BaseTabContainer):
             self.table.setItem(row, 1, QTableWidgetItem(product.name_en))
             self.table.setItem(row, 2, QTableWidgetItem(product.sku))
             self.table.setItem(row, 3, QTableWidgetItem(product.barcode))
-            self.table.setItem(row, 4, QTableWidgetItem(product.barcode_type))
-            self.table.setItem(row, 5, QTableWidgetItem(f"{product.price:.2f}"))
-            self.table.setItem(row, 6, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
-            self.table.setItem(row, 7, QTableWidgetItem(f"{product.min_qty:.2f}"))
-            self.table.setItem(row, 8, QTableWidgetItem(product.category))
+            self.table.setItem(row, 4, QTableWidgetItem(f"{product.price:.2f}"))
+            self.table.setItem(row, 5, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
+            self.table.setItem(row, 6, QTableWidgetItem(f"{product.min_qty:.2f}"))
+            self.table.setItem(row, 7, QTableWidgetItem(product.category))
             self.table.setItem(
                 row,
-                9,
+                8,
                 QTableWidgetItem(
                     t("common.yes", language=self._language)
                     if product.handmade_flag
                     else t("common.no", language=self._language)
                 ),
             )
-            self.table.setItem(row, 10, QTableWidgetItem(product.stone_type))
-            self.table.setItem(row, 11, QTableWidgetItem(product.color))
+            self.table.setItem(row, 9, QTableWidgetItem(product.stone_type))
+            self.table.setItem(row, 10, QTableWidgetItem(product.color))
             self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
 
             if product.qty_on_hand <= 0 or product.qty_on_hand <= product.min_qty:
@@ -341,7 +309,6 @@ class InventoryTab(BaseTabContainer):
         self.name_en_label.setText(t("inventory.name_en", language=language))
         self.sku_label.setText(t("inventory.sku", language=language))
         self.barcode_label.setText(t("inventory.barcode", language=language))
-        self.barcode_type_label.setText(t("inventory.barcode_type", language=language))
         self.price_label.setText(t("common.price", language=language))
         self.qty_label.setText(t("inventory.qty_on_hand", language=language))
         self.min_qty_label.setText(t("inventory.min_qty", language=language))
@@ -363,7 +330,6 @@ class InventoryTab(BaseTabContainer):
                 t("inventory.table_english", language=language),
                 t("common.code", language=language),
                 t("inventory.table_barcode", language=language),
-                t("inventory.table_type", language=language),
                 t("common.price", language=language),
                 t("inventory.table_qty", language=language),
                 t("inventory.table_min", language=language),
@@ -391,16 +357,15 @@ class InventoryTab(BaseTabContainer):
         self.name_en_input.setText(self.table.item(row, 1).text())
         self.sku_input.setText(self.table.item(row, 2).text())
         self.barcode_input.setText(self.table.item(row, 3).text())
-        self.barcode_type_input.setText(self.table.item(row, 4).text())
-        self.price_input.setValue(float(self.table.item(row, 5).text()))
-        self.qty_input.setValue(float(self.table.item(row, 6).text()))
-        self.min_qty_input.setValue(float(self.table.item(row, 7).text()))
-        self.category_input.setText(self.table.item(row, 8).text())
+        self.price_input.setValue(float(self.table.item(row, 4).text()))
+        self.qty_input.setValue(float(self.table.item(row, 5).text()))
+        self.min_qty_input.setValue(float(self.table.item(row, 6).text()))
+        self.category_input.setText(self.table.item(row, 7).text())
         self.handmade_check.setChecked(
-            self.table.item(row, 9).text() == t("common.yes", language=self._language)
+            self.table.item(row, 8).text() == t("common.yes", language=self._language)
         )
-        self.stone_type_input.setText(self.table.item(row, 10).text())
-        self.color_input.setText(self.table.item(row, 11).text())
+        self.stone_type_input.setText(self.table.item(row, 9).text())
+        self.color_input.setText(self.table.item(row, 10).text())
 
     def _save_product(self) -> None:
         if not self._allow_edit:
@@ -432,9 +397,7 @@ class InventoryTab(BaseTabContainer):
                 t("inventory.duplicate_barcode", language=self._language),
             )
             return
-        barcode_type_value = self._validated_barcode_type(self.barcode_type_input.text().strip())
-        if barcode_type_value is None:
-            return
+        barcode_type_value = ""
         save_product(
             self._selected_product_id,
             self.name_ar_input.text().strip(),
@@ -495,7 +458,6 @@ class InventoryTab(BaseTabContainer):
         self.name_en_input.clear()
         self.sku_input.clear()
         self.barcode_input.clear()
-        self.barcode_type_input.clear()
         self.price_input.setValue(0)
         self.qty_input.setValue(0)
         self.min_qty_input.setValue(0)
@@ -570,17 +532,18 @@ class InventoryTab(BaseTabContainer):
         product = next((p for p in self._products if p.id == self._selected_product_id), None)
         if not product:
             return
-        barcode_type_value = self._validated_barcode_type(product.barcode_type)
-        if barcode_type_value is None:
+        barcode_value = (product.barcode or product.sku).strip()
+        if not barcode_value:
+            QMessageBox.warning(self, t("inventory.print_failed", language=self._language), "Product has no barcode or SKU to print.")
             return
-        label_img = self._build_barcode_label_image(product, barcode_type_value)
+        label_img = self._build_barcode_label_image(product)
         if label_img is None:
             return
         preview_action = self._show_label_preview_dialog(product, label_img)
         if preview_action == "cancel":
             return
 
-        if not self._dispatch_barcode_print(product, barcode_type_value, label_img):
+        if not self._dispatch_barcode_print(product, label_img):
             QMessageBox.critical(
                 self,
                 t("inventory.print_failed", language=self._language),
@@ -604,14 +567,14 @@ class InventoryTab(BaseTabContainer):
         if msg.clickedButton() is open_btn:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
-    def _dispatch_barcode_print(self, product, barcode_type_value: str, label_img) -> bool:
+    def _dispatch_barcode_print(self, product, label_img) -> bool:
         settings = load_gallery_settings()
         mode = (settings.barcode_print_mode or "pdf").strip().lower() or "pdf"
         if mode == "pdf":
             return self._print_barcode_via_pdf_dispatch(label_img)
         return self._print_barcode_direct(label_img)
 
-    def _build_barcode_label_image(self, product, barcode_type_value: str):
+    def _build_barcode_label_image(self, product):
         try:
             from ...services.barcode_printer import BarcodeRenderError, render_barcode_label_image
         except RuntimeError:

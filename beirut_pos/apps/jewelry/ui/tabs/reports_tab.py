@@ -37,7 +37,7 @@ from beirut_pos.utils.excel import write_protected_workbook
 
 from ...services.db import fetch_shift_session_for_date, list_products, save_shift_session
 from ...services.pdf_exports import GalleryInfo, export_daily_report_pdf
-from ...services.reports import customer_aggregates, inventory_value_estimate, lowest_products, payment_breakdown, production_history, returns_aggregate, sales_aggregate, stock_alerts, top_products, top_products_by_revenue
+from ...services.reports import customer_aggregates, expense_report_data, inventory_value_estimate, lowest_products, payment_breakdown, production_history, returns_aggregate, sales_aggregate, stock_alerts, top_products, top_products_by_revenue
 from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
@@ -641,29 +641,34 @@ class ReportsTab(BaseTabContainer):
             category=self.expense_category_filter.currentData() or None,
             vendor_worker_term=self.expense_vendor_worker_filter.text(),
             payment_method=self.expense_payment_filter.text().strip() or None,
-        )
-        self._populate_table(self.expense_category_table, [(r.category, str(r.count), f"{r.total_amount:.2f}") for r in expense_data["by_category"]])
-        self._populate_table(self.expenses_list_table, [(r.date, r.category, r.vendor_or_worker, r.description, f"{r.amount:.2f}", r.payment_method) for r in expense_data["purchases"]])
-        self._populate_table(self.material_purchases_table, [(r.material, f"{r.qty_purchased:.2f}", f"{r.total_cost:.2f}", f"{r.avg_unit_cost:.2f}") for r in expense_data["material_purchases"]])
-        self._populate_table(self.worker_wages_table, [(r.worker, r.period, f"{r.total_paid:.2f}") for r in expense_data["worker_wages"]])
+        ) or {}
+        by_category = expense_data.get("by_category", [])
+        purchases = expense_data.get("purchases", [])
+        material_purchases = expense_data.get("material_purchases", [])
+        worker_wages = expense_data.get("worker_wages", [])
+
+        self._populate_table(self.expense_category_table, [(r.category, str(r.count), f"{r.total_amount:.2f}") for r in by_category])
+        self._populate_table(self.expenses_list_table, [(r.date, r.category, r.vendor_or_worker, r.description, f"{r.amount:.2f}", r.payment_method) for r in purchases])
+        self._populate_table(self.material_purchases_table, [(r.material, f"{r.qty_purchased:.2f}", f"{r.total_cost:.2f}", f"{r.avg_unit_cost:.2f}") for r in material_purchases])
+        self._populate_table(self.worker_wages_table, [(r.worker, r.period, f"{r.total_paid:.2f}") for r in worker_wages])
 
         revenue = sales.net_sales - returns.return_total
-        expenses = expense_data["total_expenses"]
+        expenses = float(expense_data.get("total_expenses", 0.0) or 0.0)
         net_profit = revenue - expenses
         product_margin = sum(row.profit for row in production_history(start_iso, end_iso, "done", product_id))
         self.total_revenue_kpi.setText(f"Net Revenue\n{revenue:.2f}")
         self.total_expenses_kpi.setText(f"{t("reports.total_expenses", language=self._language)}\n{expenses:.2f}")
         self.net_profit_kpi.setText(f"{t("reports.net_cash_profit", language=self._language)}\n{net_profit:.2f}")
         self.product_margin_kpi.setText(f"Product Margin\n{product_margin:.2f}")
-        self.bills_kpi.setText(f"Bills\n{expense_data['bills_expenses']:.2f}")
-        self.worker_wages_kpi.setText(f"{t("reports.worker_wages", language=self._language)}\n{expense_data['wages_expenses']:.2f}")
+        self.bills_kpi.setText(f"Bills\n{float(expense_data.get('bills_expenses', 0.0) or 0.0):.2f}")
+        self.worker_wages_kpi.setText(f"{t("reports.worker_wages", language=self._language)}\n{float(expense_data.get('wages_expenses', 0.0) or 0.0):.2f}")
 
         top_product = top_rev[0] if top_rev else None
         top_customer = customers[0] if customers else None
         low_stock_count = len(out_of_stock) + len(near_out)
         self._set_summary_card("total_sales", f"{sales.subtotal:.2f}", f"{sales.invoice_count} invoices")
         self._set_summary_card("net_revenue", f"{revenue:.2f}", f"after returns {returns.return_total:.2f}")
-        self._set_summary_card("total_expenses", f"{expenses:.2f}", f"{len(expense_data['purchases'])} entries")
+        self._set_summary_card("total_expenses", f"{expenses:.2f}", f"{len(purchases)} entries")
         self._set_summary_card("net_cash_profit", f"{net_profit:.2f}")
         self._set_summary_card("returns", f"{returns.return_total:.2f}", f"{returns.return_count} returns")
         self._set_summary_card("top_product", top_product.name if top_product else "—", f"Qty {top_product.qty:.2f}" if top_product else "No sales")

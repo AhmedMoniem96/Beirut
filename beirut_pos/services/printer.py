@@ -94,6 +94,9 @@ def _shape_for_bitmap(text: str) -> str:
         return text
     if not _ARABIC_VISUAL_OK:
         return text
+    mode = os.getenv("BEIRUT_POS_RECEIPT_AR_MODE", "bidi").strip().lower()
+    if mode == "raw":
+        return text
     # Avoid double shaping/bidi:
     # arabic_reshaper output uses Arabic Presentation Forms (FB50..FDFF/FE70..FEFF).
     # If these glyphs are already present, text has likely been pre-shaped upstream
@@ -102,7 +105,12 @@ def _shape_for_bitmap(text: str) -> str:
         return text
     try:
         reshaped = arabic_reshaper.reshape(text)
-        return _bidi_get_display(reshaped)
+        if mode == "reshape":
+            return reshaped
+        visual = _bidi_get_display(reshaped)
+        if mode == "reverse_bidi":
+            return visual[::-1]
+        return visual
     except Exception:
         return text
 
@@ -1303,6 +1311,44 @@ def render_receipt_bitmap(lines: Sequence[str]) -> Image.Image:
         bitmap_height_px=bmp.height,
     )
     return bmp
+
+
+def render_sample_arabic_receipt_preview(output_path: str | None = None) -> str:
+    """Render a Windows-style Arabic receipt preview bitmap and save it (no printing)."""
+    sample_lines = [
+        ">>C كريستال جاليري",
+        ">>C Handmade Jewelry & Accessories",
+        ">>C Phone: 01xxxxxxxxx",
+        "",
+        ">>L Invoice: JINV-00025",
+        ">>L Date: 2026-05-10 09:45 PM",
+        ">>L Cashier: Admin",
+        ">>L Customer: سارة محمد",
+        ">>L Phone: 010xxxxxxx",
+        _draw_line("-"),
+        "Item              Qty   Total",
+        "أقراط لؤلؤ         1    650.00",
+        "خاتم فضة           2    400.00",
+        _draw_line("-"),
+        ">>R Subtotal                1050.00",
+        ">>R Discount                   0.00",
+        ">>R Delivery Fee              50.00",
+        ">>R Loyalty Redeemed           0.00",
+        _draw_line("-"),
+        ">>R NET TOTAL               1100.00",
+        ">>R Paid                    1100.00",
+        ">>R Remaining                  0.00",
+        "",
+        ">>L Points Earned: 11",
+        ">>L Points Balance: 120",
+        "",
+        ">>C شكراً لزيارتكم",
+    ]
+    bmp = render_receipt_bitmap(sample_lines).convert("RGB")
+    target = output_path or (r"C:\Users\Public\BeirutPOS\logs\sample_arabic_receipt_windows_preview.png" if _IS_WINDOWS else "/tmp/sample_arabic_receipt_windows_preview.png")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    bmp.save(target)
+    return target
 
 
 def print_receipt(

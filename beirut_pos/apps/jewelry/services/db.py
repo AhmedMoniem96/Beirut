@@ -137,6 +137,23 @@ class JewelryProductionOrder:
 
 
 @dataclass
+class JewelryPurchase:
+    id: int
+    date: str
+    category: str
+    vendor: str
+    description: str
+    amount: float
+    payment_method: str
+    notes: str
+    linked_material_id: Optional[int]
+    material_qty: Optional[float]
+    worker_id: Optional[int]
+    wage_period: str
+    created_at: str
+
+
+@dataclass
 class JewelryPaymentRow:
     id: int
     invoice_id: int
@@ -498,8 +515,32 @@ def init_jewelry_db() -> None:
             FOREIGN KEY(invoice_id) REFERENCES jw_invoices(id)
         )"""
     )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_purchases(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            category TEXT NOT NULL,
+            vendor TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            amount REAL NOT NULL,
+            payment_method TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            linked_material_id INTEGER,
+            material_qty REAL,
+            worker_id INTEGER,
+            wage_period TEXT,
+            created_at TEXT NOT NULL
+        )"""
+    )
     _ensure_column(cur, "jw_order_payments", "reference", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_production_orders", "bom_id", "INTEGER")
+    _ensure_column(cur, "jw_purchases", "payment_method", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(cur, "jw_purchases", "notes", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(cur, "jw_purchases", "linked_material_id", "INTEGER")
+    _ensure_column(cur, "jw_purchases", "material_qty", "REAL")
+    _ensure_column(cur, "jw_purchases", "worker_id", "INTEGER")
+    _ensure_column(cur, "jw_purchases", "wage_period", "TEXT")
+    _ensure_column(cur, "jw_purchases", "created_at", "TEXT")
     cur.execute(
         """UPDATE jw_invoices
            SET paid_total = COALESCE(paid_total, 0),
@@ -1592,6 +1633,201 @@ def list_materials() -> List[JewelryMaterial]:
         )
         for row in rows
     ]
+
+
+PURCHASE_CATEGORIES = {
+    "Material Purchase",
+    "Electricity Bill",
+    "Rent",
+    "Worker Wage",
+    "Packaging",
+    "Maintenance",
+    "Other",
+}
+
+
+def _validate_purchase_fields(*, date: str, category: str, amount: float) -> Tuple[str, str, float]:
+    date_value = (date or "").strip()
+    if not date_value:
+        raise ValueError("date is required")
+    category_value = (category or "").strip()
+    if category_value not in PURCHASE_CATEGORIES:
+        raise ValueError("invalid purchase category")
+    amount_value = float(amount)
+    if amount_value <= 0:
+        raise ValueError("amount must be positive")
+    return date_value, category_value, amount_value
+
+
+def create_purchase(
+    *,
+    date: str,
+    category: str,
+    vendor: str = "",
+    description: str = "",
+    amount: float = 0,
+    payment_method: str = "",
+    notes: str = "",
+    linked_material_id: Optional[int] = None,
+    material_qty: Optional[float] = None,
+    worker_id: Optional[int] = None,
+    wage_period: str = "",
+) -> int:
+    date_value, category_value, amount_value = _validate_purchase_fields(date=date, category=category, amount=amount)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO jw_purchases(
+            date, category, vendor, description, amount, payment_method, notes,
+            linked_material_id, material_qty, worker_id, wage_period, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            date_value,
+            category_value,
+            (vendor or "").strip(),
+            (description or "").strip(),
+            amount_value,
+            (payment_method or "").strip(),
+            (notes or "").strip(),
+            linked_material_id,
+            material_qty,
+            worker_id,
+            (wage_period or "").strip() or None,
+            datetime.now().isoformat(timespec="seconds"),
+        ),
+    )
+    purchase_id = int(cur.lastrowid)
+    if category_value == "Material Purchase" and linked_material_id and material_qty:
+        cur.execute(
+            "UPDATE jw_materials SET qty_on_hand = qty_on_hand + ? WHERE id = ?",
+            (float(material_qty), int(linked_material_id)),
+        )
+    conn.commit()
+    conn.close()
+    return purchase_id
+
+
+def update_purchase(purchase_id: int, **fields: object) -> None:
+    existing = next((p for p in list_purchases() if p.id == int(purchase_id)), None)
+    if not existing:
+        raise ValueError("purchase not found")
+    date_value, category_value, amount_value = _validate_purchase_fields(
+        date=str(fields.get("date", existing.date)),
+        category=str(fields.get("category", existing.category)),
+        amount=float(fields.get("amount", existing.amount)),
+    )
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """UPDATE jw_purchases
+           SET date=?, category=?, vendor=?, description=?, amount=?, payment_method=?,
+               notes=?, linked_material_id=?, material_qty=?, worker_id=?, wage_period=?
+           WHERE id=?""",
+        (
+            date_value,
+            category_value,
+            str(fields.get("vendor", existing.vendor) or "").strip(),
+            str(fields.get("description", existing.description) or "").strip(),
+            amount_value,
+            str(fields.get("payment_method", existing.payment_method) or "").strip(),
+            str(fields.get("notes", existing.notes) or "").strip(),
+            fields.get("linked_material_id", existing.linked_material_id),
+            fields.get("material_qty", existing.material_qty),
+            fields.get("worker_id", existing.worker_id),
+            str(fields.get("wage_period", existing.wage_period) or "").strip() or None,
+            int(purchase_id),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_purchase(purchase_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM jw_purchases WHERE id = ?", (int(purchase_id),))
+    conn.commit()
+    conn.close()
+
+
+def list_purchases(
+    *,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    category: Optional[str] = None,
+) -> List[JewelryPurchase]:
+    where: List[str] = []
+    params: List[object] = []
+    if date_from:
+        where.append("date >= ?")
+        params.append(date_from)
+    if date_to:
+        where.append("date <= ?")
+        params.append(date_to)
+    if category:
+        where.append("category = ?")
+        params.append(category)
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""SELECT id, date, category, vendor, description, amount, payment_method, notes,
+                  linked_material_id, material_qty, worker_id, COALESCE(wage_period, ''), created_at
+           FROM jw_purchases {where_sql}
+           ORDER BY date DESC, id DESC""",
+        tuple(params),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryPurchase(
+            id=int(row[0]),
+            date=str(row[1] or ""),
+            category=str(row[2] or ""),
+            vendor=str(row[3] or ""),
+            description=str(row[4] or ""),
+            amount=float(row[5] or 0),
+            payment_method=str(row[6] or ""),
+            notes=str(row[7] or ""),
+            linked_material_id=row[8],
+            material_qty=row[9],
+            worker_id=row[10],
+            wage_period=str(row[11] or ""),
+            created_at=str(row[12] or ""),
+        )
+        for row in rows
+    ]
+
+
+def get_purchase_summary(*, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, float]:
+    where: List[str] = []
+    params: List[object] = []
+    if date_from:
+        where.append("date >= ?")
+        params.append(date_from)
+    if date_to:
+        where.append("date <= ?")
+        params.append(date_to)
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""SELECT category, COALESCE(SUM(amount), 0)
+            FROM jw_purchases
+            {where_sql}
+            GROUP BY category""",
+        tuple(params),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    summary: Dict[str, float] = {k: 0.0 for k in PURCHASE_CATEGORIES}
+    total = 0.0
+    for category_name, subtotal in rows:
+        value = float(subtotal or 0)
+        summary[str(category_name)] = value
+        total += value
+    summary["total"] = total
+    return summary
 
 
 def save_material(

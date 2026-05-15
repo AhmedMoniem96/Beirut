@@ -334,8 +334,8 @@ class ReportsTab(BaseTabContainer):
         card_specs = [
             ("total_sales", "💰", "Total Sales"),
             ("net_revenue", "🧾", "Net Revenue"),
-            ("total_expenses", "💸", "Total Expenses"),
-            ("net_cash_profit", "📈", "Net Cash Profit"),
+            ("total_expenses", "💸", t("reports.total_expenses", language=self._language)),
+            ("net_cash_profit", "📈", t("reports.net_cash_profit", language=self._language)),
             ("returns", "↩️", "Returns"),
             ("top_product", "🏷️", "Top Product"),
             ("top_customer", "👤", "Top Customer"),
@@ -454,10 +454,10 @@ class ReportsTab(BaseTabContainer):
             kpi.addWidget(w, i//3, i%3)
         vbox.addLayout(kpi)
 
-        vbox.addWidget(QLabel("Expenses by Category")); vbox.addWidget(self.expense_category_table,1)
+        vbox.addWidget(QLabel(t("reports.expenses_by_category", language=self._language))); vbox.addWidget(self.expense_category_table,1)
         vbox.addWidget(QLabel("Purchases list")); vbox.addWidget(self.expenses_list_table,1)
-        vbox.addWidget(QLabel("Material Purchases")); vbox.addWidget(self.material_purchases_table,1)
-        vbox.addWidget(QLabel("Worker Wages")); vbox.addWidget(self.worker_wages_table,1)
+        vbox.addWidget(QLabel(t("reports.material_purchases", language=self._language))); vbox.addWidget(self.material_purchases_table,1)
+        vbox.addWidget(QLabel(t("reports.worker_wages", language=self._language))); vbox.addWidget(self.worker_wages_table,1)
         return tab
 
     def _normalize_return_reason(self, reason: str) -> str:
@@ -530,7 +530,7 @@ class ReportsTab(BaseTabContainer):
         self.tabs.setTabText(2, t("reports.products_tab", language=language) if t("reports.products_tab", language=language) != "reports.products_tab" else "Products")
         self.tabs.setTabText(3, t("reports.returns_tab", language=language) if t("reports.returns_tab", language=language) != "reports.returns_tab" else "Returns")
         self.tabs.setTabText(4, t("reports.stock_tab", language=language) if t("reports.stock_tab", language=language) != "reports.stock_tab" else "Stock")
-        self.tabs.setTabText(5, "Expenses / Purchases")
+        self.tabs.setTabText(5, f"{t("purchases.expenses", language=language)} / {t("purchases.header", language=language)}")
 
     def _load_shift_from_db(self) -> None:
         date_iso = self.date_filter.date().toString("yyyy-MM-dd")
@@ -650,11 +650,11 @@ class ReportsTab(BaseTabContainer):
         net_profit = revenue - expenses
         product_margin = sum(row.profit for row in production_history(start_iso, end_iso, "done", product_id))
         self.total_revenue_kpi.setText(f"Net Revenue\n{revenue:.2f}")
-        self.total_expenses_kpi.setText(f"Total Expenses\n{expenses:.2f}")
-        self.net_profit_kpi.setText(f"Net Cash Profit\n{net_profit:.2f}")
+        self.total_expenses_kpi.setText(f"{t("reports.total_expenses", language=self._language)}\n{expenses:.2f}")
+        self.net_profit_kpi.setText(f"{t("reports.net_cash_profit", language=self._language)}\n{net_profit:.2f}")
         self.product_margin_kpi.setText(f"Product Margin\n{product_margin:.2f}")
         self.bills_kpi.setText(f"Bills\n{expense_data['bills_expenses']:.2f}")
-        self.worker_wages_kpi.setText(f"Worker Wages\n{expense_data['wages_expenses']:.2f}")
+        self.worker_wages_kpi.setText(f"{t("reports.worker_wages", language=self._language)}\n{expense_data['wages_expenses']:.2f}")
 
         top_product = top_rev[0] if top_rev else None
         top_customer = customers[0] if customers else None

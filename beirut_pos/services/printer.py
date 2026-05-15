@@ -81,6 +81,8 @@ try:
 except Exception:
     _ARABIC_VISUAL_OK = False
 
+_ARABIC_PRESENTATION_FORMS_RX = re.compile(r"[\uFB50-\uFDFF\uFE70-\uFEFF]")
+
 
 def _shape_for_bitmap(text: str) -> str:
     """
@@ -91,6 +93,12 @@ def _shape_for_bitmap(text: str) -> str:
     if not text:
         return text
     if not _ARABIC_VISUAL_OK:
+        return text
+    # Avoid double shaping/bidi:
+    # arabic_reshaper output uses Arabic Presentation Forms (FB50..FDFF/FE70..FEFF).
+    # If these glyphs are already present, text has likely been pre-shaped upstream
+    # and should be drawn as-is.
+    if _ARABIC_PRESENTATION_FORMS_RX.search(text):
         return text
     try:
         reshaped = arabic_reshaper.reshape(text)

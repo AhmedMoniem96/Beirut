@@ -10,12 +10,23 @@ import importlib.util
 
 
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from barcode import Code128
 from barcode.writer import ImageWriter
 from io import BytesIO
 import logging
 import string
+
+try:
+    import arabic_reshaper
+except Exception:
+    arabic_reshaper = None
+
+try:
+    from bidi.algorithm import get_display as bidi_get_display
+except Exception:
+    bidi_get_display = None
+
 
 if importlib.util.find_spec("barcode") is None:
     raise RuntimeError("Barcode printing dependency missing")
@@ -199,15 +210,57 @@ def _fit_text_to_width(
     return ellipsis, fallback_font
 
 
+def _arabic_capable_font(size: int) -> ImageFont.ImageFont:
+    candidates = [
+        "NotoNaskhArabic-Regular.ttf",
+        "NotoNaskhArabic.ttf",
+        "Amiri-Regular.ttf",
+        "arial.ttf",
+        "Arial.ttf",
+        "Tahoma.ttf",
+        "tahoma.ttf",
+    ]
+    for name in candidates:
+        try:
+            return ImageFont.truetype(name, size=size)
+        except Exception:
+            continue
+    return printer_service.load_font(size=size)
+
+
+def _shape_arabic_for_label(raw_text: str) -> str:
+    raw = (raw_text or "").strip()
+    if not raw:
+        return "-"
+    if arabic_reshaper is None or bidi_get_display is None:
+        return raw
+    reshaped = arabic_reshaper.reshape(raw)
+    visual = bidi_get_display(reshaped)
+    return visual
+
+
 def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min_font_size: int) -> Image.Image:
     usable_width = max(1, width - (LABEL_MARGIN_PX * 2))
-    shaped = printer_service._shape_for_bitmap((text or "").strip())
+    raw_text = (text or "").strip()
+    shaped = _shape_arabic_for_label(raw_text)
+    logger.info(
+        "barcode.label.text_pipeline",
+        extra={
+            "raw_arabic": raw_text,
+            "shaped_visual": shaped,
+            "draw_function": "ImageDraw.Draw.text",
+        },
+    )
     fitted_text, font = _fit_text_to_width(
         shaped,
         max_width=usable_width,
         min_font_size=min_font_size,
         max_font_size=max_font_size,
     )
+    try:
+        font = _arabic_capable_font(getattr(font, "size", max_font_size))
+    except Exception:
+        font = _arabic_capable_font(max_font_size)
     bbox = font.getbbox(fitted_text)
     line_w = max(1, bbox[2] - bbox[0])
     line_h = max(1, bbox[3] - bbox[1])

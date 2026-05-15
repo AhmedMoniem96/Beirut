@@ -172,7 +172,7 @@ class JewelryMainWindow(QMainWindow):
         self.setWindowTitle(t("app.title", language=self._language))
         self.tabs.setTabText(0, "Settings")
         self.tabs.setTabText(1, "Reports")
-        self.tabs.setTabText(2, "Workshop")
+        self.tabs.setTabText(2, "الورشة" if self._language == "ar" else "Workshop")
         self.tabs.setTabText(3, "Inventory")
         self.tabs.setTabText(4, "Returns")
         self.tabs.setTabText(5, t("tab.invoice", language=self._language))

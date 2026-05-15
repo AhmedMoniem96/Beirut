@@ -261,19 +261,22 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_name_label = QLabel()
 
         fields = [
-            ("Product", self.bom_product_combo),
-            ("Product Name", self.design_product_name),
-            ("SKU/Code", self.design_product_sku),
-            ("Selling Price", self.design_product_price),
-            ("Qty Produced", self.design_qty_produced),
-            ("Labor Cost", self.design_labor_cost),
-            ("Packaging Cost", self.design_packaging_cost),
-            ("Other Cost", self.design_other_cost),
+            ("product", self.bom_product_combo),
+            ("product_name_ar", self.design_product_name),
+            ("sku_code", self.design_product_sku),
+            ("selling_price", self.design_product_price),
+            ("qty_produced", self.design_qty_produced),
+            ("labor_cost", self.design_labor_cost),
+            ("packaging_cost", self.design_packaging_cost),
+            ("other_cost", self.design_other_cost),
         ]
-        for i, (title, widget) in enumerate(fields):
+        self._design_field_labels: dict[str, QLabel] = {}
+        for i, (label_key, widget) in enumerate(fields):
             r = i // 2
             c = (i % 2) * 2
-            form_layout.addWidget(QLabel(title), r, c)
+            label = QLabel()
+            self._design_field_labels[label_key] = label
+            form_layout.addWidget(label, r, c)
             form_layout.addWidget(widget, r, c + 1)
         left_layout.addWidget(self.bom_box)
 
@@ -288,8 +291,8 @@ class ManufacturingTab(BaseTabContainer):
         self.add_bom_line_btn.clicked.connect(self._add_bom_line)
         self.bom_material_label = QLabel()
         self.bom_qty_label = QLabel()
-        add_line_layout.addWidget(QLabel("Material")); add_line_layout.addWidget(self.bom_material_combo)
-        add_line_layout.addWidget(QLabel("Qty Used")); add_line_layout.addWidget(self.bom_qty_input)
+        add_line_layout.addWidget(self.bom_material_label); add_line_layout.addWidget(self.bom_material_combo)
+        add_line_layout.addWidget(self.bom_qty_label); add_line_layout.addWidget(self.bom_qty_input)
         add_line_layout.addWidget(self.add_bom_line_btn)
         lines_layout.addLayout(add_line_layout)
 
@@ -318,12 +321,18 @@ class ManufacturingTab(BaseTabContainer):
         self.summary_selling_price = QLabel("0.00")
         self.summary_profit = QLabel("0.00")
         self.summary_margin = QLabel("0.00%")
-        cost_layout.addRow("Material Cost", self.summary_material_cost)
-        cost_layout.addRow("Extra Cost", self.summary_extra_cost)
-        cost_layout.addRow("Total Cost", self.summary_total_cost)
-        cost_layout.addRow("Selling Price", self.summary_selling_price)
-        cost_layout.addRow("Profit", self.summary_profit)
-        cost_layout.addRow("Margin %", self.summary_margin)
+        self.summary_material_cost_label = QLabel()
+        self.summary_extra_cost_label = QLabel()
+        self.summary_total_cost_label = QLabel()
+        self.summary_selling_price_label = QLabel()
+        self.summary_profit_label = QLabel()
+        self.summary_margin_label = QLabel()
+        cost_layout.addRow(self.summary_material_cost_label, self.summary_material_cost)
+        cost_layout.addRow(self.summary_extra_cost_label, self.summary_extra_cost)
+        cost_layout.addRow(self.summary_total_cost_label, self.summary_total_cost)
+        cost_layout.addRow(self.summary_selling_price_label, self.summary_selling_price)
+        cost_layout.addRow(self.summary_profit_label, self.summary_profit)
+        cost_layout.addRow(self.summary_margin_label, self.summary_margin)
 
         left_wrap = QWidget(); left_wrap.setLayout(left_layout)
         main_layout.addWidget(left_wrap, 3)
@@ -1406,21 +1415,37 @@ class ManufacturingTab(BaseTabContainer):
                 "Min Qty",
             ]
         )
-        self.bom_box.setTitle("Final Product")
+        self.tabs.setTabText(0, "إنشاء تصميم" if language == "ar" else "Create Design")
+        self.bom_box.setTitle("المنتج النهائي" if language == "ar" else "Final Product")
+        self._design_field_labels["product"].setText(t("manufacturing.bom_product", language=language))
+        self._design_field_labels["product_name_ar"].setText("اسم المنتج بالعربية" if language == "ar" else "Product Name Arabic")
+        self._design_field_labels["sku_code"].setText("الرمز/الكود" if language == "ar" else "SKU/Code")
+        self._design_field_labels["selling_price"].setText("سعر البيع" if language == "ar" else "Selling Price")
+        self._design_field_labels["qty_produced"].setText("الكمية المنتجة" if language == "ar" else "Qty Produced")
+        self._design_field_labels["labor_cost"].setText("تكلفة العمالة" if language == "ar" else "Labor Cost")
+        self._design_field_labels["packaging_cost"].setText("تكلفة التغليف" if language == "ar" else "Packaging Cost")
+        self._design_field_labels["other_cost"].setText("تكلفة أخرى" if language == "ar" else "Other Cost")
         self.bom_product_label.setText(t("manufacturing.bom_product", language=language))
-        self.bom_name_label.setText("Workshop")
-        self.bom_name_label.setToolTip("Enter a clear workshop name for this design.")
+        self.bom_name_label.setText("ورشة" if language == "ar" else "Workshop")
+        self.bom_name_label.setToolTip("أدخل اسمًا واضحًا للورشة لهذا التصميم." if language == "ar" else "Enter a clear workshop name for this design.")
         self.bom_active_check.setText(t("manufacturing.bom_active", language=language))
-        self.lines_box.setTitle("Materials Used")
-        self.bom_material_label.setText(t("manufacturing.material_label", language=language))
-        self.bom_qty_label.setText(t("manufacturing.qty_required", language=language))
-        self.add_bom_line_btn.setText("Add Material")
-        self.bom_lines_table.setHorizontalHeaderLabels(["Material", "Available", "Qty Used", "Unit Cost", "Total Cost"])
-        self.remove_line_btn.setText("Remove Material")
-        self.bom_save_btn.setText("Save Design")
-        self.create_product_btn.setText("Create Product")
-        self.duplicate_design_btn.setText("Duplicate Design")
-        self.edit_product_btn.setText("Edit Product")
+        self.lines_box.setTitle("الخامات المستخدمة" if language == "ar" else "Materials Used")
+        self.bom_material_label.setText("الخامة" if language == "ar" else "Material")
+        self.bom_qty_label.setText("الكمية المستخدمة" if language == "ar" else "Qty Used")
+        self.add_bom_line_btn.setText("إضافة خامة" if language == "ar" else "Add Material")
+        self.bom_lines_table.setHorizontalHeaderLabels(["الخامة", "الكمية المتاحة", "الكمية المستخدمة", "تكلفة الوحدة", "التكلفة الإجمالية"] if language == "ar" else ["Material", "Available Qty", "Qty Used", "Unit Cost", "Total Cost"])
+        self.remove_line_btn.setText("حذف خامة" if language == "ar" else "Remove Material")
+        self.cost_summary_box.setTitle("ملخص التكلفة" if language == "ar" else "Cost Summary")
+        self.summary_material_cost_label.setText("تكلفة الخامات" if language == "ar" else "Material Cost")
+        self.summary_extra_cost_label.setText("تكلفة إضافية" if language == "ar" else "Extra Cost")
+        self.summary_total_cost_label.setText("التكلفة الإجمالية" if language == "ar" else "Total Cost")
+        self.summary_selling_price_label.setText("سعر البيع" if language == "ar" else "Selling Price")
+        self.summary_profit_label.setText("الربح" if language == "ar" else "Profit")
+        self.summary_margin_label.setText("هامش %" if language == "ar" else "Margin %")
+        self.bom_save_btn.setText("حفظ التصميم" if language == "ar" else "Save Design")
+        self.create_product_btn.setText("إنشاء منتج" if language == "ar" else "Create Product")
+        self.duplicate_design_btn.setText("تكرار التصميم" if language == "ar" else "Duplicate Design")
+        self.edit_product_btn.setText("تعديل المنتج" if language == "ar" else "Edit Product")
         self.cancel_edit_btn.setText("Cancel Edit")
         self.bom_delete_btn.setText(t("manufacturing.delete_bom", language=language))
         self.bom_clear_btn.setText("Clear")

@@ -30,6 +30,7 @@ from .tabs.reports_tab import ReportsTab
 from .tabs.returns_tab import ReturnsTab
 from .tabs.settings_tab import SettingsTab
 from .tabs.customers_tab import CustomersTab
+from .tabs.purchases_tab import PurchasesTab
 from .theme import gallery_stylesheet
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class JewelryMainWindow(QMainWindow):
         )
         self.manufacturing_tab = ManufacturingTab()
         self.customers_tab = CustomersTab()
+        self.purchases_tab = PurchasesTab()
 
         self.tabs.addTab(self.settings_tab, "")
         self.tabs.addTab(self.reports_tab, "")
@@ -102,6 +104,7 @@ class JewelryMainWindow(QMainWindow):
         self.tabs.addTab(self.returns_tab, "")
         self.tabs.addTab(self.invoice_tab, "")
         self.tabs.addTab(self.customers_tab, "")
+        self.tabs.addTab(self.purchases_tab, "")
         self.tabs.currentChanged.connect(self._handle_tab_change)
         self.tabs.setCurrentWidget(self.manufacturing_tab)
         if hasattr(self.manufacturing_tab, "inventory_changed"):
@@ -178,6 +181,7 @@ class JewelryMainWindow(QMainWindow):
         self.tabs.setTabText(4, t("tab.returns", language=self._language))
         self.tabs.setTabText(5, t("tab.invoice", language=self._language))
         self.tabs.setTabText(6, t("tab.customers", language=self._language))
+        self.tabs.setTabText(7, t("tab.purchases", language=self._language))
         self.orders_menu.setTitle(t("menu.orders", language=self._language))
         self.unpaid_orders_action.setText(t("menu.unpaid_orders", language=self._language))
         self.invoice_tab.apply_language(self._language)
@@ -187,6 +191,7 @@ class JewelryMainWindow(QMainWindow):
         self.reports_tab.apply_language(self._language)
         self.settings_tab.apply_language(self._language)
         self.customers_tab.apply_language(self._language)
+        self.purchases_tab.apply_language(self._language)
 
         for widget in QApplication.topLevelWidgets():
             if widget is self:

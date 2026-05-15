@@ -32,15 +32,9 @@ from PyQt6.QtWidgets import (
 
 from ...services.db import barcode_exists, delete_product, list_products, save_product
 from ...services.product_import import generate_import_template, import_products_from_excel
-from ...services.settings import (
-    PRINTER_MODE_LABEL,
-    PRINTER_MODE_RECEIPT,
-    load_gallery_settings,
-    set_printer_mode,
-)
+from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
-from .printer_mode_badge import refresh_printer_mode_badge
 
 
 class InventoryTab(BaseTabContainer):
@@ -178,8 +172,6 @@ class InventoryTab(BaseTabContainer):
         self.download_template_btn.clicked.connect(self._download_import_template)
         self.auto_save_barcode_check = QCheckBox()
         self.auto_print_barcode_check = QCheckBox()
-        self.printer_mode_badge = QLabel()
-        self.printer_mode_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;")
 
         products_layout.addWidget(form_box)
         for btn in [self.download_template_btn, self.import_excel_btn, self.print_barcode_btn, self.clear_btn, self.delete_btn, self.save_btn]:
@@ -189,7 +181,6 @@ class InventoryTab(BaseTabContainer):
         self.footer_layout.addWidget(self.import_excel_btn)
         self.footer_layout.addSpacing(12)
         self.footer_layout.addWidget(self.print_barcode_btn)
-        self.footer_layout.addWidget(self.printer_mode_badge)
         self.footer_layout.addWidget(self.auto_print_barcode_check)
         self.footer_layout.addSpacing(12)
         self.footer_layout.addWidget(self.clear_btn)
@@ -232,7 +223,6 @@ class InventoryTab(BaseTabContainer):
         self.set_page_content_widget(content)
         self.apply_language(self._language)
         self.refresh()
-        self._refresh_printer_mode_badge()
 
     def _normalize_barcode_type(self, barcode_type: str) -> str:
         normalized = barcode_type.strip().lower()
@@ -592,11 +582,6 @@ class InventoryTab(BaseTabContainer):
         preview_action = self._show_label_preview_dialog(product, label_img)
         if preview_action == "cancel":
             return
-        if preview_action == "switch_mode":
-            if not self._ensure_printer_mode_for_labels():
-                return
-        elif not self._ensure_printer_mode_for_labels():
-            return
 
         if not self._dispatch_barcode_print(product, barcode_type_value, label_img):
             QMessageBox.critical(
@@ -663,48 +648,15 @@ class InventoryTab(BaseTabContainer):
 
         buttons = QDialogButtonBox(dialog)
         print_btn = buttons.addButton("Print", QDialogButtonBox.ButtonRole.AcceptRole)
-        switch_btn = buttons.addButton("Switch Printer Mode", QDialogButtonBox.ButtonRole.ActionRole)
         cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.ButtonRole.RejectRole)
         layout.addWidget(buttons)
         dialog.exec()
         clicked = buttons.clickedButton()
         if clicked is print_btn:
             return "print"
-        if clicked is switch_btn:
-            return "switch_mode"
         if clicked is cancel_btn:
             return "cancel"
         return "cancel"
-
-
-    def _refresh_printer_mode_badge(self) -> None:
-        refresh_printer_mode_badge(self.printer_mode_badge, self._language)
-
-    def _ensure_printer_mode_for_labels(self) -> bool:
-        active_mode = load_gallery_settings().printer_mode or PRINTER_MODE_RECEIPT
-        if active_mode == PRINTER_MODE_LABEL:
-            return True
-        dialog = QMessageBox(self)
-        dialog.setIcon(QMessageBox.Icon.Warning)
-        dialog.setWindowTitle("Printer Mode")
-        dialog.setText("Printer is in Receipt Mode. Switch to Label Mode to print labels.")
-        switch_btn = dialog.addButton("Switch Mode", QMessageBox.ButtonRole.AcceptRole)
-        dialog.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-        dialog.exec()
-        if dialog.clickedButton() is not switch_btn:
-            return False
-        confirm = QMessageBox.question(
-            self,
-            t("settings.printer_mode_confirm_title", language=self._language),
-            t("settings.printer_mode_confirm_label", language=self._language),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Yes,
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return False
-        set_printer_mode(PRINTER_MODE_LABEL)
-        self._refresh_printer_mode_badge()
-        return True
 
     def _print_barcode_via_pdf_dispatch(self, label_img) -> bool:
         try:

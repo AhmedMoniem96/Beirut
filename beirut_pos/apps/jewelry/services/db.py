@@ -1638,6 +1638,7 @@ def list_materials() -> List[JewelryMaterial]:
 PURCHASE_CATEGORIES = {
     "Material Purchase",
     "Electricity Bill",
+    "Shop Bill",
     "Rent",
     "Worker Wage",
     "Packaging",

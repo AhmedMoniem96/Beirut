@@ -22,6 +22,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "tab.reports": {"en": "Reports", "ar": "التقارير"},
     "tab.settings": {"en": "Settings", "ar": "الإعدادات"},
     "tab.customers": {"en": "Customers", "ar": "العملاء"},
+    "tab.purchases": {"en": "Purchases", "ar": "المشتريات"},
     "menu.orders": {"en": "Orders", "ar": "الطلبات"},
     "menu.unpaid_orders": {"en": "Unpaid Orders", "ar": "الطلبات غير المدفوعة"},
     "unpaid_orders.title": {"en": "Unpaid Orders", "ar": "الطلبات غير المدفوعة"},

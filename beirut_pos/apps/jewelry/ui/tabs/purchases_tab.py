@@ -22,15 +22,18 @@ from PyQt6.QtWidgets import (
 )
 
 from ...services.db import (
+    add_worker,
     create_purchase,
     delete_purchase,
+    delete_worker,
     list_materials,
     list_purchases,
+    list_workers,
     update_purchase,
+    update_worker,
 )
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
-from beirut_pos.core.db import get_conn
 
 
 class PurchasesTab(BaseTabContainer):
@@ -124,6 +127,29 @@ class PurchasesTab(BaseTabContainer):
 
         self.add_content_widget(form_box)
 
+        workers_box = QGroupBox("Workers")
+        workers_layout = QGridLayout(workers_box)
+        self.worker_name_input = QLineEdit()
+        self.worker_phone_input = QLineEdit()
+        self.worker_role_input = QLineEdit()
+        self.worker_default_wage_input = QDoubleSpinBox(); self.worker_default_wage_input.setRange(0, 999999999); self.worker_default_wage_input.setDecimals(2)
+        self.worker_wage_type_input = QComboBox(); self.worker_wage_type_input.addItems(["Daily", "Weekly", "Monthly"])
+        self.worker_notes_input = QLineEdit()
+        self.worker_manage_input = QComboBox(); self.worker_manage_input.currentIndexChanged.connect(self._load_worker_form)
+        self.worker_add_btn = QPushButton("Add Worker"); self.worker_add_btn.clicked.connect(self._add_worker)
+        self.worker_save_btn = QPushButton("Update Worker"); self.worker_save_btn.clicked.connect(self._update_worker)
+        self.worker_delete_btn = QPushButton("Delete Worker"); self.worker_delete_btn.clicked.connect(self._delete_worker)
+        workers_layout.addWidget(QLabel("Worker"),0,0); workers_layout.addWidget(self.worker_manage_input,0,1,1,3)
+        workers_layout.addWidget(QLabel("Name"),1,0); workers_layout.addWidget(self.worker_name_input,1,1)
+        workers_layout.addWidget(QLabel("Phone"),1,2); workers_layout.addWidget(self.worker_phone_input,1,3)
+        workers_layout.addWidget(QLabel("Role"),2,0); workers_layout.addWidget(self.worker_role_input,2,1)
+        workers_layout.addWidget(QLabel("Default Wage"),2,2); workers_layout.addWidget(self.worker_default_wage_input,2,3)
+        workers_layout.addWidget(QLabel("Wage Type"),3,0); workers_layout.addWidget(self.worker_wage_type_input,3,1)
+        workers_layout.addWidget(QLabel("Notes"),3,2); workers_layout.addWidget(self.worker_notes_input,3,3)
+        actions = QHBoxLayout(); actions.addWidget(self.worker_add_btn); actions.addWidget(self.worker_save_btn); actions.addWidget(self.worker_delete_btn); actions.addStretch(1)
+        workers_layout.addLayout(actions,4,0,1,4)
+        self.add_content_widget(workers_box)
+
         self.add_btn = QPushButton("Add Purchase")
         self.save_btn = QPushButton("Save Purchase")
         self.delete_btn = QPushButton("Delete Purchase")
@@ -150,15 +176,16 @@ class PurchasesTab(BaseTabContainer):
         for material in self._materials:
             self.material_input.addItem(choose_name(material.name_ar, material.name_en, language=self._language), material.id)
 
-        self._workers = []
-        conn = get_conn(); cur = conn.cursor()
-        cur.execute("SELECT id, full_name FROM jw_users WHERE is_active = 1 ORDER BY full_name")
-        self._workers = [(int(r[0]), str(r[1])) for r in cur.fetchall()]
-        conn.close()
+        self._workers = [(w.id, w.name) for w in list_workers()]
         self.worker_input.clear()
         self.worker_input.addItem("", None)
+        self.worker_manage_input.blockSignals(True)
+        self.worker_manage_input.clear()
+        self.worker_manage_input.addItem("", None)
         for wid, name in self._workers:
             self.worker_input.addItem(name, wid)
+            self.worker_manage_input.addItem(name, wid)
+        self.worker_manage_input.blockSignals(False)
         self._toggle_conditional_fields()
 
     def _toggle_conditional_fields(self) -> None:
@@ -263,6 +290,42 @@ class PurchasesTab(BaseTabContainer):
         if purchase.wage_period:
             self.wage_period_input.setCurrentText(purchase.wage_period)
         self._toggle_conditional_fields()
+
+    def _selected_worker_id(self) -> int | None:
+        return self.worker_manage_input.currentData()
+
+    def _load_worker_form(self) -> None:
+        worker_id = self._selected_worker_id()
+        worker = next((w for w in list_workers() if w.id == worker_id), None)
+        if not worker:
+            self.worker_name_input.clear(); self.worker_phone_input.clear(); self.worker_role_input.clear(); self.worker_default_wage_input.setValue(0); self.worker_wage_type_input.setCurrentText("Daily"); self.worker_notes_input.clear()
+            return
+        self.worker_name_input.setText(worker.name); self.worker_phone_input.setText(worker.phone); self.worker_role_input.setText(worker.role)
+        self.worker_default_wage_input.setValue(float(worker.default_wage)); self.worker_wage_type_input.setCurrentText(worker.wage_type); self.worker_notes_input.setText(worker.notes)
+
+    def _worker_payload(self):
+        return {"name": self.worker_name_input.text().strip(), "phone": self.worker_phone_input.text().strip(), "role": self.worker_role_input.text().strip(), "default_wage": float(self.worker_default_wage_input.value()), "wage_type": self.worker_wage_type_input.currentText(), "notes": self.worker_notes_input.text().strip()}
+
+    def _add_worker(self) -> None:
+        try:
+            add_worker(**self._worker_payload()); self._reload_dropdowns(); self.worker_manage_input.setCurrentIndex(0)
+        except Exception as exc:
+            QMessageBox.warning(self, "Error", str(exc))
+
+    def _update_worker(self) -> None:
+        worker_id = self._selected_worker_id()
+        if not worker_id:
+            return
+        try:
+            update_worker(worker_id, **self._worker_payload()); self._reload_dropdowns()
+        except Exception as exc:
+            QMessageBox.warning(self, "Error", str(exc))
+
+    def _delete_worker(self) -> None:
+        worker_id = self._selected_worker_id()
+        if not worker_id:
+            return
+        delete_worker(worker_id); self._reload_dropdowns()
 
     def apply_language(self, language: str) -> None:
         self._language = language

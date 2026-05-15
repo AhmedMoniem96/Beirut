@@ -153,6 +153,19 @@ class JewelryPurchase:
     created_at: str
 
 
+
+
+@dataclass
+class JewelryWorker:
+    id: int
+    name: str
+    phone: str
+    role: str
+    default_wage: float
+    wage_type: str
+    notes: str
+    active: bool
+
 @dataclass
 class JewelryPaymentRow:
     id: int
@@ -541,6 +554,24 @@ def init_jewelry_db() -> None:
     _ensure_column(cur, "jw_purchases", "worker_id", "INTEGER")
     _ensure_column(cur, "jw_purchases", "wage_period", "TEXT")
     _ensure_column(cur, "jw_purchases", "created_at", "TEXT")
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS jw_workers(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL DEFAULT '',
+            default_wage REAL NOT NULL DEFAULT 0,
+            wage_type TEXT NOT NULL DEFAULT 'Daily',
+            notes TEXT NOT NULL DEFAULT '',
+            active INTEGER NOT NULL DEFAULT 1
+        )"""
+    )
+    _ensure_column(cur, "jw_workers", "phone", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(cur, "jw_workers", "role", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(cur, "jw_workers", "default_wage", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_workers", "wage_type", "TEXT NOT NULL DEFAULT 'Daily'")
+    _ensure_column(cur, "jw_workers", "notes", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(cur, "jw_workers", "active", "INTEGER NOT NULL DEFAULT 1")
     cur.execute(
         """UPDATE jw_invoices
            SET paid_total = COALESCE(paid_total, 0),
@@ -1635,6 +1666,68 @@ def list_materials() -> List[JewelryMaterial]:
     ]
 
 
+WORKER_WAGE_TYPES = {"Daily", "Weekly", "Monthly"}
+
+
+def add_worker(*, name: str, phone: str = "", role: str = "", default_wage: float = 0, wage_type: str = "Daily", notes: str = "") -> int:
+    name_value = (name or "").strip()
+    if not name_value:
+        raise ValueError("worker name is required")
+    wage_type_value = (wage_type or "").strip().title()
+    if wage_type_value not in WORKER_WAGE_TYPES:
+        raise ValueError("invalid wage type")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO jw_workers(name, phone, role, default_wage, wage_type, notes, active)
+           VALUES (?, ?, ?, ?, ?, ?, 1)""",
+        (name_value, (phone or "").strip(), (role or "").strip(), float(default_wage or 0), wage_type_value, (notes or "").strip()),
+    )
+    worker_id = int(cur.lastrowid)
+    conn.commit(); conn.close()
+    return worker_id
+
+
+def update_worker(worker_id: int, **fields: object) -> None:
+    existing = next((w for w in list_workers(include_inactive=True) if w.id == int(worker_id)), None)
+    if not existing:
+        raise ValueError("worker not found")
+    name_value = str(fields.get("name", existing.name) or "").strip()
+    if not name_value:
+        raise ValueError("worker name is required")
+    wage_type_value = str(fields.get("wage_type", existing.wage_type) or "").strip().title()
+    if wage_type_value not in WORKER_WAGE_TYPES:
+        raise ValueError("invalid wage type")
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(
+        """UPDATE jw_workers
+           SET name=?, phone=?, role=?, default_wage=?, wage_type=?, notes=?, active=?
+           WHERE id=?""",
+        (name_value, str(fields.get("phone", existing.phone) or "").strip(), str(fields.get("role", existing.role) or "").strip(),
+         float(fields.get("default_wage", existing.default_wage) or 0), wage_type_value,
+         str(fields.get("notes", existing.notes) or "").strip(), int(bool(fields.get("active", existing.active))), int(worker_id)),
+    )
+    conn.commit(); conn.close()
+
+
+def delete_worker(worker_id: int) -> None:
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("UPDATE jw_workers SET active = 0 WHERE id = ?", (int(worker_id),))
+    conn.commit(); conn.close()
+
+
+def list_workers(*, include_inactive: bool = False) -> List[JewelryWorker]:
+    conn = get_conn(); cur = conn.cursor()
+    where = "" if include_inactive else "WHERE active = 1"
+    cur.execute(
+        f"""SELECT id, name, phone, role, default_wage, wage_type, notes, active
+            FROM jw_workers {where}
+            ORDER BY name COLLATE NOCASE, id DESC"""
+    )
+    rows = cur.fetchall(); conn.close()
+    return [JewelryWorker(id=int(r[0]), name=str(r[1] or ""), phone=str(r[2] or ""), role=str(r[3] or ""), default_wage=float(r[4] or 0), wage_type=str(r[5] or "Daily"), notes=str(r[6] or ""), active=bool(r[7])) for r in rows]
+
+
 PURCHASE_CATEGORIES = {
     "Material Purchase",
     "Electricity Bill",
@@ -1675,6 +1768,9 @@ def create_purchase(
     wage_period: str = "",
 ) -> int:
     date_value, category_value, amount_value = _validate_purchase_fields(date=date, category=category, amount=amount)
+    if category_value == "Worker Wage" and worker_id:
+        if not any(w.id == int(worker_id) for w in list_workers()):
+            raise ValueError("worker not found")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(

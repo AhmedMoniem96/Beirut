@@ -570,9 +570,6 @@ class InventoryTab(BaseTabContainer):
         product = next((p for p in self._products if p.id == self._selected_product_id), None)
         if not product:
             return
-        if not product.barcode:
-            QMessageBox.warning(self, t("common.select", language=self._language), t("inventory.barcode_missing", language=self._language))
-            return
         barcode_type_value = self._validated_barcode_type(product.barcode_type)
         if barcode_type_value is None:
             return
@@ -623,8 +620,8 @@ class InventoryTab(BaseTabContainer):
         return render_barcode_label_image(
             product_name=choose_name(product.name_ar, product.name_en, language=self._language),
             sku=product.sku,
-            barcode_value=product.barcode,
-            barcode_type=barcode_type_value,
+            barcode_value=product.barcode or product.sku,
+            barcode_type="code128",
         )
 
     def _show_label_preview_dialog(self, product, label_img) -> str:

@@ -70,12 +70,7 @@ from ...services.db import (
 from ...services.pdf_exports import GalleryInfo, export_invoice_pdf
 from ...services.receipt import build_receipt_text
 from ...services.session import get_current_user
-from ...services.settings import (
-    PRINTER_MODE_LABEL,
-    PRINTER_MODE_RECEIPT,
-    load_gallery_settings,
-    set_printer_mode,
-)
+from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
 from ...services.loyalty import currency_to_points, points_to_currency
 from beirut_pos.services.printer import printer
@@ -83,7 +78,6 @@ from ..date_utils import to_iso_date
 from ..theme import JEWELRY_CONTROLS, JEWELRY_SPACING, JEWELRY_TABLE, JEWELRY_TYPOGRAPHY
 from ..dialogs.quick_customer_dialog import QuickCustomerDialog
 from .base_tab import BaseTabContainer
-from .printer_mode_badge import refresh_printer_mode_badge
 
 logger = logging.getLogger(__name__)
 
@@ -250,10 +244,6 @@ class InvoiceTab(BaseTabContainer):
         self.invoice_info_label = QLabel()
         self.order_source_info_label = QLabel()
         self.order_source_info_label.setStyleSheet("font-size: 11px; color: #666;")
-        self.printer_mode_badge = QLabel()
-        self.printer_mode_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;")
-        header_row.addWidget(self.printer_mode_badge)
-        self._refresh_printer_mode_badge()
 
         form_box = QGroupBox()
         self.form_box = form_box
@@ -833,7 +823,6 @@ class InvoiceTab(BaseTabContainer):
         self._refresh_printer_status_badge()
         self._refresh_recently_sold()
         self.apply_language(self._language)
-        self._refresh_printer_mode_badge()
 
     def _initialize_cashier(self) -> None:
         user = get_current_user()
@@ -2120,8 +2109,6 @@ class InvoiceTab(BaseTabContainer):
                 t("invoice.export_first", language=self._language),
             )
             return
-        if not self._ensure_printer_mode_for_receipt():
-            return
         invoice, items = fetch_invoice_details(self._last_invoice_no)
         try:
             if self.print_mode_combo.currentData() == "direct":
@@ -2204,31 +2191,6 @@ class InvoiceTab(BaseTabContainer):
             QMessageBox.critical(self, t("common.print", language=self._language), f"فشلت الطباعة: {exc}")
         self._refresh_printer_status_badge()
 
-    def _ensure_printer_mode_for_receipt(self) -> bool:
-        active_mode = load_gallery_settings().printer_mode or PRINTER_MODE_RECEIPT
-        if active_mode == PRINTER_MODE_RECEIPT:
-            return True
-        dialog = QMessageBox(self)
-        dialog.setIcon(QMessageBox.Icon.Warning)
-        dialog.setWindowTitle("Printer Mode")
-        dialog.setText("Printer is in Label Mode. Switch to Receipt Mode to print receipts.")
-        switch_btn = dialog.addButton("Switch Mode", QMessageBox.ButtonRole.AcceptRole)
-        dialog.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-        dialog.exec()
-        if dialog.clickedButton() is not switch_btn:
-            return False
-        confirm = QMessageBox.question(
-            self,
-            t("settings.printer_mode_confirm_title", language=self._language),
-            t("settings.printer_mode_confirm_receipt", language=self._language),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Yes,
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return False
-        set_printer_mode(PRINTER_MODE_RECEIPT)
-        self._refresh_printer_mode_badge()
-        return True
 
     def _dispatch_pdf_to_printer(self, pdf_path: Path) -> bool:
         system_name = platform.system().lower()
@@ -2261,10 +2223,6 @@ class InvoiceTab(BaseTabContainer):
         except Exception:
             logger.exception("Failed to dispatch PDF to system printer")
             return False
-
-
-    def _refresh_printer_mode_badge(self) -> None:
-        refresh_printer_mode_badge(self.printer_mode_badge, self._language)
 
 
     def _refresh_printer_status_badge(self) -> None:

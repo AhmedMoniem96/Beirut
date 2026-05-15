@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...services.db import add_payment_method
-from ...services.settings import GallerySettings, load_gallery_settings, save_gallery_settings, normalize_scanner_payload, PRINTER_MODE_RECEIPT, PRINTER_MODE_LABEL
+from ...services.settings import GallerySettings, load_gallery_settings, save_gallery_settings, normalize_scanner_payload
 from ...services.demo_seed import seed_demo_data
 from ...services.i18n import get_ui_language, set_ui_language, t
 from ...services import device_health
@@ -30,7 +30,6 @@ from ..dialogs.delivery_companies_dialog import DeliveryCompaniesDialog
 from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
 from ..dialogs.statuses_dialog import StatusesDialog
 from .base_tab import BaseTabContainer
-from .printer_mode_badge import refresh_printer_mode_badge
 from beirut_pos.services import printer as printer_service
 
 
@@ -128,17 +127,12 @@ class SettingsTab(BaseTabContainer):
         self.receipt_printer.addItem("", "auto")
         for name in windows_printers:
             self.receipt_printer.addItem(name, name)
-        self.printer_mode = QComboBox()
-        self.printer_mode.addItem("", PRINTER_MODE_RECEIPT)
-        self.printer_mode.addItem("", PRINTER_MODE_LABEL)
 
         self.printer_mode_label = QLabel()
         self.printer_label = QLabel()
         self.receipt_mode_label = QLabel()
         self.receipt_printer_label = QLabel()
         self.active_printer_mode_label = QLabel()
-        self.current_printer_mode_badge = QLabel()
-        self.current_printer_mode_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; border-radius: 8px; padding: 2px 8px;")
         self.invoice_auto_print_after_save_check = QCheckBox()
         self.invoice_print_preview_check = QCheckBox()
 
@@ -154,10 +148,12 @@ class SettingsTab(BaseTabContainer):
         self.barcode_label_height = QLineEdit("25")
         self.barcode_offset_x = QLineEdit("0")
         self.barcode_offset_y = QLineEdit("0")
-        self.print_test_label_btn = QPushButton("Print Test Label")
+        self.print_test_label_btn = QPushButton("Print Test Barcode Label")
+        self.print_test_receipt_btn = QPushButton("Print Test Receipt")
         self.receipt_paper_preset.setReadOnly(True)
         self.qr_label_preset.setReadOnly(True)
         self.print_test_label_btn.clicked.connect(self._print_test_label)
+        self.print_test_receipt_btn.clicked.connect(self._print_test_receipt)
         self.printer_vendor_label = QLabel("Vendor ID")
         self.printer_product_label = QLabel("Product ID")
         self.printer_interface_label = QLabel("USB Interface")
@@ -170,14 +166,13 @@ class SettingsTab(BaseTabContainer):
         printer_layout.addRow(self.printer_label, self.barcode_printer)
         printer_layout.addRow(self.receipt_mode_label, self.receipt_mode)
         printer_layout.addRow(self.receipt_printer_label, self.receipt_printer)
-        printer_layout.addRow(self.active_printer_mode_label, self.printer_mode)
-        printer_layout.addRow("", self.current_printer_mode_badge)
         printer_layout.addRow(self.receipt_paper_preset_label, self.receipt_paper_preset)
         printer_layout.addRow(self.qr_label_preset_label, self.qr_label_preset)
         printer_layout.addRow("Label Width (mm)", self.barcode_label_width)
         printer_layout.addRow("Label Height (mm)", self.barcode_label_height)
         printer_layout.addRow("Horizontal Offset (px)", self.barcode_offset_x)
         printer_layout.addRow("Vertical Offset (px)", self.barcode_offset_y)
+        printer_layout.addRow("", self.print_test_receipt_btn)
         printer_layout.addRow("", self.print_test_label_btn)
         printer_layout.addRow("", self.invoice_auto_print_after_save_check)
         printer_layout.addRow("", self.invoice_print_preview_check)
@@ -262,8 +257,6 @@ class SettingsTab(BaseTabContainer):
         self._load_settings()
         self.apply_language(self._language)
         self._apply_rtl_layout()
-        self.printer_mode.currentIndexChanged.connect(self._refresh_printer_mode_badge)
-        self._refresh_printer_mode_badge()
 
     def apply_rtl_layout(self, rtl_enabled: bool) -> None:
         for form_layout in self._form_layouts:
@@ -290,7 +283,6 @@ class SettingsTab(BaseTabContainer):
         self._set_combo_value(self.barcode_printer, settings.barcode_printer_name)
         self._set_combo_value(self.receipt_mode, settings.receipt_print_mode or "auto")
         self._set_combo_value(self.receipt_printer, settings.receipt_printer_name)
-        self._set_combo_value(self.printer_mode, settings.printer_mode or PRINTER_MODE_RECEIPT)
         self.website_name_input.setText(settings.website_name)
         self.website_url_input.setText(settings.website_url)
         self.website_orders_check.setChecked(settings.website_orders_enabled)
@@ -310,9 +302,6 @@ class SettingsTab(BaseTabContainer):
         self._refresh_device_status()
 
     def _save_settings(self) -> None:
-        next_printer_mode = self.printer_mode.currentData() or PRINTER_MODE_RECEIPT
-        if not self._confirm_printer_mode_change(next_printer_mode):
-            return
         settings = GallerySettings(
             name_en=self.name_en_input.text().strip(),
             name_ar=self.name_ar_input.text().strip(),
@@ -336,14 +325,13 @@ class SettingsTab(BaseTabContainer):
             printer_backend_priority=self.printer_backend_priority.text().strip() or "raw-usb-escpos,escpos-usb,file,windows",
             invoice_auto_print_after_save=self.invoice_auto_print_after_save_check.isChecked(),
             invoice_print_preview=self.invoice_print_preview_check.isChecked(),
-            printer_mode=next_printer_mode,
+            printer_mode=settings.printer_mode,
             barcode_label_width_mm=float(self.barcode_label_width.text().strip() or 38),
             barcode_label_height_mm=float(self.barcode_label_height.text().strip() or 25),
             barcode_horizontal_offset_px=int(self.barcode_offset_x.text().strip() or 0),
             barcode_vertical_offset_px=int(self.barcode_offset_y.text().strip() or 0),
         )
         save_gallery_settings(settings)
-        self._refresh_printer_mode_badge()
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),
@@ -351,9 +339,6 @@ class SettingsTab(BaseTabContainer):
         )
         if self._on_settings_changed:
             self._on_settings_changed()
-
-    def _refresh_printer_mode_badge(self) -> None:
-        refresh_printer_mode_badge(self.current_printer_mode_badge, self._language)
 
     def _add_payment_method(self) -> None:
         name_ar = self.payment_ar_input.text().strip()
@@ -450,7 +435,6 @@ class SettingsTab(BaseTabContainer):
         self.printer_label.setText(t("settings.printer", language=language))
         self.receipt_mode_label.setText(t("settings.receipt_mode", language=language))
         self.receipt_printer_label.setText(t("settings.receipt_printer", language=language))
-        self.active_printer_mode_label.setText(t("settings.printer_mode", language=language))
         self.receipt_paper_preset_label.setText("ورق الإيصال" if language == "ar" else "Receipt paper")
         self.qr_label_preset_label.setText("مقاس ملصق QR" if language == "ar" else "QR label size")
         self.receipt_paper_preset.setText("80mm (افتراضي)" if language == "ar" else "80mm (default)")
@@ -461,8 +445,8 @@ class SettingsTab(BaseTabContainer):
         self.receipt_mode.setItemText(0, t("settings.receipt_mode_auto", language=language))
         self.receipt_mode.setItemText(1, t("settings.receipt_mode_windows", language=language))
         self.receipt_printer.setItemText(0, t("settings.printer_auto", language=language))
-        self.printer_mode.setItemText(0, t("settings.printer_mode_receipt", language=language))
-        self.printer_mode.setItemText(1, t("settings.printer_mode_label", language=language))
+        self.print_test_receipt_btn.setText("طباعة إيصال تجريبي" if language == "ar" else "Print Test Receipt")
+        self.print_test_label_btn.setText("طباعة ملصق باركود تجريبي" if language == "ar" else "Print Test Barcode Label")
         self.invoice_auto_print_after_save_check.setText("طباعة تلقائية بعد الحفظ" if language == "ar" else "Auto print after save")
         self.invoice_print_preview_check.setText("معاينة سريعة قبل الطباعة" if language == "ar" else "Quick preview before print")
         self.save_btn.setText(t("settings.save", language=language))
@@ -549,7 +533,7 @@ class SettingsTab(BaseTabContainer):
                 printer_backend_priority=self.printer_backend_priority.text().strip() or "raw-usb-escpos,escpos-usb,file,windows",
                 invoice_auto_print_after_save=self.invoice_auto_print_after_save_check.isChecked(),
                 invoice_print_preview=self.invoice_print_preview_check.isChecked(),
-                printer_mode=self.printer_mode.currentData() or PRINTER_MODE_RECEIPT,
+                printer_mode=load_gallery_settings().printer_mode,
                 barcode_label_width_mm=float(self.barcode_label_width.text().strip() or 38),
                 barcode_label_height_mm=float(self.barcode_label_height.text().strip() or 25),
                 barcode_horizontal_offset_px=int(self.barcode_offset_x.text().strip() or 0),
@@ -560,6 +544,21 @@ class SettingsTab(BaseTabContainer):
             QMessageBox.information(self, "Barcode Calibration", "Test label sent to printer.")
         except Exception as exc:
             QMessageBox.warning(self, "Barcode Calibration", f"Failed to print test label: {exc}")
+
+    def _print_test_receipt(self) -> None:
+        receipt_printer = self.receipt_printer.currentData() or "auto"
+        receipt_mode = self.receipt_mode.currentData() or "auto"
+        try:
+            did_print = printer_service.printer.print_text_receipt(
+                ["*** TEST RECEIPT ***", "Jewelry POS", "Thank you"],
+                printer_name=receipt_printer,
+                print_mode=receipt_mode,
+            )
+            if did_print is False:
+                raise RuntimeError(f"Printer unavailable/offline ({receipt_printer})")
+            QMessageBox.information(self, "Receipt Test", "Test receipt sent to receipt printer.")
+        except Exception as exc:
+            QMessageBox.warning(self, "Receipt Test", f"Failed to print test receipt: {exc}")
 
     def _open_loyalty_settings(self) -> None:
         dialog = LoyaltySettingsDialog(self)
@@ -579,17 +578,3 @@ class SettingsTab(BaseTabContainer):
             if combo.itemData(idx) == value or combo.itemText(idx) == value:
                 combo.setCurrentIndex(idx)
                 return
-
-    def _confirm_printer_mode_change(self, next_mode: str) -> bool:
-        current_mode = load_gallery_settings().printer_mode or PRINTER_MODE_RECEIPT
-        if next_mode == current_mode:
-            return True
-        key = "settings.printer_mode_confirm_label" if next_mode == PRINTER_MODE_LABEL else "settings.printer_mode_confirm_receipt"
-        result = QMessageBox.question(
-            self,
-            t("settings.printer_mode_confirm_title", language=self._language),
-            t(key, language=self._language),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Yes,
-        )
-        return result == QMessageBox.StandardButton.Yes

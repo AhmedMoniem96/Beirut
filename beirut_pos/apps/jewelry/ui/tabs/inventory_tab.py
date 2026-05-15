@@ -592,7 +592,14 @@ class InventoryTab(BaseTabContainer):
             return None
 
     def _show_label_preview_dialog(self, product, label_img) -> str:
-        dialog = QDialog(self)
+        class _LabelPreviewDialog(QDialog):
+            def keyPressEvent(self, event) -> None:  # type: ignore[override]
+                if event.key() == Qt.Key.Key_Escape:
+                    self.reject()
+                    return
+                super().keyPressEvent(event)
+
+        dialog = _LabelPreviewDialog(self)
         dialog.setWindowTitle("Label Preview")
         layout = QVBoxLayout(dialog)
         name = self._barcode_label_product_name(product) or "-"
@@ -613,13 +620,12 @@ class InventoryTab(BaseTabContainer):
         buttons = QDialogButtonBox(dialog)
         print_btn = buttons.addButton("Print", QDialogButtonBox.ButtonRole.AcceptRole)
         cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.ButtonRole.RejectRole)
+        print_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
         layout.addWidget(buttons)
-        dialog.exec()
-        clicked = buttons.clickedButton()
-        if clicked is print_btn:
+        result = dialog.exec()
+        if result == QDialog.DialogCode.Accepted:
             return "print"
-        if clicked is cancel_btn:
-            return "cancel"
         return "cancel"
 
     @staticmethod

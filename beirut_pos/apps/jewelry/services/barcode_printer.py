@@ -229,15 +229,26 @@ def _arabic_capable_font(size: int) -> ImageFont.ImageFont:
     raise BarcodeRenderError("No Arabic-capable font found for barcode label rendering")
 
 
-def _shape_arabic_for_label(text: str) -> str:
-    if not text:
-        return text
-    if not any("\u0600" <= ch <= "\u06FF" for ch in text):
-        return text
-    if arabic_reshaper is None or bidi_get_display is None:
-        return text
-    reshaped = arabic_reshaper.reshape(text)
-    return bidi_get_display(reshaped)
+def render_direct_arabic_experiment_png() -> Path:
+    raw = "أقراط لؤلؤ"
+    reshaped = arabic_reshaper.reshape(raw)
+    bidi_shaped = bidi_get_display(reshaped)
+
+    width = LABEL_WIDTH_PX
+    font = _arabic_capable_font(size=18)
+    canvas = Image.new("1", (width, LABEL_HEIGHT_PX), 1)
+    draw = ImageDraw.Draw(canvas)
+    y = 2
+    for line in (raw, reshaped, bidi_shaped):
+        bbox = font.getbbox(line)
+        line_w = max(1, bbox[2] - bbox[0])
+        x = max((width - line_w) // 2, LABEL_MARGIN_PX)
+        draw.text((x, y - bbox[1]), line, font=font, fill=0)
+        y += max(1, (bbox[3] - bbox[1])) + 2
+
+    out_path = Path("tmp_arabic_test.png")
+    canvas.save(out_path)
+    return out_path
 
 
 def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min_font_size: int) -> Image.Image:
@@ -257,7 +268,7 @@ def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min
     draw = ImageDraw.Draw(canvas)
     x = max((width - line_w) // 2, LABEL_MARGIN_PX)
     y = 2 - bbox[1]
-    shaped_text = _shape_arabic_for_label(fitted_text)
+    shaped_text = fitted_text
     print(
         "[DEBUG][barcode_printer] text shaping:",
         {

@@ -167,6 +167,15 @@ class ReportsTab(BaseTabContainer):
         self.date_to_filter.setDisplayFormat("dd/MM/yyyy")
         self.date_to_filter.setDate(QDate.currentDate())
         self.date_to_filter.dateChanged.connect(lambda *_: self._generate_report())
+        self.expense_category_filter = QComboBox()
+        self.expense_category_filter.addItem("All", "")
+        for category in ["Material Purchase", "Electricity Bill", "Shop Bill", "Worker Wage", "Rent", "Packaging", "Maintenance", "Other"]:
+            self.expense_category_filter.addItem(category, category)
+        self.expense_vendor_worker_filter = QLineEdit()
+        self.expense_payment_filter = QLineEdit()
+        self.expense_category_filter.currentIndexChanged.connect(self._generate_report)
+        self.expense_vendor_worker_filter.textChanged.connect(self._generate_report)
+        self.expense_payment_filter.textChanged.connect(self._generate_report)
         self.date_label = QLabel()
         self.product_filter_label = QLabel()
         self.summary_filter_row = self._build_filters_row(include_product=True)
@@ -231,6 +240,10 @@ class ReportsTab(BaseTabContainer):
         self.low_table = QTableWidget(0, 4)
         self.customer_table = QTableWidget(0, 5)
         self.stock_table = QTableWidget(0, 5)
+        self.expense_category_table = QTableWidget(0, 3)
+        self.expenses_list_table = QTableWidget(0, 6)
+        self.material_purchases_table = QTableWidget(0, 4)
+        self.worker_wages_table = QTableWidget(0, 3)
         for table in [
             self.payment_table,
             self.returns_table,
@@ -238,6 +251,10 @@ class ReportsTab(BaseTabContainer):
             self.low_table,
             self.customer_table,
             self.stock_table,
+            self.expense_category_table,
+            self.expenses_list_table,
+            self.material_purchases_table,
+            self.worker_wages_table,
         ]:
             table.setAlternatingRowColors(True)
             table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -265,6 +282,7 @@ class ReportsTab(BaseTabContainer):
         self.tabs.addTab(self._build_customers_tab(), "")
         self.tabs.addTab(self._build_returns_tab(), "")
         self.tabs.addTab(self._build_stock_tab(), "")
+        self.tabs.addTab(self._build_expenses_tab(), "")
         layout.addWidget(self.tabs)
 
         self.set_page_content_widget(content)
@@ -363,6 +381,35 @@ class ReportsTab(BaseTabContainer):
         vbox.addWidget(self.stock_table, 1)
         return tab
 
+    def _build_expenses_tab(self) -> QWidget:
+        tab = QWidget()
+        vbox = QVBoxLayout(tab)
+        filters = QHBoxLayout()
+        filters.addWidget(QLabel("From Date:")); filters.addWidget(self.date_from_filter)
+        filters.addWidget(QLabel("To Date:")); filters.addWidget(self.date_to_filter)
+        filters.addWidget(QLabel("Category:")); filters.addWidget(self.expense_category_filter)
+        filters.addWidget(QLabel("Vendor/Worker:")); filters.addWidget(self.expense_vendor_worker_filter)
+        filters.addWidget(QLabel("Payment Method:")); filters.addWidget(self.expense_payment_filter)
+        vbox.addLayout(filters)
+
+        self.total_revenue_kpi = QLabel()
+        self.total_expenses_kpi = QLabel()
+        self.net_profit_kpi = QLabel()
+        self.material_purchases_kpi = QLabel()
+        self.bills_kpi = QLabel()
+        self.worker_wages_kpi = QLabel()
+        kpi = QGridLayout()
+        for i,w in enumerate([self.total_revenue_kpi,self.total_expenses_kpi,self.net_profit_kpi,self.material_purchases_kpi,self.bills_kpi,self.worker_wages_kpi]):
+            w.setStyleSheet("padding: 8px; border: 1px solid #d9d9d9; border-radius: 6px;")
+            kpi.addWidget(w, i//3, i%3)
+        vbox.addLayout(kpi)
+
+        vbox.addWidget(QLabel("Expenses by Category")); vbox.addWidget(self.expense_category_table,1)
+        vbox.addWidget(QLabel("Purchases list")); vbox.addWidget(self.expenses_list_table,1)
+        vbox.addWidget(QLabel("Material Purchases")); vbox.addWidget(self.material_purchases_table,1)
+        vbox.addWidget(QLabel("Worker Wages")); vbox.addWidget(self.worker_wages_table,1)
+        return tab
+
     def _normalize_return_reason(self, reason: str) -> str:
         normalized_tokens = ("exchange", "replacement", "استبدال", "البديل")
         if any(token in reason.lower() for token in normalized_tokens):
@@ -417,6 +464,10 @@ class ReportsTab(BaseTabContainer):
                 t("reports.status", language=language),
             ]
         )
+        self.expense_category_table.setHorizontalHeaderLabels(["Category", "Count", "Total Amount"])
+        self.expenses_list_table.setHorizontalHeaderLabels(["Date", "Category", "Vendor/Worker", "Description", "Amount", "Payment Method"])
+        self.material_purchases_table.setHorizontalHeaderLabels(["Material", "Qty Purchased", "Total Cost", "Average Unit Cost"])
+        self.worker_wages_table.setHorizontalHeaderLabels(["Worker", "Period", "Total Paid"])
         self.export_pdf_btn.setText(t("reports.export_pdf", language=language))
         self.export_excel_btn.setText(t("reports.export_excel", language=language))
         self.payment_breakdown_label.setText(t("reports.payment_breakdown", language=language))
@@ -427,7 +478,9 @@ class ReportsTab(BaseTabContainer):
         self.tabs.setTabText(0, t("reports.summary_tab", language=language) if t("reports.summary_tab", language=language) != "reports.summary_tab" else "Summary")
         self.tabs.setTabText(1, t("reports.returns_tab", language=language) if t("reports.returns_tab", language=language) != "reports.returns_tab" else "Returns")
         self.tabs.setTabText(2, t("reports.products_tab", language=language) if t("reports.products_tab", language=language) != "reports.products_tab" else "Products")
-        self.tabs.setTabText(3, t("reports.stock_tab", language=language) if t("reports.stock_tab", language=language) != "reports.stock_tab" else "Stock")
+        self.tabs.setTabText(3, t("reports.returns_tab", language=language) if t("reports.returns_tab", language=language) != "reports.returns_tab" else "Returns")
+        self.tabs.setTabText(4, t("reports.stock_tab", language=language) if t("reports.stock_tab", language=language) != "reports.stock_tab" else "Stock")
+        self.tabs.setTabText(5, "Expenses / Purchases")
 
     def _load_shift_from_db(self) -> None:
         date_iso = self.date_filter.date().toString("yyyy-MM-dd")
@@ -534,6 +587,28 @@ class ReportsTab(BaseTabContainer):
         self.total_returns_kpi.setText(f"Total Returns\n{returns.return_total:.2f}")
         self.net_revenue_kpi.setText(f"Net Revenue\n{sales.net_sales - returns.return_total:.2f}")
         self.orders_count_kpi.setText(f"Orders Count\n{sales.invoice_count}")
+
+        expense_data = expense_report_data(
+            start_iso,
+            end_iso,
+            category=self.expense_category_filter.currentData() or None,
+            vendor_worker_term=self.expense_vendor_worker_filter.text(),
+            payment_method=self.expense_payment_filter.text().strip() or None,
+        )
+        self._populate_table(self.expense_category_table, [(r.category, str(r.count), f"{r.total_amount:.2f}") for r in expense_data["by_category"]])
+        self._populate_table(self.expenses_list_table, [(r.date, r.category, r.vendor_or_worker, r.description, f"{r.amount:.2f}", r.payment_method) for r in expense_data["purchases"]])
+        self._populate_table(self.material_purchases_table, [(r.material, f"{r.qty_purchased:.2f}", f"{r.total_cost:.2f}", f"{r.avg_unit_cost:.2f}") for r in expense_data["material_purchases"]])
+        self._populate_table(self.worker_wages_table, [(r.worker, r.period, f"{r.total_paid:.2f}") for r in expense_data["worker_wages"]])
+
+        revenue = sales.net_sales - returns.return_total
+        expenses = expense_data["total_expenses"]
+        net_profit = revenue - expenses
+        self.total_revenue_kpi.setText(f"Total Revenue\n{revenue:.2f}")
+        self.total_expenses_kpi.setText(f"Total Purchases/Expenses\n{expenses:.2f}")
+        self.net_profit_kpi.setText(f"Net Profit\n{net_profit:.2f}")
+        self.material_purchases_kpi.setText(f"Material Purchases\n{expense_data['material_expenses']:.2f}")
+        self.bills_kpi.setText(f"Bills\n{expense_data['bills_expenses']:.2f}")
+        self.worker_wages_kpi.setText(f"Worker Wages\n{expense_data['wages_expenses']:.2f}")
 
         self._last_report = ReportData(
             report_date=date_iso,

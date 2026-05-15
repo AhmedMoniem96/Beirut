@@ -628,8 +628,36 @@ class InventoryTab(BaseTabContainer):
         layout.addWidget(preview)
 
         buttons = QDialogButtonBox(dialog)
+        test_btn = buttons.addButton("Arabic Mode Test", QDialogButtonBox.ButtonRole.ActionRole)
         print_btn = buttons.addButton("Print", QDialogButtonBox.ButtonRole.AcceptRole)
         cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.ButtonRole.RejectRole)
+
+        def _show_arabic_mode_test() -> None:
+            try:
+                from ...services.barcode_printer import render_arabic_mode_test_label
+                test_img = render_arabic_mode_test_label(sample_text=str(getattr(product, "name_ar", "") or name), sku=str(product.sku or product.barcode or ""))
+            except Exception as exc:
+                QMessageBox.critical(dialog, "Arabic Mode Test", f"Failed to render test label: {exc}")
+                return
+            test_dialog = QDialog(dialog)
+            test_dialog.setWindowTitle("Arabic Mode Test Preview")
+            test_layout = QVBoxLayout(test_dialog)
+            test_layout.addWidget(QLabel("RAW / RESHAPE / BIDI / REVERSE_BIDI / REVERSE_RAW"))
+            test_preview = QLabel()
+            test_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            data = BytesIO()
+            test_img.convert("L").save(data, format="PNG")
+            test_pix = QPixmap()
+            test_pix.loadFromData(data.getvalue(), "PNG")
+            test_preview.setPixmap(test_pix.scaled(520, 340, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            test_layout.addWidget(test_preview)
+            close_buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            close_buttons.rejected.connect(test_dialog.reject)
+            close_buttons.accepted.connect(test_dialog.accept)
+            test_layout.addWidget(close_buttons)
+            test_dialog.exec()
+
+        test_btn.clicked.connect(_show_arabic_mode_test)
         print_btn.clicked.connect(dialog.accept)
         cancel_btn.clicked.connect(dialog.reject)
         layout.addWidget(buttons)

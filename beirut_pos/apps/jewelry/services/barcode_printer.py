@@ -258,6 +258,15 @@ def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min
     x = max((width - line_w) // 2, LABEL_MARGIN_PX)
     y = 2 - bbox[1]
     shaped_text = _shape_arabic_for_label(fitted_text)
+    print(
+        "[DEBUG][barcode_printer] text shaping:",
+        {
+            "raw_text_repr": repr(fitted_text),
+            "raw_text_codepoints": [f'U+{ord(ch):04X}' for ch in fitted_text],
+            "shaped_text_repr": repr(shaped_text),
+            "shaped_text_codepoints": [f'U+{ord(ch):04X}' for ch in shaped_text],
+        },
+    )
     logger.info(
         "barcode.label.text_pipeline",
         extra={

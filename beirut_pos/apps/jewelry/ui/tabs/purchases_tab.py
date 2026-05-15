@@ -76,6 +76,8 @@ class PurchasesTab(BaseTabContainer):
         self.date_input.setDate(date.today())
         self.category_input = QComboBox()
         self.category_input.addItems(self.CATEGORIES)
+        for i, value in enumerate(self.CATEGORIES):
+            self.category_input.setItemData(i, value)
         self.category_input.currentTextChanged.connect(self._toggle_conditional_fields)
         self.vendor_input = QLineEdit()
         self.amount_input = QDoubleSpinBox()
@@ -94,6 +96,8 @@ class PurchasesTab(BaseTabContainer):
         self.worker_input = QComboBox()
         self.wage_period_input = QComboBox()
         self.wage_period_input.addItems(["Daily", "Weekly", "Monthly", "Custom"])
+        for i, value in enumerate(["Daily", "Weekly", "Monthly", "Custom"]):
+            self.wage_period_input.setItemData(i, value)
 
         labels = [QLabel() for _ in range(12)]
         (
@@ -189,8 +193,8 @@ class PurchasesTab(BaseTabContainer):
         self._toggle_conditional_fields()
 
     def _toggle_conditional_fields(self) -> None:
-        is_material = self.category_input.currentText() == "Material Purchase"
-        is_wage = self.category_input.currentText() == "Worker Wage"
+        is_material = self.category_input.currentData() == "Material Purchase"
+        is_wage = self.category_input.currentData() == "Worker Wage"
         for w in [self.material_label, self.material_input, self.material_qty_label, self.material_qty_input, self.stock_label, self.add_stock_check]:
             w.setVisible(is_material)
         for w in [self.worker_label, self.worker_input, self.wage_period_label, self.wage_period_input]:
@@ -199,16 +203,16 @@ class PurchasesTab(BaseTabContainer):
     def _current_payload(self):
         return {
             "date": self.date_input.date().toString("yyyy-MM-dd"),
-            "category": self.category_input.currentText(),
+            "category": self.category_input.currentData() or self.category_input.currentText(),
             "vendor": self.vendor_input.text().strip(),
             "description": self.description_input.text().strip(),
             "amount": float(self.amount_input.value()),
             "payment_method": self.payment_method_input.text().strip(),
             "notes": self.notes_input.text().strip(),
-            "linked_material_id": self.material_input.currentData() if self.category_input.currentText() == "Material Purchase" else None,
-            "material_qty": float(self.material_qty_input.value()) if self.category_input.currentText() == "Material Purchase" else None,
-            "worker_id": self.worker_input.currentData() if self.category_input.currentText() == "Worker Wage" else None,
-            "wage_period": self.wage_period_input.currentText() if self.category_input.currentText() == "Worker Wage" else "",
+            "linked_material_id": self.material_input.currentData() if self.category_input.currentData() == "Material Purchase" else None,
+            "material_qty": float(self.material_qty_input.value()) if self.category_input.currentData() == "Material Purchase" else None,
+            "worker_id": self.worker_input.currentData() if self.category_input.currentData() == "Worker Wage" else None,
+            "wage_period": (self.wage_period_input.currentData() or self.wage_period_input.currentText()) if self.category_input.currentData() == "Worker Wage" else "",
         }
 
     def _add_purchase(self) -> None:
@@ -284,7 +288,8 @@ class PurchasesTab(BaseTabContainer):
             return
         self._selected_purchase_id = purchase.id
         self.date_input.setDate(date.fromisoformat(purchase.date))
-        self.category_input.setCurrentText(purchase.category)
+        idx = self.category_input.findData(purchase.category)
+        self.category_input.setCurrentIndex(idx if idx >= 0 else 0)
         self.vendor_input.setText(purchase.vendor)
         self.amount_input.setValue(float(purchase.amount))
         self.payment_method_input.setText(purchase.payment_method)
@@ -299,7 +304,8 @@ class PurchasesTab(BaseTabContainer):
             idx = self.worker_input.findData(purchase.worker_id)
             if idx >= 0: self.worker_input.setCurrentIndex(idx)
         if purchase.wage_period:
-            self.wage_period_input.setCurrentText(purchase.wage_period)
+            w_idx = self.wage_period_input.findData(purchase.wage_period)
+            self.wage_period_input.setCurrentIndex(w_idx if w_idx >= 0 else 0)
         self._toggle_conditional_fields()
 
     def _selected_worker_id(self) -> int | None:
@@ -309,10 +315,10 @@ class PurchasesTab(BaseTabContainer):
         worker_id = self._selected_worker_id()
         worker = next((w for w in list_workers() if w.id == worker_id), None)
         if not worker:
-            self.worker_name_input.clear(); self.worker_phone_input.clear(); self.worker_role_input.clear(); self.worker_default_wage_input.setValue(0); self.worker_wage_type_input.setCurrentText("Daily"); self.worker_notes_input.clear()
+            self.worker_name_input.clear(); self.worker_phone_input.clear(); self.worker_role_input.clear(); self.worker_default_wage_input.setValue(0); self.worker_wage_type_input.setCurrentIndex(0); self.worker_notes_input.clear()
             return
         self.worker_name_input.setText(worker.name); self.worker_phone_input.setText(worker.phone); self.worker_role_input.setText(worker.role)
-        self.worker_default_wage_input.setValue(float(worker.default_wage)); self.worker_wage_type_input.setCurrentText(worker.wage_type); self.worker_notes_input.setText(worker.notes)
+        self.worker_default_wage_input.setValue(float(worker.default_wage)); ww_idx = self.worker_wage_type_input.findText(worker.wage_type); self.worker_wage_type_input.setCurrentIndex(ww_idx if ww_idx >= 0 else 0); self.worker_notes_input.setText(worker.notes)
 
     def _worker_payload(self):
         return {"name": self.worker_name_input.text().strip(), "phone": self.worker_phone_input.text().strip(), "role": self.worker_role_input.text().strip(), "default_wage": float(self.worker_default_wage_input.value()), "wage_type": self.worker_wage_type_input.currentText(), "notes": self.worker_notes_input.text().strip()}
@@ -340,21 +346,43 @@ class PurchasesTab(BaseTabContainer):
 
     def apply_language(self, language: str) -> None:
         self._language = language
-        self.header_label.setText("Purchases")
+        self.header_label.setText(t("purchases.header", language=language))
         self.date_label.setText("Date")
         self.category_label.setText("Category")
-        self.vendor_label.setText("Vendor / Supplier")
+        self.vendor_label.setText(f"{t("purchases.vendor", language=language)} / {t("purchases.supplier", language=language)}")
         self.amount_label.setText("Amount")
         self.payment_method_label.setText("Payment Method")
         self.description_label.setText("Description")
         self.notes_label.setText("Notes")
         self.material_label.setText("Material")
         self.material_qty_label.setText("Material Qty")
-        self.stock_label.setText("Add qty to material stock")
-        self.worker_label.setText("Worker")
-        self.wage_period_label.setText("Wage Period")
+        self.stock_label.setText(t("purchases.add_qty_to_material_stock", language=language))
+        self.worker_label.setText(t("purchases.worker", language=language))
+        self.wage_period_label.setText(t("purchases.wage_period", language=language))
         self.table.setHorizontalHeaderLabels(["Date", "Category", "Vendor/Worker", "Description", "Amount", "Payment Method", "Linked Material", "Qty", "Notes"])
-        self.add_btn.setText("Add Purchase")
-        self.save_btn.setText("Save Purchase")
-        self.delete_btn.setText("Delete Purchase")
+        self.add_btn.setText(t("purchases.add_purchase", language=language))
+        self.save_btn.setText(t("purchases.save_purchase", language=language))
+        self.delete_btn.setText(t("purchases.delete_purchase", language=language))
+        category_labels = {
+            "Material Purchase": t("purchases.material_purchase", language=language),
+            "Electricity Bill": t("purchases.electricity_bill", language=language),
+            "Worker Wage": t("purchases.worker_wage", language=language),
+            "Rent": t("purchases.rent", language=language),
+            "Packaging": t("purchases.packaging", language=language),
+            "Maintenance": t("purchases.maintenance", language=language),
+            "Other": t("purchases.other", language=language),
+            "Shop Bill": t("purchases.expenses", language=language),
+        }
+        for i, value in enumerate(self.CATEGORIES):
+            self.category_input.setItemText(i, category_labels.get(value, value))
+        period_labels = {
+            "Daily": t("purchases.daily", language=language),
+            "Weekly": t("purchases.weekly", language=language),
+            "Monthly": t("purchases.monthly", language=language),
+            "Custom": t("purchases.other", language=language),
+        }
+        for i, value in enumerate(["Daily", "Weekly", "Monthly", "Custom"]):
+            self.wage_period_input.setItemText(i, period_labels.get(value, value))
+        for i, value in enumerate(["Daily", "Weekly", "Monthly"]):
+            self.worker_wage_type_input.setItemText(i, period_labels.get(value, value))
         self.clear_btn.setText(t("common.clear", language=language))

@@ -193,7 +193,7 @@ def _fit_text_to_width(
     base_text = (text or "").strip() or "-"
     ellipsis = "…"
     for size in range(max_font_size, min_font_size - 1, -1):
-        font = printer_service.load_font(size=size)
+        font = _arabic_capable_font(size=size)
         bbox = font.getbbox(base_text)
         if (bbox[2] - bbox[0]) <= max_width:
             return base_text, font
@@ -206,61 +206,49 @@ def _fit_text_to_width(
                 return candidate, font
             truncated = truncated[:-1]
 
-    fallback_font = printer_service.load_font(size=min_font_size)
-    return ellipsis, fallback_font
+    return ellipsis, _arabic_capable_font(size=min_font_size)
 
 
 def _arabic_capable_font(size: int) -> ImageFont.ImageFont:
     candidates = [
-        "NotoNaskhArabic-Regular.ttf",
-        "NotoNaskhArabic.ttf",
-        "Amiri-Regular.ttf",
-        "arial.ttf",
-        "Arial.ttf",
-        "Tahoma.ttf",
-        "tahoma.ttf",
+        Path("beirut_pos/assets/fonts/NotoNaskhArabic-Regular.ttf"),
+        Path("assets/fonts/NotoNaskhArabic-Regular.ttf"),
+        Path("/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path(r"C:\Windows\Fonts\arial.ttf"),
+        Path(r"C:\Windows\Fonts\tahoma.ttf"),
     ]
-    for name in candidates:
+    for path in candidates:
         try:
-            return ImageFont.truetype(name, size=size)
+            if not path.exists():
+                continue
+            logger.info("barcode.label.font_path", extra={"font_path": str(path)})
+            return ImageFont.truetype(str(path), size=size)
         except Exception:
             continue
-    return printer_service.load_font(size=size)
+    raise BarcodeRenderError("No Arabic-capable font found for barcode label rendering")
 
 
-def _shape_arabic_for_label(raw_text: str) -> str:
-    raw = (raw_text or "").strip()
-    if not raw:
-        return "-"
+def _shape_arabic_for_label(text: str) -> str:
+    if not text:
+        return text
+    if not any("\u0600" <= ch <= "\u06FF" for ch in text):
+        return text
     if arabic_reshaper is None or bidi_get_display is None:
-        return raw
-    reshaped = arabic_reshaper.reshape(raw)
-    visual = bidi_get_display(reshaped)
-    return visual
+        return text
+    reshaped = arabic_reshaper.reshape(text)
+    return bidi_get_display(reshaped)
 
 
 def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min_font_size: int) -> Image.Image:
     usable_width = max(1, width - (LABEL_MARGIN_PX * 2))
-    raw_text = (text or "").strip()
-    shaped = _shape_arabic_for_label(raw_text)
-    logger.info(
-        "barcode.label.text_pipeline",
-        extra={
-            "raw_arabic": raw_text,
-            "shaped_visual": shaped,
-            "draw_function": "ImageDraw.Draw.text",
-        },
-    )
+    raw_text = (text or "").strip() or "-"
     fitted_text, font = _fit_text_to_width(
-        shaped,
+        raw_text,
         max_width=usable_width,
         min_font_size=min_font_size,
         max_font_size=max_font_size,
     )
-    try:
-        font = _arabic_capable_font(getattr(font, "size", max_font_size))
-    except Exception:
-        font = _arabic_capable_font(max_font_size)
     bbox = font.getbbox(fitted_text)
     line_w = max(1, bbox[2] - bbox[0])
     line_h = max(1, bbox[3] - bbox[1])
@@ -269,7 +257,17 @@ def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min
     draw = ImageDraw.Draw(canvas)
     x = max((width - line_w) // 2, LABEL_MARGIN_PX)
     y = 2 - bbox[1]
-    draw.text((x, y), fitted_text, font=font, fill=0)
+    shaped_text = _shape_arabic_for_label(fitted_text)
+    logger.info(
+        "barcode.label.text_pipeline",
+        extra={
+            "raw_label_name": fitted_text,
+            "shaped_label_name": shaped_text,
+            "arabic_reshaper_available": bool(arabic_reshaper),
+            "bidi_available": bool(bidi_get_display),
+        },
+    )
+    draw.text((x, y), shaped_text, font=font, fill=0)
     return canvas
 
 

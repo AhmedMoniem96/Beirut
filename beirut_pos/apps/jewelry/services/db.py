@@ -1794,7 +1794,7 @@ def create_purchase(
         ),
     )
     purchase_id = int(cur.lastrowid)
-    if category_value == "Material Purchase" and linked_material_id and material_qty:
+    if category_value == "Material Purchase" and linked_material_id and material_qty and float(material_qty) > 0:
         cur.execute(
             "UPDATE jw_materials SET qty_on_hand = qty_on_hand + ? WHERE id = ?",
             (float(material_qty), int(linked_material_id)),
@@ -1813,8 +1813,14 @@ def update_purchase(purchase_id: int, **fields: object) -> None:
         category=str(fields.get("category", existing.category)),
         amount=float(fields.get("amount", existing.amount)),
     )
+    new_linked_material_id = fields.get("linked_material_id", existing.linked_material_id)
+    new_material_qty = fields.get("material_qty", existing.material_qty)
     conn = get_conn()
     cur = conn.cursor()
+    old_stock_material_id = existing.linked_material_id if existing.category == "Material Purchase" and existing.material_qty else None
+    old_stock_qty = float(existing.material_qty or 0.0) if old_stock_material_id else 0.0
+    new_stock_material_id = int(new_linked_material_id) if category_value == "Material Purchase" and new_linked_material_id and float(new_material_qty or 0) > 0 else None
+    new_stock_qty = float(new_material_qty or 0.0) if new_stock_material_id else 0.0
     cur.execute(
         """UPDATE jw_purchases
            SET date=?, category=?, vendor=?, description=?, amount=?, payment_method=?,
@@ -1828,20 +1834,44 @@ def update_purchase(purchase_id: int, **fields: object) -> None:
             amount_value,
             str(fields.get("payment_method", existing.payment_method) or "").strip(),
             str(fields.get("notes", existing.notes) or "").strip(),
-            fields.get("linked_material_id", existing.linked_material_id),
-            fields.get("material_qty", existing.material_qty),
+            new_linked_material_id,
+            new_material_qty,
             fields.get("worker_id", existing.worker_id),
             str(fields.get("wage_period", existing.wage_period) or "").strip() or None,
             int(purchase_id),
         ),
     )
+    if old_stock_material_id and (not new_stock_material_id or new_stock_material_id != old_stock_material_id):
+        cur.execute(
+            "UPDATE jw_materials SET qty_on_hand = qty_on_hand - ? WHERE id = ?",
+            (old_stock_qty, int(old_stock_material_id)),
+        )
+    if new_stock_material_id:
+        if old_stock_material_id == new_stock_material_id:
+            diff = new_stock_qty - old_stock_qty
+            if abs(diff) > 1e-9:
+                cur.execute(
+                    "UPDATE jw_materials SET qty_on_hand = qty_on_hand + ? WHERE id = ?",
+                    (diff, int(new_stock_material_id)),
+                )
+        else:
+            cur.execute(
+                "UPDATE jw_materials SET qty_on_hand = qty_on_hand + ? WHERE id = ?",
+                (new_stock_qty, int(new_stock_material_id)),
+            )
     conn.commit()
     conn.close()
 
 
-def delete_purchase(purchase_id: int) -> None:
+def delete_purchase(purchase_id: int, *, reverse_stock: bool = False) -> None:
     conn = get_conn()
     cur = conn.cursor()
+    purchase = next((p for p in list_purchases() if p.id == int(purchase_id)), None)
+    if reverse_stock and purchase and purchase.category == "Material Purchase" and purchase.linked_material_id and purchase.material_qty:
+        cur.execute(
+            "UPDATE jw_materials SET qty_on_hand = qty_on_hand - ? WHERE id = ?",
+            (float(purchase.material_qty), int(purchase.linked_material_id)),
+        )
     cur.execute("DELETE FROM jw_purchases WHERE id = ?", (int(purchase_id),))
     conn.commit()
     conn.close()

@@ -238,7 +238,18 @@ class PurchasesTab(BaseTabContainer):
     def _delete_purchase(self) -> None:
         if not self._selected_purchase_id:
             return
-        delete_purchase(self._selected_purchase_id)
+        purchase = next((p for p in list_purchases() if p.id == self._selected_purchase_id), None)
+        reverse_stock = False
+        if purchase and purchase.category == "Material Purchase" and purchase.linked_material_id and purchase.material_qty:
+            answer = QMessageBox.question(
+                self,
+                "Reverse Stock",
+                "Reverse this purchase material quantity from stock before deleting?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            reverse_stock = answer == QMessageBox.StandardButton.Yes
+        delete_purchase(self._selected_purchase_id, reverse_stock=reverse_stock)
         self.refresh_table(); self._clear_form()
 
     def _clear_form(self) -> None:

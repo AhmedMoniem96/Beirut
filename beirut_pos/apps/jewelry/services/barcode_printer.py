@@ -11,6 +11,7 @@ import importlib.util
 
 
 from PIL import Image, ImageDraw
+import string
 
 if importlib.util.find_spec("reportlab") is None:
     raise RuntimeError("Barcode printing dependency missing")
@@ -132,6 +133,33 @@ def _barcode_drawing(barcode_value: str, barcode_type: str) -> Drawing:
     )
 
 
+
+
+def _coerce_ascii_barcode_value(*candidates: str) -> str:
+    allowed = set(string.printable) - {"\x0b", "\x0c", "\r", "\n", "\t"}
+    for candidate in candidates:
+        raw = (candidate or "").strip()
+        if not raw:
+            continue
+        sanitized = "".join(ch for ch in raw if ch in allowed)
+        sanitized = sanitized.encode("ascii", "ignore").decode("ascii").strip()
+        if sanitized:
+            return sanitized
+    return ""
+
+
+def _render_code128_bitmap(value: str) -> Image.Image:
+    drawing = createBarcodeDrawing(
+        "Code128",
+        value=value,
+        barHeight=42,
+        barWidth=0.78,
+        humanReadable=False,
+        quiet=True,
+    )
+    barcode_img = renderPM.drawToPIL(drawing).convert("1")
+    return barcode_img
+
 def _fit_text_to_width(
     text: str,
     *,
@@ -245,17 +273,20 @@ def render_barcode_label_image(
     offset_x = int(calib["offset_x"])
     offset_y = int(calib["offset_y"])
     title = product_name.strip() or "Item"
-    sku_line = f"SKU: {sku}".strip()
-    normalized_type = _normalize_barcode_type(barcode_type)
-    type_label = _SUPPORTED_BARCODE_TYPES.get(normalized_type, barcode_type.strip() or "Barcode")
+    raw_sku = (sku or "").strip()
+    encoded_value = _coerce_ascii_barcode_value(barcode_value, raw_sku)
+    if not encoded_value:
+        encoded_value = "UNKNOWN"
+    sku_line = encoded_value
+    normalized_type = "code128"
+    type_label = "Code128"
     header_img, header_renderer = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line], label_width_px)
     header_width_px = header_img.width
     header_height_px = header_img.height
 
-    barcode_renderer = "reportlab"
+    barcode_renderer = "reportlab_code128"
     try:
-        barcode_drawing = _barcode_drawing(barcode_value, barcode_type)
-        barcode_img = renderPM.drawToPIL(barcode_drawing).convert("1")
+        barcode_img = _render_code128_bitmap(encoded_value)
     except Exception:
         barcode_renderer = "render_label_bitmap"
         barcode_img = render_label_bitmap([">>C [BARCODE]"])
@@ -350,6 +381,8 @@ def render_barcode_label_image(
         header_renderer=header_renderer,
         barcode_renderer=barcode_renderer,
         compose_renderer="label_fixed_canvas",
+        barcode_value=encoded_value,
+        barcode_type=type_label,
     )
     return label
 

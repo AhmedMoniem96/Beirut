@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+from ...services.i18n import get_ui_language, t
 
 
 class QuickCustomerDialog(QDialog):
@@ -18,7 +19,8 @@ class QuickCustomerDialog(QDialog):
         super().__init__(parent)
         self.setModal(True)
         self.setMinimumWidth(420)
-        self.setWindowTitle("Add New Customer")
+        language = get_ui_language()
+        self.setWindowTitle(t("invoice.add_new_customer", language=language))
 
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
@@ -28,10 +30,10 @@ class QuickCustomerDialog(QDialog):
         self.email_input = QLineEdit()
         self.notes_input = QLineEdit()
 
-        self.name_label = QLabel("Name")
-        self.phone_label = QLabel("Phone")
-        self.email_label = QLabel("Email (optional)")
-        self.notes_label = QLabel("Notes (optional)")
+        self.name_label = QLabel(t("customers.customer_name", language=language))
+        self.phone_label = QLabel(t("customers.phone", language=language))
+        self.email_label = QLabel(t("quick_customer.email_optional", language=language))
+        self.notes_label = QLabel(t("quick_customer.notes_optional", language=language))
         form_layout.addRow(self.name_label, self.name_input)
         form_layout.addRow(self.phone_label, self.phone_input)
         form_layout.addRow(self.email_label, self.email_input)
@@ -40,8 +42,8 @@ class QuickCustomerDialog(QDialog):
 
         actions = QHBoxLayout()
         actions.addStretch()
-        self.cancel_btn = QPushButton("Cancel")
-        self.save_btn = QPushButton("Save")
+        self.cancel_btn = QPushButton(t("common.cancel", language=language))
+        self.save_btn = QPushButton(t("common.save", language=language))
         self.cancel_btn.clicked.connect(self.reject)
         self.save_btn.clicked.connect(self.accept)
         actions.addWidget(self.cancel_btn)

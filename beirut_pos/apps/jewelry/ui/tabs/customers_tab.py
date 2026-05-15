@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QFormLayout, QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+    QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget, QMessageBox
 )
 
 from .base_tab import BaseTabContainer
+from ...services.i18n import get_ui_language, t
 from ...services.db import (
     get_customer_invoices,
     get_loyalty_history,
@@ -18,23 +19,21 @@ from ...services.db import (
 class CustomersTab(BaseTabContainer):
     def __init__(self) -> None:
         super().__init__()
+        self._language = get_ui_language()
         root = QWidget()
         layout = QVBoxLayout(root)
 
         top = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search by name or phone")
-        self.refresh_btn = QPushButton("Refresh")
-        self.add_btn = QPushButton("Add Customer")
+        self.refresh_btn = QPushButton()
+        self.add_btn = QPushButton()
         top.addWidget(self.search_input, 1)
         top.addWidget(self.refresh_btn)
         top.addWidget(self.add_btn)
         layout.addLayout(top)
 
         self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels([
-            "Name", "Phone", "Loyalty Points", "Total Spend", "Invoice Count", "Last Invoice Date", "Notes"
-        ])
+        self.table.setHorizontalHeaderLabels([""] * 7)
         layout.addWidget(self.table)
 
         details = QFormLayout()
@@ -44,17 +43,20 @@ class CustomersTab(BaseTabContainer):
         self.notes_input = QLineEdit()
         self.points_input = QLineEdit("0")
         self.points_input.setReadOnly(True)
-        details.addRow("Customer Name", self.name_input)
-        details.addRow("Phone", self.phone_input)
-        details.addRow("Address", self.address_input)
-        details.addRow("Notes", self.notes_input)
-        details.addRow("Loyalty Points", self.points_input)
+        self.customer_name_label = QLabel()
+        self.phone_label = QLabel()
+        self.address_label = QLabel()
+        self.notes_label = QLabel()
+        self.loyalty_points_label = QLabel()
+        details.addRow(self.customer_name_label, self.name_input)
+        details.addRow(self.phone_label, self.phone_input)
+        details.addRow(self.address_label, self.address_input)
+        details.addRow(self.notes_label, self.notes_input)
+        details.addRow(self.loyalty_points_label, self.points_input)
         layout.addLayout(details)
 
         self.invoices_table = QTableWidget(0, 6)
-        self.invoices_table.setHorizontalHeaderLabels([
-            "Invoice No", "Date", "Total", "Status", "Payment Method", "Loyalty Earned/Redeemed"
-        ])
+        self.invoices_table.setHorizontalHeaderLabels([""] * 6)
         layout.addWidget(self.invoices_table)
 
         self.loyalty_history_table = QTableWidget(0, 4)
@@ -64,9 +66,9 @@ class CustomersTab(BaseTabContainer):
         layout.addWidget(self.loyalty_history_table)
 
         actions = QHBoxLayout()
-        self.save_btn = QPushButton("Save Customer")
-        self.delete_btn = QPushButton("Delete Customer")
-        self.refresh_inv_btn = QPushButton("View Invoices / Refresh Invoices")
+        self.save_btn = QPushButton()
+        self.delete_btn = QPushButton()
+        self.refresh_inv_btn = QPushButton()
         actions.addWidget(self.save_btn)
         actions.addWidget(self.delete_btn)
         actions.addWidget(self.refresh_inv_btn)
@@ -85,10 +87,39 @@ class CustomersTab(BaseTabContainer):
         self.refresh_inv_btn.clicked.connect(self._refresh_invoices)
         self.delete_btn.clicked.connect(self._delete_not_supported)
 
+        self.apply_language(self._language)
         self.refresh()
 
-    def apply_language(self, _language: str) -> None:
-        return
+    def apply_language(self, language: str) -> None:
+        self._language = language
+        self.search_input.setPlaceholderText(t("customers.search_placeholder", language=self._language))
+        self.refresh_btn.setText(t("common.refresh", language=self._language))
+        self.add_btn.setText(t("customers.add_customer", language=self._language))
+        self.save_btn.setText(t("customers.save_customer", language=self._language))
+        self.delete_btn.setText(t("customers.delete_customer", language=self._language))
+        self.refresh_inv_btn.setText(t("customers.customer_invoices", language=self._language))
+        self.table.setHorizontalHeaderLabels([
+            t("customers.customer_name", language=self._language),
+            t("customers.phone", language=self._language),
+            t("customers.loyalty_points", language=self._language),
+            t("customers.total_spend", language=self._language),
+            t("customers.invoice_count", language=self._language),
+            t("customers.last_invoice_date", language=self._language),
+            t("customers.notes", language=self._language),
+        ])
+        self.invoices_table.setHorizontalHeaderLabels([
+            t("customers.invoice_no", language=self._language),
+            t("customers.date", language=self._language),
+            t("customers.total", language=self._language),
+            t("customers.status", language=self._language),
+            t("customers.payment_method", language=self._language),
+            t("customers.loyalty_earned_redeemed", language=self._language),
+        ])
+        self.customer_name_label.setText(t("customers.customer_name", language=self._language))
+        self.phone_label.setText(t("customers.phone", language=self._language))
+        self.address_label.setText(t("customers.address", language=self._language))
+        self.notes_label.setText(t("customers.notes", language=self._language))
+        self.loyalty_points_label.setText(t("customers.loyalty_points", language=self._language))
 
     def refresh(self) -> None:
         term = self.search_input.text().strip() or None
@@ -144,7 +175,7 @@ class CustomersTab(BaseTabContainer):
         name = self.name_input.text().strip()
         phone = self.phone_input.text().strip()
         if not name or not phone:
-            QMessageBox.warning(self, "Customer", "Name and phone are required")
+            QMessageBox.warning(self, t("customers.title", language=self._language), t("customers.required_name_phone", language=self._language))
             return
         cid = save_customer(
             name=name,
@@ -154,7 +185,7 @@ class CustomersTab(BaseTabContainer):
             selected_phone=self._selected_customer_id if not self._is_new_customer_mode else "",
         )
         if not cid:
-            QMessageBox.warning(self, "Customer", "Name and phone are required")
+            QMessageBox.warning(self, t("customers.title", language=self._language), t("customers.required_name_phone", language=self._language))
             return
         self._is_new_customer_mode = False
         self._selected_customer_id = cid
@@ -182,4 +213,8 @@ class CustomersTab(BaseTabContainer):
                 return
 
     def _delete_not_supported(self) -> None:
-        QMessageBox.information(self, "Customers", "Delete is not currently supported.")
+        QMessageBox.information(
+            self,
+            t("customers.title", language=self._language),
+            t("customers.delete_not_supported", language=self._language),
+        )

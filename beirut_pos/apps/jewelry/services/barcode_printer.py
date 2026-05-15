@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 from pathlib import Path
 from typing import Sequence
 
@@ -168,6 +169,37 @@ def _coerce_ascii_barcode_value(*candidates: str) -> str:
 logger = logging.getLogger(__name__)
 
 
+_ARABIC_LABEL_MODE_ENV = "BEIRUT_POS_LABEL_AR_MODE"
+_VALID_ARABIC_MODES = {"raw", "reshape", "bidi"}
+
+
+def _default_arabic_label_mode() -> str:
+    platform_name = platform.system().lower()
+    if platform_name.startswith("win"):
+        return "reshape"
+    return "raw"
+
+
+def _selected_arabic_label_mode() -> str:
+    default_mode = _default_arabic_label_mode()
+    requested = (os.environ.get(_ARABIC_LABEL_MODE_ENV) or "").strip().lower()
+    if requested in _VALID_ARABIC_MODES:
+        return requested
+    return default_mode
+
+
+def _shape_label_text(text: str, *, mode: str) -> str:
+    if mode == "reshape":
+        if arabic_reshaper is None:
+            return text
+        return arabic_reshaper.reshape(text)
+    if mode == "bidi":
+        if arabic_reshaper is None or bidi_get_display is None:
+            return text
+        return bidi_get_display(arabic_reshaper.reshape(text))
+    return text
+
+
 def _render_code128_bitmap(value: str) -> Image.Image:
     buffer = BytesIO()
     Code128(value, writer=ImageWriter()).write(
@@ -210,14 +242,25 @@ def _fit_text_to_width(
 
 
 def _arabic_capable_font(size: int) -> ImageFont.ImageFont:
-    candidates = [
-        Path("beirut_pos/assets/fonts/NotoNaskhArabic-Regular.ttf"),
-        Path("assets/fonts/NotoNaskhArabic-Regular.ttf"),
-        Path("/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"),
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-        Path(r"C:\Windows\Fonts\arial.ttf"),
-        Path(r"C:\Windows\Fonts\tahoma.ttf"),
-    ]
+    platform_name = platform.system().lower()
+    if platform_name.startswith("win"):
+        candidates = [
+            Path(r"C:\Windows\Fonts\tahoma.ttf"),
+            Path(r"C:\Windows\Fonts\arial.ttf"),
+            Path("beirut_pos/assets/fonts/NotoNaskhArabic-Regular.ttf"),
+            Path("assets/fonts/NotoNaskhArabic-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        ]
+    else:
+        candidates = [
+            Path("beirut_pos/assets/fonts/NotoNaskhArabic-Regular.ttf"),
+            Path("assets/fonts/NotoNaskhArabic-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            Path(r"C:\Windows\Fonts\tahoma.ttf"),
+            Path(r"C:\Windows\Fonts\arial.ttf"),
+        ]
     for path in candidates:
         try:
             if not path.exists():
@@ -268,21 +311,18 @@ def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min
     draw = ImageDraw.Draw(canvas)
     x = max((width - line_w) // 2, LABEL_MARGIN_PX)
     y = 2 - bbox[1]
-    shaped_text = fitted_text
-    print(
-        "[DEBUG][barcode_printer] text shaping:",
-        {
-            "raw_text_repr": repr(fitted_text),
-            "raw_text_codepoints": [f'U+{ord(ch):04X}' for ch in fitted_text],
-            "shaped_text_repr": repr(shaped_text),
-            "shaped_text_codepoints": [f'U+{ord(ch):04X}' for ch in shaped_text],
-        },
-    )
+    platform_name = platform.system().lower()
+    selected_mode = _selected_arabic_label_mode()
+    shaped_text = _shape_label_text(fitted_text, mode=selected_mode)
     logger.info(
         "barcode.label.text_pipeline",
         extra={
+            "platform": platform_name,
+            "arabic_label_mode": selected_mode,
             "raw_label_name": fitted_text,
             "shaped_label_name": shaped_text,
+            "raw_text_codepoints": [f"U+{ord(ch):04X}" for ch in fitted_text],
+            "shaped_text_codepoints": [f"U+{ord(ch):04X}" for ch in shaped_text],
             "arabic_reshaper_available": bool(arabic_reshaper),
             "bidi_available": bool(bidi_get_display),
         },

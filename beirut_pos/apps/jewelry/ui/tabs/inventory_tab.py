@@ -613,16 +613,20 @@ class InventoryTab(BaseTabContainer):
 
     def _build_barcode_label_image(self, product, barcode_type_value: str):
         try:
-            from ...services.barcode_printer import render_barcode_label_image
+            from ...services.barcode_printer import BarcodeRenderError, render_barcode_label_image
         except RuntimeError:
             QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
             return None
-        return render_barcode_label_image(
-            product_name=choose_name(product.name_ar, product.name_en, language=self._language),
-            sku=product.sku,
-            barcode_value=product.barcode or product.sku,
-            barcode_type="code128",
-        )
+        try:
+            return render_barcode_label_image(
+                product_name=choose_name(product.name_ar, product.name_en, language=self._language),
+                sku=product.sku,
+                barcode_value=product.barcode or product.sku,
+                barcode_type="code128",
+            )
+        except BarcodeRenderError as exc:
+            QMessageBox.critical(self, t("inventory.print_failed", language=self._language), str(exc))
+            return None
 
     def _show_label_preview_dialog(self, product, label_img) -> str:
         dialog = QDialog(self)

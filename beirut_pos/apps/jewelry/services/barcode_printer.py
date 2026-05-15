@@ -170,13 +170,13 @@ logger = logging.getLogger(__name__)
 
 
 _ARABIC_LABEL_MODE_ENV = "BEIRUT_POS_LABEL_AR_MODE"
-_VALID_ARABIC_MODES = {"raw", "reshape", "bidi"}
+_VALID_ARABIC_MODES = {"raw", "reshape", "bidi", "reverse_bidi", "reverse_raw", "none"}
 
 
 def _default_arabic_label_mode() -> str:
     platform_name = platform.system().lower()
     if platform_name.startswith("win"):
-        return "reshape"
+        return "bidi"
     return "raw"
 
 
@@ -197,6 +197,12 @@ def _shape_label_text(text: str, *, mode: str) -> str:
         if arabic_reshaper is None or bidi_get_display is None:
             return text
         return bidi_get_display(arabic_reshaper.reshape(text))
+    if mode == "reverse_bidi":
+        if arabic_reshaper is None or bidi_get_display is None:
+            return text[::-1]
+        return bidi_get_display(arabic_reshaper.reshape(text))[::-1]
+    if mode == "reverse_raw":
+        return text[::-1]
     return text
 
 
@@ -294,7 +300,7 @@ def render_direct_arabic_experiment_png() -> Path:
     return out_path
 
 
-def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min_font_size: int) -> Image.Image:
+def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min_font_size: int, mode: str | None = None) -> Image.Image:
     usable_width = max(1, width - (LABEL_MARGIN_PX * 2))
     raw_text = (text or "").strip() or "-"
     fitted_text, font = _fit_text_to_width(
@@ -312,7 +318,7 @@ def _render_fitted_center_line(text: str, *, width: int, max_font_size: int, min
     x = max((width - line_w) // 2, LABEL_MARGIN_PX)
     y = 2 - bbox[1]
     platform_name = platform.system().lower()
-    selected_mode = _selected_arabic_label_mode()
+    selected_mode = mode or _selected_arabic_label_mode()
     shaped_text = _shape_label_text(fitted_text, mode=selected_mode)
     logger.info(
         "barcode.label.text_pipeline",
@@ -363,7 +369,7 @@ def _fit_barcode_image(
     return barcode_img.resize(new_size, Image.NEAREST)
 
 
-def _render_label_lines_at_width(lines: Sequence[str], width: int = LABEL_WIDTH_PX) -> tuple[Image.Image, str]:
+def _render_label_lines_at_width(lines: Sequence[str], width: int = LABEL_WIDTH_PX, mode: str | None = None) -> tuple[Image.Image, str]:
     """Render compact centered lines for narrow barcode labels."""
     width = max(1, int(width))
 
@@ -372,7 +378,7 @@ def _render_label_lines_at_width(lines: Sequence[str], width: int = LABEL_WIDTH_
         txt = raw[4:] if raw.startswith((">>C ", ">>R ", ">>L ")) else raw
         max_font = 18 if idx == 0 else 16
         min_font = 10 if idx == 0 else 9
-        rows.append(_render_fitted_center_line(txt, width=width, max_font_size=max_font, min_font_size=min_font))
+        rows.append(_render_fitted_center_line(txt, width=width, max_font_size=max_font, min_font_size=min_font, mode=mode))
 
     total_h = sum(im.height for im in rows) or 1
     canvas = Image.new("1", (width, total_h), 1)
@@ -395,7 +401,10 @@ def render_barcode_label_image(
     label_height_px = int(calib["height_px"])
     offset_x = int(calib["offset_x"])
     offset_y = int(calib["offset_y"])
+    selected_mode = _selected_arabic_label_mode()
     title = product_name.strip() or "Item"
+    if selected_mode == "none":
+        title = sku.strip() or barcode_value.strip() or "Item"
     raw_sku = (sku or "").strip()
     encoded_value = _coerce_ascii_barcode_value(barcode_value, raw_sku)
     if not encoded_value:
@@ -403,7 +412,7 @@ def render_barcode_label_image(
     sku_line = encoded_value
     normalized_type = "code128"
     type_label = "Code128"
-    header_img, header_renderer = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line], label_width_px)
+    header_img, header_renderer = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line], label_width_px, mode=selected_mode)
     header_width_px = header_img.width
     header_height_px = header_img.height
 
@@ -510,6 +519,22 @@ def render_barcode_label_image(
     return label
 
 
+
+
+def render_arabic_mode_test_label(*, sample_text: str, sku: str = "") -> Image.Image:
+    calib = get_label_calibration()
+    label_width_px = int(calib["width_px"])
+    lines = [
+        f"RAW: {_shape_label_text(sample_text, mode='raw')}",
+        f"RESHAPE: {_shape_label_text(sample_text, mode='reshape')}",
+        f"BIDI: {_shape_label_text(sample_text, mode='bidi')}",
+        f"REVERSE_BIDI: {_shape_label_text(sample_text, mode='reverse_bidi')}",
+        f"REVERSE_RAW: {_shape_label_text(sample_text, mode='reverse_raw')}",
+    ]
+    if sku.strip():
+        lines.insert(0, f"SKU: {sku.strip()}")
+    img, _ = _render_label_lines_at_width([">>L " + line for line in lines], label_width_px, mode="raw")
+    return _center_on_label(img, width=label_width_px, height=int(calib["height_px"]), pad_y=1)
 
 
 class BarcodeRenderError(RuntimeError):

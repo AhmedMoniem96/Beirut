@@ -1666,14 +1666,24 @@ def list_materials() -> List[JewelryMaterial]:
     ]
 
 
-WORKER_WAGE_TYPES = {"Daily", "Weekly", "Monthly"}
+WORKER_WAGE_TYPES = {"daily", "weekly", "monthly", "custom"}
+LEGACY_WAGE_TYPE_MAP = {"Daily": "daily", "Weekly": "weekly", "Monthly": "monthly", "Custom": "custom", "يومي": "daily", "أسبوعي": "weekly", "شهري": "monthly", "مخصص": "custom"}
+
+def _normalize_wage_type(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return "daily"
+    lowered = raw.lower()
+    if lowered in WORKER_WAGE_TYPES:
+        return lowered
+    return LEGACY_WAGE_TYPE_MAP.get(raw, "")
 
 
-def add_worker(*, name: str, phone: str = "", role: str = "", default_wage: float = 0, wage_type: str = "Daily", notes: str = "") -> int:
+def add_worker(*, name: str, phone: str = "", role: str = "", default_wage: float = 0, wage_type: str = "daily", notes: str = "") -> int:
     name_value = (name or "").strip()
     if not name_value:
         raise ValueError("worker name is required")
-    wage_type_value = (wage_type or "").strip().title()
+    wage_type_value = _normalize_wage_type(wage_type)
     if wage_type_value not in WORKER_WAGE_TYPES:
         raise ValueError("invalid wage type")
     conn = get_conn()
@@ -1695,7 +1705,7 @@ def update_worker(worker_id: int, **fields: object) -> None:
     name_value = str(fields.get("name", existing.name) or "").strip()
     if not name_value:
         raise ValueError("worker name is required")
-    wage_type_value = str(fields.get("wage_type", existing.wage_type) or "").strip().title()
+    wage_type_value = _normalize_wage_type(str(fields.get("wage_type", existing.wage_type) or ""))
     if wage_type_value not in WORKER_WAGE_TYPES:
         raise ValueError("invalid wage type")
     conn = get_conn(); cur = conn.cursor()
@@ -1725,7 +1735,7 @@ def list_workers(*, include_inactive: bool = False) -> List[JewelryWorker]:
             ORDER BY name COLLATE NOCASE, id DESC"""
     )
     rows = cur.fetchall(); conn.close()
-    return [JewelryWorker(id=int(r[0]), name=str(r[1] or ""), phone=str(r[2] or ""), role=str(r[3] or ""), default_wage=float(r[4] or 0), wage_type=str(r[5] or "Daily"), notes=str(r[6] or ""), active=bool(r[7])) for r in rows]
+    return [JewelryWorker(id=int(r[0]), name=str(r[1] or ""), phone=str(r[2] or ""), role=str(r[3] or ""), default_wage=float(r[4] or 0), wage_type=_normalize_wage_type(str(r[5] or "daily")) or "daily", notes=str(r[6] or ""), active=bool(r[7])) for r in rows]
 
 
 PURCHASE_CATEGORIES = {

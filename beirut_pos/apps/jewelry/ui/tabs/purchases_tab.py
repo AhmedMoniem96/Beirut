@@ -15,374 +15,273 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from ...services.db import (
-    add_worker,
-    create_purchase,
-    delete_purchase,
-    delete_worker,
-    list_materials,
-    list_purchases,
-    list_workers,
-    update_purchase,
-    update_worker,
-)
+from ...services.db import add_worker, create_purchase, delete_purchase, delete_worker, list_materials, list_purchases, list_workers, update_purchase, update_worker
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
 
 
 class PurchasesTab(BaseTabContainer):
-    CATEGORIES = [
-        "Material Purchase",
-        "Electricity Bill",
-        "Shop Bill",
-        "Worker Wage",
-        "Rent",
-        "Packaging",
-        "Maintenance",
-        "Other",
-    ]
+    EXPENSE_CATEGORIES = ["Electricity Bill", "Rent", "Maintenance", "Packaging", "Other", "Shop Bill"]
 
     def __init__(self) -> None:
         super().__init__()
         self._language = get_ui_language()
-        self._selected_purchase_id: int | None = None
+        self._selected_expense_id: int | None = None
+        self._selected_material_purchase_id: int | None = None
+        self._selected_wage_payment_id: int | None = None
         self._materials = []
-        self._workers: list[tuple[int, str]] = []
+        self._workers = []
 
         content = QWidget()
         self.content_layout = QVBoxLayout(content)
         self.set_content_layout(self.content_layout)
 
-        self._build_form()
-        self._build_table()
+        self.tabs = QTabWidget()
+        self._build_expenses_tab()
+        self._build_material_tab()
+        self._build_workers_tab()
+        self.add_content_widget(self.tabs)
 
         self.set_page_content_widget(content)
         self.apply_language(self._language)
         self._reload_dropdowns()
         self.refresh_table()
 
-    def _build_form(self) -> None:
-        form_box = QGroupBox()
-        form_layout = QGridLayout(form_box)
+    def _build_expenses_tab(self) -> None:
+        self.expenses_tab = QWidget(); layout = QVBoxLayout(self.expenses_tab)
+        form_box = QGroupBox(); form = QGridLayout(form_box)
+        self.expense_date = QDateEdit(); self.expense_date.setCalendarPopup(True); self.expense_date.setDate(date.today())
+        self.expense_category = QComboBox()
+        for c in self.EXPENSE_CATEGORIES: self.expense_category.addItem(c, c)
+        self.expense_vendor = QLineEdit(); self.expense_amount = QDoubleSpinBox(); self.expense_amount.setRange(0, 999999999); self.expense_amount.setDecimals(2)
+        self.expense_payment = QLineEdit(); self.expense_description = QLineEdit(); self.expense_notes = QLineEdit()
+        self.expense_labels = [QLabel() for _ in range(7)]
+        form.addWidget(self.expense_labels[0],0,0); form.addWidget(self.expense_date,0,1)
+        form.addWidget(self.expense_labels[1],0,2); form.addWidget(self.expense_category,0,3)
+        form.addWidget(self.expense_labels[2],1,0); form.addWidget(self.expense_vendor,1,1)
+        form.addWidget(self.expense_labels[3],1,2); form.addWidget(self.expense_amount,1,3)
+        form.addWidget(self.expense_labels[4],2,0); form.addWidget(self.expense_payment,2,1)
+        form.addWidget(self.expense_labels[5],2,2); form.addWidget(self.expense_description,2,3)
+        form.addWidget(self.expense_labels[6],3,0); form.addWidget(self.expense_notes,3,1,1,3)
+        layout.addWidget(form_box)
+        btns = QHBoxLayout()
+        self.expense_add_btn = QPushButton(); self.expense_add_btn.clicked.connect(self._add_expense)
+        self.expense_save_btn = QPushButton(); self.expense_save_btn.clicked.connect(self._save_expense)
+        self.expense_del_btn = QPushButton(); self.expense_del_btn.clicked.connect(self._delete_expense)
+        self.expense_clear_btn = QPushButton(); self.expense_clear_btn.clicked.connect(self._clear_expense)
+        for b in [self.expense_add_btn, self.expense_save_btn, self.expense_del_btn, self.expense_clear_btn]: btns.addWidget(b)
+        btns.addStretch(1); layout.addLayout(btns)
+        self.expenses_table = QTableWidget(0,8); self.expenses_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.expenses_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.expenses_table.cellClicked.connect(self._load_expense_row)
+        layout.addWidget(self.expenses_table)
+        self.tabs.addTab(self.expenses_tab, "")
 
-        self.date_input = QDateEdit()
-        self.date_input.setCalendarPopup(True)
-        self.date_input.setDate(date.today())
-        self.category_input = QComboBox()
-        self.category_input.addItems(self.CATEGORIES)
-        for i, value in enumerate(self.CATEGORIES):
-            self.category_input.setItemData(i, value)
-        self.category_input.currentTextChanged.connect(self._toggle_conditional_fields)
-        self.vendor_input = QLineEdit()
-        self.amount_input = QDoubleSpinBox()
-        self.amount_input.setRange(0, 999999999)
-        self.amount_input.setDecimals(2)
-        self.payment_method_input = QLineEdit()
-        self.description_input = QLineEdit()
-        self.notes_input = QLineEdit()
+    def _build_material_tab(self) -> None:
+        self.material_tab = QWidget(); layout = QVBoxLayout(self.material_tab)
+        form_box = QGroupBox(); form = QGridLayout(form_box)
+        self.mat_date = QDateEdit(); self.mat_date.setCalendarPopup(True); self.mat_date.setDate(date.today())
+        self.mat_material = QComboBox(); self.mat_supplier = QLineEdit(); self.mat_qty = QDoubleSpinBox(); self.mat_qty.setRange(0, 999999); self.mat_qty.setDecimals(2)
+        self.mat_unit_cost = QDoubleSpinBox(); self.mat_unit_cost.setRange(0, 999999999); self.mat_unit_cost.setDecimals(2)
+        self.mat_total = QDoubleSpinBox(); self.mat_total.setRange(0, 999999999); self.mat_total.setDecimals(2)
+        self.mat_payment = QLineEdit(); self.mat_add_stock = QCheckBox(); self.mat_notes = QLineEdit()
+        self.material_labels = [QLabel() for _ in range(8)]
+        form.addWidget(self.material_labels[0],0,0); form.addWidget(self.mat_date,0,1)
+        form.addWidget(self.material_labels[1],0,2); form.addWidget(self.mat_material,0,3)
+        form.addWidget(self.material_labels[2],1,0); form.addWidget(self.mat_supplier,1,1)
+        form.addWidget(self.material_labels[3],1,2); form.addWidget(self.mat_qty,1,3)
+        form.addWidget(self.material_labels[4],2,0); form.addWidget(self.mat_unit_cost,2,1)
+        form.addWidget(self.material_labels[5],2,2); form.addWidget(self.mat_total,2,3)
+        form.addWidget(self.material_labels[6],3,0); form.addWidget(self.mat_payment,3,1)
+        form.addWidget(self.material_labels[7],3,2); form.addWidget(self.mat_add_stock,3,3)
+        form.addWidget(QLabel(),4,0); form.addWidget(self.mat_notes,4,1,1,3)
+        layout.addWidget(form_box)
+        btns = QHBoxLayout()
+        self.mat_add_btn = QPushButton(); self.mat_add_btn.clicked.connect(self._add_material_purchase)
+        self.mat_save_btn = QPushButton(); self.mat_save_btn.clicked.connect(self._save_material_purchase)
+        self.mat_del_btn = QPushButton(); self.mat_del_btn.clicked.connect(self._delete_material_purchase)
+        self.mat_clear_btn = QPushButton(); self.mat_clear_btn.clicked.connect(self._clear_material)
+        for b in [self.mat_add_btn, self.mat_save_btn, self.mat_del_btn, self.mat_clear_btn]: btns.addWidget(b)
+        btns.addStretch(1); layout.addLayout(btns)
+        self.material_table = QTableWidget(0,9); self.material_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.material_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.material_table.cellClicked.connect(self._load_material_row)
+        layout.addWidget(self.material_table)
+        self.tabs.addTab(self.material_tab, "")
 
-        self.material_input = QComboBox()
-        self.material_qty_input = QDoubleSpinBox()
-        self.material_qty_input.setRange(0, 999999)
-        self.material_qty_input.setDecimals(2)
-        self.add_stock_check = QCheckBox()
+    def _build_workers_tab(self) -> None:
+        self.workers_tab = QWidget(); layout = QVBoxLayout(self.workers_tab)
+        box = QGroupBox(); g = QGridLayout(box)
+        self.worker_manage = QComboBox(); self.worker_manage.currentIndexChanged.connect(self._load_worker_form)
+        self.worker_name = QLineEdit(); self.worker_phone = QLineEdit(); self.worker_role = QLineEdit(); self.worker_default_wage = QDoubleSpinBox(); self.worker_default_wage.setRange(0, 999999999); self.worker_default_wage.setDecimals(2)
+        self.worker_wage_type = QComboBox()
+        for key in ["daily", "weekly", "monthly", "custom"]: self.worker_wage_type.addItem(key, key)
+        self.worker_notes = QLineEdit(); self.worker_labels = [QLabel() for _ in range(6)]
+        g.addWidget(self.worker_labels[0],0,0); g.addWidget(self.worker_manage,0,1,1,3)
+        g.addWidget(self.worker_labels[1],1,0); g.addWidget(self.worker_name,1,1)
+        g.addWidget(self.worker_labels[2],1,2); g.addWidget(self.worker_phone,1,3)
+        g.addWidget(self.worker_labels[3],2,0); g.addWidget(self.worker_role,2,1)
+        g.addWidget(self.worker_labels[4],2,2); g.addWidget(self.worker_default_wage,2,3)
+        g.addWidget(self.worker_labels[5],3,0); g.addWidget(self.worker_wage_type,3,1)
+        g.addWidget(QLabel(),3,2); g.addWidget(self.worker_notes,3,3)
+        actions = QHBoxLayout(); self.worker_add_btn = QPushButton(); self.worker_add_btn.clicked.connect(self._add_worker); self.worker_save_btn = QPushButton(); self.worker_save_btn.clicked.connect(self._update_worker); self.worker_del_btn = QPushButton(); self.worker_del_btn.clicked.connect(self._delete_worker)
+        actions.addWidget(self.worker_add_btn); actions.addWidget(self.worker_save_btn); actions.addWidget(self.worker_del_btn); actions.addStretch(1); g.addLayout(actions,4,0,1,4)
+        layout.addWidget(box)
+        self.workers_table = QTableWidget(0,6); self.workers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); layout.addWidget(self.workers_table)
+        pay_box = QGroupBox(); p = QGridLayout(pay_box)
+        self.wp_worker = QComboBox(); self.wp_date = QDateEdit(); self.wp_date.setCalendarPopup(True); self.wp_date.setDate(date.today()); self.wp_amount = QDoubleSpinBox(); self.wp_amount.setRange(0, 999999999); self.wp_amount.setDecimals(2)
+        self.wp_period = QComboBox();
+        for key in ["daily", "weekly", "monthly", "custom"]: self.wp_period.addItem(key, key)
+        self.wp_notes = QLineEdit(); self.wp_labels = [QLabel() for _ in range(5)]
+        p.addWidget(self.wp_labels[0],0,0); p.addWidget(self.wp_worker,0,1)
+        p.addWidget(self.wp_labels[1],0,2); p.addWidget(self.wp_date,0,3)
+        p.addWidget(self.wp_labels[2],1,0); p.addWidget(self.wp_amount,1,1)
+        p.addWidget(self.wp_labels[3],1,2); p.addWidget(self.wp_period,1,3)
+        p.addWidget(self.wp_labels[4],2,0); p.addWidget(self.wp_notes,2,1,1,3)
+        self.wp_add_btn = QPushButton(); self.wp_add_btn.clicked.connect(self._add_wage_payment); p.addWidget(self.wp_add_btn,3,0,1,2)
+        layout.addWidget(pay_box)
+        self.wage_table = QTableWidget(0,5); self.wage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.wage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.wage_table.cellClicked.connect(self._load_wage_row)
+        layout.addWidget(self.wage_table)
+        self.tabs.addTab(self.workers_tab, "")
 
-        self.worker_input = QComboBox()
-        self.wage_period_input = QComboBox()
-        self.wage_period_input.addItems(["Daily", "Weekly", "Monthly", "Custom"])
-        for i, value in enumerate(["Daily", "Weekly", "Monthly", "Custom"]):
-            self.wage_period_input.setItemData(i, value)
-
-        labels = [QLabel() for _ in range(12)]
-        (
-            self.date_label,
-            self.category_label,
-            self.vendor_label,
-            self.amount_label,
-            self.payment_method_label,
-            self.description_label,
-            self.notes_label,
-            self.material_label,
-            self.material_qty_label,
-            self.worker_label,
-            self.wage_period_label,
-            self.stock_label,
-        ) = labels
-
-        form_layout.addWidget(self.date_label, 0, 0); form_layout.addWidget(self.date_input, 0, 1)
-        form_layout.addWidget(self.category_label, 0, 2); form_layout.addWidget(self.category_input, 0, 3)
-        form_layout.addWidget(self.vendor_label, 1, 0); form_layout.addWidget(self.vendor_input, 1, 1)
-        form_layout.addWidget(self.amount_label, 1, 2); form_layout.addWidget(self.amount_input, 1, 3)
-        form_layout.addWidget(self.payment_method_label, 2, 0); form_layout.addWidget(self.payment_method_input, 2, 1)
-        form_layout.addWidget(self.description_label, 2, 2); form_layout.addWidget(self.description_input, 2, 3)
-        form_layout.addWidget(self.notes_label, 3, 0); form_layout.addWidget(self.notes_input, 3, 1, 1, 3)
-
-        form_layout.addWidget(self.material_label, 4, 0); form_layout.addWidget(self.material_input, 4, 1)
-        form_layout.addWidget(self.material_qty_label, 4, 2); form_layout.addWidget(self.material_qty_input, 4, 3)
-        form_layout.addWidget(self.stock_label, 5, 0); form_layout.addWidget(self.add_stock_check, 5, 1)
-        form_layout.addWidget(self.worker_label, 6, 0); form_layout.addWidget(self.worker_input, 6, 1)
-        form_layout.addWidget(self.wage_period_label, 6, 2); form_layout.addWidget(self.wage_period_input, 6, 3)
-
-        self.add_content_widget(form_box)
-
-        workers_box = QGroupBox("Workers")
-        workers_layout = QGridLayout(workers_box)
-        self.worker_name_input = QLineEdit()
-        self.worker_phone_input = QLineEdit()
-        self.worker_role_input = QLineEdit()
-        self.worker_default_wage_input = QDoubleSpinBox(); self.worker_default_wage_input.setRange(0, 999999999); self.worker_default_wage_input.setDecimals(2)
-        self.worker_wage_type_input = QComboBox(); self.worker_wage_type_input.addItems(["Daily", "Weekly", "Monthly"])
-        self.worker_notes_input = QLineEdit()
-        self.worker_manage_input = QComboBox(); self.worker_manage_input.currentIndexChanged.connect(self._load_worker_form)
-        self.worker_add_btn = QPushButton("Add Worker"); self.worker_add_btn.clicked.connect(self._add_worker)
-        self.worker_save_btn = QPushButton("Update Worker"); self.worker_save_btn.clicked.connect(self._update_worker)
-        self.worker_delete_btn = QPushButton("Delete Worker"); self.worker_delete_btn.clicked.connect(self._delete_worker)
-        workers_layout.addWidget(QLabel("Worker"),0,0); workers_layout.addWidget(self.worker_manage_input,0,1,1,3)
-        workers_layout.addWidget(QLabel("Name"),1,0); workers_layout.addWidget(self.worker_name_input,1,1)
-        workers_layout.addWidget(QLabel("Phone"),1,2); workers_layout.addWidget(self.worker_phone_input,1,3)
-        workers_layout.addWidget(QLabel("Role"),2,0); workers_layout.addWidget(self.worker_role_input,2,1)
-        workers_layout.addWidget(QLabel("Default Wage"),2,2); workers_layout.addWidget(self.worker_default_wage_input,2,3)
-        workers_layout.addWidget(QLabel("Wage Type"),3,0); workers_layout.addWidget(self.worker_wage_type_input,3,1)
-        workers_layout.addWidget(QLabel("Notes"),3,2); workers_layout.addWidget(self.worker_notes_input,3,3)
-        actions = QHBoxLayout(); actions.addWidget(self.worker_add_btn); actions.addWidget(self.worker_save_btn); actions.addWidget(self.worker_delete_btn); actions.addStretch(1)
-        workers_layout.addLayout(actions,4,0,1,4)
-        self.add_content_widget(workers_box)
-
-        self.add_btn = QPushButton("Add Purchase")
-        self.save_btn = QPushButton("Save Purchase")
-        self.delete_btn = QPushButton("Delete Purchase")
-        self.clear_btn = QPushButton("Clear")
-        self.add_btn.clicked.connect(self._add_purchase)
-        self.save_btn.clicked.connect(self._save_purchase)
-        self.delete_btn.clicked.connect(self._delete_purchase)
-        self.clear_btn.clicked.connect(self._clear_form)
-
-        for b in [self.clear_btn, self.delete_btn, self.save_btn, self.add_btn]:
-            self.footer_layout.addWidget(b)
-
-    def _build_table(self) -> None:
-        self.table = QTableWidget(0, 9)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.cellClicked.connect(self._load_selected_row)
-        self.add_content_widget(self.table)
-
-    def _reload_dropdowns(self) -> None:
-        self._materials = list_materials()
-        self.material_input.clear()
-        self.material_input.addItem("", None)
-        for material in self._materials:
-            self.material_input.addItem(choose_name(material.name_ar, material.name_en, language=self._language), material.id)
-
-        self._workers = [(w.id, w.name) for w in list_workers()]
-        self.worker_input.clear()
-        self.worker_input.addItem("", None)
-        self.worker_manage_input.blockSignals(True)
-        self.worker_manage_input.clear()
-        self.worker_manage_input.addItem("", None)
-        for wid, name in self._workers:
-            self.worker_input.addItem(name, wid)
-            self.worker_manage_input.addItem(name, wid)
-        self.worker_manage_input.blockSignals(False)
-        self._toggle_conditional_fields()
-
-    def _toggle_conditional_fields(self) -> None:
-        is_material = self.category_input.currentData() == "Material Purchase"
-        is_wage = self.category_input.currentData() == "Worker Wage"
-        for w in [self.material_label, self.material_input, self.material_qty_label, self.material_qty_input, self.stock_label, self.add_stock_check]:
-            w.setVisible(is_material)
-        for w in [self.worker_label, self.worker_input, self.wage_period_label, self.wage_period_input]:
-            w.setVisible(is_wage)
-
-    def _current_payload(self):
-        return {
-            "date": self.date_input.date().toString("yyyy-MM-dd"),
-            "category": self.category_input.currentData() or self.category_input.currentText(),
-            "vendor": self.vendor_input.text().strip(),
-            "description": self.description_input.text().strip(),
-            "amount": float(self.amount_input.value()),
-            "payment_method": self.payment_method_input.text().strip(),
-            "notes": self.notes_input.text().strip(),
-            "linked_material_id": self.material_input.currentData() if self.category_input.currentData() == "Material Purchase" else None,
-            "material_qty": float(self.material_qty_input.value()) if self.category_input.currentData() == "Material Purchase" else None,
-            "worker_id": self.worker_input.currentData() if self.category_input.currentData() == "Worker Wage" else None,
-            "wage_period": (self.wage_period_input.currentData() or self.wage_period_input.currentText()) if self.category_input.currentData() == "Worker Wage" else "",
-        }
-
-    def _add_purchase(self) -> None:
-        payload = self._current_payload()
-        if payload["category"] == "Material Purchase" and not self.add_stock_check.isChecked():
-            payload["linked_material_id"] = None
-            payload["material_qty"] = None
-        try:
-            create_purchase(**payload)
-            self.refresh_table(); self._clear_form()
-        except Exception as exc:
-            QMessageBox.warning(self, "Error", str(exc))
-
-    def _save_purchase(self) -> None:
-        if not self._selected_purchase_id:
-            return self._add_purchase()
-        payload = self._current_payload()
-        if payload["category"] == "Material Purchase" and not self.add_stock_check.isChecked():
-            payload["linked_material_id"] = None
-            payload["material_qty"] = None
-        try:
-            update_purchase(self._selected_purchase_id, **payload)
-            self.refresh_table(); self._clear_form()
-        except Exception as exc:
-            QMessageBox.warning(self, "Error", str(exc))
-
-    def _delete_purchase(self) -> None:
-        if not self._selected_purchase_id:
-            return
-        purchase = next((p for p in list_purchases() if p.id == self._selected_purchase_id), None)
-        reverse_stock = False
-        if purchase and purchase.category == "Material Purchase" and purchase.linked_material_id and purchase.material_qty:
-            answer = QMessageBox.question(
-                self,
-                "Reverse Stock",
-                "Reverse this purchase material quantity from stock before deleting?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
-            )
-            reverse_stock = answer == QMessageBox.StandardButton.Yes
-        delete_purchase(self._selected_purchase_id, reverse_stock=reverse_stock)
-        self.refresh_table(); self._clear_form()
-
-    def _clear_form(self) -> None:
-        self._selected_purchase_id = None
-        self.date_input.setDate(date.today())
-        self.category_input.setCurrentIndex(0)
-        self.vendor_input.clear(); self.amount_input.setValue(0)
-        self.payment_method_input.clear(); self.description_input.clear(); self.notes_input.clear()
-        self.material_input.setCurrentIndex(0); self.material_qty_input.setValue(0); self.add_stock_check.setChecked(False)
-        self.worker_input.setCurrentIndex(0); self.wage_period_input.setCurrentIndex(0)
-        self._toggle_conditional_fields()
-
-    def refresh_table(self) -> None:
-        purchases = list_purchases()
-        self.table.setRowCount(0)
-        for p in purchases:
-            row = self.table.rowCount(); self.table.insertRow(row)
-            worker_name = next((w[1] for w in self._workers if w[0] == p.worker_id), "")
-            vendor_or_worker = worker_name or p.vendor
-            material_name = ""
-            if p.linked_material_id:
-                material_name = next((choose_name(m.name_ar, m.name_en, language=self._language) for m in self._materials if m.id == p.linked_material_id), "")
-            values = [p.date, p.category, vendor_or_worker, p.description, f"{p.amount:.2f}", p.payment_method, material_name, f"{float(p.material_qty or 0):.2f}" if p.material_qty else "", p.notes]
-            for c, value in enumerate(values):
-                self.table.setItem(row, c, QTableWidgetItem(value))
-            self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, p.id)
-
-    def _load_selected_row(self, row: int, _col: int) -> None:
-        purchase_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        purchase = next((p for p in list_purchases() if p.id == purchase_id), None)
-        if not purchase:
-            return
-        self._selected_purchase_id = purchase.id
-        self.date_input.setDate(date.fromisoformat(purchase.date))
-        idx = self.category_input.findData(purchase.category)
-        self.category_input.setCurrentIndex(idx if idx >= 0 else 0)
-        self.vendor_input.setText(purchase.vendor)
-        self.amount_input.setValue(float(purchase.amount))
-        self.payment_method_input.setText(purchase.payment_method)
-        self.description_input.setText(purchase.description)
-        self.notes_input.setText(purchase.notes)
-        if purchase.linked_material_id:
-            idx = self.material_input.findData(purchase.linked_material_id)
-            if idx >= 0: self.material_input.setCurrentIndex(idx)
-            self.material_qty_input.setValue(float(purchase.material_qty or 0))
-            self.add_stock_check.setChecked(True)
-        if purchase.worker_id:
-            idx = self.worker_input.findData(purchase.worker_id)
-            if idx >= 0: self.worker_input.setCurrentIndex(idx)
-        if purchase.wage_period:
-            w_idx = self.wage_period_input.findData(purchase.wage_period)
-            self.wage_period_input.setCurrentIndex(w_idx if w_idx >= 0 else 0)
-        self._toggle_conditional_fields()
-
-    def _selected_worker_id(self) -> int | None:
-        return self.worker_manage_input.currentData()
-
-    def _load_worker_form(self) -> None:
-        worker_id = self._selected_worker_id()
-        worker = next((w for w in list_workers() if w.id == worker_id), None)
-        if not worker:
-            self.worker_name_input.clear(); self.worker_phone_input.clear(); self.worker_role_input.clear(); self.worker_default_wage_input.setValue(0); self.worker_wage_type_input.setCurrentIndex(0); self.worker_notes_input.clear()
-            return
-        self.worker_name_input.setText(worker.name); self.worker_phone_input.setText(worker.phone); self.worker_role_input.setText(worker.role)
-        self.worker_default_wage_input.setValue(float(worker.default_wage)); ww_idx = self.worker_wage_type_input.findText(worker.wage_type); self.worker_wage_type_input.setCurrentIndex(ww_idx if ww_idx >= 0 else 0); self.worker_notes_input.setText(worker.notes)
+    def _reload_dropdowns(self):
+        self._materials = list_materials(); self.mat_material.clear(); self.mat_material.addItem("", None)
+        for m in self._materials: self.mat_material.addItem(choose_name(m.name_ar, m.name_en, language=self._language), m.id)
+        workers = list_workers(); self._workers = [(w.id, w.name, w.wage_type, w.phone, w.role, w.default_wage) for w in workers]
+        for combo in [self.worker_manage, self.wp_worker]:
+            combo.blockSignals(True); combo.clear(); combo.addItem("", None)
+            for w in workers: combo.addItem(w.name, w.id)
+            combo.blockSignals(False)
 
     def _worker_payload(self):
-        return {"name": self.worker_name_input.text().strip(), "phone": self.worker_phone_input.text().strip(), "role": self.worker_role_input.text().strip(), "default_wage": float(self.worker_default_wage_input.value()), "wage_type": self.worker_wage_type_input.currentText(), "notes": self.worker_notes_input.text().strip()}
+        return {"name": self.worker_name.text().strip(), "phone": self.worker_phone.text().strip(), "role": self.worker_role.text().strip(), "default_wage": float(self.worker_default_wage.value()), "wage_type": self.worker_wage_type.currentData(), "notes": self.worker_notes.text().strip()}
 
-    def _add_worker(self) -> None:
+    def _add_worker(self):
+        try: add_worker(**self._worker_payload()); self._reload_dropdowns(); self.refresh_table()
+        except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
+
+    def _update_worker(self):
+        wid = self.worker_manage.currentData()
+        if not wid: return
+        try: update_worker(wid, **self._worker_payload()); self._reload_dropdowns(); self.refresh_table()
+        except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
+
+    def _delete_worker(self):
+        wid = self.worker_manage.currentData()
+        if not wid: return
+        delete_worker(wid); self._reload_dropdowns(); self.refresh_table()
+
+    def _load_worker_form(self):
+        wid = self.worker_manage.currentData(); w = next((x for x in list_workers() if x.id == wid), None)
+        if not w:
+            self.worker_name.clear(); self.worker_phone.clear(); self.worker_role.clear(); self.worker_default_wage.setValue(0); self.worker_wage_type.setCurrentIndex(0); self.worker_notes.clear(); return
+        self.worker_name.setText(w.name); self.worker_phone.setText(w.phone); self.worker_role.setText(w.role); self.worker_default_wage.setValue(float(w.default_wage)); self.worker_notes.setText(w.notes)
+        idx = self.worker_wage_type.findData(w.wage_type); self.worker_wage_type.setCurrentIndex(idx if idx >= 0 else 0)
+
+    def _purchase_payload(self, *, category: str, vendor: str, amount: float, payment: str, notes: str, description: str = "", material_id=None, material_qty=None, worker_id=None, wage_period=""):
+        return {"date": self.expense_date.date().toString("yyyy-MM-dd"), "category": category, "vendor": vendor, "amount": amount, "payment_method": payment, "description": description, "notes": notes, "linked_material_id": material_id, "material_qty": material_qty, "worker_id": worker_id, "wage_period": wage_period}
+
+    def _add_expense(self):
+        try: create_purchase(**self._purchase_payload(category=self.expense_category.currentData(), vendor=self.expense_vendor.text().strip(), amount=float(self.expense_amount.value()), payment=self.expense_payment.text().strip(), description=self.expense_description.text().strip(), notes=self.expense_notes.text().strip())); self.refresh_table(); self._clear_expense()
+        except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
+    def _save_expense(self):
+        if not self._selected_expense_id: return self._add_expense()
+        try: update_purchase(self._selected_expense_id, **self._purchase_payload(category=self.expense_category.currentData(), vendor=self.expense_vendor.text().strip(), amount=float(self.expense_amount.value()), payment=self.expense_payment.text().strip(), description=self.expense_description.text().strip(), notes=self.expense_notes.text().strip())); self.refresh_table(); self._clear_expense()
+        except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
+    def _delete_expense(self):
+        if self._selected_expense_id: delete_purchase(self._selected_expense_id); self.refresh_table(); self._clear_expense()
+
+    def _add_material_purchase(self):
         try:
-            add_worker(**self._worker_payload()); self._reload_dropdowns(); self.worker_manage_input.setCurrentIndex(0)
-        except Exception as exc:
-            QMessageBox.warning(self, "Error", str(exc))
-
-    def _update_worker(self) -> None:
-        worker_id = self._selected_worker_id()
-        if not worker_id:
-            return
+            create_purchase(date=self.mat_date.date().toString("yyyy-MM-dd"), category="Material Purchase", vendor=self.mat_supplier.text().strip(), amount=float(self.mat_total.value()), payment_method=self.mat_payment.text().strip(), description="", notes=self.mat_notes.text().strip(), linked_material_id=self.mat_material.currentData() if self.mat_add_stock.isChecked() else None, material_qty=float(self.mat_qty.value()) if self.mat_add_stock.isChecked() else None)
+            self.refresh_table(); self._clear_material()
+        except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
+    def _save_material_purchase(self):
+        if not self._selected_material_purchase_id: return self._add_material_purchase()
         try:
-            update_worker(worker_id, **self._worker_payload()); self._reload_dropdowns()
-        except Exception as exc:
-            QMessageBox.warning(self, "Error", str(exc))
+            update_purchase(self._selected_material_purchase_id, date=self.mat_date.date().toString("yyyy-MM-dd"), category="Material Purchase", vendor=self.mat_supplier.text().strip(), amount=float(self.mat_total.value()), payment_method=self.mat_payment.text().strip(), description="", notes=self.mat_notes.text().strip(), linked_material_id=self.mat_material.currentData() if self.mat_add_stock.isChecked() else None, material_qty=float(self.mat_qty.value()) if self.mat_add_stock.isChecked() else None)
+            self.refresh_table(); self._clear_material()
+        except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
+    def _delete_material_purchase(self):
+        if not self._selected_material_purchase_id: return
+        delete_purchase(self._selected_material_purchase_id, reverse_stock=True); self.refresh_table(); self._clear_material()
 
-    def _delete_worker(self) -> None:
-        worker_id = self._selected_worker_id()
-        if not worker_id:
-            return
-        delete_worker(worker_id); self._reload_dropdowns()
+    def _add_wage_payment(self):
+        try:
+            create_purchase(date=self.wp_date.date().toString("yyyy-MM-dd"), category="Worker Wage", vendor="", description="", amount=float(self.wp_amount.value()), payment_method="", notes=self.wp_notes.text().strip(), worker_id=self.wp_worker.currentData(), wage_period=self.wp_period.currentData())
+            self.refresh_table()
+        except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
+
+    def _clear_expense(self): self._selected_expense_id = None; self.expense_date.setDate(date.today()); self.expense_category.setCurrentIndex(0); self.expense_vendor.clear(); self.expense_amount.setValue(0); self.expense_payment.clear(); self.expense_description.clear(); self.expense_notes.clear()
+    def _clear_material(self): self._selected_material_purchase_id = None; self.mat_date.setDate(date.today()); self.mat_material.setCurrentIndex(0); self.mat_supplier.clear(); self.mat_qty.setValue(0); self.mat_unit_cost.setValue(0); self.mat_total.setValue(0); self.mat_payment.clear(); self.mat_add_stock.setChecked(False); self.mat_notes.clear()
+
+    def _load_expense_row(self, row, _):
+        p = next((x for x in list_purchases() if x.id == self.expenses_table.item(row,0).data(Qt.ItemDataRole.UserRole)), None)
+        if not p: return
+        self._selected_expense_id = p.id; self.expense_date.setDate(date.fromisoformat(p.date)); self.expense_category.setCurrentIndex(max(0, self.expense_category.findData(p.category))); self.expense_vendor.setText(p.vendor); self.expense_amount.setValue(float(p.amount)); self.expense_payment.setText(p.payment_method); self.expense_description.setText(p.description); self.expense_notes.setText(p.notes)
+    def _load_material_row(self, row, _):
+        p = next((x for x in list_purchases() if x.id == self.material_table.item(row,0).data(Qt.ItemDataRole.UserRole)), None)
+        if not p: return
+        self._selected_material_purchase_id = p.id; self.mat_date.setDate(date.fromisoformat(p.date)); self.mat_supplier.setText(p.vendor); self.mat_qty.setValue(float(p.material_qty or 0)); self.mat_total.setValue(float(p.amount)); self.mat_payment.setText(p.payment_method); self.mat_notes.setText(p.notes); self.mat_add_stock.setChecked(bool(p.linked_material_id)); self.mat_material.setCurrentIndex(max(0, self.mat_material.findData(p.linked_material_id)))
+    def _load_wage_row(self, row, _):
+        pid = self.wage_table.item(row,0).data(Qt.ItemDataRole.UserRole); self._selected_wage_payment_id = pid
+
+    def refresh_table(self):
+        self._reload_dropdowns()
+        purchases = list_purchases()
+        exp = [p for p in purchases if p.category in self.EXPENSE_CATEGORIES]
+        mat = [p for p in purchases if p.category == "Material Purchase"]
+        wage = [p for p in purchases if p.category == "Worker Wage"]
+        self.expenses_table.setRowCount(0)
+        for p in exp:
+            r = self.expenses_table.rowCount(); self.expenses_table.insertRow(r)
+            vals = [p.date, p.category, p.vendor, p.description, f"{p.amount:.2f}", p.payment_method, p.notes, ""]
+            for c,v in enumerate(vals): self.expenses_table.setItem(r,c,QTableWidgetItem(v))
+            self.expenses_table.item(r,0).setData(Qt.ItemDataRole.UserRole, p.id)
+        self.material_table.setRowCount(0)
+        for p in mat:
+            r = self.material_table.rowCount(); self.material_table.insertRow(r)
+            mname = next((choose_name(m.name_ar,m.name_en,language=self._language) for m in self._materials if m.id == p.linked_material_id), "")
+            vals = [p.date, mname, p.vendor, f"{float(p.material_qty or 0):.2f}", "", f"{p.amount:.2f}", p.payment_method, "✓" if p.linked_material_id else "", p.notes]
+            for c,v in enumerate(vals): self.material_table.setItem(r,c,QTableWidgetItem(v))
+            self.material_table.item(r,0).setData(Qt.ItemDataRole.UserRole, p.id)
+        self.workers_table.setRowCount(0)
+        for w in list_workers():
+            r = self.workers_table.rowCount(); self.workers_table.insertRow(r)
+            vals = [w.name, w.phone, w.role, f"{w.default_wage:.2f}", w.wage_type, w.notes]
+            for c,v in enumerate(vals): self.workers_table.setItem(r,c,QTableWidgetItem(str(v)))
+        self.wage_table.setRowCount(0)
+        for p in wage:
+            r = self.wage_table.rowCount(); self.wage_table.insertRow(r)
+            wname = next((w[1] for w in self._workers if w[0] == p.worker_id), "")
+            vals = [wname, p.date, f"{p.amount:.2f}", p.wage_period, p.notes]
+            for c,v in enumerate(vals): self.wage_table.setItem(r,c,QTableWidgetItem(v))
+            self.wage_table.item(r,0).setData(Qt.ItemDataRole.UserRole, p.id)
 
     def apply_language(self, language: str) -> None:
         self._language = language
         self.header_label.setText(t("purchases.header", language=language))
-        self.date_label.setText("Date")
-        self.category_label.setText("Category")
-        self.vendor_label.setText(f"{t("purchases.vendor", language=language)} / {t("purchases.supplier", language=language)}")
-        self.amount_label.setText("Amount")
-        self.payment_method_label.setText("Payment Method")
-        self.description_label.setText("Description")
-        self.notes_label.setText("Notes")
-        self.material_label.setText("Material")
-        self.material_qty_label.setText("Material Qty")
-        self.stock_label.setText(t("purchases.add_qty_to_material_stock", language=language))
-        self.worker_label.setText(t("purchases.worker", language=language))
-        self.wage_period_label.setText(t("purchases.wage_period", language=language))
-        self.table.setHorizontalHeaderLabels(["Date", "Category", "Vendor/Worker", "Description", "Amount", "Payment Method", "Linked Material", "Qty", "Notes"])
-        self.add_btn.setText(t("purchases.add_purchase", language=language))
-        self.save_btn.setText(t("purchases.save_purchase", language=language))
-        self.delete_btn.setText(t("purchases.delete_purchase", language=language))
-        category_labels = {
-            "Material Purchase": t("purchases.material_purchase", language=language),
-            "Electricity Bill": t("purchases.electricity_bill", language=language),
-            "Worker Wage": t("purchases.worker_wage", language=language),
-            "Rent": t("purchases.rent", language=language),
-            "Packaging": t("purchases.packaging", language=language),
-            "Maintenance": t("purchases.maintenance", language=language),
-            "Other": t("purchases.other", language=language),
-            "Shop Bill": t("purchases.expenses", language=language),
-        }
-        for i, value in enumerate(self.CATEGORIES):
-            self.category_input.setItemText(i, category_labels.get(value, value))
-        period_labels = {
-            "Daily": t("purchases.daily", language=language),
-            "Weekly": t("purchases.weekly", language=language),
-            "Monthly": t("purchases.monthly", language=language),
-            "Custom": t("purchases.other", language=language),
-        }
-        for i, value in enumerate(["Daily", "Weekly", "Monthly", "Custom"]):
-            self.wage_period_input.setItemText(i, period_labels.get(value, value))
-        for i, value in enumerate(["Daily", "Weekly", "Monthly"]):
-            self.worker_wage_type_input.setItemText(i, period_labels.get(value, value))
-        self.clear_btn.setText(t("common.clear", language=language))
+        self.tabs.setTabText(0, f"{t('purchases.expenses', language=language)} / {t('tab.purchases', language=language)}")
+        self.tabs.setTabText(1, t("reports.material_purchases", language=language))
+        self.tabs.setTabText(2, f"{t('purchases.worker', language=language)} / {t('reports.worker_wages', language=language)}")
+        labels = [t("common.date", language=language), t("purchases.category", language=language), t("purchases.vendor", language=language), t("purchases.amount", language=language), t("common.payment_method", language=language), t("purchases.description", language=language), t("common.notes", language=language)]
+        for i,txt in enumerate(labels): self.expense_labels[i].setText(txt)
+        self.expenses_table.setHorizontalHeaderLabels([t("common.date",language=language), t("purchases.category",language=language), t("purchases.vendor",language=language), t("purchases.description",language=language), t("purchases.amount",language=language), t("common.payment_method",language=language), t("common.notes",language=language), ""])
+        self.expense_add_btn.setText(t("common.add", language=language)); self.expense_save_btn.setText(t("common.save", language=language)); self.expense_del_btn.setText(t("common.delete", language=language)); self.expense_clear_btn.setText(t("common.clear", language=language))
+        mat_labels = [t("common.date",language=language), t("purchases.material",language=language), t("purchases.supplier",language=language), t("common.qty",language=language), t("purchases.unit_cost",language=language), t("purchases.total_amount",language=language), t("common.payment_method",language=language), t("purchases.add_qty_to_material_stock",language=language)]
+        for i,txt in enumerate(mat_labels): self.material_labels[i].setText(txt)
+        self.material_table.setHorizontalHeaderLabels([t("common.date",language=language), t("purchases.material",language=language), t("purchases.supplier",language=language), t("common.qty",language=language), t("purchases.unit_cost",language=language), t("common.total",language=language), t("common.payment_method",language=language), t("purchases.stock_updated",language=language), t("common.notes",language=language)])
+        self.mat_add_btn.setText(t("common.add", language=language)); self.mat_save_btn.setText(t("common.save", language=language)); self.mat_del_btn.setText(t("common.delete", language=language)); self.mat_clear_btn.setText(t("common.clear", language=language))
+        self.worker_labels[0].setText(t("purchases.worker", language=language)); self.worker_labels[1].setText(t("purchases.name", language=language)); self.worker_labels[2].setText(t("purchases.phone", language=language)); self.worker_labels[3].setText(t("purchases.role", language=language)); self.worker_labels[4].setText(t("purchases.default_wage", language=language)); self.worker_labels[5].setText(t("purchases.wage_type", language=language))
+        self.worker_add_btn.setText(t("purchases.add_worker", language=language)); self.worker_save_btn.setText(t("purchases.update_worker", language=language)); self.worker_del_btn.setText(t("purchases.delete_worker", language=language))
+        self.workers_table.setHorizontalHeaderLabels([t("purchases.name",language=language), t("purchases.phone",language=language), t("purchases.role",language=language), t("purchases.default_wage",language=language), t("purchases.wage_type",language=language), t("common.notes",language=language)])
+        self.wp_labels[0].setText(t("purchases.worker", language=language)); self.wp_labels[1].setText(t("common.date", language=language)); self.wp_labels[2].setText(t("purchases.amount", language=language)); self.wp_labels[3].setText(t("purchases.wage_period", language=language)); self.wp_labels[4].setText(t("common.notes", language=language)); self.wp_add_btn.setText(t("purchases.add_wage_payment", language=language))
+        self.wage_table.setHorizontalHeaderLabels([t("purchases.worker",language=language), t("common.date",language=language), t("purchases.amount",language=language), t("purchases.wage_period",language=language), t("common.notes",language=language)])
+        cat_map = {"Electricity Bill": t("purchases.electricity_bill", language=language), "Rent": t("purchases.rent", language=language), "Maintenance": t("purchases.maintenance", language=language), "Packaging": t("purchases.packaging", language=language), "Other": t("purchases.other", language=language), "Shop Bill": t("purchases.expenses", language=language)}
+        for i,c in enumerate(self.EXPENSE_CATEGORIES): self.expense_category.setItemText(i, cat_map.get(c,c))
+        period_map = {"daily": t("purchases.daily", language=language), "weekly": t("purchases.weekly", language=language), "monthly": t("purchases.monthly", language=language), "custom": t("purchases.custom", language=language)}
+        for combo in [self.worker_wage_type, self.wp_period]:
+            for i,key in enumerate(["daily","weekly","monthly","custom"]): combo.setItemText(i, period_map[key])

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from beirut_pos.core.db import get_conn
 
@@ -46,6 +46,38 @@ class ProductRevenueAggregate:
     code: str
     qty: float
     revenue: float
+
+
+@dataclass
+class ExpenseCategoryAggregate:
+    category: str
+    count: int
+    total_amount: float
+
+
+@dataclass
+class ExpensePurchaseRow:
+    date: str
+    category: str
+    vendor_or_worker: str
+    description: str
+    amount: float
+    payment_method: str
+
+
+@dataclass
+class MaterialPurchaseAggregate:
+    material: str
+    qty_purchased: float
+    total_cost: float
+    avg_unit_cost: float
+
+
+@dataclass
+class WorkerWageAggregate:
+    worker: str
+    period: str
+    total_paid: float
 
 
 def top_products_by_revenue(start_iso: str, end_iso: str, limit: int = 10, product_id: int | None = None) -> List[ProductRevenueAggregate]:
@@ -399,3 +431,77 @@ def material_usage(start_iso: str, end_iso: str) -> List[MaterialUsageRow]:
         MaterialUsageRow(material_name=row[0], total_qty=row[1], total_cost=row[2])
         for row in rows
     ]
+
+
+def expense_report_data(start_iso: str, end_iso: str, *, category: Optional[str] = None, vendor_worker_term: str = "", payment_method: Optional[str] = None) -> dict:
+    conn = get_conn()
+    cur = conn.cursor()
+    date_from = start_iso[:10]
+    date_to = end_iso[:10]
+    filters: List[str] = ["p.date BETWEEN ? AND ?"]
+    params: List[object] = [date_from, date_to]
+    if category:
+        filters.append("p.category = ?")
+        params.append(category)
+    if payment_method:
+        filters.append("LOWER(COALESCE(p.payment_method, '')) = ?")
+        params.append(payment_method.strip().lower())
+    if vendor_worker_term.strip():
+        term = f"%{vendor_worker_term.strip().lower()}%"
+        filters.append("(LOWER(COALESCE(p.vendor, '')) LIKE ? OR LOWER(COALESCE(w.name, '')) LIKE ?)")
+        params.extend([term, term])
+    where_sql = " AND ".join(filters)
+
+    cur.execute(f"""SELECT p.category, COUNT(*), COALESCE(SUM(p.amount), 0)
+                     FROM jw_purchases p
+                     LEFT JOIN jw_workers w ON w.id = p.worker_id
+                     WHERE {where_sql}
+                     GROUP BY p.category
+                     ORDER BY 3 DESC""", tuple(params))
+    by_category = [ExpenseCategoryAggregate(str(r[0] or ""), int(r[1] or 0), float(r[2] or 0)) for r in cur.fetchall()]
+
+    cur.execute(f"""SELECT p.date, p.category, COALESCE(NULLIF(TRIM(w.name), ''), NULLIF(TRIM(p.vendor), ''), ''),
+                          COALESCE(p.description, ''), COALESCE(p.amount, 0), COALESCE(p.payment_method, '')
+                   FROM jw_purchases p
+                   LEFT JOIN jw_workers w ON w.id = p.worker_id
+                   WHERE {where_sql}
+                   ORDER BY p.date DESC, p.id DESC""", tuple(params))
+    purchases = [ExpensePurchaseRow(str(r[0] or ""), str(r[1] or ""), str(r[2] or ""), str(r[3] or ""), float(r[4] or 0), str(r[5] or "")) for r in cur.fetchall()]
+
+    cur.execute(f"""SELECT COALESCE(NULLIF(TRIM(m.name_en), ''), NULLIF(TRIM(m.name_ar), ''), 'N/A'),
+                          COALESCE(SUM(p.material_qty), 0),
+                          COALESCE(SUM(p.amount), 0)
+                   FROM jw_purchases p
+                   LEFT JOIN jw_materials m ON m.id = p.linked_material_id
+                   LEFT JOIN jw_workers w ON w.id = p.worker_id
+                   WHERE {where_sql} AND p.category = 'Material Purchase' AND p.linked_material_id IS NOT NULL
+                   GROUP BY p.linked_material_id, m.name_en, m.name_ar
+                   ORDER BY 3 DESC""", tuple(params))
+    material_rows = []
+    for name, qty, total in cur.fetchall():
+        q = float(qty or 0)
+        t = float(total or 0)
+        material_rows.append(MaterialPurchaseAggregate(str(name or ""), q, t, (t / q) if q else 0.0))
+
+    cur.execute(f"""SELECT COALESCE(NULLIF(TRIM(w.name), ''), NULLIF(TRIM(p.vendor), ''), 'N/A'),
+                          COALESCE(NULLIF(TRIM(p.wage_period), ''), 'N/A'),
+                          COALESCE(SUM(p.amount), 0)
+                   FROM jw_purchases p
+                   LEFT JOIN jw_workers w ON w.id = p.worker_id
+                   WHERE {where_sql} AND p.category = 'Worker Wage'
+                   GROUP BY 1, 2
+                   ORDER BY 3 DESC""", tuple(params))
+    wages = [WorkerWageAggregate(str(r[0] or ""), str(r[1] or "N/A"), float(r[2] or 0)) for r in cur.fetchall()]
+
+    conn.close()
+    total_expenses = sum(r.amount for r in purchases)
+    return {
+        "by_category": by_category,
+        "purchases": purchases,
+        "material_purchases": material_rows,
+        "worker_wages": wages,
+        "total_expenses": total_expenses,
+        "material_expenses": sum(r.total_cost for r in material_rows),
+        "bills_expenses": sum(r.total_amount for r in by_category if "bill" in r.category.lower()),
+        "wages_expenses": sum(r.total_paid for r in wages),
+    }

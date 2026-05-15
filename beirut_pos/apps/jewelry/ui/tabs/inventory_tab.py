@@ -582,7 +582,7 @@ class InventoryTab(BaseTabContainer):
             return None
         try:
             return render_barcode_label_image(
-                product_name=choose_name(product.name_ar, product.name_en, language=self._language),
+                product_name=self._barcode_label_product_name(product),
                 sku=product.sku,
                 barcode_value=product.barcode or product.sku,
                 barcode_type="code128",
@@ -595,7 +595,7 @@ class InventoryTab(BaseTabContainer):
         dialog = QDialog(self)
         dialog.setWindowTitle("Label Preview")
         layout = QVBoxLayout(dialog)
-        name = choose_name(product.name_ar, product.name_en, language=self._language) or "-"
+        name = self._barcode_label_product_name(product) or "-"
         layout.addWidget(QLabel(f"Product: {name}"))
         layout.addWidget(QLabel(f"SKU/Barcode: {product.sku or '-'} / {product.barcode or '-'}"))
         settings = load_gallery_settings()
@@ -621,6 +621,13 @@ class InventoryTab(BaseTabContainer):
         if clicked is cancel_btn:
             return "cancel"
         return "cancel"
+
+    @staticmethod
+    def _barcode_label_product_name(product) -> str:
+        arabic_name = str(getattr(product, "name_ar", "") or "").strip()
+        if arabic_name:
+            return arabic_name
+        return str(getattr(product, "name_en", "") or "").strip()
 
     def _print_barcode_via_pdf_dispatch(self, label_img) -> bool:
         try:

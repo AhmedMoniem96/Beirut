@@ -10,6 +10,7 @@ from PyQt6.QtCore import QDate, QRectF, Qt
 from PyQt6.QtGui import QColor, QFontMetrics, QPainter
 from PyQt6.QtWidgets import (
     QComboBox,
+    QFrame,
     QFileDialog,
     QDateEdit,
     QDateTimeEdit,
@@ -229,10 +230,7 @@ class ReportsTab(BaseTabContainer):
         self.save_shift_btn = save_shift_btn
 
         self.summary_label = QLabel()
-        self.total_sales_kpi = QLabel()
-        self.total_returns_kpi = QLabel()
-        self.net_revenue_kpi = QLabel()
-        self.orders_count_kpi = QLabel()
+        self.summary_cards: Dict[str, QLabel] = {}
 
         self.payment_table = QTableWidget(0, 2)
         self.returns_table = QTableWidget(0, 3)
@@ -329,17 +327,69 @@ class ReportsTab(BaseTabContainer):
         vbox.setContentsMargins(12, 12, 12, 12)
         vbox.setSpacing(10)
         vbox.addLayout(self.summary_filter_row)
-        kpi_grid = QGridLayout()
-        kpi_grid.setSpacing(8)
-        for i, widget in enumerate([self.total_sales_kpi, self.total_returns_kpi, self.net_revenue_kpi, self.orders_count_kpi]):
-            widget.setStyleSheet("padding: 8px; border: 1px solid #d9d9d9; border-radius: 6px;")
-            kpi_grid.addWidget(widget, i // 2, i % 2)
-        vbox.addLayout(kpi_grid)
+        cards_grid = QGridLayout()
+        cards_grid.setHorizontalSpacing(8)
+        cards_grid.setVerticalSpacing(8)
+        cards_grid.setContentsMargins(0, 0, 0, 0)
+        card_specs = [
+            ("total_sales", "💰", "Total Sales"),
+            ("net_revenue", "🧾", "Net Revenue"),
+            ("total_expenses", "💸", "Total Expenses"),
+            ("net_cash_profit", "📈", "Net Cash Profit"),
+            ("returns", "↩️", "Returns"),
+            ("top_product", "🏷️", "Top Product"),
+            ("top_customer", "👤", "Top Customer"),
+            ("low_stock_alerts", "⚠️", "Low Stock Alerts"),
+        ]
+        for i, (key, icon, title) in enumerate(card_specs):
+            card = self._create_summary_card(title, icon)
+            self.summary_cards[key] = card
+            cards_grid.addWidget(card.parentWidget(), i // 4, i % 4)
+        vbox.addLayout(cards_grid)
         vbox.addWidget(self.summary_label)
         vbox.addWidget(self.payment_breakdown_label)
         vbox.addWidget(self.payment_table, 1)
         vbox.addLayout(export_layout)
         return tab
+
+    def _create_summary_card(self, title: str, icon: str) -> QLabel:
+        frame = QFrame()
+        frame.setStyleSheet("QFrame {border: 1px solid #d9d9d9; border-radius: 8px; background: #ffffff;}")
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(8)
+        thumb = QLabel(icon)
+        thumb.setStyleSheet("font-size: 18px;")
+        layout.addWidget(thumb, 0, Qt.AlignmentFlag.AlignTop)
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(1)
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-size: 11px; color: #666;")
+        value_label = QLabel("--")
+        value_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #1f2937;")
+        value_label.setWordWrap(True)
+        subtitle_label = QLabel("")
+        subtitle_label.setStyleSheet("font-size: 10px; color: #888;")
+        subtitle_label.setProperty("summarySubtitle", True)
+        text_col.addWidget(title_label)
+        text_col.addWidget(value_label)
+        text_col.addWidget(subtitle_label)
+        layout.addLayout(text_col, 1)
+        frame.setMinimumHeight(74)
+        frame.setMaximumHeight(90)
+        value_label.setProperty("subtitleLabel", subtitle_label)
+        return value_label
+
+    def _set_summary_card(self, key: str, value: str, subtitle: str = "") -> None:
+        card_label = self.summary_cards.get(key)
+        if card_label is None:
+            return
+        card_label.setText(value)
+        subtitle_label = card_label.property("subtitleLabel")
+        if isinstance(subtitle_label, QLabel):
+            subtitle_label.setText(subtitle)
+            subtitle_label.setVisible(bool(subtitle))
 
     def _build_returns_tab(self) -> QWidget:
         tab = QWidget()
@@ -583,11 +633,6 @@ class ReportsTab(BaseTabContainer):
                 net=f"{sales.net_sales:.2f}",
             )
         )
-        self.total_sales_kpi.setText(f"Total Sales\n{sales.subtotal:.2f}")
-        self.total_returns_kpi.setText(f"Total Returns\n{returns.return_total:.2f}")
-        self.net_revenue_kpi.setText(f"Net Revenue\n{sales.net_sales - returns.return_total:.2f}")
-        self.orders_count_kpi.setText(f"Orders Count\n{sales.invoice_count}")
-
         expense_data = expense_report_data(
             start_iso,
             end_iso,
@@ -610,6 +655,18 @@ class ReportsTab(BaseTabContainer):
         self.product_margin_kpi.setText(f"Product Margin\n{product_margin:.2f}")
         self.bills_kpi.setText(f"Bills\n{expense_data['bills_expenses']:.2f}")
         self.worker_wages_kpi.setText(f"Worker Wages\n{expense_data['wages_expenses']:.2f}")
+
+        top_product = top_rev[0] if top_rev else None
+        top_customer = customers[0] if customers else None
+        low_stock_count = len(out_of_stock) + len(near_out)
+        self._set_summary_card("total_sales", f"{sales.subtotal:.2f}", f"{sales.invoice_count} invoices")
+        self._set_summary_card("net_revenue", f"{revenue:.2f}", f"after returns {returns.return_total:.2f}")
+        self._set_summary_card("total_expenses", f"{expenses:.2f}", f"{len(expense_data['purchases'])} entries")
+        self._set_summary_card("net_cash_profit", f"{net_profit:.2f}")
+        self._set_summary_card("returns", f"{returns.return_total:.2f}", f"{returns.return_count} returns")
+        self._set_summary_card("top_product", top_product.name if top_product else "—", f"Qty {top_product.qty:.2f}" if top_product else "No sales")
+        self._set_summary_card("top_customer", top_customer.customer if top_customer else "—", f"Spend {top_customer.spend:.2f}" if top_customer else "No customer data")
+        self._set_summary_card("low_stock_alerts", str(low_stock_count), f"Out: {len(out_of_stock)} | Near: {len(near_out)}")
 
         self._last_report = ReportData(
             report_date=date_iso,

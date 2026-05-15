@@ -581,6 +581,16 @@ class InventoryTab(BaseTabContainer):
             QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
             return None
         try:
+            product_name_ar = str(getattr(product, "name_ar", "") or "")
+            product_name_en = str(getattr(product, "name_en", "") or "")
+            print(
+                "[DEBUG][InventoryTab] barcode label input before render_barcode_label_image:",
+                {
+                    "product.name_ar": product_name_ar,
+                    "product.name_english": product_name_en,
+                    "product_repr": repr(product),
+                },
+            )
             return render_barcode_label_image(
                 product_name=self._barcode_label_product_name(product),
                 sku=product.sku,

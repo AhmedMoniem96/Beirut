@@ -263,6 +263,7 @@ class InvoiceTab(BaseTabContainer):
         self.order_source_combo.addItem("", "in_store")
         self.order_source_combo.addItem("", "website")
         self.order_source_combo.currentIndexChanged.connect(self._handle_order_source_change)
+        self.order_source_combo.activated.connect(self._handle_order_source_activated)
         self._website_order_platform = ""
         self._website_order_notes = ""
         self.delivery_enabled_checkbox = QCheckBox()
@@ -1091,14 +1092,21 @@ class InvoiceTab(BaseTabContainer):
         self._refresh_summary_labels()
         self._update_validation_state()
 
+    def _handle_order_source_activated(self, index: int) -> None:
+        selected_source = self.order_source_combo.itemData(index)
+        if selected_source != "website":
+            return
+        self._open_website_order_dialog()
+        self._ensure_website_order_reference()
+        self._update_order_source_label()
+
     def _handle_order_source_change(self) -> None:
         if self._website_orders_enabled:
-            self.order_source_combo.setCurrentIndex(self.order_source_combo.findData("website"))
+            website_index = self.order_source_combo.findData("website")
+            if website_index >= 0 and self.order_source_combo.currentIndex() != website_index:
+                self.order_source_combo.setCurrentIndex(website_index)
         selected_source = self.order_source_combo.currentData()
-        if selected_source == "website":
-            self._open_website_order_dialog()
-            self._ensure_website_order_reference()
-        else:
+        if selected_source != "website":
             self._website_order_platform = ""
             self._website_order_notes = ""
             self.website_order_input.clear()
@@ -1875,7 +1883,7 @@ class InvoiceTab(BaseTabContainer):
         self._refresh_recently_sold()
         self.reset_invoice_state()
         self.refresh_products()
-        self._show_status_message(f"Invoice {invoice_no} saved")
+        self._show_status_message("Invoice saved successfully.")
         self._save_in_progress = False
         self._update_validation_state()
 

@@ -231,6 +231,7 @@ class ReportsTab(BaseTabContainer):
 
         self.summary_label = QLabel()
         self.summary_cards: Dict[str, QLabel] = {}
+        self.summary_card_widgets: Dict[str, QWidget] = {}
 
         self.payment_table = QTableWidget(0, 2)
         self.returns_table = QTableWidget(0, 3)
@@ -342,9 +343,10 @@ class ReportsTab(BaseTabContainer):
             ("low_stock_alerts", "⚠️", "Low Stock Alerts"),
         ]
         for i, (key, icon, title) in enumerate(card_specs):
-            card = self._create_summary_card(title, icon)
-            self.summary_cards[key] = card
-            cards_grid.addWidget(card.parentWidget(), i // 4, i % 4)
+            card_widget, value_label = self._create_summary_card(title, icon)
+            self.summary_cards[key] = value_label
+            self.summary_card_widgets[key] = card_widget
+            cards_grid.addWidget(card_widget, i // 4, i % 4)
         vbox.addLayout(cards_grid)
         vbox.addWidget(self.summary_label)
         vbox.addWidget(self.payment_breakdown_label)
@@ -352,7 +354,7 @@ class ReportsTab(BaseTabContainer):
         vbox.addLayout(export_layout)
         return tab
 
-    def _create_summary_card(self, title: str, icon: str) -> QLabel:
+    def _create_summary_card(self, title: str, icon: str) -> Tuple[QWidget, QLabel]:
         frame = QFrame()
         frame.setStyleSheet("QFrame {border: 1px solid #d9d9d9; border-radius: 8px; background: #ffffff;}")
         layout = QHBoxLayout(frame)
@@ -379,7 +381,7 @@ class ReportsTab(BaseTabContainer):
         frame.setMinimumHeight(74)
         frame.setMaximumHeight(90)
         value_label.setProperty("subtitleLabel", subtitle_label)
-        return value_label
+        return frame, value_label
 
     def _set_summary_card(self, key: str, value: str, subtitle: str = "") -> None:
         card_label = self.summary_cards.get(key)

@@ -232,6 +232,7 @@ class ReportsTab(BaseTabContainer):
         self.summary_label = QLabel()
         self.summary_cards: Dict[str, QLabel] = {}
         self.summary_card_widgets: Dict[str, QWidget] = {}
+        self.expense_kpi_cards: Dict[str, QLabel] = {}
 
         self.payment_table = QTableWidget(0, 2)
         self.returns_table = QTableWidget(0, 3)
@@ -436,6 +437,8 @@ class ReportsTab(BaseTabContainer):
     def _build_expenses_tab(self) -> QWidget:
         tab = QWidget()
         vbox = QVBoxLayout(tab)
+        vbox.setContentsMargins(12, 12, 12, 12)
+        vbox.setSpacing(8)
         filters = QHBoxLayout()
         filters.addWidget(QLabel("From Date:")); filters.addWidget(self.date_from_filter)
         filters.addWidget(QLabel("To Date:")); filters.addWidget(self.date_to_filter)
@@ -444,17 +447,23 @@ class ReportsTab(BaseTabContainer):
         filters.addWidget(QLabel("Payment Method:")); filters.addWidget(self.expense_payment_filter)
         vbox.addLayout(filters)
 
-        self.total_revenue_kpi = QLabel()
-        self.total_expenses_kpi = QLabel()
-        self.net_profit_kpi = QLabel()
-        self.product_margin_kpi = QLabel()
-        self.bills_kpi = QLabel()
-        self.worker_wages_kpi = QLabel()
-        kpi = QGridLayout()
-        for i,w in enumerate([self.total_revenue_kpi,self.total_expenses_kpi,self.net_profit_kpi,self.product_margin_kpi,self.bills_kpi,self.worker_wages_kpi]):
-            w.setStyleSheet("padding: 8px; border: 1px solid #d9d9d9; border-radius: 6px;")
-            kpi.addWidget(w, i//3, i%3)
-        vbox.addLayout(kpi)
+        expense_kpi_grid = QGridLayout()
+        expense_kpi_grid.setHorizontalSpacing(8)
+        expense_kpi_grid.setVerticalSpacing(8)
+        expense_kpi_specs = [
+            ("total_expenses", "💸", "reports.total_expenses"),
+            ("material_purchases", "🧵", "reports.material_purchases"),
+            ("bills", "🧾", "reports.bills"),
+            ("worker_wages", "👷", "reports.worker_wages"),
+            ("packaging_maintenance", "📦", "reports.packaging_maintenance"),
+            ("top_expense_category", "🏷️", "reports.top_expense_category"),
+            ("net_cash_profit_impact", "📉", "reports.net_cash_profit_impact"),
+        ]
+        for i, (key, icon, title_key) in enumerate(expense_kpi_specs):
+            card, value_label = self._create_summary_card(t(title_key, language=self._language), icon)
+            self.expense_kpi_cards[key] = value_label
+            expense_kpi_grid.addWidget(card, i // 4, i % 4)
+        vbox.addLayout(expense_kpi_grid)
 
         vbox.addWidget(QLabel(t("reports.expenses_by_category", language=self._language))); vbox.addWidget(self.expense_category_table,1)
         vbox.addWidget(QLabel("Purchases list")); vbox.addWidget(self.expenses_list_table,1)
@@ -520,6 +529,24 @@ class ReportsTab(BaseTabContainer):
         self.expenses_list_table.setHorizontalHeaderLabels(["Date", "Category", "Vendor/Worker", "Description", "Amount", "Payment Method"])
         self.material_purchases_table.setHorizontalHeaderLabels(["Material", "Qty Purchased", "Total Cost", "Average Unit Cost"])
         self.worker_wages_table.setHorizontalHeaderLabels(["Worker", "Period", "Total Paid"])
+        for key, title_key in [
+            ("total_expenses", "reports.total_expenses"),
+            ("material_purchases", "reports.material_purchases"),
+            ("bills", "reports.bills"),
+            ("worker_wages", "reports.worker_wages"),
+            ("packaging_maintenance", "reports.packaging_maintenance"),
+            ("top_expense_category", "reports.top_expense_category"),
+            ("net_cash_profit_impact", "reports.net_cash_profit_impact"),
+        ]:
+            label = self.expense_kpi_cards.get(key)
+            if label and isinstance(label.property("subtitleLabel"), QLabel):
+                card = label.parentWidget().parentWidget()
+                if card and card.layout() and card.layout().count() > 1:
+                    text_col = card.layout().itemAt(1).layout()
+                    if text_col and text_col.count() > 0:
+                        title_label = text_col.itemAt(0).widget()
+                        if isinstance(title_label, QLabel):
+                            title_label.setText(t(title_key, language=language))
         self.export_pdf_btn.setText(t("reports.export_pdf", language=language))
         self.export_excel_btn.setText(t("reports.export_excel", language=language))
         self.payment_breakdown_label.setText(t("reports.payment_breakdown", language=language))
@@ -656,12 +683,35 @@ class ReportsTab(BaseTabContainer):
         expenses = float(expense_data.get("total_expenses", 0.0) or 0.0)
         net_profit = revenue - expenses
         product_margin = sum(row.profit for row in production_history(start_iso, end_iso, "done", product_id))
-        self.total_revenue_kpi.setText(f"Net Revenue\n{revenue:.2f}")
-        self.total_expenses_kpi.setText(f"{t("reports.total_expenses", language=self._language)}\n{expenses:.2f}")
-        self.net_profit_kpi.setText(f"{t("reports.net_cash_profit", language=self._language)}\n{net_profit:.2f}")
-        self.product_margin_kpi.setText(f"Product Margin\n{product_margin:.2f}")
-        self.bills_kpi.setText(f"Bills\n{float(expense_data.get('bills_expenses', 0.0) or 0.0):.2f}")
-        self.worker_wages_kpi.setText(f"{t("reports.worker_wages", language=self._language)}\n{float(expense_data.get('wages_expenses', 0.0) or 0.0):.2f}")
+        bills_expenses = float(expense_data.get("bills_expenses", 0.0) or 0.0)
+        material_expenses = float(expense_data.get("material_expenses", 0.0) or 0.0)
+        wages_expenses = float(expense_data.get("wages_expenses", 0.0) or 0.0)
+        packaging_maintenance_expenses = sum(
+            row.total_amount
+            for row in by_category
+            if row.category.lower() in {"packaging", "maintenance"}
+        )
+        top_expense_category = by_category[0] if by_category else None
+        profit_impact_pct = (expenses / revenue * 100.0) if revenue > 0 else 0.0
+        self._set_expense_kpi_card("total_expenses", f"EGP {expenses:.2f}", t("reports.this_period", language=self._language))
+        self._set_expense_kpi_card("material_purchases", f"EGP {material_expenses:.2f}", t("reports.raw_materials", language=self._language))
+        self._set_expense_kpi_card("bills", f"EGP {bills_expenses:.2f}", t("reports.bills_paid", language=self._language))
+        self._set_expense_kpi_card("worker_wages", f"EGP {wages_expenses:.2f}", t("reports.wages_paid", language=self._language))
+        self._set_expense_kpi_card(
+            "packaging_maintenance",
+            f"EGP {packaging_maintenance_expenses:.2f}",
+            t("reports.if_available", language=self._language),
+        )
+        self._set_expense_kpi_card(
+            "top_expense_category",
+            top_expense_category.category if top_expense_category else "—",
+            f"EGP {top_expense_category.total_amount:.2f}" if top_expense_category else t("reports.no_data", language=self._language),
+        )
+        self._set_expense_kpi_card(
+            "net_cash_profit_impact",
+            f"-EGP {expenses:.2f}",
+            f"{profit_impact_pct:.1f}% {t('reports.of_net_revenue', language=self._language)}",
+        )
 
         top_product = top_rev[0] if top_rev else None
         top_customer = customers[0] if customers else None
@@ -735,6 +785,16 @@ class ReportsTab(BaseTabContainer):
             table.insertRow(row)
             for col, value in enumerate(row_data):
                 table.setItem(row, col, QTableWidgetItem(str(value)))
+
+    def _set_expense_kpi_card(self, key: str, value: str, subtitle: str = "") -> None:
+        label = self.expense_kpi_cards.get(key)
+        if not label:
+            return
+        label.setText(value)
+        subtitle_label = label.property("subtitleLabel")
+        if isinstance(subtitle_label, QLabel):
+            subtitle_label.setText(subtitle)
+            subtitle_label.setVisible(bool(subtitle))
 
     def _save_shift_session(self) -> None:
         save_shift_session(

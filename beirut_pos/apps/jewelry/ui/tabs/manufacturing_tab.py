@@ -751,7 +751,7 @@ class ManufacturingTab(BaseTabContainer):
 
     def _update_material_edit_ui(self) -> None:
         in_edit_mode = self._editing_material_id is not None
-        self.material_save_btn.setText("Update Material" if in_edit_mode else "Save Material")
+        self.material_save_btn.setText(("تحديث خامة" if self._language == "ar" else "Update Material") if in_edit_mode else ("حفظ خامة" if self._language == "ar" else "Save Material"))
         self.material_edit_btn.setEnabled(not in_edit_mode)
         self.material_cancel_edit_btn.setVisible(in_edit_mode)
         if in_edit_mode:
@@ -1278,22 +1278,26 @@ class ManufacturingTab(BaseTabContainer):
     def _view_history_details(self) -> None:
         row = self.history_table.currentRow()
         if row < 0:
-            QMessageBox.information(self, "View Details", "Select one history row first.")
+            QMessageBox.information(
+                self,
+                "عرض التفاصيل" if self._language == "ar" else "View Details",
+                "اختر صفًا من السجل أولاً." if self._language == "ar" else "Select one history row first.",
+            )
             return
         values = [self.history_table.item(row, col).text() if self.history_table.item(row, col) else "" for col in range(9)]
         QMessageBox.information(
             self,
-            "Workshop Details",
+            "تفاصيل الورشة" if self._language == "ar" else "Workshop Details",
             (
-                f"Date: {values[0]}\n"
-                f"Product: {values[1]}\n"
-                f"Qty Produced: {values[2]}\n"
-                f"Material Cost: {values[3]}\n"
-                f"Extra Cost: {values[4]}\n"
-                f"Total Cost: {values[5]}\n"
-                f"Selling Price: {values[6]}\n"
-                f"Profit: {values[7]}\n"
-                f"Margin %: {values[8]}"
+                f"{'التاريخ' if self._language == 'ar' else 'Date'}: {values[0]}\n"
+                f"{'المنتج' if self._language == 'ar' else 'Product'}: {values[1]}\n"
+                f"{'الكمية المنتجة' if self._language == 'ar' else 'Qty Produced'}: {values[2]}\n"
+                f"{'تكلفة الخامات' if self._language == 'ar' else 'Material Cost'}: {values[3]}\n"
+                f"{'تكلفة إضافية' if self._language == 'ar' else 'Extra Cost'}: {values[4]}\n"
+                f"{'التكلفة الإجمالية' if self._language == 'ar' else 'Total Cost'}: {values[5]}\n"
+                f"{'سعر البيع' if self._language == 'ar' else 'Selling Price'}: {values[6]}\n"
+                f"{'الربح' if self._language == 'ar' else 'Profit'}: {values[7]}\n"
+                f"{'الهامش %' if self._language == 'ar' else 'Margin %'}: {values[8]}"
             ),
         )
 
@@ -1388,8 +1392,8 @@ class ManufacturingTab(BaseTabContainer):
         if self.header_label is not None:
             self.header_label.setText(t("manufacturing.header", language=language))
         self.tabs.setTabText(0, "Design")
-        self.tabs.setTabText(1, "Materials")
-        self.tabs.setTabText(2, "History")
+        self.tabs.setTabText(1, "الخامات" if language == "ar" else "Materials")
+        self.tabs.setTabText(2, "السجل" if language == "ar" else "History")
         self.materials_box.setTitle(t("manufacturing.materials_box", language=language))
         self.material_name_ar_label.setText(t("manufacturing.material_name_ar", language=language))
         self.material_name_en_label.setText(t("manufacturing.material_name_en", language=language))
@@ -1398,21 +1402,21 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit_label.setText(t("manufacturing.material_unit", language=language))
         self.material_min_qty_label.setText(t("manufacturing.material_min_qty", language=language))
         self.material_cost_label.setText(t("manufacturing.material_cost", language=language))
-        self.material_restock_btn.setText("Restock Material")
-        self.material_delete_btn.setText("Delete Material")
-        self.material_clear_btn.setText("Add Material")
-        self.material_edit_btn.setText("Edit Material")
+        self.material_restock_btn.setText("إعادة تعبئة خامة" if language == "ar" else "Restock Material")
+        self.material_delete_btn.setText("حذف خامة" if language == "ar" else "Delete Material")
+        self.material_clear_btn.setText("إضافة خامة" if language == "ar" else "Add Material")
+        self.material_edit_btn.setText("تعديل خامة" if language == "ar" else "Edit Material")
         self.material_cancel_edit_btn.setText("Cancel Edit")
         self._update_material_edit_ui()
         self.materials_table.setHorizontalHeaderLabels(
             [
-                "Material Name Arabic",
-                "Material Name English",
-                "Code",
-                "Qty On Hand",
-                "Unit",
-                "Unit Cost",
-                "Min Qty",
+                "اسم الخامة" if language == "ar" else "Material Name Arabic",
+                "اسم الخامة (EN)" if language == "ar" else "Material Name English",
+                "الكود" if language == "ar" else "Code",
+                "الكمية" if language == "ar" else "Qty On Hand",
+                "الوحدة" if language == "ar" else "Unit",
+                "التكلفة" if language == "ar" else "Unit Cost",
+                "الحد الأدنى" if language == "ar" else "Min Qty",
             ]
         )
         self.tabs.setTabText(0, "إنشاء تصميم" if language == "ar" else "Create Design")
@@ -1489,18 +1493,18 @@ class ManufacturingTab(BaseTabContainer):
         self.history_status_label.setText(f"{t('manufacturing.history_status', language=language)}:")
         self.history_product_label.setText(f"{t('manufacturing.history_product', language=language)}:")
         self.history_refresh_btn.setText(t("manufacturing.history_refresh", language=language))
-        self.history_view_btn.setText("View Details")
+        self.history_view_btn.setText("عرض التفاصيل" if language == "ar" else "View Details")
         self.history_table.setHorizontalHeaderLabels(
             [
                 t("manufacturing.history_table_date", language=language),
                 t("manufacturing.history_table_product", language=language),
-                "Qty Produced",
-                "Material Cost",
-                "Extra Cost",
-                "Total Cost",
-                "Selling Price",
-                "Profit",
-                "Margin %",
+                "الكمية المنتجة" if language == "ar" else "Qty Produced",
+                "تكلفة الخامات" if language == "ar" else "Material Cost",
+                "تكلفة إضافية" if language == "ar" else "Extra Cost",
+                "التكلفة الإجمالية" if language == "ar" else "Total Cost",
+                "سعر البيع" if language == "ar" else "Selling Price",
+                "الربح" if language == "ar" else "Profit",
+                "الهامش %" if language == "ar" else "Margin %",
             ]
         )
         self.usage_box.setTitle(t("manufacturing.usage_box", language=language))

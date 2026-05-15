@@ -305,7 +305,8 @@ class SettingsTab(BaseTabContainer):
         self._refresh_device_status()
 
     def _save_settings(self) -> None:
-        settings = GallerySettings(
+        current_settings = load_gallery_settings()
+        app_settings = GallerySettings(
             name_en=self.name_en_input.text().strip(),
             name_ar=self.name_ar_input.text().strip(),
             address=self.address_input.text().strip(),
@@ -328,13 +329,13 @@ class SettingsTab(BaseTabContainer):
             printer_backend_priority=self.printer_backend_priority.text().strip() or "raw-usb-escpos,escpos-usb,file,windows",
             invoice_auto_print_after_save=self.invoice_auto_print_after_save_check.isChecked(),
             invoice_print_preview=self.invoice_print_preview_check.isChecked(),
-            printer_mode=settings.printer_mode,
+            printer_mode=current_settings.printer_mode,
             barcode_label_width_mm=float(self.barcode_label_width.text().strip() or 38),
             barcode_label_height_mm=float(self.barcode_label_height.text().strip() or 25),
             barcode_horizontal_offset_px=int(self.barcode_offset_x.text().strip() or 0),
             barcode_vertical_offset_px=int(self.barcode_offset_y.text().strip() or 0),
         )
-        save_gallery_settings(settings)
+        save_gallery_settings(app_settings)
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),
@@ -543,7 +544,7 @@ class SettingsTab(BaseTabContainer):
                 barcode_horizontal_offset_px=int(self.barcode_offset_x.text().strip() or 0),
                 barcode_vertical_offset_px=int(self.barcode_offset_y.text().strip() or 0),
             )
-            save_gallery_settings(settings)
+            save_gallery_settings(app_settings)
             barcode_printer.print_test_label(printer_name=self.barcode_printer.currentData() or "auto")
             QMessageBox.information(self, "Barcode Calibration", "Test label sent to printer.")
         except Exception as exc:

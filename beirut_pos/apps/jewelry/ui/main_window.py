@@ -7,6 +7,7 @@ import logging
 from PyQt6.QtCore import QSettings, QSignalBlocker, QSize, Qt
 from PyQt6.QtGui import QAction, QGuiApplication
 from PyQt6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -170,11 +171,11 @@ class JewelryMainWindow(QMainWindow):
     def _apply_language(self, language: str | None = None) -> None:
         self._language = language or get_ui_language()
         self.setWindowTitle(t("app.title", language=self._language))
-        self.tabs.setTabText(0, "Settings")
-        self.tabs.setTabText(1, "Reports")
-        self.tabs.setTabText(2, "الورشة" if self._language == "ar" else "Workshop")
-        self.tabs.setTabText(3, "Inventory")
-        self.tabs.setTabText(4, "Returns")
+        self.tabs.setTabText(0, t("tab.settings", language=self._language))
+        self.tabs.setTabText(1, t("tab.reports", language=self._language))
+        self.tabs.setTabText(2, t("tab.manufacturing", language=self._language))
+        self.tabs.setTabText(3, t("tab.inventory", language=self._language))
+        self.tabs.setTabText(4, t("tab.returns", language=self._language))
         self.tabs.setTabText(5, t("tab.invoice", language=self._language))
         self.tabs.setTabText(6, t("tab.customers", language=self._language))
         self.orders_menu.setTitle(t("menu.orders", language=self._language))
@@ -186,6 +187,13 @@ class JewelryMainWindow(QMainWindow):
         self.reports_tab.apply_language(self._language)
         self.settings_tab.apply_language(self._language)
         self.customers_tab.apply_language(self._language)
+
+        for widget in QApplication.topLevelWidgets():
+            if widget is self:
+                continue
+            apply_language = getattr(widget, "apply_language", None)
+            if callable(apply_language):
+                apply_language(self._language)
 
     def _apply_settings(self) -> None:
         settings = load_gallery_settings()

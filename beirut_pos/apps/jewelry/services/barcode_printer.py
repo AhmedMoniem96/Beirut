@@ -559,17 +559,18 @@ def _map_print_error(exc: BaseException) -> BarcodePrinterError:
     return BarcodePrinterError(f"Barcode printing failed: {msg}", code="unknown")
 
 
-def try_print_barcode_label_image(img: Image.Image, *, printer_name: str, retries: int = 1) -> None:
+def try_print_barcode_label_image(img: Image.Image, *, printer_name: str, retries: int = 1) -> bool:
     attempts = max(retries, 0) + 1
     last_error: BarcodePrinterError | None = None
     for _ in range(attempts):
         try:
             print_barcode_label_image(img, printer_name=printer_name)
-            return
+            return True
         except RuntimeError as exc:
             last_error = _map_print_error(exc)
     if last_error is not None:
         raise last_error
+    return False
 
 
 
@@ -658,111 +659,55 @@ def print_barcode_label_image(
     *,
     printer_name: str,
 ) -> None:
+    target_printer = (printer_name or "").strip()
+    if not target_printer or target_printer.lower() == "auto":
+        raise RuntimeError("No barcode label printer selected. Please choose the Rongta printer in Settings.")
+
+    os_name = platform.system()
+    printer_service._log_struct(
+        "barcode.print.dispatch",
+        event="print_function_called",
+        os_detected=os_name,
+        target_printer_name=target_printer,
+        label_image_size=f"{img.width}x{img.height}",
+    )
+
     try:
-        escpos_first_auto = os.environ.get("BEIRUT_POS_WINDOWS_AUTO_ESCPOS_FIRST", "1") == "1"
-        if printer_name and printer_name != "auto" and printer_service._IS_WINDOWS:
-            printer_service._log_struct(
-                "barcode.label.print.payload",
-                label_width_px=LABEL_WIDTH_PX,
-                label_height_px=LABEL_HEIGHT_PX,
-                header_width_px=0,
-                header_height_px=0,
-                barcode_width_px=0,
-                barcode_height_px=0,
-                composed_width_px=img.width,
-                composed_height_px=img.height,
-                final_canvas_width_px=img.width,
-                final_canvas_height_px=img.height,
-            )
-            printer_service.win_print_image(printer_name, img.convert("RGB"))
-            printer_service._log_struct(
-                "barcode.print.selected",
-                backend="windows-gdi",
-                printer_name=printer_name,
-                mode="explicit_printer",
-            )
+        printer_service._log_struct(
+            "barcode.label.print.payload",
+            label_width_px=LABEL_WIDTH_PX,
+            label_height_px=LABEL_HEIGHT_PX,
+            composed_width_px=img.width,
+            composed_height_px=img.height,
+            final_canvas_width_px=img.width,
+            final_canvas_height_px=img.height,
+        )
+
+        if printer_service._IS_WINDOWS:
+            printer_service._log_struct("barcode.print.backend", backend="windows-gdi", target_printer_name=target_printer)
+            printer_service.win_print_image(target_printer, img.convert("RGB"))
+            printer_service._log_struct("barcode.print.result", success=True, backend="windows-gdi", target_printer_name=target_printer)
             return
 
-        should_try_escpos = not printer_service._IS_WINDOWS or printer_name != "auto" or escpos_first_auto
-        if should_try_escpos:
-            escpos_printer = printer_service._find_thermal_printer()
-            if escpos_printer:
-                raster = pil_image_to_escpos_raster(img)
-                printer_service._log_struct(
-                    "barcode.label.print.payload",
-                    label_width_px=LABEL_WIDTH_PX,
-                    label_height_px=LABEL_HEIGHT_PX,
-                    header_width_px=0,
-                    header_height_px=0,
-                    barcode_width_px=0,
-                    barcode_height_px=0,
-                    composed_width_px=img.width,
-                    composed_height_px=img.height,
-                    final_canvas_width_px=img.width,
-                    final_canvas_height_px=img.height,
-                    raster_bytes_len=len(raster),
-                )
-                if hasattr(escpos_printer, "_raw"):
-                    escpos_printer._raw(raster)
-                elif hasattr(escpos_printer, "image"):
-                    escpos_printer.image(img)
-                printer_service._post_feed_and_cut(escpos_printer)
-                printer_service._log_struct(
-                    "barcode.print.selected",
-                    backend="escpos",
-                    printer_name=printer_name,
-                    mode="auto" if printer_name == "auto" else "fallback",
-                )
-                return
-            printer_service._log_struct(
-                "barcode.print.backend_failed",
-                backend="escpos",
-                reason="no_escpos_printer_detected",
-                printer_name=printer_name,
-                mode="auto" if printer_name == "auto" else "regular",
-            )
+        printer_service._log_struct("barcode.print.backend", backend="escpos-usb", target_printer_name=target_printer)
+        escpos_printer = printer_service._find_thermal_printer()
+        if not escpos_printer:
+            raise RuntimeError("Configured barcode printer backend unavailable (USB/ESC-POS not found).")
 
-        if printer_service._IS_WINDOWS and printer_name == "auto":
-            default_printer = None
-            try:
-                import win32print  # type: ignore
-
-                default_printer = win32print.GetDefaultPrinter()
-            except Exception:
-                pass
-            if not default_printer:
-                known = printer_service.win_list_printers()
-                default_printer = known[0] if known else None
-            if not default_printer:
-                raise RuntimeError("No Windows default printer detected.")
-            printer_service._log_struct(
-                "barcode.label.print.payload",
-                label_width_px=LABEL_WIDTH_PX,
-                label_height_px=LABEL_HEIGHT_PX,
-                header_width_px=0,
-                header_height_px=0,
-                barcode_width_px=0,
-                barcode_height_px=0,
-                composed_width_px=img.width,
-                composed_height_px=img.height,
-                final_canvas_width_px=img.width,
-                final_canvas_height_px=img.height,
-            )
-            printer_service.win_print_image(default_printer, img.convert("RGB"))
-            printer_service._log_struct(
-                "barcode.print.selected",
-                backend="windows-gdi",
-                printer_name=default_printer,
-                mode="auto_default_fallback",
-            )
-            return
-
-        raise RuntimeError("No ESC/POS printer detected.")
+        raster = pil_image_to_escpos_raster(img)
+        if hasattr(escpos_printer, "_raw"):
+            escpos_printer._raw(raster)
+        elif hasattr(escpos_printer, "image"):
+            escpos_printer.image(img)
+        else:
+            raise RuntimeError("Configured barcode backend does not support image dispatch.")
+        printer_service._post_feed_and_cut(escpos_printer)
+        printer_service._log_struct("barcode.print.result", success=True, backend="escpos-usb", target_printer_name=target_printer, raster_bytes_len=len(raster))
     except BaseException as exc:
         printer_service._log_struct(
             "barcode.print.failed",
-            backend="unknown",
-            printer_name=printer_name,
+            backend="windows-gdi" if printer_service._IS_WINDOWS else "escpos-usb",
+            target_printer_name=target_printer,
             error=str(exc),
         )
         raise RuntimeError(f"Barcode printing failed: {exc}") from exc

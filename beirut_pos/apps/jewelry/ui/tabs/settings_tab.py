@@ -34,7 +34,6 @@ from ...services.settings import (
 from ...services.demo_seed import seed_demo_data
 from ...services.i18n import get_ui_language, set_ui_language, t
 from ...services import device_health
-from ...services import barcode_printer
 from ...services.windows_raw_printer import enumerate_printers
 from ..dialogs.delivery_companies_dialog import DeliveryCompaniesDialog
 from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
@@ -603,28 +602,6 @@ class SettingsTab(BaseTabContainer):
         else:
             QMessageBox.warning(self, "Scanner Test", "No scanner payload received before timeout.")
         self._refresh_device_status()
-
-    def _print_test_label(self) -> None:
-        try:
-            current_settings = load_gallery_settings()
-            barcode_settings = self._barcode_settings_from_controls()
-            settings = replace(
-                current_settings,
-                barcode_print_mode=self.barcode_mode.currentData() or "pdf",
-                barcode_printer_name=barcode_settings.exact_windows_name or "auto",
-                barcode_label_width_mm=barcode_settings.width_mm,
-                barcode_label_height_mm=barcode_settings.height_mm,
-                barcode_horizontal_offset_px=self.barcode_offset_x.value(),
-                barcode_vertical_offset_px=self.barcode_offset_y.value(),
-                barcode_printer_settings=barcode_settings,
-            )
-            save_gallery_settings(settings)
-            barcode_printer.print_test_label(
-                printer_name=barcode_settings.exact_windows_name or "auto"
-            )
-            QMessageBox.information(self, "Barcode Calibration", t("inventory.printed", language=self._language))
-        except Exception as exc:
-            QMessageBox.warning(self, "Barcode Calibration", f"{t('common.failed_to_print', language=self._language)}: {exc}")
 
     def _print_test_receipt(self) -> None:
         receipt_printer = self.receipt_printer.currentData() or "auto"

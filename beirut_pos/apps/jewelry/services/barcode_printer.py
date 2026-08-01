@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import platform
+from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
@@ -76,12 +77,15 @@ class BarcodeLabelData:
     supplied by integrations may do so.
     """
 
-    product_name: str
+    product_name: str | None
     barcode_value: str
     price: float | None = None
     weight: float | None = None
     karat: str | None = None
     copies: int = 1
+    model_name: str = ""
+    printer_queue: str = ""
+    generated_at: datetime | None = None
 
 
 def get_label_calibration() -> dict[str, int | float]:
@@ -435,6 +439,8 @@ def render_barcode_label_image(
     sku: str,
     barcode_value: str,
     barcode_type: str,
+    header_lines: Sequence[str] | None = None,
+    print_stage: str = "Product label",
 ) -> Image.Image:
     calib = get_label_calibration()
     label_width_px = int(calib["width_px"])
@@ -443,7 +449,7 @@ def render_barcode_label_image(
     offset_y = int(calib["offset_y"])
     dpi = int(calib["dpi"])
     selected_mode = _selected_arabic_label_mode()
-    title = product_name.strip() or "Item"
+    title = (product_name or "").strip() or "Item"
     if selected_mode == "none":
         title = sku.strip() or barcode_value.strip() or "Item"
     encoded_value = _coerce_ascii_barcode_value(barcode_value)
@@ -452,7 +458,10 @@ def render_barcode_label_image(
     sku_line = encoded_value
     normalized_type = "code128"
     type_label = "Code128"
-    header_img, header_renderer = _render_label_lines_at_width([">>C " + title, ">>C " + sku_line], label_width_px, mode=selected_mode)
+    rendered_header_lines = list(header_lines) if header_lines is not None else [title, sku_line]
+    header_img, header_renderer = _render_label_lines_at_width(
+        [">>C " + line for line in rendered_header_lines], label_width_px, mode=selected_mode
+    )
     header_width_px = header_img.width
     header_height_px = header_img.height
 
@@ -560,7 +569,7 @@ def render_barcode_label_image(
         {
             "beirut_product_name": (product_name or "").strip(),
             "beirut_barcode_value": encoded_value,
-            "beirut_print_stage": "Product label",
+            "beirut_print_stage": print_stage,
             "beirut_width_mm": float(calib["width_mm"]),
             "beirut_height_mm": float(calib["height_mm"]),
         }
@@ -804,49 +813,75 @@ def render_label_bitmap(lines: Sequence[str]) -> Image.Image:
     return label_canvas
 
 
-def render_test_label_image() -> Image.Image:
-    calib = get_label_calibration()
-    width_px = int(calib["width_px"])
-    height_px = int(calib["height_px"])
-    offset_x = int(calib["offset_x"])
-    offset_y = int(calib["offset_y"])
-    img = Image.new("1", (width_px, height_px), 1)
-    draw = ImageDraw.Draw(img)
-    draw.rectangle((0, 0, width_px - 1, height_px - 1), outline=0, width=1)
-    cx = max(0, min(width_px - 1, (width_px // 2) + offset_x))
-    cy = max(0, min(height_px - 1, (height_px // 2) + offset_y))
-    draw.line((max(0, cx - 12), cy, min(width_px - 1, cx + 12), cy), fill=0, width=1)
-    draw.line((cx, max(0, cy - 12), cx, min(height_px - 1, cy + 12)), fill=0, width=1)
-    sku_line = _render_fitted_center_line("SKU: TEST-123", width=width_px, max_font_size=14, min_font_size=10)
-    img.paste(sku_line, (0, 3))
-    sample = render_barcode_label_image(
-        product_name="Sample",
-        sku="TEST-123",
-        barcode_value="TEST-123",
-        barcode_type="qr",
+TEST_BARCODE_VALUE = "123456789012"
+
+
+def create_test_barcode_label_data(
+    *, copies: int | None = None, generated_at: datetime | None = None
+) -> BarcodeLabelData:
+    """Create an operational test request without fabricating a product."""
+    printer = validate_barcode_printer_settings(load_gallery_settings().barcode_printer_settings)
+    requested_copies = printer.default_copies if copies is None else copies
+    if isinstance(requested_copies, bool) or not isinstance(requested_copies, int) or requested_copies < 1:
+        raise BarcodeValidationError("copies", "Copies must be a positive integer.")
+    return BarcodeLabelData(
+        product_name=None,
+        barcode_value=TEST_BARCODE_VALUE,
+        copies=requested_copies,
+        model_name=printer.model.strip() or "RP310",
+        printer_queue=printer.exact_windows_name.strip(),
+        generated_at=generated_at or datetime.now().astimezone(),
     )
-    sample_cropped = sample.crop((0, max(0, sample.height // 3), sample.width, sample.height))
-    qr_x = max(0, min(width_px - sample_cropped.width, (width_px - sample_cropped.width) // 2 + offset_x))
-    qr_y = max(10, min(height_px - sample_cropped.height, height_px - sample_cropped.height - 2 + offset_y))
-    img.paste(sample_cropped, (qr_x, qr_y))
-    img.info.update(
-        {
-            "beirut_product_name": "",
-            "beirut_barcode_value": "TEST-123",
-            "beirut_print_stage": "Test RP310",
-            "beirut_width_mm": float(calib["width_mm"]),
-            "beirut_height_mm": float(calib["height_mm"]),
-        }
+
+
+def render_test_label_image(data: BarcodeLabelData | None = None) -> Image.Image:
+    data = data or create_test_barcode_label_data()
+    timestamp = data.generated_at.isoformat(sep=" ", timespec="seconds") if data.generated_at else ""
+    return render_barcode_label_image(
+        product_name="",
+        sku=data.barcode_value,
+        barcode_value=data.barcode_value,
+        barcode_type="code128",
+        header_lines=(data.model_name, data.printer_queue, timestamp, data.barcode_value),
+        print_stage="Test RP310",
     )
-    return img
+
+
+def print_barcode_label_data(
+    data: BarcodeLabelData,
+    *,
+    printer_name: str,
+    sku: str = "",
+    barcode_type: str = "code128",
+    test: bool = False,
+) -> None:
+    """Run a prepared request through the normal merged-bitmap RAW orchestration."""
+    if test:
+        image = render_test_label_image(data)
+    else:
+        image = render_barcode_label_image(
+            product_name=data.product_name or "",
+            sku=sku or data.barcode_value,
+            barcode_value=data.barcode_value,
+            barcode_type=barcode_type,
+        )
+    printer_settings = validate_barcode_printer_settings(load_gallery_settings().barcode_printer_settings)
+    printer_service._log_struct(
+        "printer.mode.active",
+        printer_mode="label",
+        renderer="render_label_bitmap",
+        canvas_width_px=_mm_to_px(printer_settings.width_mm, printer_settings.dpi),
+        canvas_height_px=_mm_to_px(printer_settings.height_mm, printer_settings.dpi),
+        bitmap_width_px=image.width,
+        bitmap_height_px=image.height,
+        printer_name=printer_name,
+    )
+    print_barcode_label_image(image, printer_name=printer_name, copies=data.copies)
 
 
 def print_test_label(*, printer_name: str, copies: int | None = None) -> None:
-    print_barcode_label_image(
-        render_test_label_image(),
-        printer_name=printer_name,
-        copies=copies,
-    )
+    data = create_test_barcode_label_data(copies=copies)
+    print_barcode_label_data(data, printer_name=printer_name, test=True)
 
 
 def print_barcode_label(
@@ -859,40 +894,17 @@ def print_barcode_label(
     copies: int | None = None,
 ) -> None:
     """Public barcode/QR label printing entrypoint (label-only pipeline)."""
-    settings = load_gallery_settings()
-    printer_settings = validate_barcode_printer_settings(settings.barcode_printer_settings)
-    calibration = get_label_calibration()
     label_data = prepare_barcode_label_data(
         product_name=product_name,
         barcode_value=barcode_value or sku,
         copies=copies,
     )
-    requested_copies = label_data.copies
-    validate_print_request(
-        product_name=product_name,
-        barcode_value=barcode_value or sku,
+    print_barcode_label_data(
+        label_data,
         printer_name=printer_name,
-        copies=requested_copies,
-        width_mm=float(calibration["width_mm"]),
-        height_mm=float(calibration["height_mm"]),
-    )
-    img = render_barcode_label_image(
-        product_name=product_name,
         sku=sku,
-        barcode_value=barcode_value,
         barcode_type=barcode_type,
     )
-    printer_service._log_struct(
-        "printer.mode.active",
-        printer_mode="label",
-        renderer="render_label_bitmap",
-        canvas_width_px=_mm_to_px(printer_settings.width_mm, printer_settings.dpi),
-        canvas_height_px=_mm_to_px(printer_settings.height_mm, printer_settings.dpi),
-        bitmap_width_px=img.width,
-        bitmap_height_px=img.height,
-        printer_name=printer_name,
-    )
-    print_barcode_label_image(img, printer_name=printer_name, copies=requested_copies)
 
 
 def build_rp310_escpos_commands(img: Image.Image) -> bytes:

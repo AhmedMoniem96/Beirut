@@ -4,19 +4,9 @@ import glob, os, re, platform, json
 from datetime import datetime
 from typing import Iterable, List, Optional, Sequence
 
-# -------- ESC/POS raw USB (fallback) -------------------------------------
-try:
-    from escpos.printer import File, Usb
-    from escpos.exceptions import USBNotFoundError
-    _ESCPOS_OK = True
-except ImportError:
-    _ESCPOS_OK = False
-
-    class USBNotFoundError(Exception):
-        ...
-
-    Usb = None
-    File = None
+# python-escpos is an optional, legacy non-Windows backend.  It is deliberately
+# imported only by the functions which use it: importing this shared service is
+# part of normal Jewelry startup and must not load escpos.capabilities.
 
 # -------- OS / PIL -------------------------------------------------------
 _IS_WINDOWS = platform.system().lower().startswith("win")
@@ -496,8 +486,15 @@ def _usblp_device_paths() -> list[str]:
 
 
 def _try_usb_printer(*, allow_when_blocked: bool = False, usb_ids: Sequence[tuple[int, int]] | None = None, probe_candidates: Sequence[dict[str, int | None]] | None = None):
-    if not _ESCPOS_OK or Usb is None:
+    if _IS_WINDOWS:
+        _log_struct("printer.usb.skip", reason="windows_uses_raw_spooler")
+        return None
+    try:
+        from escpos.exceptions import USBNotFoundError
+        from escpos.printer import Usb
+    except (ImportError, OSError) as exc:
         _log_struct("printer.usb.skip", reason="escpos_not_available")
+        _log_printer_error("Optional python-escpos USB backend unavailable", exc)
         return None
     lp = _usblp_device_paths()
     should_skip_for_usblp = lp and not allow_when_blocked and not _ALLOW_USB_WITH_USBLP
@@ -573,8 +570,14 @@ def _try_usb_printer(*, allow_when_blocked: bool = False, usb_ids: Sequence[tupl
 
 
 def _try_file_printer():
-    if File is None:
+    if _IS_WINDOWS:
+        _log_struct("printer.file.skip", reason="windows_uses_raw_spooler")
+        return None
+    try:
+        from escpos.printer import File
+    except (ImportError, OSError) as exc:
         _log_struct("printer.file.skip", reason="file_backend_not_available")
+        _log_printer_error("Optional python-escpos file backend unavailable", exc)
         return None
     for p in _usblp_device_paths():
         try:
@@ -824,6 +827,13 @@ def _find_thermal_printer(*, prefer_windows_named: bool = False, windows_printer
             _log_struct("printer.discovery.selected", backend="windows", mode="named_windows_preferred", printer_name=selected_name)
             return None
         _log_struct("printer.discovery.windows_named_missing", backend="windows", mode="named_windows_preferred", printer_name=selected_name, available_count=len(available))
+
+    # Never probe libusb, /dev/usb/lp*, or python-escpos on Windows. Named
+    # Rongta RP310 jobs are dispatched through win32print's RAW spooler by the
+    # Jewelry barcode service.
+    if _IS_WINDOWS:
+        _log_struct("printer.discovery.skip", reason="windows_uses_raw_spooler")
+        return None
 
     if _DISABLE_ESCPOS:
         _log_struct("printer.discovery.skip", reason="escpos_disabled")

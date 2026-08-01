@@ -16,6 +16,7 @@ from barcode import Code128
 from barcode.writer import ImageWriter
 from io import BytesIO
 import logging
+import math
 import string
 from dataclasses import dataclass
 
@@ -47,7 +48,7 @@ from reportlab.graphics.shapes import Drawing
 
 from beirut_pos.services import printer as printer_service
 from beirut_pos.services.arabic_bitmap import pil_image_to_escpos_raster
-from .settings import load_gallery_settings
+from .settings import BarcodePrinterSettings, load_gallery_settings
 from .windows_raw_printer import submit_raw_print_job
 
 
@@ -84,14 +85,22 @@ class BarcodeLabelData:
 
 
 def get_label_calibration() -> dict[str, int | float]:
+    """Return pixels derived from focused settings, not legacy flat fields.
+
+    ``barcode_label_width_mm`` and ``barcode_label_height_mm`` remain mirrored
+    by ``GallerySettings`` for compatibility; this print path intentionally
+    consumes the validated ``barcode_printer_settings`` values instead.
+    """
     settings = load_gallery_settings()
-    width_mm = max(10.0, float(getattr(settings, "barcode_label_width_mm", _QR_LABEL_WIDTH_MM) or _QR_LABEL_WIDTH_MM))
-    height_mm = max(10.0, float(getattr(settings, "barcode_label_height_mm", _QR_LABEL_HEIGHT_MM) or _QR_LABEL_HEIGHT_MM))
+    printer = validate_barcode_printer_settings(settings.barcode_printer_settings)
+    width_mm = printer.width_mm
+    height_mm = printer.height_mm
     return {
         "width_mm": width_mm,
         "height_mm": height_mm,
-        "width_px": _mm_to_px(width_mm),
-        "height_px": _mm_to_px(height_mm),
+        "dpi": printer.dpi,
+        "width_px": _mm_to_px(width_mm, printer.dpi),
+        "height_px": _mm_to_px(height_mm, printer.dpi),
         "offset_x": int(getattr(settings, "barcode_horizontal_offset_px", 0) or 0),
         "offset_y": int(getattr(settings, "barcode_vertical_offset_px", 0) or 0),
     }
@@ -233,7 +242,7 @@ def _shape_label_text(text: str, *, mode: str) -> str:
     return text
 
 
-def _render_code128_bitmap(value: str) -> Image.Image:
+def _render_code128_bitmap(value: str, *, dpi: int) -> Image.Image:
     buffer = BytesIO()
     Code128(value, writer=ImageWriter()).write(
         buffer,
@@ -243,6 +252,10 @@ def _render_code128_bitmap(value: str) -> Image.Image:
             "quiet_zone": 1.0,
             "font_size": 0,
             "write_text": False,
+            # ImageWriter otherwise defaults to 300 DPI.  Supplying the
+            # validated printer DPI keeps every Code 128 module at native dot
+            # resolution before it is merged with the Arabic bitmap.
+            "dpi": dpi,
         },
     )
     buffer.seek(0)
@@ -428,6 +441,7 @@ def render_barcode_label_image(
     label_height_px = int(calib["height_px"])
     offset_x = int(calib["offset_x"])
     offset_y = int(calib["offset_y"])
+    dpi = int(calib["dpi"])
     selected_mode = _selected_arabic_label_mode()
     title = product_name.strip() or "Item"
     if selected_mode == "none":
@@ -444,7 +458,7 @@ def render_barcode_label_image(
 
     barcode_renderer = "python_barcode_code128"
     try:
-        barcode_img = _render_code128_bitmap(encoded_value)
+        barcode_img = _render_code128_bitmap(encoded_value, dpi=dpi)
     except Exception as exc:
         logger.exception("Failed to generate barcode image", extra={"barcode_value": encoded_value})
         raise BarcodeRenderError(f"Failed to generate barcode image: {exc}") from exc
@@ -465,8 +479,8 @@ def render_barcode_label_image(
         printer_service._log_struct(
             "barcode.label.compose.oversize_component",
             component="barcode",
-            label_width_px=LABEL_WIDTH_PX,
-            label_height_px=LABEL_HEIGHT_PX,
+            label_width_px=label_width_px,
+            label_height_px=label_height_px,
             header_width_px=header_width_px,
             header_height_px=header_height_px,
             barcode_width_px=barcode_width_px,
@@ -483,8 +497,8 @@ def render_barcode_label_image(
         printer_service._log_struct(
             "barcode.label.compose.oversize_component",
             component="header",
-            label_width_px=LABEL_WIDTH_PX,
-            label_height_px=LABEL_HEIGHT_PX,
+            label_width_px=label_width_px,
+            label_height_px=label_height_px,
             header_width_px=header_width_px,
             header_height_px=header_height_px,
             barcode_width_px=barcode_width_px,
@@ -525,8 +539,8 @@ def render_barcode_label_image(
     label.paste(barcode_img, (barcode_x, barcode_y))
     printer_service._log_struct(
         "barcode.label.compose.metrics",
-        label_width_px=LABEL_WIDTH_PX,
-        label_height_px=LABEL_HEIGHT_PX,
+        label_width_px=label_width_px,
+        label_height_px=label_height_px,
         text_width_px=header_img.width,
         text_height_px=header_img.height,
         barcode_width_px=barcode_img.width,
@@ -616,6 +630,58 @@ class BarcodeValidationError(BarcodePrintRequestError):
     def __init__(self, field: str, message: str, **context: object) -> None:
         self.field = field
         super().__init__(message, **context)  # type: ignore[arg-type]
+
+
+def validate_barcode_printer_settings(
+    settings: BarcodePrinterSettings,
+) -> BarcodePrinterSettings:
+    """Validate settings used by the RP310 bitmap pipeline.
+
+    The confirmed RP310 ESC/POS path supports a 203-DPI raster, feed/cut, and
+    application-side copy repetition.  ``density``, ``speed``, and ``gap_mm``
+    are persisted for printer-language profiles, but are deliberately *not*
+    emitted here: no corresponding RP310 ESC/POS commands have been confirmed.
+    They are still type/range checked so invalid persisted data is visible.
+    """
+    numeric_fields = (("width_mm", settings.width_mm), ("height_mm", settings.height_mm))
+    for field, value in numeric_fields:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 10:
+            raise BarcodeValidationError(field, f"{field} must be a finite value of at least 10 mm.")
+    if settings.dpi != _LABEL_DPI:
+        raise BarcodeValidationError(
+            "dpi", f"RP310 ESC/POS bitmap output is confirmed only at {_LABEL_DPI} DPI."
+        )
+    if settings.command_language.strip().upper() != "ESC/POS":
+        raise BarcodeValidationError(
+            "command_language", "The merged RP310 RAW bitmap flow requires ESC/POS."
+        )
+    if isinstance(settings.default_copies, bool) or not isinstance(settings.default_copies, int) or settings.default_copies < 1:
+        raise BarcodeValidationError("default_copies", "Default copies must be a positive integer.")
+    if isinstance(settings.gap_mm, bool) or not isinstance(settings.gap_mm, (int, float)) or not math.isfinite(settings.gap_mm) or settings.gap_mm < 0:
+        raise BarcodeValidationError("gap_mm", "Label gap must be a finite non-negative value.")
+    for field in ("density", "speed"):
+        value = getattr(settings, field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise BarcodeValidationError(field, f"{field.capitalize()} must be a non-negative integer.")
+    return settings
+
+
+def prepare_barcode_label_data(
+    *,
+    product_name: str,
+    barcode_value: str,
+    copies: int | None = None,
+) -> BarcodeLabelData:
+    """Prepare normalized label data using the validated configured copies."""
+    printer = validate_barcode_printer_settings(load_gallery_settings().barcode_printer_settings)
+    requested_copies = printer.default_copies if copies is None else copies
+    if isinstance(requested_copies, bool) or not isinstance(requested_copies, int) or requested_copies < 1:
+        raise BarcodeValidationError("copies", "Copies must be a positive integer.")
+    return BarcodeLabelData(
+        product_name=(product_name or "").strip(),
+        barcode_value=_coerce_ascii_barcode_value(barcode_value),
+        copies=requested_copies,
+    )
 
 
 class BarcodePrintStageError(BarcodePrintRequestError):
@@ -719,7 +785,7 @@ def try_print_barcode_label_image(
 
 
 def render_label_bitmap(lines: Sequence[str]) -> Image.Image:
-    """Render narrow label text bitmap on a fixed 38x25mm canvas."""
+    """Render narrow label text bitmap on the validated configured canvas."""
     calib = get_label_calibration()
     width_px = int(calib["width_px"])
     height_px = int(calib["height_px"])
@@ -730,8 +796,8 @@ def render_label_bitmap(lines: Sequence[str]) -> Image.Image:
         printer_mode="label",
         renderer="render_label_bitmap",
         text_renderer=renderer,
-        canvas_width_px=LABEL_WIDTH_PX,
-        canvas_height_px=LABEL_HEIGHT_PX,
+        canvas_width_px=width_px,
+        canvas_height_px=height_px,
         bitmap_width_px=label_canvas.width,
         bitmap_height_px=label_canvas.height,
     )
@@ -794,8 +860,14 @@ def print_barcode_label(
 ) -> None:
     """Public barcode/QR label printing entrypoint (label-only pipeline)."""
     settings = load_gallery_settings()
+    printer_settings = validate_barcode_printer_settings(settings.barcode_printer_settings)
     calibration = get_label_calibration()
-    requested_copies = settings.barcode_printer_settings.default_copies if copies is None else copies
+    label_data = prepare_barcode_label_data(
+        product_name=product_name,
+        barcode_value=barcode_value or sku,
+        copies=copies,
+    )
+    requested_copies = label_data.copies
     validate_print_request(
         product_name=product_name,
         barcode_value=barcode_value or sku,
@@ -814,13 +886,37 @@ def print_barcode_label(
         "printer.mode.active",
         printer_mode="label",
         renderer="render_label_bitmap",
-        canvas_width_px=LABEL_WIDTH_PX,
-        canvas_height_px=LABEL_HEIGHT_PX,
+        canvas_width_px=_mm_to_px(printer_settings.width_mm, printer_settings.dpi),
+        canvas_height_px=_mm_to_px(printer_settings.height_mm, printer_settings.dpi),
         bitmap_width_px=img.width,
         bitmap_height_px=img.height,
         printer_name=printer_name,
     )
     print_barcode_label_image(img, printer_name=printer_name, copies=requested_copies)
+
+
+def build_rp310_escpos_commands(img: Image.Image) -> bytes:
+    """Build one confirmed RP310 ESC/POS label command stream.
+
+    Arabic stays in the merged bitmap.  Density, speed and media-gap settings
+    are not injected because their ESC/POS representations have not been
+    confirmed for the RP310.
+    """
+    raster = pil_image_to_escpos_raster(img)
+    return b"\x1b@" + raster + b"\n\x1b\x64\x03\x1b\x4a\x30\x1d\x56\x00"
+
+
+def submit_rp310_raw_commands(
+    printer_name: str,
+    commands: bytes,
+    *,
+    copies: int,
+) -> None:
+    """Submit one independently initialized RAW job per validated copy."""
+    if isinstance(copies, bool) or not isinstance(copies, int) or copies < 1:
+        raise BarcodeValidationError("copies", "Copies must be a positive integer.")
+    for _ in range(copies):
+        submit_raw_print_job(printer_name, commands)
 
 
 def print_barcode_label_image(
@@ -830,8 +926,9 @@ def print_barcode_label_image(
     copies: int | None = None,
 ) -> None:
     settings = load_gallery_settings()
+    printer_settings = validate_barcode_printer_settings(settings.barcode_printer_settings)
     calibration = get_label_calibration()
-    requested_copies = settings.barcode_printer_settings.default_copies if copies is None else copies
+    requested_copies = printer_settings.default_copies if copies is None else copies
     context = validate_print_request(
         product_name=str(img.info.get("beirut_product_name", "")),
         barcode_value=str(img.info.get("beirut_barcode_value", "")),
@@ -842,6 +939,16 @@ def print_barcode_label_image(
         stage=str(img.info.get("beirut_print_stage", "Product label")),
     )
     target_printer = context.printer_name
+    expected_size = (
+        _mm_to_px(printer_settings.width_mm, printer_settings.dpi),
+        _mm_to_px(printer_settings.height_mm, printer_settings.dpi),
+    )
+    if img.size != expected_size:
+        raise _validation_error(
+            "bitmap_dimensions",
+            f"Label bitmap must match validated settings: {expected_size[0]}x{expected_size[1]} px.",
+            context,
+        )
 
     os_name = platform.system()
     printer_service._log_struct(
@@ -855,24 +962,19 @@ def print_barcode_label_image(
     try:
         printer_service._log_struct(
             "barcode.label.print.payload",
-            label_width_px=LABEL_WIDTH_PX,
-            label_height_px=LABEL_HEIGHT_PX,
+            label_width_px=expected_size[0],
+            label_height_px=expected_size[1],
             composed_width_px=img.width,
             composed_height_px=img.height,
             final_canvas_width_px=img.width,
             final_canvas_height_px=img.height,
         )
 
-        raster = pil_image_to_escpos_raster(img)
-        # RP310 ESC/POS command stream: initialise, raster image, advance past
-        # the label, then request a full cut. Windows sends these bytes to the
-        # spooler unchanged rather than asking the receipt GDI path to render.
-        rp310_commands = b"\x1b@" + raster + b"\n\x1b\x64\x03\x1b\x4a\x30\x1d\x56\x00"
+        rp310_commands = build_rp310_escpos_commands(img)
 
         if printer_service._IS_WINDOWS:
             printer_service._log_struct("barcode.print.backend", backend="windows-raw", target_printer_name=target_printer)
-            for _ in range(context.copies):
-                submit_raw_print_job(target_printer, rp310_commands)
+            submit_rp310_raw_commands(target_printer, rp310_commands, copies=context.copies)
             printer_service._log_struct("barcode.print.result", success=True, backend="windows-raw", target_printer_name=target_printer, raster_bytes_len=len(rp310_commands))
             return
 
@@ -883,13 +985,13 @@ def print_barcode_label_image(
 
         for _ in range(context.copies):
             if hasattr(escpos_printer, "_raw"):
-                escpos_printer._raw(raster)
+                escpos_printer._raw(rp310_commands)
             elif hasattr(escpos_printer, "image"):
                 escpos_printer.image(img)
+                printer_service._post_feed_and_cut(escpos_printer)
             else:
                 raise RuntimeError("Configured barcode backend does not support image dispatch.")
-            printer_service._post_feed_and_cut(escpos_printer)
-        printer_service._log_struct("barcode.print.result", success=True, backend="escpos-usb", target_printer_name=target_printer, raster_bytes_len=len(raster))
+        printer_service._log_struct("barcode.print.result", success=True, backend="escpos-usb", target_printer_name=target_printer, raster_bytes_len=len(rp310_commands))
     except BarcodePrintRequestError:
         raise
     except BaseException as exc:

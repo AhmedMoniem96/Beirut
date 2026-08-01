@@ -149,11 +149,6 @@ class CustomersTab(BaseTabContainer):
         self.notes_input.setText(c.get("notes", ""))
         self.points_input.setText(f"{get_loyalty_balance(c['phone']):.2f}")
         self._refresh_invoices()
-        QMessageBox.information(
-            self,
-            t("common.saved_title", language=self._language),
-            t("customers.saved_successfully", language=self._language),
-        )
 
     def _refresh_invoices(self) -> None:
         self.invoices_table.setRowCount(0)
@@ -182,6 +177,7 @@ class CustomersTab(BaseTabContainer):
         if not name or not phone:
             QMessageBox.warning(self, t("customers.title", language=self._language), t("customers.required_name_phone", language=self._language))
             return
+        is_new_customer = self._is_new_customer_mode
         cid = save_customer(
             name=name,
             phone=phone,
@@ -197,6 +193,16 @@ class CustomersTab(BaseTabContainer):
         self.refresh()
         self._select_customer_in_table(cid)
         self._refresh_invoices()
+        message_key = (
+            "customers.created_successfully"
+            if is_new_customer
+            else "customers.updated_successfully"
+        )
+        QMessageBox.information(
+            self,
+            t("common.saved_title", language=self._language),
+            t(message_key, language=self._language),
+        )
 
     def _new_customer(self) -> None:
         self.table.clearSelection()

@@ -187,7 +187,8 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "common.confirm_delete": {"en": "Delete this item?", "ar": "هل تريد حذف هذا العنصر؟"},
 
     "common.required_field_missing": {"en": "Required field missing", "ar": "حقل مطلوب مفقود"},
-    "customers.saved_successfully": {"en": "Customer saved successfully", "ar": "تم حفظ العميل بنجاح"},
+    "customers.created_successfully": {"en": "Customer created successfully", "ar": "تم إنشاء العميل بنجاح"},
+    "customers.updated_successfully": {"en": "Customer updated successfully", "ar": "تم تحديث العميل بنجاح"},
     "inventory.product_created_successfully": {"en": "Product created successfully", "ar": "تم إنشاء المنتج بنجاح"},
     "manufacturing.material_saved_successfully": {"en": "Material saved successfully", "ar": "تم حفظ الخامة بنجاح"},
     "settings.saved_successfully": {"en": "Settings saved successfully", "ar": "تم حفظ الإعدادات بنجاح"},

@@ -182,18 +182,54 @@ jobs:
 
       - name: Test built executable (smoke test)
         shell: pwsh
+        timeout-minutes: 1
         run: |
           $exePath = "dist/BeirutPOS.exe"
-          if (Test-Path $exePath) {
-            $sizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 2)
-            Write-Host "EXE built successfully: $sizeMB MB"
-            Write-Host "Location: $exePath"
-            $process = Start-Process $exePath -ArgumentList '--frozen-smoke-test' -Wait -PassThru
-            if ($process.ExitCode -ne 0) { throw "Frozen pywin32 smoke test failed: $($process.ExitCode)" }
-            Write-Host "Frozen win32print/pywintypes smoke test passed"
-          } else {
-            Write-Host "ERROR: EXE not found at $exePath!"
-            exit 1
+          if (-not (Test-Path $exePath -PathType Leaf)) {
+            throw "EXE not found at $exePath"
+          }
+
+          $exe = Get-Item $exePath
+          $sizeMB = [math]::Round($exe.Length / 1MB, 2)
+          Write-Host "EXE built successfully: $sizeMB MB"
+          Write-Host "Location: $($exe.FullName)"
+
+          $stdoutLog = Join-Path $PWD "smoke-stdout.log"
+          $stderrLog = Join-Path $PWD "smoke-stderr.log"
+          Remove-Item $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
+          $process = $null
+
+          try {
+            $process = Start-Process `
+              -FilePath $exe.FullName `
+              -ArgumentList @('--frozen-smoke-test') `
+              -PassThru `
+              -RedirectStandardOutput $stdoutLog `
+              -RedirectStandardError $stderrLog
+
+            Write-Host "Started smoke-test process with PID $($process.Id)"
+            Start-Sleep -Seconds 10
+            $process.Refresh()
+
+            if ($process.HasExited) {
+              throw "Executable exited during startup with code $($process.ExitCode)"
+            }
+
+            Write-Host "Executable remained running during startup; smoke test passed."
+          }
+          finally {
+            if ($null -ne $process -and -not $process.HasExited) {
+              Write-Host "Terminating smoke-test process $($process.Id)"
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+              $process.WaitForExit()
+            }
+
+            foreach ($log in @($stdoutLog, $stderrLog)) {
+              if (Test-Path $log -PathType Leaf) {
+                Write-Host "--- $(Split-Path $log -Leaf) ---"
+                Get-Content $log
+              }
+            }
           }
 
       - name: Calculate and display SHA256

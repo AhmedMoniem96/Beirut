@@ -47,6 +47,7 @@ from reportlab.graphics.shapes import Drawing
 from beirut_pos.services import printer as printer_service
 from beirut_pos.services.arabic_bitmap import pil_image_to_escpos_raster
 from .settings import load_gallery_settings
+from .windows_raw_printer import submit_raw_print_job
 
 
 _LABEL_DPI = 203
@@ -683,10 +684,16 @@ def print_barcode_label_image(
             final_canvas_height_px=img.height,
         )
 
+        raster = pil_image_to_escpos_raster(img)
+        # RP310 ESC/POS command stream: initialise, raster image, advance past
+        # the label, then request a full cut. Windows sends these bytes to the
+        # spooler unchanged rather than asking the receipt GDI path to render.
+        rp310_commands = b"\x1b@" + raster + b"\n\x1b\x64\x03\x1b\x4a\x30\x1d\x56\x00"
+
         if printer_service._IS_WINDOWS:
-            printer_service._log_struct("barcode.print.backend", backend="windows-gdi", target_printer_name=target_printer)
-            printer_service.win_print_image(target_printer, img.convert("RGB"))
-            printer_service._log_struct("barcode.print.result", success=True, backend="windows-gdi", target_printer_name=target_printer)
+            printer_service._log_struct("barcode.print.backend", backend="windows-raw", target_printer_name=target_printer)
+            submit_raw_print_job(target_printer, rp310_commands)
+            printer_service._log_struct("barcode.print.result", success=True, backend="windows-raw", target_printer_name=target_printer, raster_bytes_len=len(rp310_commands))
             return
 
         printer_service._log_struct("barcode.print.backend", backend="escpos-usb", target_printer_name=target_printer)
@@ -694,7 +701,6 @@ def print_barcode_label_image(
         if not escpos_printer:
             raise RuntimeError("Configured barcode printer backend unavailable (USB/ESC-POS not found).")
 
-        raster = pil_image_to_escpos_raster(img)
         if hasattr(escpos_printer, "_raw"):
             escpos_printer._raw(raster)
         elif hasattr(escpos_printer, "image"):
@@ -706,7 +712,7 @@ def print_barcode_label_image(
     except BaseException as exc:
         printer_service._log_struct(
             "barcode.print.failed",
-            backend="windows-gdi" if printer_service._IS_WINDOWS else "escpos-usb",
+            backend="windows-raw" if printer_service._IS_WINDOWS else "escpos-usb",
             target_printer_name=target_printer,
             error=str(exc),
         )

@@ -21,6 +21,7 @@ class BarcodePrintingPanel(QGroupBox):
     def __init__(self, parent=None) -> None:
         super().__init__("Barcode Printing", parent)
         self._configuration_signature: tuple[object, ...] | None = None
+        self._submission_busy = False
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.printer_combo = QComboBox()
@@ -99,17 +100,40 @@ class BarcodePrintingPanel(QGroupBox):
         self.report_status(f"{action} started…")
 
     def _request_print(self) -> None:
-        self._begin_attempt("Print Barcode")
-        self.print_requested.emit(self.copies_spin.value())
+        if not self._start_submission():
+            return
+        try:
+            self._begin_attempt("Print Barcode")
+            self.print_requested.emit(self.copies_spin.value())
+        finally:
+            self._finish_submission()
 
     def _test_rp310(self) -> None:
-        self._begin_attempt("Test RP310")
+        if not self._start_submission():
+            return
         try:
+            self._begin_attempt("Test RP310")
             settings = load_gallery_settings().barcode_printer_settings
             barcode_printer.print_test_label(printer_name=settings.exact_windows_name or "auto", copies=self.copies_spin.value())
             self.report_success("Test RP310 RAW job accepted by the spooler.")
         except Exception as exc:
             self.report_failure("Test RP310", exc)
+        finally:
+            self._finish_submission()
+
+    def _start_submission(self) -> bool:
+        """Synchronously claim the one submission slot before doing any work."""
+        if self._submission_busy:
+            return False
+        self._submission_busy = True
+        self.print_button.setEnabled(False)
+        self.test_button.setEnabled(False)
+        return True
+
+    def _finish_submission(self) -> None:
+        self._submission_busy = False
+        self.print_button.setEnabled(True)
+        self.test_button.setEnabled(True)
 
     def report_status(self, detail: str, *, failed: bool = False) -> None:
         self.status_label.setText("Failed" if failed else "Ready")

@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 from barcode import Code128
 from barcode.writer import ImageWriter
 from io import BytesIO
+import json
 import logging
 import math
 import string
@@ -49,6 +50,7 @@ from reportlab.graphics.shapes import Drawing
 
 from beirut_pos.services import printer as printer_service
 from beirut_pos.services.arabic_bitmap import pil_image_to_escpos_raster
+from beirut_pos.utils import error_handling
 from .settings import BarcodePrinterSettings, load_gallery_settings
 from .windows_raw_printer import submit_raw_print_job
 
@@ -701,6 +703,75 @@ class BarcodePrintStageError(BarcodePrintRequestError):
         super().__init__(message, **context)  # type: ignore[arg-type]
 
 
+class BarcodePrintDiagnosticError(BarcodePrintStageError):
+    """A lossless, UI-safe view of a failure from the print backend.
+
+    ``original_exception`` remains available for code which understands the
+    backend's exception type.  The copied fields allow diagnostics and UI code
+    to inspect the failure without parsing a generic replacement message.
+    """
+
+    def __init__(
+        self,
+        original_exception: BaseException,
+        *,
+        stage: str,
+        code: str = "unknown",
+        **context: object,
+    ) -> None:
+        self.original_exception = original_exception
+        self.original_type = type(original_exception)
+        self.original_type_name = type(original_exception).__name__
+        self.code = str(getattr(original_exception, "code", code) or code)
+        self.original_message = str(original_exception)
+        original_stage = getattr(original_exception, "stage", None)
+        effective_stage = str(original_stage or stage)
+        super().__init__(effective_stage, self.original_message, **context)
+
+
+def _safe_failure_metadata(context: BarcodePrintContext, *, backend: str, stage: str) -> str:
+    """Serialize only operational print data; never include label/customer data."""
+    return json.dumps(
+        {
+            "backend": backend,
+            "stage": stage,
+            "printer_name": context.printer_name,
+            "copies": context.copies,
+            "width_mm": context.width_mm,
+            "height_mm": context.height_mm,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+    )
+
+
+def _diagnostic_error(
+    exc: BaseException,
+    *,
+    context: BarcodePrintContext,
+    backend: str,
+    stage: str,
+    code: str = "unknown",
+) -> BarcodePrintDiagnosticError:
+    """Log the backend traceback and return a lossless structured wrapper."""
+    effective_stage = str(getattr(exc, "stage", None) or stage)
+    error_handling.log_exception(
+        "Jewelry barcode printing",
+        exc,
+        tb=exc.__traceback__,
+        extra=_safe_failure_metadata(context, backend=backend, stage=effective_stage),
+    )
+    return BarcodePrintDiagnosticError(
+        exc,
+        stage=effective_stage,
+        code=code,
+        printer_name=context.printer_name,
+        copies=context.copies,
+        width_mm=context.width_mm,
+        height_mm=context.height_mm,
+    )
+
+
 def _validation_error(field: str, message: str, context: BarcodePrintContext) -> BarcodeValidationError:
     return BarcodeValidationError(
         field,
@@ -779,6 +850,7 @@ def try_print_barcode_label_image(
 ) -> bool:
     attempts = max(retries, 0) + 1
     last_error: BarcodePrinterError | None = None
+    last_original: RuntimeError | None = None
     for _ in range(attempts):
         try:
             print_barcode_label_image(img, printer_name=printer_name, copies=copies)
@@ -786,9 +858,17 @@ def try_print_barcode_label_image(
         except BarcodePrintRequestError:
             raise
         except RuntimeError as exc:
+            last_original = exc
             last_error = _map_print_error(exc)
-    if last_error is not None:
-        raise last_error
+    if last_error is not None and last_original is not None:
+        context = BarcodePrintContext(printer_name, copies if copies is not None else 1, 0.0, 0.0)
+        raise _diagnostic_error(
+            last_original,
+            context=context,
+            backend="barcode-print",
+            stage=str(getattr(last_original, "stage", None) or "Print dispatch"),
+            code=last_error.code,
+        ) from last_original
     return False
 
 
@@ -1013,12 +1093,11 @@ def print_barcode_label_image(
             target_printer_name=target_printer,
             error=str(exc),
         )
-        message = f"Barcode printing failed: {exc}"
-        raise BarcodePrintStageError(
-            "RAW dispatch" if printer_service._IS_WINDOWS else "ESC/POS dispatch",
-            message,
-            printer_name=context.printer_name,
-            copies=context.copies,
-            width_mm=context.width_mm,
-            height_mm=context.height_mm,
+        backend = "windows-raw" if printer_service._IS_WINDOWS else "escpos-usb"
+        stage = "RAW dispatch" if printer_service._IS_WINDOWS else "ESC/POS dispatch"
+        raise _diagnostic_error(
+            exc,
+            context=context,
+            backend=backend,
+            stage=stage,
         ) from exc

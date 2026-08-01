@@ -17,6 +17,7 @@ from barcode.writer import ImageWriter
 from io import BytesIO
 import logging
 import string
+from dataclasses import dataclass
 
 try:
     import arabic_reshaper
@@ -155,15 +156,23 @@ def _barcode_drawing(barcode_value: str, barcode_type: str) -> Drawing:
 
 
 def _coerce_ascii_barcode_value(*candidates: str) -> str:
+    """Return the first barcode value unchanged after strict ASCII validation.
+
+    Barcode data is an identifier, so changing it to make it printable is never
+    safe.  In particular, do not fall back to another candidate after finding a
+    non-empty but invalid value.
+    """
     allowed = set(string.printable) - {"\x0b", "\x0c", "\r", "\n", "\t"}
     for candidate in candidates:
         raw = (candidate or "").strip()
         if not raw:
             continue
-        sanitized = "".join(ch for ch in raw if ch in allowed)
-        sanitized = sanitized.encode("ascii", "ignore").decode("ascii").strip()
-        if sanitized:
-            return sanitized
+        if any(ch not in allowed or not ch.isascii() for ch in raw):
+            raise BarcodeValidationError(
+                "barcode_value",
+                "Barcode value contains characters unsupported by Code128.",
+            )
+        return raw
     return ""
 
 
@@ -406,10 +415,9 @@ def render_barcode_label_image(
     title = product_name.strip() or "Item"
     if selected_mode == "none":
         title = sku.strip() or barcode_value.strip() or "Item"
-    raw_sku = (sku or "").strip()
-    encoded_value = _coerce_ascii_barcode_value(barcode_value, raw_sku)
+    encoded_value = _coerce_ascii_barcode_value(barcode_value)
     if not encoded_value:
-        encoded_value = "UNKNOWN"
+        raise BarcodeValidationError("barcode_value", "Barcode value is required.")
     sku_line = encoded_value
     normalized_type = "code128"
     type_label = "Code128"
@@ -517,6 +525,15 @@ def render_barcode_label_image(
         barcode_value=encoded_value,
         barcode_type=type_label,
     )
+    label.info.update(
+        {
+            "beirut_product_name": (product_name or "").strip(),
+            "beirut_barcode_value": encoded_value,
+            "beirut_print_stage": "Product label",
+            "beirut_width_mm": float(calib["width_mm"]),
+            "beirut_height_mm": float(calib["height_mm"]),
+        }
+    )
     return label
 
 
@@ -540,6 +557,107 @@ def render_arabic_mode_test_label(*, sample_text: str, sku: str = "") -> Image.I
 
 class BarcodeRenderError(RuntimeError):
     """Raised when barcode image rendering fails."""
+
+
+@dataclass(frozen=True)
+class BarcodePrintContext:
+    """Values which identify one complete label print request."""
+
+    printer_name: str
+    copies: int
+    width_mm: float
+    height_mm: float
+
+
+class BarcodePrintRequestError(RuntimeError):
+    """Base class for errors carrying the complete failed request context."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        printer_name: str = "",
+        copies: int = 1,
+        width_mm: float = 0.0,
+        height_mm: float = 0.0,
+    ) -> None:
+        self.exact_message = message
+        self.message = message
+        self.printer_name = printer_name
+        self.copies = copies
+        self.width_mm = width_mm
+        self.height_mm = height_mm
+        self.label_width_mm = width_mm
+        self.label_height_mm = height_mm
+        self.dimensions = (width_mm, height_mm)
+        super().__init__(message)
+
+
+class BarcodeValidationError(BarcodePrintRequestError):
+    """A request value failed validation before printer dispatch."""
+
+    def __init__(self, field: str, message: str, **context: object) -> None:
+        self.field = field
+        super().__init__(message, **context)  # type: ignore[arg-type]
+
+
+class BarcodePrintStageError(BarcodePrintRequestError):
+    """A validated request failed during a named printing stage."""
+
+    def __init__(self, stage: str, message: str, **context: object) -> None:
+        self.stage = stage
+        super().__init__(message, **context)  # type: ignore[arg-type]
+
+
+def _validation_error(field: str, message: str, context: BarcodePrintContext) -> BarcodeValidationError:
+    return BarcodeValidationError(
+        field,
+        message,
+        printer_name=context.printer_name,
+        copies=context.copies,
+        width_mm=context.width_mm,
+        height_mm=context.height_mm,
+    )
+
+
+def validate_print_request(
+    *,
+    product_name: str,
+    barcode_value: str,
+    printer_name: str,
+    copies: int,
+    width_mm: float,
+    height_mm: float,
+    stage: str = "Product label",
+) -> BarcodePrintContext:
+    """Validate every value needed by RAW printing before it is called.
+
+    ``Test RP310`` is the sole request type which does not represent a product;
+    it still passes through all of the other product-label checks.
+    """
+    target = (printer_name or "").strip()
+    context = BarcodePrintContext(target, copies, width_mm, height_mm)
+    if not target or target.lower() == "auto":
+        raise _validation_error(
+            "printer_name",
+            "No barcode label printer selected. Please choose the Rongta printer in Settings.",
+            context,
+        )
+    if isinstance(copies, bool) or not isinstance(copies, int) or copies < 1:
+        raise _validation_error("copies", "Copies must be a positive integer.", context)
+    if not isinstance(width_mm, (int, float)) or isinstance(width_mm, bool) or width_mm <= 0:
+        raise _validation_error("width_mm", "Label width must be greater than zero.", context)
+    if not isinstance(height_mm, (int, float)) or isinstance(height_mm, bool) or height_mm <= 0:
+        raise _validation_error("height_mm", "Label height must be greater than zero.", context)
+    if stage != "Test RP310" and not (product_name or "").strip():
+        raise _validation_error("product_name", "Product name is required.", context)
+    try:
+        encoded_value = _coerce_ascii_barcode_value(barcode_value)
+    except BarcodeValidationError as exc:
+        raise _validation_error(exc.field, exc.exact_message, context) from exc
+    if not encoded_value:
+        raise _validation_error("barcode_value", "Barcode value is required.", context)
+    return context
 
 
 class BarcodePrinterError(RuntimeError):
@@ -567,6 +685,8 @@ def try_print_barcode_label_image(img: Image.Image, *, printer_name: str, retrie
         try:
             print_barcode_label_image(img, printer_name=printer_name)
             return True
+        except BarcodePrintRequestError:
+            raise
         except RuntimeError as exc:
             last_error = _map_print_error(exc)
     if last_error is not None:
@@ -620,11 +740,24 @@ def render_test_label_image() -> Image.Image:
     qr_x = max(0, min(width_px - sample_cropped.width, (width_px - sample_cropped.width) // 2 + offset_x))
     qr_y = max(10, min(height_px - sample_cropped.height, height_px - sample_cropped.height - 2 + offset_y))
     img.paste(sample_cropped, (qr_x, qr_y))
+    img.info.update(
+        {
+            "beirut_product_name": "",
+            "beirut_barcode_value": "TEST-123",
+            "beirut_print_stage": "Test RP310",
+            "beirut_width_mm": float(calib["width_mm"]),
+            "beirut_height_mm": float(calib["height_mm"]),
+        }
+    )
     return img
 
 
-def print_test_label(*, printer_name: str) -> None:
-    print_barcode_label_image(render_test_label_image(), printer_name=printer_name)
+def print_test_label(*, printer_name: str, copies: int | None = None) -> None:
+    print_barcode_label_image(
+        render_test_label_image(),
+        printer_name=printer_name,
+        copies=copies,
+    )
 
 
 def print_barcode_label(
@@ -634,8 +767,20 @@ def print_barcode_label(
     barcode_value: str,
     barcode_type: str,
     printer_name: str,
+    copies: int | None = None,
 ) -> None:
     """Public barcode/QR label printing entrypoint (label-only pipeline)."""
+    settings = load_gallery_settings()
+    calibration = get_label_calibration()
+    requested_copies = settings.barcode_printer_settings.default_copies if copies is None else copies
+    validate_print_request(
+        product_name=product_name,
+        barcode_value=barcode_value or sku,
+        printer_name=printer_name,
+        copies=requested_copies,
+        width_mm=float(calibration["width_mm"]),
+        height_mm=float(calibration["height_mm"]),
+    )
     img = render_barcode_label_image(
         product_name=product_name,
         sku=sku,
@@ -652,17 +797,28 @@ def print_barcode_label(
         bitmap_height_px=img.height,
         printer_name=printer_name,
     )
-    print_barcode_label_image(img, printer_name=printer_name)
+    print_barcode_label_image(img, printer_name=printer_name, copies=requested_copies)
 
 
 def print_barcode_label_image(
     img: Image.Image,
     *,
     printer_name: str,
+    copies: int | None = None,
 ) -> None:
-    target_printer = (printer_name or "").strip()
-    if not target_printer or target_printer.lower() == "auto":
-        raise RuntimeError("No barcode label printer selected. Please choose the Rongta printer in Settings.")
+    settings = load_gallery_settings()
+    calibration = get_label_calibration()
+    requested_copies = settings.barcode_printer_settings.default_copies if copies is None else copies
+    context = validate_print_request(
+        product_name=str(img.info.get("beirut_product_name", "")),
+        barcode_value=str(img.info.get("beirut_barcode_value", "")),
+        printer_name=printer_name,
+        copies=requested_copies,
+        width_mm=float(img.info.get("beirut_width_mm", calibration["width_mm"])),
+        height_mm=float(img.info.get("beirut_height_mm", calibration["height_mm"])),
+        stage=str(img.info.get("beirut_print_stage", "Product label")),
+    )
+    target_printer = context.printer_name
 
     os_name = platform.system()
     printer_service._log_struct(
@@ -692,7 +848,8 @@ def print_barcode_label_image(
 
         if printer_service._IS_WINDOWS:
             printer_service._log_struct("barcode.print.backend", backend="windows-raw", target_printer_name=target_printer)
-            submit_raw_print_job(target_printer, rp310_commands)
+            for _ in range(context.copies):
+                submit_raw_print_job(target_printer, rp310_commands)
             printer_service._log_struct("barcode.print.result", success=True, backend="windows-raw", target_printer_name=target_printer, raster_bytes_len=len(rp310_commands))
             return
 
@@ -701,14 +858,17 @@ def print_barcode_label_image(
         if not escpos_printer:
             raise RuntimeError("Configured barcode printer backend unavailable (USB/ESC-POS not found).")
 
-        if hasattr(escpos_printer, "_raw"):
-            escpos_printer._raw(raster)
-        elif hasattr(escpos_printer, "image"):
-            escpos_printer.image(img)
-        else:
-            raise RuntimeError("Configured barcode backend does not support image dispatch.")
-        printer_service._post_feed_and_cut(escpos_printer)
+        for _ in range(context.copies):
+            if hasattr(escpos_printer, "_raw"):
+                escpos_printer._raw(raster)
+            elif hasattr(escpos_printer, "image"):
+                escpos_printer.image(img)
+            else:
+                raise RuntimeError("Configured barcode backend does not support image dispatch.")
+            printer_service._post_feed_and_cut(escpos_printer)
         printer_service._log_struct("barcode.print.result", success=True, backend="escpos-usb", target_printer_name=target_printer, raster_bytes_len=len(raster))
+    except BarcodePrintRequestError:
+        raise
     except BaseException as exc:
         printer_service._log_struct(
             "barcode.print.failed",
@@ -716,4 +876,12 @@ def print_barcode_label_image(
             target_printer_name=target_printer,
             error=str(exc),
         )
-        raise RuntimeError(f"Barcode printing failed: {exc}") from exc
+        message = f"Barcode printing failed: {exc}"
+        raise BarcodePrintStageError(
+            "RAW dispatch" if printer_service._IS_WINDOWS else "ESC/POS dispatch",
+            message,
+            printer_name=context.printer_name,
+            copies=context.copies,
+            width_mm=context.width_mm,
+            height_mm=context.height_mm,
+        ) from exc

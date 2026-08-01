@@ -66,6 +66,23 @@ LABEL_HEIGHT_PX = _mm_to_px(_QR_LABEL_HEIGHT_MM)
 LABEL_MARGIN_PX = 10
 
 
+@dataclass(frozen=True)
+class BarcodeLabelData:
+    """Product and operational values for one Jewelry label request.
+
+    Weight and karat are intentionally optional: the core ``JewelryProduct``
+    record does not currently persist either value, while product-like records
+    supplied by integrations may do so.
+    """
+
+    product_name: str
+    barcode_value: str
+    price: float | None = None
+    weight: float | None = None
+    karat: str | None = None
+    copies: int = 1
+
+
 def get_label_calibration() -> dict[str, int | float]:
     settings = load_gallery_settings()
     width_mm = max(10.0, float(getattr(settings, "barcode_label_width_mm", _QR_LABEL_WIDTH_MM) or _QR_LABEL_WIDTH_MM))
@@ -678,12 +695,18 @@ def _map_print_error(exc: BaseException) -> BarcodePrinterError:
     return BarcodePrinterError(f"Barcode printing failed: {msg}", code="unknown")
 
 
-def try_print_barcode_label_image(img: Image.Image, *, printer_name: str, retries: int = 1) -> bool:
+def try_print_barcode_label_image(
+    img: Image.Image,
+    *,
+    printer_name: str,
+    retries: int = 1,
+    copies: int | None = None,
+) -> bool:
     attempts = max(retries, 0) + 1
     last_error: BarcodePrinterError | None = None
     for _ in range(attempts):
         try:
-            print_barcode_label_image(img, printer_name=printer_name)
+            print_barcode_label_image(img, printer_name=printer_name, copies=copies)
             return True
         except BarcodePrintRequestError:
             raise

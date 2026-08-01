@@ -536,7 +536,8 @@ class InventoryTab(BaseTabContainer):
         product = next((p for p in self._products if p.id == self._selected_product_id), None)
         if not product:
             return
-        barcode_value = (product.barcode or product.sku).strip()
+        label_data = self._barcode_label_data(product)
+        barcode_value = label_data.barcode_value
         settings = load_gallery_settings()
         logger.info(
             "Barcode print requested: os=%s barcode_printer=%s receipt_printer=%s barcode_value=%s",
@@ -548,14 +549,14 @@ class InventoryTab(BaseTabContainer):
         if not barcode_value:
             QMessageBox.warning(self, t("inventory.print_failed", language=self._language), "Product has no barcode or SKU to print.")
             return
-        label_img = self._build_barcode_label_image(product)
+        label_img = self._build_barcode_label_image(product, label_data=label_data)
         if label_img is None:
             return
         preview_action = self._show_label_preview_dialog(product, label_img)
         if preview_action == "cancel":
             return
 
-        if not self._dispatch_barcode_print(product, label_img):
+        if not self._dispatch_barcode_print(product, label_img, copies=label_data.copies):
             QMessageBox.critical(
                 self,
                 t("inventory.print_failed", language=self._language),
@@ -579,16 +580,17 @@ class InventoryTab(BaseTabContainer):
         if msg.clickedButton() is open_btn:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
-    def _dispatch_barcode_print(self, product, label_img) -> bool:
-        return self._print_barcode_direct(label_img)
+    def _dispatch_barcode_print(self, product, label_img, *, copies: int | None = None) -> bool:
+        return self._print_barcode_direct(label_img, copies=copies)
 
-    def _build_barcode_label_image(self, product):
+    def _build_barcode_label_image(self, product, *, label_data=None):
         try:
             from ...services.barcode_printer import BarcodeRenderError, render_barcode_label_image
         except RuntimeError:
             QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
             return None
         try:
+            label_data = label_data or self._barcode_label_data(product)
             product_name_ar = str(getattr(product, "name_ar", "") or "")
             product_name_en = str(getattr(product, "name_en", "") or "")
             print(
@@ -600,9 +602,9 @@ class InventoryTab(BaseTabContainer):
                 },
             )
             return render_barcode_label_image(
-                product_name=self._barcode_label_product_name(product),
+                product_name=label_data.product_name,
                 sku=product.sku,
-                barcode_value=product.barcode or product.sku,
+                barcode_value=label_data.barcode_value,
                 barcode_type="code128",
             )
         except BarcodeRenderError as exc:
@@ -681,6 +683,29 @@ class InventoryTab(BaseTabContainer):
             return arabic_name
         return str(getattr(product, "name_en", "") or "").strip()
 
+    def _barcode_label_data(self, product):
+        """Build label data from the selected persisted product and settings."""
+        from ...services.barcode_printer import BarcodeLabelData
+
+        settings = load_gallery_settings()
+        configured_copies = settings.barcode_printer_settings.default_copies
+        copies = configured_copies if isinstance(configured_copies, int) and not isinstance(configured_copies, bool) and configured_copies > 0 else 1
+
+        raw_weight = getattr(product, "weight", None)
+        weight = None if raw_weight is None or raw_weight == "" else float(raw_weight)
+        raw_karat = getattr(product, "karat", None)
+        karat = None if raw_karat is None or str(raw_karat).strip() == "" else str(raw_karat).strip()
+        raw_price = getattr(product, "price", None)
+
+        return BarcodeLabelData(
+            product_name=self._barcode_label_product_name(product),
+            barcode_value=str(getattr(product, "barcode", "") or getattr(product, "sku", "") or "").strip(),
+            price=None if raw_price is None else float(raw_price),
+            weight=weight,
+            karat=karat,
+            copies=copies,
+        )
+
     def _print_barcode_via_pdf_dispatch(self, label_img) -> bool:
         try:
             from ...services.barcode_printer import try_print_barcode_label_image, BarcodePrinterError
@@ -695,7 +720,7 @@ class InventoryTab(BaseTabContainer):
             QMessageBox.critical(self, t("inventory.print_failed", language=self._language), t("inventory.direct_print_failed", language=self._language, error=exc))
             return False
 
-    def _print_barcode_direct(self, label_img) -> bool:
+    def _print_barcode_direct(self, label_img, *, copies: int | None = None) -> bool:
         settings = load_gallery_settings()
         if not settings.barcode_printer_name or settings.barcode_printer_name.strip().lower() == "auto":
             QMessageBox.critical(
@@ -710,7 +735,12 @@ class InventoryTab(BaseTabContainer):
             QMessageBox.critical(self, t("inventory.print_failed", language=self._language), "Barcode printing is unavailable because required dependencies are missing.")
             return False
         try:
-            dispatched = try_print_barcode_label_image(label_img, printer_name=settings.barcode_printer_name, retries=0)
+            dispatched = try_print_barcode_label_image(
+                label_img,
+                printer_name=settings.barcode_printer_name,
+                retries=0,
+                copies=copies,
+            )
             if dispatched:
                 QMessageBox.information(self, t("common.print", language=self._language), "Barcode label sent to printer.")
                 return True

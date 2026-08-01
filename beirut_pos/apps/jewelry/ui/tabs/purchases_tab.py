@@ -36,6 +36,7 @@ class PurchasesTab(BaseTabContainer):
         self._selected_expense_id: int | None = None
         self._selected_material_purchase_id: int | None = None
         self._selected_wage_payment_id: int | None = None
+        self._material_delete_in_progress = False
         self._materials = []
         self._workers = []
 
@@ -206,8 +207,38 @@ class PurchasesTab(BaseTabContainer):
             self.refresh_table(); self._clear_material()
         except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
     def _delete_material_purchase(self):
-        if not self._selected_material_purchase_id: return
-        delete_purchase(self._selected_material_purchase_id, reverse_stock=True); self.refresh_table(); self._clear_material()
+        # Read the id from the table selection at click time.  The form's cached
+        # id may outlive a cleared selection and must never cause a stale row to
+        # be deleted.
+        if self._material_delete_in_progress or not self.material_table.selectionModel().hasSelection():
+            return
+        row = self.material_table.currentRow()
+        id_item = self.material_table.item(row, 0) if row >= 0 else None
+        purchase_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else None
+        if not purchase_id:
+            return
+        answer = QMessageBox.question(
+            self,
+            t("common.delete", language=self._language),
+            t("common.confirm_delete", language=self._language),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._material_delete_in_progress = True
+        self.mat_del_btn.setEnabled(False)
+        try:
+            # Material purchases are stocked as one saved purchase row.  Always
+            # reverse its stock contribution in the same deletion operation.
+            delete_purchase(int(purchase_id), reverse_stock=True)
+            self.refresh_table()
+            self._clear_material()
+        except Exception as exc:
+            QMessageBox.warning(self, "Error", str(exc))
+        finally:
+            self._material_delete_in_progress = False
+            self.mat_del_btn.setEnabled(True)
 
     def _add_wage_payment(self):
         try:

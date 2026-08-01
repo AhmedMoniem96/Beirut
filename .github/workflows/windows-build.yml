@@ -145,10 +145,9 @@ jobs:
           Set-Content -Path verify_usb.py -Value $code -Encoding UTF8
           python verify_usb.py
 
-      - name: Clean previous build artifacts/spec
+      - name: Clean previous build artifacts
         shell: pwsh
         run: |
-          if (Test-Path 'BeirutPOS.spec') { Remove-Item 'BeirutPOS.spec' -Force }
           Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
 
       - name: Ensure assets folders exist
@@ -159,96 +158,27 @@ jobs:
             New-Item -ItemType Directory 'beirut_pos/assets/fonts' -Force | Out-Null
           }
 
-      - name: Build EXE with PyInstaller (bundle Qt + ESC/POS)
+      - name: Build EXE with canonical PyInstaller spec
         shell: pwsh
         run: |
-          $args = @(
-            'launcher.py',
-            '--name','BeirutPOS',
-            '--onefile',
-            '--noconsole',
-            '--clean',
-            '--additional-hooks-dir','hooks',
+          python -m PyInstaller --noconfirm --clean BeirutPOS.spec
 
-            # PyQt6 and UI
-            '--collect-all','PyQt6',
-            '--collect-all','PyQt6.Qt6',
-            '--collect-submodules','beirut_pos',
-
-            # Database (SQLAlchemy + SQLite)
-            '--collect-all','sqlalchemy',
-            '--hidden-import','sqlalchemy',
-            '--hidden-import','sqlalchemy.ext.declarative',
-            '--hidden-import','sqlalchemy.orm',
-            '--collect-all','sqlite3',
-
-            # Thermal Printing (ESC/POS)
-            '--collect-all','escpos',
-            '--hidden-import','escpos.printer',
-            '--hidden-import','escpos.constants',
-            '--hidden-import','escpos.exceptions',
-            '--hidden-import','escpos.escpos',
-            '--hidden-import','escpos.impl.epson',
-            '--hidden-import','escpos.impl.generic',
-            '--hidden-import','escpos.impl.legacy',
-            '--hidden-import','usb.backend.libusb1',
-
-            # USB/Serial communication
-            '--hidden-import','usb.core',
-            '--hidden-import','usb.util',
-            '--hidden-import','serial',
-            '--hidden-import','serial.tools',
-            '--hidden-import','serial.tools.list_ports',
-
-            # Arabic text support
-            '--collect-submodules','arabic_reshaper',
-            '--collect-submodules','bidi',
-
-            # Image handling
-            '--hidden-import','PIL',
-            '--hidden-import','PIL.Image',
-            '--hidden-import','PIL.ImageFile',
-            '--hidden-import','PIL.ImageWin',   # <-- added
-
-            # ReportLab barcode stack (required for jewelry barcode labels)
-            '--collect-submodules','reportlab.graphics',
-            '--collect-submodules','reportlab.graphics.barcode',
-            '--hidden-import','reportlab.graphics.barcode.usps',
-            '--hidden-import','reportlab.graphics.barcode.usps4s',
-            '--hidden-import','reportlab.graphics.barcode.code128',
-            '--hidden-import','reportlab.graphics.barcode.code39',
-            '--hidden-import','reportlab.graphics.barcode.code93',
-            '--hidden-import','reportlab.graphics.barcode.qr',
-            '--hidden-import','reportlab.graphics.renderPM',
-            '--hidden-import','reportlab.graphics.renderPDF',
-            '--hidden-import','reportlab.graphics.shapes',
-
-            # Windows printing
-            '--hidden-import','win32print',
-            '--hidden-import','win32api',
-            '--hidden-import','win32con',
-            '--hidden-import','win32gui',
-            '--hidden-import','win32ui',
-
-            # Bundle libusb DLL next to the EXE
-            '--add-binary','libusb-1.0.dll;.'
-          )
-
-          if (Test-Path 'assets/app.ico') {
-            $args += @('--icon','assets/app.ico')
-            Write-Host "Using icon: assets/app.ico"
+      - name: Inspect analysis warnings and archive contents
+        shell: pwsh
+        run: |
+          $warnings = Get-Content build/BeirutPOS/warn-BeirutPOS.txt -Raw
+          $unexpected = $warnings -split "`n" | Where-Object {
+            $_ -match "missing module named (win32print|pywintypes)"
           }
-          if (Test-Path 'assets') {
-            $args += @('--add-data','assets;assets')
-            Write-Host "Including assets folder"
+          if ($unexpected) {
+            $unexpected | Write-Error
+            exit 1
           }
-          if (Test-Path 'beirut_pos/assets/fonts') {
-            $args += @('--add-data','beirut_pos/assets/fonts;beirut_pos/assets/fonts')
-            Write-Host "Including fonts folder"
+          pyi-archive_viewer -l dist/BeirutPOS.exe | Tee-Object -FilePath archive-contents.txt
+          $archive = Get-Content archive-contents.txt -Raw
+          foreach ($required in @('win32print', 'pywintypes')) {
+            if ($archive -notmatch $required) { throw "$required is absent from the frozen archive" }
           }
-
-          Write-Host "Building EXE..."
-          python -m PyInstaller @args
 
       - name: Test built executable (smoke test)
         shell: pwsh
@@ -258,9 +188,9 @@ jobs:
             $sizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 2)
             Write-Host "EXE built successfully: $sizeMB MB"
             Write-Host "Location: $exePath"
-            & $exePath --version 2>$null
-            if ($LASTEXITCODE -eq 0) { Write-Host "Version check passed" }
-            else { Write-Host "No --version flag support (GUI app) — OK" }
+            $process = Start-Process $exePath -ArgumentList '--frozen-smoke-test' -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "Frozen pywin32 smoke test failed: $($process.ExitCode)" }
+            Write-Host "Frozen win32print/pywintypes smoke test passed"
           } else {
             Write-Host "ERROR: EXE not found at $exePath!"
             exit 1

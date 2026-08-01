@@ -1,47 +1,70 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for Beirut POS.
 
-Canonical build command:
-    pyinstaller --noconfirm --clean BeirutPOS.spec
-"""
-
+import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
 
-project_root = Path(SPECPATH).resolve().parent
+spec_dir = Path(SPECPATH).resolve()
+project_root = spec_dir if (spec_dir / "launcher.py").is_file() else spec_dir.parent
 
-# Keep deterministic ordering so repeated builds generate stable TOCs.
-datas = []
+block_cipher = None
+
+hiddenimports = []
+for pkg in (
+    "reportlab.graphics",
+    "reportlab.graphics.barcode",
+    "reportlab.pdfbase",
+    "reportlab.pdfgen",
+    "reportlab.lib",
+):
+    hiddenimports += collect_submodules(pkg)
+
+# Defensive explicit include for historically-missed modules in frozen builds.
+hiddenimports += [
+    "reportlab.graphics.barcode.usps4s",
+    "reportlab.graphics.barcode.code128",
+    "reportlab.graphics.barcode.code39",
+    "reportlab.graphics.barcode.code93",
+    "reportlab.graphics.barcode.qr",
+    "reportlab.graphics.renderPM",
+    "reportlab.graphics.renderPDF",
+    "reportlab.graphics.shapes",
+]
+
+# pywin32 is Windows-only in requirements.txt. Its imports are partly dynamic, so
+# make them explicit on Windows and collect pywin32_system32 (including the
+# versioned pywintypes DLL) without making Linux/macOS builds require pywin32.
 binaries = []
+if sys.platform == "win32":
+    hiddenimports += ["win32print", "pywintypes"]
+    binaries += collect_dynamic_libs("pywin32_system32")
+
+hiddenimports = sorted(set(hiddenimports))
+
 
 a = Analysis(
-    ['launcher.py'],
+    [str(project_root / "launcher.py")],
     pathex=[str(project_root)],
-    binaries=sorted(binaries, key=lambda item: tuple(str(part) for part in item)),
-    datas=sorted(datas, key=lambda item: tuple(str(part) for part in item)),
-    hiddenimports=sorted(
-        set(
-            collect_submodules('reportlab.graphics.barcode')
-            + collect_submodules('reportlab.graphics')
-        )
-    ),
+    binaries=binaries,
+    datas=[],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
-    optimize=0,
 )
-pyz = PYZ(a.pure)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
+    a.zipfiles,
     a.datas,
     [],
-    name='BeirutPOS',
+    name="BeirutPOS",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -9,6 +9,8 @@ pyinstaller --noconfirm --clean BeirutPOS.spec
 ## Release smoke checklist
 
 - [ ] Build completed without PyInstaller import warnings for `reportlab.graphics.barcode.*`.
+- [ ] `build/BeirutPOS/warn-BeirutPOS.txt` has no missing-module warning for `win32print` or `pywintypes`.
+- [ ] `dist/BeirutPOS.exe --frozen-smoke-test` exits successfully (this imports both modules and validates the pywintypes DLL runtime path).
 - [ ] `dist/BeirutPOS.exe` starts successfully.
 - [ ] App reaches main UI without "failed to execute script launcher" error.
 - [ ] Barcode label generation works for: Code128, Code39, Code93, QR.

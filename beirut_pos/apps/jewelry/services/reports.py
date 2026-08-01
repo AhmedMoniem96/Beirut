@@ -251,25 +251,30 @@ def payment_breakdown(
 def returns_aggregate(start_iso: str, end_iso: str, product_id: int | None = None) -> ReturnsAggregate:
     conn = get_conn()
     cur = conn.cursor()
-    where_clause, params = _invoice_filter_clause(
-        start_iso=start_iso,
-        end_iso=end_iso,
-        txn_type="return",
-        product_id=product_id,
-    )
+    where_clause = "i.txn_type = 'return' AND i.datetime BETWEEN ? AND ?"
+    params: List = [start_iso, end_iso]
+    joins = ""
+    total_expression = "i.total"
+    if product_id is not None:
+        # Filtering at item level is essential: an invoice containing several
+        # returned products must contribute only the selected product's value.
+        joins = " JOIN jw_invoice_items ii ON ii.invoice_id = i.id"
+        where_clause += " AND ii.product_id = ?"
+        params.append(product_id)
+        total_expression = "ii.line_total"
     cur.execute(
-        f"""SELECT COUNT(*), COALESCE(SUM(total), 0)
-           FROM jw_invoices
+        f"""SELECT COUNT(DISTINCT i.id), COALESCE(SUM({total_expression}), 0)
+           FROM jw_invoices i{joins}
            WHERE {where_clause}""",
         tuple(params),
     )
     summary = cur.fetchone()
     cur.execute(
-        f"""SELECT return_reason, COUNT(*), COALESCE(SUM(total), 0)
-           FROM jw_invoices
+        f"""SELECT i.return_reason, COUNT(DISTINCT i.id), COALESCE(SUM({total_expression}), 0)
+           FROM jw_invoices i{joins}
            WHERE {where_clause}
-           GROUP BY return_reason
-           ORDER BY COUNT(*) DESC""",
+           GROUP BY i.return_reason
+           ORDER BY COUNT(DISTINCT i.id) DESC""",
         tuple(params),
     )
     reasons = cur.fetchall()

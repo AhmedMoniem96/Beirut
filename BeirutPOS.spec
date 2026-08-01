@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 spec_dir = Path(SPECPATH).resolve()
 project_root = spec_dir if (spec_dir / "launcher.py").is_file() else spec_dir.parent
@@ -42,12 +42,18 @@ if sys.platform == "win32":
 
 hiddenimports = sorted(set(hiddenimports))
 
+# python-escpos reads this package resource while importing its capabilities
+# module.  In one-file builds it must be extracted into the _MEI package tree.
+escpos_datas = collect_data_files("escpos")
+
 
 a = Analysis(
     [str(project_root / "launcher.py")],
     pathex=[str(project_root)],
     binaries=binaries,
-    datas=[],
+    datas=[
+        # Keep project data entries here; escpos package data is merged below.
+    ] + escpos_datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

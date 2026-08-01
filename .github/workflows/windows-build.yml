@@ -145,6 +145,12 @@ jobs:
           Set-Content -Path verify_usb.py -Value $code -Encoding UTF8
           python verify_usb.py
 
+      - name: Verify python-escpos package data
+        shell: pwsh
+        run: |
+          python -c "import escpos, pathlib; p = pathlib.Path(escpos.__file__).parent / 'capabilities.json'; print(p); print('exists=', p.exists(), 'size=', p.stat().st_size if p.exists() else 0)"
+          python -c "import escpos, pathlib; p = pathlib.Path(escpos.__file__).parent / 'capabilities.json'; assert p.is_file() and p.stat().st_size > 0, f'Missing python-escpos package data: {p}'"
+
       - name: Clean previous build artifacts
         shell: pwsh
         run: |
@@ -176,7 +182,7 @@ jobs:
           }
           pyi-archive_viewer -l dist/BeirutPOS.exe | Tee-Object -FilePath archive-contents.txt
           $archive = Get-Content archive-contents.txt -Raw
-          foreach ($required in @('win32print', 'pywintypes')) {
+          foreach ($required in @('win32print', 'pywintypes', 'escpos[\\/]capabilities\.json')) {
             if ($archive -notmatch $required) { throw "$required is absent from the frozen archive" }
           }
 

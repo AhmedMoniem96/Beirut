@@ -195,11 +195,21 @@ jobs:
             -CaseSensitive:$false
 
           $archiveText = Get-Content $archiveOutput -Raw
-          $normalizedArchiveText = $archiveText -replace '\\', '/'
-          foreach ($required in @('win32print', 'pywintypes', 'escpos/capabilities.json')) {
+          $normalizedArchiveText = $archiveText -replace '[\\/]+', '/'
+          $normalizedArchiveText `
+            -split "`r?`n" |
+            Where-Object { $_ -match 'escpos|capabilities|win32print|pywintypes' } |
+            ForEach-Object { Write-Host $_ }
+
+          $requiredEntries = @(
+            'escpos/capabilities.json'
+          )
+
+          foreach ($required in $requiredEntries) {
             if (-not $normalizedArchiveText.Contains($required)) {
               throw "$required is absent from the frozen archive"
             }
+
             Write-Host "Verified frozen archive entry: $required"
           }
 

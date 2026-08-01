@@ -2,6 +2,22 @@
 
 import os, sys, traceback, datetime
 
+
+def _run_frozen_smoke_test() -> None:
+    """Fail fast when Windows printing support is incomplete in a frozen build."""
+    import pywintypes
+    import win32print
+
+    if not getattr(pywintypes, "__file__", None):
+        raise RuntimeError("pywintypes DLL has no runtime path")
+    if not hasattr(win32print, "EnumPrinters"):
+        raise RuntimeError("win32print is missing EnumPrinters")
+
+
+if "--frozen-smoke-test" in sys.argv:
+    _run_frozen_smoke_test()
+    raise SystemExit(0)
+
 # Safe Qt defaults (software rendering, Windows platform)
 os.environ.setdefault("QT_OPENGL", "software")
 os.environ.setdefault("QT_QPA_PLATFORM", "windows")

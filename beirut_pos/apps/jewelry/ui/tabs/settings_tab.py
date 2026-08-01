@@ -187,12 +187,10 @@ class SettingsTab(BaseTabContainer):
         self.barcode_offset_y = QSpinBox()
         self.barcode_offset_y.setRange(-1000, 1000)
         self.barcode_offset_y.setSuffix(" px")
-        self.print_test_label_btn = QPushButton()
         self.print_test_receipt_btn = QPushButton()
         self.preview_sample_receipt_btn = QPushButton()
         self.receipt_paper_preset.setReadOnly(True)
         self.qr_label_preset.setReadOnly(True)
-        self.print_test_label_btn.clicked.connect(self._print_test_label)
         self.print_test_receipt_btn.clicked.connect(self._print_test_receipt)
         self.preview_sample_receipt_btn.clicked.connect(self._preview_sample_receipt)
         self.printer_vendor_label = QLabel("Vendor ID")
@@ -224,7 +222,6 @@ class SettingsTab(BaseTabContainer):
         printer_layout.addRow("Vertical Offset (px)", self.barcode_offset_y)
         printer_layout.addRow("", self.print_test_receipt_btn)
         printer_layout.addRow("", self.preview_sample_receipt_btn)
-        printer_layout.addRow("", self.print_test_label_btn)
         printer_layout.addRow("", self.invoice_auto_print_after_save_check)
         printer_layout.addRow("", self.invoice_print_preview_check)
         printer_layout.addRow(self.printer_vendor_label, self.printer_vendor_id)
@@ -239,10 +236,8 @@ class SettingsTab(BaseTabContainer):
         device_status_box = QGroupBox("Device Status")
         device_status_layout = QFormLayout(device_status_box)
         self.receipt_status = QLabel("Unknown")
-        self.barcode_status = QLabel("Unknown")
         self.scanner_status = QLabel("Unknown")
         device_status_layout.addRow("Receipt printer status", self.receipt_status)
-        device_status_layout.addRow("Barcode printer status", self.barcode_status)
         device_status_layout.addRow("Barcode scanner status", self.scanner_status)
 
         tests_row = QHBoxLayout()
@@ -512,7 +507,6 @@ class SettingsTab(BaseTabContainer):
         self.receipt_printer.setItemText(0, t("settings.printer_auto", language=language))
         self.print_test_receipt_btn.setText(t("settings.print_test_receipt", language=language))
         self.preview_sample_receipt_btn.setText(t("settings.preview_sample_receipt", language=language))
-        self.print_test_label_btn.setText(t("settings.print_test_barcode_label", language=language))
         self.invoice_auto_print_after_save_check.setText("طباعة تلقائية بعد الحفظ" if language == "ar" else "Auto print after save")
         self.invoice_print_preview_check.setText("معاينة سريعة قبل الطباعة" if language == "ar" else "Quick preview before print")
         self.save_btn.setText(t("settings.save", language=language))
@@ -528,11 +522,8 @@ class SettingsTab(BaseTabContainer):
 
     def _refresh_device_status(self) -> None:
         receipt = device_health.check_receipt_printer(self.receipt_printer.currentData() or "auto", self.receipt_mode.currentData() or "auto")
-        barcode_name = self.barcode_printer.currentText().strip() or "auto"
-        barcode = device_health.check_barcode_printer(barcode_name, self.barcode_mode.currentData() or "pdf")
         scanner = device_health.check_barcode_scanner()
         self.receipt_status.setText(f"{receipt['status']}: {receipt['detail']}")
-        self.barcode_status.setText(f"{barcode['status']}: {barcode['detail']}")
         self.scanner_status.setText(f"{scanner['status']}: {scanner['detail']}")
 
     @staticmethod

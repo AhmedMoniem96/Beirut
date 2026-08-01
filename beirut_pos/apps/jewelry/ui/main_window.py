@@ -202,6 +202,8 @@ class JewelryMainWindow(QMainWindow):
 
     def _apply_settings(self) -> None:
         settings = load_gallery_settings()
+        if hasattr(self, "inventory_tab"):
+            self.inventory_tab.barcode_printing_panel.refresh_configuration()
         title = t("app.title", language=self._language)
         if settings.rtl_enabled:
             self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)

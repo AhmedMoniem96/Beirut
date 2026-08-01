@@ -706,7 +706,11 @@ class InventoryTab(BaseTabContainer):
 
     def _print_barcode_via_pdf_dispatch(self, label_img) -> bool:
         try:
-            from ...services.barcode_printer import try_print_barcode_label_image, BarcodePrinterError
+            from ...services.barcode_printer import (
+                BarcodePrintRequestError,
+                BarcodePrinterError,
+                try_print_barcode_label_image,
+            )
         except RuntimeError as exc:
             self.barcode_printing_panel.report_failure("Print Barcode", exc)
             return False
@@ -714,7 +718,7 @@ class InventoryTab(BaseTabContainer):
             try_print_barcode_label_image(label_img, printer_name=load_gallery_settings().barcode_printer_name, retries=0)
             self.barcode_printing_panel.report_success(t("inventory.printed", language=self._language))
             return True
-        except BarcodePrinterError as exc:
+        except (BarcodePrinterError, BarcodePrintRequestError) as exc:
             self.barcode_printing_panel.report_failure("Print Barcode", exc)
             return False
 
@@ -727,7 +731,11 @@ class InventoryTab(BaseTabContainer):
             )
             return False
         try:
-            from ...services.barcode_printer import try_print_barcode_label_image, BarcodePrinterError
+            from ...services.barcode_printer import (
+                BarcodePrintRequestError,
+                BarcodePrinterError,
+                try_print_barcode_label_image,
+            )
         except RuntimeError as exc:
             self.barcode_printing_panel.report_failure("Print Barcode", exc)
             return False
@@ -743,7 +751,7 @@ class InventoryTab(BaseTabContainer):
                 return True
             self.barcode_printing_panel.report_failure("Print Barcode", "Barcode print job was not dispatched.")
             return False
-        except BarcodePrinterError as exc:
+        except (BarcodePrinterError, BarcodePrintRequestError) as exc:
             self.barcode_printing_panel.report_failure("Print Barcode", exc)
             return False
 

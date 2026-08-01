@@ -28,6 +28,15 @@ _UNREADY_STATUS_NAMES = (
 )
 
 
+class WindowsRawPrinterError(RuntimeError):
+    """Failure raised by a named Windows RAW spooler operation."""
+
+    def __init__(self, stage: str, cause: Exception) -> None:
+        self.stage = stage
+        self.cause = cause
+        super().__init__(f"Windows RAW printer operation {stage} failed: {cause}")
+
+
 def _load_win32print() -> Any:
     """Load pywin32 only when a Windows barcode job is submitted."""
     try:
@@ -36,9 +45,29 @@ def _load_win32print() -> Any:
         raise RuntimeError("Windows RAW printing requires the pywin32 package.") from exc
 
 
+def enumerate_printers() -> list[str]:
+    """Return the exact names of local and connected Windows printer queues."""
+    try:
+        win32print = _load_win32print()
+        flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+        return [printer[2] for printer in win32print.EnumPrinters(flags)]
+    except Exception as exc:
+        if isinstance(exc, WindowsRawPrinterError):
+            raise
+        raise WindowsRawPrinterError("EnumPrinters", exc) from exc
+
+
+def list_printers() -> list[str]:
+    """Compatibility name for :func:`enumerate_printers`."""
+    return enumerate_printers()
+
+
 def _find_exact_printer(win32print: Any, printer_name: str) -> str:
-    flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
-    installed_names = [printer[2] for printer in win32print.EnumPrinters(flags)]
+    try:
+        flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+        installed_names = [printer[2] for printer in win32print.EnumPrinters(flags)]
+    except Exception as exc:
+        raise WindowsRawPrinterError("EnumPrinters", exc) from exc
     if printer_name not in installed_names:
         raise RuntimeError(f"Configured barcode printer not found: {printer_name!r}.")
     return printer_name
@@ -103,4 +132,3 @@ def submit_raw_print_job(
         if document_started:
             win32print.EndDocPrinter(handle)
         win32print.ClosePrinter(handle)
-

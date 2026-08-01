@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from PyQt6.QtCore import QEventLoop, QTimer, Qt
+from PyQt6.QtCore import QEventLoop, QSignalBlocker, QTimer, Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -35,6 +35,7 @@ from ...services.demo_seed import seed_demo_data
 from ...services.i18n import get_ui_language, set_ui_language, t
 from ...services import device_health
 from ...services import barcode_printer
+from ...services.windows_raw_printer import enumerate_printers
 from ..dialogs.delivery_companies_dialog import DeliveryCompaniesDialog
 from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
 from ..dialogs.statuses_dialog import StatusesDialog
@@ -123,7 +124,7 @@ class SettingsTab(BaseTabContainer):
         self.barcode_mode.addItem("", "pdf")
         self.barcode_mode.addItem("", "direct")
 
-        windows_printers = printer_service.win_list_printers()
+        windows_printers = self._windows_printer_names()
         self.barcode_enabled_check = QCheckBox()
         self.barcode_printer = QComboBox()
         self.barcode_printer.setEditable(True)
@@ -156,9 +157,13 @@ class SettingsTab(BaseTabContainer):
         self.receipt_mode.addItem("", "auto")
         self.receipt_mode.addItem("", "windows")
         self.receipt_printer = QComboBox()
+        self.receipt_printer.setEditable(True)
         self.receipt_printer.addItem("", "auto")
         for name in windows_printers:
             self.receipt_printer.addItem(name, name)
+
+        self.refresh_printers_btn = QPushButton("Refresh Printers")
+        self.refresh_printers_btn.clicked.connect(self._refresh_printers)
 
         self.printer_mode_label = QLabel()
         self.printer_label = QLabel()
@@ -205,6 +210,7 @@ class SettingsTab(BaseTabContainer):
         printer_layout.addRow("Command language", self.barcode_command_language)
         printer_layout.addRow(self.receipt_mode_label, self.receipt_mode)
         printer_layout.addRow(self.receipt_printer_label, self.receipt_printer)
+        printer_layout.addRow("", self.refresh_printers_btn)
         printer_layout.addRow(self.receipt_paper_preset_label, self.receipt_paper_preset)
         printer_layout.addRow(self.qr_label_preset_label, self.qr_label_preset)
         printer_layout.addRow("Label Width (mm)", self.barcode_label_width)
@@ -492,6 +498,9 @@ class SettingsTab(BaseTabContainer):
         self.printer_label.setText(t("settings.barcode_label_printer", language=language))
         self.receipt_mode_label.setText(t("settings.receipt_mode", language=language))
         self.receipt_printer_label.setText(t("settings.receipt_printer", language=language))
+        self.refresh_printers_btn.setText(
+            "تحديث الطابعات" if language == "ar" else "Refresh Printers"
+        )
         self.receipt_paper_preset_label.setText("ورق الإيصال" if language == "ar" else "Receipt paper")
         self.qr_label_preset_label.setText("مقاس ملصق QR" if language == "ar" else "QR label size")
         self.receipt_paper_preset.setText("80mm (افتراضي)" if language == "ar" else "80mm (default)")
@@ -525,6 +534,44 @@ class SettingsTab(BaseTabContainer):
         self.receipt_status.setText(f"{receipt['status']}: {receipt['detail']}")
         self.barcode_status.setText(f"{barcode['status']}: {barcode['detail']}")
         self.scanner_status.setText(f"{scanner['status']}: {scanner['detail']}")
+
+    @staticmethod
+    def _windows_printer_names() -> list[str]:
+        try:
+            return enumerate_printers()
+        except RuntimeError:
+            return []
+
+    def _refresh_printers(self) -> None:
+        """Repopulate printer queues while preserving explicit user choices."""
+        barcode_name = self.barcode_printer.currentText()
+        receipt_name = self.receipt_printer.currentText()
+        names = self._windows_printer_names()
+
+        barcode_blocker = QSignalBlocker(self.barcode_printer)
+        receipt_blocker = QSignalBlocker(self.receipt_printer)
+        try:
+            self.barcode_printer.clear()
+            self.barcode_printer.addItem("")
+            for name in names:
+                if self.barcode_printer.findText(name) < 0:
+                    self.barcode_printer.addItem(name)
+            if barcode_name and self.barcode_printer.findText(barcode_name) < 0:
+                self.barcode_printer.addItem(barcode_name)
+            self.barcode_printer.setCurrentText(barcode_name)
+
+            self.receipt_printer.clear()
+            self.receipt_printer.addItem(
+                t("settings.printer_auto", language=self._language), "auto"
+            )
+            for name in names:
+                if self.receipt_printer.findText(name) < 0:
+                    self.receipt_printer.addItem(name, name)
+            if receipt_name and self.receipt_printer.findText(receipt_name) < 0:
+                self.receipt_printer.addItem(receipt_name, receipt_name)
+            self.receipt_printer.setCurrentText(receipt_name)
+        finally:
+            del barcode_blocker, receipt_blocker
 
     def _test_printers(self) -> None:
         receipt_name = self.receipt_printer.currentData() or "auto"

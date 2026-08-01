@@ -42,20 +42,40 @@ if sys.platform == "win32":
 
 hiddenimports = sorted(set(hiddenimports))
 
+# Keep application data separate from dependency data so neither collection can
+# accidentally replace the other as the bundle grows.
+existing_datas = []
+
 # python-escpos reads this package resource while importing its capabilities
-# module.  In one-file builds it must be extracted into the _MEI package tree.
-escpos_datas = collect_data_files("escpos")
+# module. In one-file builds it must be extracted into the _MEI package tree.
+# Limit collection to the required file and validate both the source and the
+# destination tuple here, while the spec is being evaluated.
+escpos_datas = collect_data_files(
+    "escpos",
+    includes=["capabilities.json"],
+)
+print("Collected escpos data files:", escpos_datas)
+
+if not escpos_datas:
+    raise SystemExit("PyInstaller did not collect escpos/capabilities.json")
+for source, destination in escpos_datas:
+    source_path = Path(source)
+    archive_path = (Path(destination) / source_path.name).as_posix()
+    if not source_path.is_file() or source_path.stat().st_size <= 0:
+        raise SystemExit(f"Missing or empty python-escpos package data: {source_path}")
+    if archive_path != "escpos/capabilities.json":
+        raise SystemExit(f"Unexpected python-escpos archive destination: {archive_path}")
+
+all_datas = existing_datas + escpos_datas
 
 
 a = Analysis(
     [str(project_root / "launcher.py")],
     pathex=[str(project_root)],
     binaries=binaries,
-    datas=[
-        # Keep project data entries here; escpos package data is merged below.
-    ] + escpos_datas,
+    datas=all_datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=[str(project_root / "hooks")],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],

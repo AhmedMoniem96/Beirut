@@ -148,8 +148,7 @@ jobs:
       - name: Verify python-escpos package data
         shell: pwsh
         run: |
-          python -c "import escpos, pathlib; p = pathlib.Path(escpos.__file__).parent / 'capabilities.json'; print(p); print('exists=', p.exists(), 'size=', p.stat().st_size if p.exists() else 0)"
-          python -c "import escpos, pathlib; p = pathlib.Path(escpos.__file__).parent / 'capabilities.json'; assert p.is_file() and p.stat().st_size > 0, f'Missing python-escpos package data: {p}'"
+          python -c "import escpos, pathlib; root = pathlib.Path(escpos.__file__).resolve().parent; p = root / 'capabilities.json'; print('escpos root:', root); print('capabilities:', p); print('exists:', p.exists()); print('size:', p.stat().st_size if p.exists() else 0); assert p.exists() and p.stat().st_size > 0"
 
       - name: Clean previous build artifacts
         shell: pwsh
@@ -180,10 +179,28 @@ jobs:
             $unexpected | Write-Error
             exit 1
           }
-          pyi-archive_viewer -l dist/BeirutPOS.exe | Tee-Object -FilePath archive-contents.txt
-          $archive = Get-Content archive-contents.txt -Raw
-          foreach ($required in @('win32print', 'pywintypes', 'escpos[\\/]capabilities\.json')) {
-            if ($archive -notmatch $required) { throw "$required is absent from the frozen archive" }
+          $exe = Get-Item (Resolve-Path "dist/BeirutPOS.exe")
+          $exeHash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash
+          Write-Host "Inspecting EXE: $($exe.FullName)"
+          Write-Host "EXE size: $($exe.Length) bytes"
+          Write-Host "EXE modification time: $($exe.LastWriteTimeUtc.ToString('o'))"
+          Write-Host "EXE SHA256 before archive inspection: $exeHash"
+
+          $archiveOutput = Join-Path $PWD "archive-contents.txt"
+          pyi-archive_viewer -l $exe.FullName | Tee-Object -FilePath $archiveOutput
+          Write-Host "Archive lines matching escpos or capabilities:"
+          Select-String `
+            -Path $archiveOutput `
+            -Pattern 'escpos|capabilities' `
+            -CaseSensitive:$false
+
+          $archiveText = Get-Content $archiveOutput -Raw
+          $normalizedArchiveText = $archiveText -replace '\\', '/'
+          foreach ($required in @('win32print', 'pywintypes', 'escpos/capabilities.json')) {
+            if (-not $normalizedArchiveText.Contains($required)) {
+              throw "$required is absent from the frozen archive"
+            }
+            Write-Host "Verified frozen archive entry: $required"
           }
 
       - name: Test built executable (smoke test)

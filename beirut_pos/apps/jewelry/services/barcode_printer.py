@@ -845,31 +845,31 @@ def try_print_barcode_label_image(
     img: Image.Image,
     *,
     printer_name: str,
-    retries: int = 1,
+    retries: int = 0,
     copies: int | None = None,
 ) -> bool:
-    attempts = max(retries, 0) + 1
-    last_error: BarcodePrinterError | None = None
-    last_original: RuntimeError | None = None
-    for _ in range(attempts):
-        try:
-            print_barcode_label_image(img, printer_name=printer_name, copies=copies)
-            return True
-        except BarcodePrintRequestError:
-            raise
-        except RuntimeError as exc:
-            last_original = exc
-            last_error = _map_print_error(exc)
-    if last_error is not None and last_original is not None:
+    """Submit once; another attempt always requires a new user activation.
+
+    ``retries`` remains as a compatibility argument for older integrations but
+    is intentionally ignored.  A Windows RAW error can be ambiguous after the
+    spooler has accepted a job, so silently submitting the payload again risks
+    duplicate labels.
+    """
+    try:
+        print_barcode_label_image(img, printer_name=printer_name, copies=copies)
+        return True
+    except BarcodePrintRequestError:
+        raise
+    except RuntimeError as exc:
+        mapped_error = _map_print_error(exc)
         context = BarcodePrintContext(printer_name, copies if copies is not None else 1, 0.0, 0.0)
         raise _diagnostic_error(
-            last_original,
+            exc,
             context=context,
             backend="barcode-print",
-            stage=str(getattr(last_original, "stage", None) or "Print dispatch"),
-            code=last_error.code,
-        ) from last_original
-    return False
+            stage=str(getattr(exc, "stage", None) or "Print dispatch"),
+            code=mapped_error.code,
+        ) from exc
 
 
 

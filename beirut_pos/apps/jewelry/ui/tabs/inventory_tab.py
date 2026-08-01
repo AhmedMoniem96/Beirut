@@ -715,7 +715,7 @@ class InventoryTab(BaseTabContainer):
             self.barcode_printing_panel.report_failure("Print Barcode", exc)
             return False
         try:
-            try_print_barcode_label_image(label_img, printer_name=load_gallery_settings().barcode_printer_name, retries=0)
+            try_print_barcode_label_image(label_img, printer_name=load_gallery_settings().barcode_printer_name)
             self.barcode_printing_panel.report_success(t("inventory.printed", language=self._language))
             return True
         except (BarcodePrinterError, BarcodePrintRequestError) as exc:
@@ -743,7 +743,6 @@ class InventoryTab(BaseTabContainer):
             dispatched = try_print_barcode_label_image(
                 label_img,
                 printer_name=settings.barcode_printer_name,
-                retries=0,
                 copies=copies,
             )
             if dispatched:

@@ -61,3 +61,21 @@ def test_try_print_surfaces_original_actionable_message(monkeypatch):
 
     assert str(raised.value) == "Access denied by the Windows spooler"
     assert raised.value.code == "spooler_offline"
+
+
+def test_try_print_never_automatically_retries_raw_submission(monkeypatch):
+    attempts = []
+
+    def fail(*args, **kwargs):
+        attempts.append((args, kwargs))
+        raise BackendFailure("The spooler response was ambiguous")
+
+    monkeypatch.setattr(barcode_printer, "print_barcode_label_image", fail)
+    monkeypatch.setattr(barcode_printer.error_handling, "log_exception", lambda *args, **kwargs: None)
+
+    with pytest.raises(barcode_printer.BarcodePrintDiagnosticError):
+        barcode_printer.try_print_barcode_label_image(
+            object(), printer_name="RP310", retries=3
+        )
+
+    assert len(attempts) == 1

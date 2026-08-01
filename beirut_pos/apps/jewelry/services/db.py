@@ -232,6 +232,15 @@ class JewelryInvoiceHistoryRow:
     consistency_ok: bool
 
 
+@dataclass
+class JewelryReturnSourceInvoice:
+    invoice_no: str
+    customer_name: str
+    datetime: str
+    payment_method: str
+    total: float
+
+
 def init_jewelry_db() -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -2522,6 +2531,33 @@ def fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no: str) ->
         skipped_rows,
     )
     return items
+
+
+def fetch_return_source_invoice(invoice_no: str) -> Optional[JewelryReturnSourceInvoice]:
+    """Return display metadata for an exact source sale invoice match."""
+    normalized_invoice_no = str(invoice_no or "").strip()
+    if not normalized_invoice_no:
+        return None
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT invoice_no, COALESCE(customer_name, ''), datetime,
+                  COALESCE(payment_method, ''), COALESCE(total, 0)
+           FROM jw_invoices
+           WHERE invoice_no = ? AND txn_type = 'sale'""",
+        (normalized_invoice_no,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return JewelryReturnSourceInvoice(
+        invoice_no=row[0],
+        customer_name=row[1] or "",
+        datetime=row[2] or "",
+        payment_method=row[3] or "",
+        total=float(row[4] or 0),
+    )
 
 
 def create_return_invoice_from_source(

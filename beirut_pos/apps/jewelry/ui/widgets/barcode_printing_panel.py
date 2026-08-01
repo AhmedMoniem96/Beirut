@@ -107,7 +107,7 @@ class BarcodePrintingPanel(QGroupBox):
         try:
             settings = load_gallery_settings().barcode_printer_settings
             barcode_printer.print_test_label(printer_name=settings.exact_windows_name or "auto", copies=self.copies_spin.value())
-            self.report_success("Test RP310 label sent to printer.")
+            self.report_success("Test RP310 RAW job accepted by the spooler.")
         except Exception as exc:
             self.report_failure("Test RP310", exc)
 

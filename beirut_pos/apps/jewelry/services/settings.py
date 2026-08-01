@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from typing import Optional
-
-from PyQt6.QtCore import QSettings
 
 from beirut_pos.core.config_store import get_config_value, set_config_value
 
@@ -13,6 +12,62 @@ from beirut_pos.core.config_store import get_config_value, set_config_value
 PRINTER_MODE_RECEIPT = "receipt"
 PRINTER_MODE_LABEL = "label"
 DEFAULT_PRINTER_MODE = PRINTER_MODE_RECEIPT
+
+DEFAULT_BARCODE_LABEL_WIDTH_MM = 38.0
+DEFAULT_BARCODE_LABEL_HEIGHT_MM = 25.0
+
+
+def _safe_bool(value: object, default: bool = False) -> bool:
+    """Coerce persisted booleans without treating the string ``false`` as true."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+    return default
+
+
+def _safe_float(value: object, default: float, *, minimum: float | None = None) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(result) or (minimum is not None and result < minimum):
+        return default
+    return result
+
+
+def _safe_int(value: object, default: int, *, minimum: int | None = None) -> int:
+    try:
+        # Do not silently truncate malformed values such as "2.5".
+        result = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if minimum is not None and result < minimum:
+        return default
+    return result
+
+
+@dataclass
+class BarcodePrinterSettings:
+    """Persistent, device-specific barcode printer configuration."""
+
+    enabled: bool = False
+    model: str = ""
+    exact_windows_name: str = ""
+    width_mm: float = DEFAULT_BARCODE_LABEL_WIDTH_MM
+    height_mm: float = DEFAULT_BARCODE_LABEL_HEIGHT_MM
+    gap_mm: float = 3.0
+    dpi: int = 203
+    density: int = 8
+    speed: int = 4
+    default_copies: int = 1
+    command_language: str = "ESC/POS"
 
 
 
@@ -54,25 +109,67 @@ class GallerySettings:
     barcode_label_height_mm: float
     barcode_horizontal_offset_px: int
     barcode_vertical_offset_px: int
+    barcode_printer_settings: BarcodePrinterSettings = field(default_factory=BarcodePrinterSettings)
+
+    def __post_init__(self) -> None:
+        # Keep callers using the original flat label fields source-compatible.
+        # A caller that supplies the focused value object remains authoritative.
+        if self.barcode_printer_settings == BarcodePrinterSettings():
+            printer_name = (self.barcode_printer_name or "").strip()
+            self.barcode_printer_settings = BarcodePrinterSettings(
+                exact_windows_name="" if printer_name.lower() == "auto" else printer_name,
+                width_mm=self.barcode_label_width_mm,
+                height_mm=self.barcode_label_height_mm,
+            )
 
 
 def _migrate_invoice_print_preferences() -> tuple[bool, bool]:
-    auto_print = bool(get_config_value("jw_invoice_auto_print_after_save", False))
-    preview = bool(get_config_value("jw_invoice_print_preview", False))
+    """Load invoice preferences exclusively from the JSON configuration store."""
+    return (
+        _safe_bool(get_config_value("jw_invoice_auto_print_after_save", False)),
+        _safe_bool(get_config_value("jw_invoice_print_preview", False)),
+    )
 
-    qsettings = QSettings()
-    if not auto_print and qsettings.contains("invoice_auto_print_after_save"):
-        auto_print = qsettings.value("invoice_auto_print_after_save", False, bool)
-        set_config_value("jw_invoice_auto_print_after_save", auto_print)
-    if not preview and qsettings.contains("invoice_quick_preview"):
-        preview = qsettings.value("invoice_quick_preview", False, bool)
-        set_config_value("jw_invoice_print_preview", preview)
 
-    return auto_print, preview
+def _load_barcode_printer_settings() -> BarcodePrinterSettings:
+    # The former printer selector stored its value under this key.  Carry an
+    # explicit selection forward, but deliberately leave the new opt-in switch
+    # disabled so an upgrade can never start printing unexpectedly.
+    legacy_name = str(get_config_value("jw_barcode_printer_name", "") or "").strip()
+    if legacy_name.lower() == "auto":
+        legacy_name = ""
+    return BarcodePrinterSettings(
+        enabled=_safe_bool(get_config_value("jw_barcode_printer_enabled", False)),
+        model=str(get_config_value("jw_barcode_printer_model", "") or ""),
+        exact_windows_name=str(
+            get_config_value("jw_barcode_printer_windows_name", legacy_name) or legacy_name
+        ).strip(),
+        width_mm=_safe_float(
+            get_config_value("jw_barcode_label_width_mm", DEFAULT_BARCODE_LABEL_WIDTH_MM),
+            DEFAULT_BARCODE_LABEL_WIDTH_MM,
+            minimum=0.1,
+        ),
+        height_mm=_safe_float(
+            get_config_value("jw_barcode_label_height_mm", DEFAULT_BARCODE_LABEL_HEIGHT_MM),
+            DEFAULT_BARCODE_LABEL_HEIGHT_MM,
+            minimum=0.1,
+        ),
+        gap_mm=_safe_float(get_config_value("jw_barcode_label_gap_mm", 3.0), 3.0, minimum=0.0),
+        dpi=_safe_int(get_config_value("jw_barcode_printer_dpi", 203), 203, minimum=1),
+        density=_safe_int(get_config_value("jw_barcode_printer_density", 8), 8, minimum=0),
+        speed=_safe_int(get_config_value("jw_barcode_printer_speed", 4), 4, minimum=1),
+        default_copies=_safe_int(
+            get_config_value("jw_barcode_printer_default_copies", 1), 1, minimum=1
+        ),
+        command_language=str(
+            get_config_value("jw_barcode_printer_command_language", "ESC/POS") or "ESC/POS"
+        ).strip(),
+    )
 
 
 def load_gallery_settings() -> GallerySettings:
     invoice_auto_print_after_save, invoice_print_preview = _migrate_invoice_print_preferences()
+    barcode_printer = _load_barcode_printer_settings()
     return GallerySettings(
         name_en=get_config_value("jw_gallery_name_en", "Crystal Gallery for hand made"),
         name_ar=get_config_value("jw_gallery_name_ar", "كريستال جاليري للمشغولات اليدوية"),
@@ -97,14 +194,16 @@ def load_gallery_settings() -> GallerySettings:
         invoice_auto_print_after_save=invoice_auto_print_after_save,
         invoice_print_preview=invoice_print_preview,
         printer_mode=get_printer_mode(),
-        barcode_label_width_mm=float(get_config_value("jw_barcode_label_width_mm", 38.0) or 38.0),
-        barcode_label_height_mm=float(get_config_value("jw_barcode_label_height_mm", 25.0) or 25.0),
-        barcode_horizontal_offset_px=int(get_config_value("jw_barcode_horizontal_offset_px", 0) or 0),
-        barcode_vertical_offset_px=int(get_config_value("jw_barcode_vertical_offset_px", 0) or 0),
+        barcode_label_width_mm=barcode_printer.width_mm,
+        barcode_label_height_mm=barcode_printer.height_mm,
+        barcode_horizontal_offset_px=_safe_int(get_config_value("jw_barcode_horizontal_offset_px", 0), 0),
+        barcode_vertical_offset_px=_safe_int(get_config_value("jw_barcode_vertical_offset_px", 0), 0),
+        barcode_printer_settings=barcode_printer,
     )
 
 
 def save_gallery_settings(settings: GallerySettings) -> None:
+    barcode_printer = settings.barcode_printer_settings
     set_config_value("jw_gallery_name_en", settings.name_en)
     set_config_value("jw_gallery_name_ar", settings.name_ar)
     set_config_value("jw_gallery_address", settings.address)
@@ -128,10 +227,19 @@ def save_gallery_settings(settings: GallerySettings) -> None:
     set_config_value("jw_invoice_auto_print_after_save", settings.invoice_auto_print_after_save)
     set_config_value("jw_invoice_print_preview", settings.invoice_print_preview)
     set_printer_mode(settings.printer_mode)
-    set_config_value("jw_barcode_label_width_mm", settings.barcode_label_width_mm)
-    set_config_value("jw_barcode_label_height_mm", settings.barcode_label_height_mm)
+    set_config_value("jw_barcode_label_width_mm", barcode_printer.width_mm)
+    set_config_value("jw_barcode_label_height_mm", barcode_printer.height_mm)
     set_config_value("jw_barcode_horizontal_offset_px", settings.barcode_horizontal_offset_px)
     set_config_value("jw_barcode_vertical_offset_px", settings.barcode_vertical_offset_px)
+    set_config_value("jw_barcode_printer_enabled", barcode_printer.enabled)
+    set_config_value("jw_barcode_printer_model", barcode_printer.model)
+    set_config_value("jw_barcode_printer_windows_name", barcode_printer.exact_windows_name)
+    set_config_value("jw_barcode_label_gap_mm", barcode_printer.gap_mm)
+    set_config_value("jw_barcode_printer_dpi", barcode_printer.dpi)
+    set_config_value("jw_barcode_printer_density", barcode_printer.density)
+    set_config_value("jw_barcode_printer_speed", barcode_printer.speed)
+    set_config_value("jw_barcode_printer_default_copies", barcode_printer.default_copies)
+    set_config_value("jw_barcode_printer_command_language", barcode_printer.command_language)
     set_config_value("jw_printer_profiles", [{"name": "Admin Override", "vendor_id": settings.printer_vendor_id, "product_id": settings.printer_product_id, "interface": settings.printer_interface, "out_ep": settings.printer_out_ep, "in_ep": settings.printer_in_ep}])
 
 

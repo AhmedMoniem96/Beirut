@@ -28,7 +28,6 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "purchases.expenses": {"en": "Expenses", "ar": "المصروفات"},
     "purchases.add_purchase": {"en": "Add Purchase", "ar": "إضافة مشتريات"},
     "purchases.save_purchase": {"en": "Save Purchase", "ar": "حفظ المشتريات"},
-    "purchases.delete_purchase": {"en": "Delete Purchase", "ar": "حذف المشتريات"},
     "purchases.electricity_bill": {"en": "Electricity Bill", "ar": "فاتورة الكهرباء"},
     "purchases.rent": {"en": "Rent", "ar": "الإيجار"},
     "purchases.worker_wage": {"en": "Worker Wage", "ar": "أجر العامل"},

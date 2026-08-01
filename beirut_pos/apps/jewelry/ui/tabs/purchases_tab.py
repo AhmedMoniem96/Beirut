@@ -193,7 +193,30 @@ class PurchasesTab(BaseTabContainer):
         try: update_purchase(self._selected_expense_id, **self._purchase_payload(category=self.expense_category.currentData(), vendor=self.expense_vendor.text().strip(), amount=float(self.expense_amount.value()), payment=self.expense_payment.text().strip(), description=self.expense_description.text().strip(), notes=self.expense_notes.text().strip())); self.refresh_table(); self._clear_expense()
         except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
     def _delete_expense(self):
-        if self._selected_expense_id: delete_purchase(self._selected_expense_id); self.refresh_table(); self._clear_expense()
+        # Resolve the record from the live table selection rather than the
+        # editor's cached id. Clearing the form must make deletion impossible.
+        if not self.expenses_table.selectionModel().hasSelection():
+            return
+        row = self.expenses_table.currentRow()
+        id_item = self.expenses_table.item(row, 0) if row >= 0 else None
+        purchase_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else None
+        if not purchase_id:
+            return
+        answer = QMessageBox.question(
+            self,
+            t("common.delete", language=self._language),
+            t("common.confirm_delete", language=self._language),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            delete_purchase(int(purchase_id))
+            self.refresh_table()
+            self._clear_expense()
+        except Exception as exc:
+            QMessageBox.warning(self, "Error", str(exc))
 
     def _add_material_purchase(self):
         try:
@@ -246,8 +269,29 @@ class PurchasesTab(BaseTabContainer):
             self.refresh_table()
         except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
 
-    def _clear_expense(self): self._selected_expense_id = None; self.expense_date.setDate(date.today()); self.expense_category.setCurrentIndex(0); self.expense_vendor.clear(); self.expense_amount.setValue(0); self.expense_payment.clear(); self.expense_description.clear(); self.expense_notes.clear()
-    def _clear_material(self): self._selected_material_purchase_id = None; self.mat_date.setDate(date.today()); self.mat_material.setCurrentIndex(0); self.mat_supplier.clear(); self.mat_qty.setValue(0); self.mat_unit_cost.setValue(0); self.mat_total.setValue(0); self.mat_payment.clear(); self.mat_add_stock.setChecked(False); self.mat_notes.clear()
+    def _clear_expense(self):
+        self._selected_expense_id = None
+        self.expenses_table.clearSelection()
+        self.expense_date.setDate(date.today())
+        self.expense_category.setCurrentIndex(0)
+        self.expense_vendor.clear()
+        self.expense_amount.setValue(0)
+        self.expense_payment.clear()
+        self.expense_description.clear()
+        self.expense_notes.clear()
+
+    def _clear_material(self):
+        self._selected_material_purchase_id = None
+        self.material_table.clearSelection()
+        self.mat_date.setDate(date.today())
+        self.mat_material.setCurrentIndex(0)
+        self.mat_supplier.clear()
+        self.mat_qty.setValue(0)
+        self.mat_unit_cost.setValue(0)
+        self.mat_total.setValue(0)
+        self.mat_payment.clear()
+        self.mat_add_stock.setChecked(False)
+        self.mat_notes.clear()
 
     def _load_expense_row(self, row, _):
         p = next((x for x in list_purchases() if x.id == self.expenses_table.item(row,0).data(Qt.ItemDataRole.UserRole)), None)
@@ -301,11 +345,11 @@ class PurchasesTab(BaseTabContainer):
         labels = [t("common.date", language=language), t("purchases.category", language=language), t("purchases.vendor", language=language), t("purchases.amount", language=language), t("common.payment_method", language=language), t("purchases.description", language=language), t("common.notes", language=language)]
         for i,txt in enumerate(labels): self.expense_labels[i].setText(txt)
         self.expenses_table.setHorizontalHeaderLabels([t("common.date",language=language), t("purchases.category",language=language), t("purchases.vendor",language=language), t("purchases.description",language=language), t("purchases.amount",language=language), t("common.payment_method",language=language), t("common.notes",language=language), ""])
-        self.expense_add_btn.setText(t("common.add", language=language)); self.expense_save_btn.setText(t("common.save", language=language)); self.expense_del_btn.setText(t("common.delete", language=language)); self.expense_clear_btn.setText(t("common.clear", language=language))
+        self.expense_add_btn.setText(t("common.add", language=language)); self.expense_save_btn.setText(t("common.save", language=language)); self.expense_del_btn.setText(t("common.delete", language=language)); self.expense_clear_btn.setText(t("common.clear_form", language=language))
         mat_labels = [t("common.date",language=language), t("purchases.material",language=language), t("purchases.supplier",language=language), t("common.qty",language=language), t("purchases.unit_cost",language=language), t("purchases.total_amount",language=language), t("common.payment_method",language=language), t("purchases.add_qty_to_material_stock",language=language)]
         for i,txt in enumerate(mat_labels): self.material_labels[i].setText(txt)
         self.material_table.setHorizontalHeaderLabels([t("common.date",language=language), t("purchases.material",language=language), t("purchases.supplier",language=language), t("common.qty",language=language), t("purchases.unit_cost",language=language), t("common.total",language=language), t("common.payment_method",language=language), t("purchases.stock_updated",language=language), t("common.notes",language=language)])
-        self.mat_add_btn.setText(t("common.add", language=language)); self.mat_save_btn.setText(t("common.save", language=language)); self.mat_del_btn.setText(t("common.delete", language=language)); self.mat_clear_btn.setText(t("common.clear", language=language))
+        self.mat_add_btn.setText(t("common.add", language=language)); self.mat_save_btn.setText(t("common.save", language=language)); self.mat_del_btn.setText(t("common.delete", language=language)); self.mat_clear_btn.setText(t("common.clear_form", language=language))
         self.worker_labels[0].setText(t("purchases.worker", language=language)); self.worker_labels[1].setText(t("purchases.name", language=language)); self.worker_labels[2].setText(t("purchases.phone", language=language)); self.worker_labels[3].setText(t("purchases.role", language=language)); self.worker_labels[4].setText(t("purchases.default_wage", language=language)); self.worker_labels[5].setText(t("purchases.wage_type", language=language))
         self.worker_add_btn.setText(t("purchases.add_worker", language=language)); self.worker_save_btn.setText(t("purchases.update_worker", language=language)); self.worker_del_btn.setText(t("purchases.delete_worker", language=language))
         self.workers_table.setHorizontalHeaderLabels([t("purchases.name",language=language), t("purchases.phone",language=language), t("purchases.role",language=language), t("purchases.default_wage",language=language), t("purchases.wage_type",language=language), t("common.notes",language=language)])

@@ -127,6 +127,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "common.close": {"en": "Close", "ar": "إغلاق"},
     "common.cancel": {"en": "Cancel", "ar": "إلغاء"},
     "common.clear": {"en": "Clear", "ar": "مسح"},
+    "common.clear_form": {"en": "Clear Form", "ar": "تفريغ النموذج"},
     "common.refresh": {"en": "Refresh", "ar": "تحديث"},
     "common.select": {"en": "Select", "ar": "اختيار"},
     "common.export": {"en": "Export", "ar": "تصدير"},

@@ -26,6 +26,14 @@ def _purchase(purchase_id: int, *, quantity: float = 2, amount: float = 20):
     )
 
 
+def _expense(purchase_id: int, *, amount: float = 20):
+    purchase = _purchase(purchase_id, amount=amount)
+    purchase.category = "Rent"
+    purchase.linked_material_id = None
+    purchase.material_qty = None
+    return purchase
+
+
 @pytest.fixture(scope="module")
 def app():
     return QApplication.instance() or QApplication([])
@@ -33,7 +41,7 @@ def app():
 
 @pytest.fixture
 def tab(monkeypatch, app):
-    rows = [_purchase(11), _purchase(12, quantity=3, amount=45)]
+    rows = [_purchase(11), _purchase(12, quantity=3, amount=45), _expense(21)]
     material = SimpleNamespace(id=7, name_ar="فضة", name_en="Silver")
     monkeypatch.setattr(purchases_tab, "list_purchases", lambda: list(rows))
     monkeypatch.setattr(purchases_tab, "list_materials", lambda: [material])
@@ -104,3 +112,69 @@ def test_delete_guard_prevents_a_second_trigger(monkeypatch, tab):
     tab._delete_material_purchase()
 
     assert calls == []
+
+
+def test_clear_material_form_never_deletes_and_removes_selection(monkeypatch, tab):
+    calls = []
+    monkeypatch.setattr(purchases_tab, "delete_purchase", lambda *args, **kwargs: calls.append((args, kwargs)))
+    tab.material_table.selectRow(0)
+    tab._load_material_row(0, 0)
+
+    tab.mat_clear_btn.click()
+    tab.mat_del_btn.click()
+
+    assert calls == []
+    assert not tab.material_table.selectionModel().hasSelection()
+    assert tab._selected_material_purchase_id is None
+    assert tab.mat_supplier.text() == ""
+
+
+def test_expense_delete_requires_selection_and_confirmation(monkeypatch, tab):
+    calls = []
+    monkeypatch.setattr(purchases_tab, "delete_purchase", lambda *args, **kwargs: calls.append((args, kwargs)))
+    tab.expenses_table.clearSelection()
+
+    tab._delete_expense()
+    assert calls == []
+
+    tab.expenses_table.selectRow(0)
+    monkeypatch.setattr(
+        purchases_tab.QMessageBox,
+        "question",
+        lambda *args, **kwargs: purchases_tab.QMessageBox.StandardButton.No,
+    )
+    tab._delete_expense()
+    assert calls == []
+
+    monkeypatch.setattr(
+        purchases_tab.QMessageBox,
+        "question",
+        lambda *args, **kwargs: purchases_tab.QMessageBox.StandardButton.Yes,
+    )
+    tab._delete_expense()
+    assert calls == [((21,), {})]
+
+
+def test_clear_expense_form_never_deletes_and_removes_selection(monkeypatch, tab):
+    calls = []
+    monkeypatch.setattr(purchases_tab, "delete_purchase", lambda *args, **kwargs: calls.append((args, kwargs)))
+    tab.expenses_table.selectRow(0)
+    tab._load_expense_row(0, 0)
+
+    tab.expense_clear_btn.click()
+    tab.expense_del_btn.click()
+
+    assert calls == []
+    assert not tab.expenses_table.selectionModel().hasSelection()
+    assert tab._selected_expense_id is None
+    assert tab.expense_vendor.text() == ""
+
+
+def test_purchase_clear_buttons_have_unambiguous_translations(tab):
+    tab.apply_language("ar")
+    assert tab.expense_clear_btn.text() == "تفريغ النموذج"
+    assert tab.mat_clear_btn.text() == "تفريغ النموذج"
+
+    tab.apply_language("en")
+    assert tab.expense_clear_btn.text() == "Clear Form"
+    assert tab.mat_clear_btn.text() == "Clear Form"

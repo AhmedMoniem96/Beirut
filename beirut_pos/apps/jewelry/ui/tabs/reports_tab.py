@@ -179,10 +179,11 @@ class ReportsTab(BaseTabContainer):
         self.expense_payment_filter.textChanged.connect(self._generate_report)
         self.date_label = QLabel()
         self.product_filter_label = QLabel()
-        self.summary_filter_row = self._build_filters_row(include_product=True)
-        self.returns_filter_row = self._build_filters_row(include_product=True)
-        self.products_filter_row = self._build_filters_row(include_product=True)
-        self.stock_filter_row = self._build_filters_row(include_product=False)
+        # These controls are shared by the sales-oriented reports.  A QWidget can
+        # only belong to one layout; the old code added the same controls to four
+        # layouts, which made them jump to the last-built tab.
+        self.report_filter_row = self._build_filters_row(include_product=True)
+        layout.addLayout(self.report_filter_row)
 
         shift_box = QGroupBox()
         self.shift_box = shift_box
@@ -277,12 +278,22 @@ class ReportsTab(BaseTabContainer):
         self.top_products_label = QLabel()
         self.low_products_label = QLabel()
         self.stock_alerts_label = QLabel()
-        self.tabs.addTab(self._build_summary_tab(export_layout), "")
-        self.tabs.addTab(self._build_products_tab(), "")
-        self.tabs.addTab(self._build_customers_tab(), "")
-        self.tabs.addTab(self._build_returns_tab(), "")
-        self.tabs.addTab(self._build_stock_tab(), "")
-        self.tabs.addTab(self._build_expenses_tab(), "")
+        self.summary_report_tab = self._build_summary_tab(export_layout)
+        self.products_report_tab = self._build_products_tab()
+        self.customers_report_tab = self._build_customers_tab()
+        self.returns_report_tab = self._build_returns_tab()
+        self.stock_report_tab = self._build_stock_tab()
+        self.expenses_report_tab = self._build_expenses_tab()
+        for report_tab in (
+            self.summary_report_tab,
+            self.products_report_tab,
+            self.customers_report_tab,
+            self.returns_report_tab,
+            self.stock_report_tab,
+            self.expenses_report_tab,
+        ):
+            self.tabs.addTab(report_tab, "")
+        self.tabs.currentChanged.connect(lambda *_: self._generate_report())
         layout.addWidget(self.tabs)
 
         self.set_page_content_widget(content)
@@ -328,7 +339,6 @@ class ReportsTab(BaseTabContainer):
         vbox = QVBoxLayout(tab)
         vbox.setContentsMargins(12, 12, 12, 12)
         vbox.setSpacing(10)
-        vbox.addLayout(self.summary_filter_row)
         cards_grid = QGridLayout()
         cards_grid.setHorizontalSpacing(8)
         cards_grid.setVerticalSpacing(8)
@@ -399,7 +409,6 @@ class ReportsTab(BaseTabContainer):
         vbox = QVBoxLayout(tab)
         vbox.setContentsMargins(12, 12, 12, 12)
         vbox.setSpacing(10)
-        vbox.addLayout(self.returns_filter_row)
         vbox.addWidget(self.return_reasons_label)
         vbox.addWidget(self.returns_table, 1)
         return tab
@@ -409,7 +418,6 @@ class ReportsTab(BaseTabContainer):
         vbox = QVBoxLayout(tab)
         vbox.setContentsMargins(12, 12, 12, 12)
         vbox.setSpacing(10)
-        vbox.addLayout(self.products_filter_row)
         vbox.addWidget(self.top_products_label)
         vbox.addWidget(self.top_table, 1)
         vbox.addWidget(self.low_products_label)
@@ -429,7 +437,6 @@ class ReportsTab(BaseTabContainer):
         vbox = QVBoxLayout(tab)
         vbox.setContentsMargins(12, 12, 12, 12)
         vbox.setSpacing(10)
-        vbox.addLayout(self.stock_filter_row)
         vbox.addWidget(self.stock_alerts_label)
         vbox.addWidget(self.stock_table, 1)
         return tab
@@ -554,12 +561,16 @@ class ReportsTab(BaseTabContainer):
         self.top_products_label.setText(t("reports.top_products", language=language))
         self.low_products_label.setText(t("reports.low_products", language=language))
         self.stock_alerts_label.setText(t("reports.stock_alerts", language=language))
-        self.tabs.setTabText(0, t("reports.summary_tab", language=language) if t("reports.summary_tab", language=language) != "reports.summary_tab" else "Summary")
-        self.tabs.setTabText(1, t("reports.returns_tab", language=language) if t("reports.returns_tab", language=language) != "reports.returns_tab" else "Returns")
-        self.tabs.setTabText(2, t("reports.products_tab", language=language) if t("reports.products_tab", language=language) != "reports.products_tab" else "Products")
-        self.tabs.setTabText(3, t("reports.returns_tab", language=language) if t("reports.returns_tab", language=language) != "reports.returns_tab" else "Returns")
-        self.tabs.setTabText(4, t("reports.stock_tab", language=language) if t("reports.stock_tab", language=language) != "reports.stock_tab" else "Stock")
-        self.tabs.setTabText(5, f"{t("purchases.expenses", language=language)} / {t("purchases.header", language=language)}")
+        tab_labels = (
+            (self.summary_report_tab, "reports.summary_tab"),
+            (self.products_report_tab, "reports.products_tab"),
+            (self.customers_report_tab, "reports.customers_tab"),
+            (self.returns_report_tab, "reports.returns_tab"),
+            (self.stock_report_tab, "reports.stock_tab"),
+            (self.expenses_report_tab, "reports.expenses_tab"),
+        )
+        for report_tab, label_key in tab_labels:
+            self.tabs.setTabText(self.tabs.indexOf(report_tab), t(label_key, language=language))
 
     def _load_shift_from_db(self) -> None:
         date_iso = self.date_filter.date().toString("yyyy-MM-dd")
@@ -578,10 +589,17 @@ class ReportsTab(BaseTabContainer):
     def _generate_report(self) -> None:
         date_qt = self.date_filter.date()
         date_iso = date_qt.toString("yyyy-MM-dd")
-        start_dt = datetime.combine(self.date_from_filter.date().toPyDate(), time.min)
-        end_dt = datetime.combine(self.date_to_filter.date().toPyDate(), time.max)
+        start_dt = datetime.combine(date_qt.toPyDate(), time.min)
+        end_dt = datetime.combine(date_qt.toPyDate(), time.max)
         start_iso = start_dt.isoformat(timespec="seconds")
         end_iso = end_dt.isoformat(timespec="seconds")
+
+        expense_start_iso = datetime.combine(
+            self.date_from_filter.date().toPyDate(), time.min
+        ).isoformat(timespec="seconds")
+        expense_end_iso = datetime.combine(
+            self.date_to_filter.date().toPyDate(), time.max
+        ).isoformat(timespec="seconds")
 
         product_id = self.product_filter_combo.currentData()
 
@@ -663,8 +681,8 @@ class ReportsTab(BaseTabContainer):
             )
         )
         expense_data = expense_report_data(
-            start_iso,
-            end_iso,
+            expense_start_iso,
+            expense_end_iso,
             category=self.expense_category_filter.currentData() or None,
             vendor_worker_term=self.expense_vendor_worker_filter.text(),
             payment_method=self.expense_payment_filter.text().strip() or None,

@@ -1940,6 +1940,12 @@ class InvoiceTab(BaseTabContainer):
         to_date.setCalendarPopup(True)
         from_date.setDate(QDate.currentDate().addMonths(-1))
         to_date.setDate(QDate.currentDate())
+        all_dates_checkbox = QCheckBox("All dates")
+        all_dates_checkbox.setChecked(True)
+        from_date.setEnabled(False)
+        to_date.setEnabled(False)
+        all_dates_checkbox.toggled.connect(lambda checked: from_date.setEnabled(not checked))
+        all_dates_checkbox.toggled.connect(lambda checked: to_date.setEnabled(not checked))
         status_combo = QComboBox()
         status_combo.addItem("All", "ALL")
         status_combo.addItems(["PAID", "PARTIAL", "UNPAID", "OVERDUE"])
@@ -1949,6 +1955,7 @@ class InvoiceTab(BaseTabContainer):
         filters_row.addWidget(from_date)
         filters_row.addWidget(QLabel("To"))
         filters_row.addWidget(to_date)
+        filters_row.addWidget(all_dates_checkbox)
         filters_row.addWidget(QLabel("Status"))
         filters_row.addWidget(status_combo)
         filters_row.addWidget(refresh_btn)
@@ -1984,11 +1991,16 @@ class InvoiceTab(BaseTabContainer):
         is_admin = bool(get_current_user() and get_current_user().role == "Admin")
 
         def load_rows() -> None:
+            date_from = None
+            date_to = None
+            if not all_dates_checkbox.isChecked():
+                date_from = from_date.date().toString("yyyy-MM-dd")
+                date_to = to_date.date().toString("yyyy-MM-dd")
             rows = list_invoice_history(
                 status_filter=status_combo.currentData(),
                 search=search_input.text().strip(),
-                date_from=from_date.date().toString("yyyy-MM-dd"),
-                date_to=to_date.date().toString("yyyy-MM-dd"),
+                date_from=date_from,
+                date_to=date_to,
             )
             table.setRowCount(0)
             for row_data in rows:

@@ -2955,7 +2955,12 @@ def list_invoice_history(
                WHERE i.txn_type = 'sale'"""
     params: List = []
     normalized_status = (status_filter or "").upper()
-    if normalized_status == "UNPAID":
+    if normalized_status == "ALL":
+        # Invoice history must include every payment state.  Keep the empty
+        # status/default behavior below for callers such as the unpaid-orders
+        # view, which intentionally shows only actionable balances.
+        pass
+    elif normalized_status == "UNPAID":
         query += " AND COALESCE(i.payment_status, '') = 'UNPAID'"
     elif normalized_status == "PARTIAL":
         query += " AND COALESCE(i.payment_status, '') = 'PARTIAL'"
@@ -2966,7 +2971,7 @@ def list_invoice_history(
                       AND date(i.payment_due_date) < date('now')
                       AND COALESCE(i.remaining_total, 0) > 0"""
     else:
-        # The default invoice-history view is unpaid + partial.
+        # The default unpaid-orders view is unpaid + partial.
         query += " AND COALESCE(i.payment_status, '') IN ('UNPAID', 'PARTIAL')"
     if search:
         term = f"%{search.strip()}%"

@@ -329,7 +329,9 @@ class ManufacturingTab(BaseTabContainer):
         self.design_picker.setVisible(False)
         tab_layout.addWidget(self.design_picker)
 
-        main_layout = QHBoxLayout()
+        design_area = QWidget()
+        main_layout = QHBoxLayout(design_area)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(10)
 
         left_layout = QVBoxLayout()
@@ -408,7 +410,6 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_lines_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.bom_lines_table.setAlternatingRowColors(True)
         self.bom_lines_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.bom_lines_table.setMinimumHeight(220)
         self.bom_lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         lines_layout.addWidget(self.bom_lines_table, 1)
 
@@ -451,7 +452,6 @@ class ManufacturingTab(BaseTabContainer):
         left_wrap = QWidget(); left_wrap.setLayout(left_layout)
         main_layout.addWidget(left_wrap, 3)
         main_layout.addWidget(self.cost_summary_box, 1)
-        tab_layout.addLayout(main_layout, 1)
 
         self.boms_table = QTableWidget(0, 3)
         self.boms_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -460,7 +460,18 @@ class ManufacturingTab(BaseTabContainer):
         self.boms_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.boms_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.boms_table.cellClicked.connect(self._load_bom)
-        tab_layout.addWidget(self.boms_table, 1)
+
+        # Keep both the design workspace (including Used Materials) and the
+        # Saved Designs table visible.  The user can adjust the balance, while
+        # the initial 65/35 split gives both tables room for multiple rows.
+        self.design_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.design_splitter.setChildrenCollapsible(False)
+        self.design_splitter.addWidget(design_area)
+        self.design_splitter.addWidget(self.boms_table)
+        self.design_splitter.setStretchFactor(0, 65)
+        self.design_splitter.setStretchFactor(1, 35)
+        self.design_splitter.setSizes([650, 350])
+        tab_layout.addWidget(self.design_splitter, 1)
 
         self.bom_save_btn = QPushButton()
         self.produce_design_btn = QPushButton()
@@ -479,13 +490,12 @@ class ManufacturingTab(BaseTabContainer):
         footer.addWidget(self.bom_clear_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.produce_design_btn); footer.addWidget(self.bom_save_btn)
         tab_layout.addLayout(footer)
 
-        # Keep the add/remove controls compact while allowing the materials
-        # table in the design form to consume the section's available height.
+        # Keep the mode/picker/footer controls compact and give all remaining
+        # height to the balanced, user-adjustable table workspace.
         tab_layout.setStretch(0, 0)
         tab_layout.setStretch(1, 0)
         tab_layout.setStretch(2, 1)
-        tab_layout.setStretch(3, 1)
-        tab_layout.setStretch(4, 0)
+        tab_layout.setStretch(3, 0)
 
         self.tabs.addTab(self.boms_tab, "")
 

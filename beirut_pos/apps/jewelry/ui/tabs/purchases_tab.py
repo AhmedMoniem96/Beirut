@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from datetime import date
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QModelIndex, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QCompleter,
     QDateEdit,
     QDoubleSpinBox,
     QGridLayout,
@@ -30,6 +31,7 @@ from .base_tab import BaseTabContainer
 class PurchasesTab(BaseTabContainer):
     inventory_changed = pyqtSignal()
     EXPENSE_CATEGORIES = ["Electricity Bill", "Rent", "Maintenance", "Packaging", "Other", "Shop Bill"]
+    MATERIAL_SEARCH_ROLE = Qt.ItemDataRole.UserRole + 1
 
     def __init__(self) -> None:
         super().__init__()
@@ -89,7 +91,17 @@ class PurchasesTab(BaseTabContainer):
         self.material_tab = QWidget(); layout = QVBoxLayout(self.material_tab)
         form_box = QGroupBox(); form = QGridLayout(form_box)
         self.mat_date = QDateEdit(); self.mat_date.setCalendarPopup(True); self.mat_date.setDate(date.today())
-        self.mat_material = QComboBox(); self.mat_supplier = QLineEdit(); self.mat_qty = QDoubleSpinBox(); self.mat_qty.setRange(0, 999999); self.mat_qty.setDecimals(2)
+        self.mat_material = QComboBox()
+        self.mat_material.setEditable(True)
+        self.mat_material.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.material_completer = QCompleter(self.mat_material.model(), self.mat_material)
+        self.material_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.material_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.material_completer.setCompletionRole(self.MATERIAL_SEARCH_ROLE)
+        self.material_completer.activated[QModelIndex].connect(self._select_completed_material)
+        self.mat_material.setCompleter(self.material_completer)
+        self.mat_material.lineEdit().editingFinished.connect(self._validate_material_text)
+        self.mat_supplier = QLineEdit(); self.mat_qty = QDoubleSpinBox(); self.mat_qty.setRange(0, 999999); self.mat_qty.setDecimals(2)
         self.mat_unit_cost = QDoubleSpinBox(); self.mat_unit_cost.setRange(0, 999999999); self.mat_unit_cost.setDecimals(2)
         self.mat_total = QDoubleSpinBox(); self.mat_total.setRange(0, 999999999); self.mat_total.setDecimals(2)
         self.mat_payment = QLineEdit(); self.mat_add_stock = QCheckBox(); self.mat_notes = QLineEdit()
@@ -161,6 +173,44 @@ class PurchasesTab(BaseTabContainer):
             return f"{name} ({code})"
         return name or code
 
+    @staticmethod
+    def _material_search_text(material) -> str:
+        """Return all identifiers that may be used to find a material."""
+        return " ".join(
+            value.strip()
+            for value in (
+                material.name_ar or "",
+                material.name_en or "",
+                getattr(material, "code", "") or "",
+            )
+            if value.strip()
+        )
+
+    def _select_completed_material(self, index: QModelIndex) -> None:
+        """Resolve a completion back to the combo item and its material id."""
+        material_id = index.data(Qt.ItemDataRole.UserRole)
+        combo_index = self.mat_material.findData(material_id)
+        if combo_index >= 0:
+            self.mat_material.setCurrentIndex(combo_index)
+
+    def _validate_material_text(self) -> None:
+        """Prevent editable text that does not identify a material from persisting."""
+        if self.mat_material.currentIndex() >= 0:
+            return
+        entered_text = self.mat_material.currentText().strip().casefold()
+        for index in range(1, self.mat_material.count()):
+            material = self._materials[index - 1]
+            exact_matches = {
+                self.mat_material.itemText(index).strip().casefold(),
+                (material.name_ar or "").strip().casefold(),
+                (material.name_en or "").strip().casefold(),
+                (getattr(material, "code", "") or "").strip().casefold(),
+            }
+            if entered_text and entered_text in exact_matches:
+                self.mat_material.setCurrentIndex(index)
+                return
+        self.mat_material.setCurrentIndex(0)
+
     def _refresh_material_combo(self) -> None:
         """Reload the shared manufacturing materials without losing selection."""
         selected_material_id = self.mat_material.currentData()
@@ -171,6 +221,11 @@ class PurchasesTab(BaseTabContainer):
             self.mat_material.addItem("", None)
             for material in self._materials:
                 self.mat_material.addItem(self._material_label(material), material.id)
+                self.mat_material.setItemData(
+                    self.mat_material.count() - 1,
+                    self._material_search_text(material),
+                    self.MATERIAL_SEARCH_ROLE,
+                )
             selected_index = self.mat_material.findData(selected_material_id)
             self.mat_material.setCurrentIndex(selected_index if selected_index >= 0 else 0)
         finally:

@@ -24,7 +24,8 @@ def production_db(tmp_path, monkeypatch):
           name_en TEXT NOT NULL, unit TEXT, qty_on_hand REAL NOT NULL,
           cost_per_unit REAL NOT NULL);
         CREATE TABLE jw_boms(id INTEGER PRIMARY KEY, product_id INTEGER NOT NULL,
-          name TEXT NOT NULL);
+          name TEXT NOT NULL, labor_cost REAL NOT NULL DEFAULT 0,
+          packaging_cost REAL NOT NULL DEFAULT 0, other_cost REAL NOT NULL DEFAULT 0);
         CREATE TABLE jw_bom_lines(id INTEGER PRIMARY KEY, bom_id INTEGER NOT NULL,
           material_id INTEGER NOT NULL, qty_required REAL NOT NULL);
         CREATE TABLE jw_production_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,7 +39,7 @@ def production_db(tmp_path, monkeypatch):
         INSERT INTO jw_products VALUES (1, 'خاتم', 'Ring', 2);
         INSERT INTO jw_materials VALUES (10, 'ذهب', 'Gold', 'g', 100, 12.5);
         INSERT INTO jw_materials VALUES (11, 'حجر', 'Stone', 'pc', 20, 3);
-        INSERT INTO jw_boms VALUES (20, 1, 'Ring BOM');
+        INSERT INTO jw_boms VALUES (20, 1, 'Ring BOM', 5, 2, 1);
         INSERT INTO jw_bom_lines VALUES (30, 20, 10, 2.5);
         INSERT INTO jw_bom_lines VALUES (31, 20, 11, 1);
         """
@@ -85,8 +86,8 @@ def test_rejects_missing_bom_and_non_positive_quantity(production_db, bom_id, qu
 
 def test_rejects_missing_product_and_lines(production_db):
     with sqlite3.connect(production_db) as conn:
-        conn.execute("INSERT INTO jw_boms VALUES (21, 999, 'Missing product')")
-        conn.execute("INSERT INTO jw_boms VALUES (22, 1, 'No lines')")
+        conn.execute("INSERT INTO jw_boms VALUES (21, 999, 'Missing product', 0, 0, 0)")
+        conn.execute("INSERT INTO jw_boms VALUES (22, 1, 'No lines', 0, 0, 0)")
     with pytest.raises(ValueError, match="product"):
         db.produce_from_bom(21, 1)
     with pytest.raises(ValueError, match="lines"):
@@ -117,3 +118,14 @@ def test_repeated_invocations_create_independent_completed_orders(production_db)
     assert first["production_order_id"] != second["production_order_id"]
     assert rows(production_db, "SELECT status, qty_produced FROM jw_production_orders ORDER BY id") == [("done", 1.0), ("done", 2.0)]
     assert rows(production_db, "SELECT qty_on_hand FROM jw_products") == [(5.0,)]
+
+
+def test_saved_per_unit_additional_costs_are_snapshotted_for_batch(production_db):
+    db.produce_from_bom(20, 4)
+
+    assert rows(production_db, "SELECT labor_cost, overhead_cost FROM jw_production_orders") == [
+        (20.0, 12.0)
+    ]
+    assert rows(production_db, "SELECT labor_cost, packaging_cost, other_cost FROM jw_boms") == [
+        (5.0, 2.0, 1.0)
+    ]

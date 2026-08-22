@@ -893,7 +893,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "manufacturing.material_saved": {"en": "Material saved.", "ar": "تم حفظ الخام."},
     "manufacturing.delete_material": {"en": "Delete this material?", "ar": "هل تريد حذف هذه الخامة؟"},
     "manufacturing.select_product": {"en": "Select a product.", "ar": "يرجى اختيار منتج."},
-    "manufacturing.bom_name_required": {"en": "BOM name required.", "ar": "اسم الوصفة مطلوب."},
+    "manufacturing.bom_name_required": {"en": "Design Name is required.", "ar": "اسم التصميم مطلوب."},
     "manufacturing.add_material_line": {
         "en": "Add at least one material line.",
         "ar": "أضف سطراً واحداً على الأقل.",

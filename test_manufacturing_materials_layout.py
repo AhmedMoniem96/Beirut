@@ -55,3 +55,21 @@ def test_materials_table_receives_extra_height_when_window_grows(tab, app):
     assert tab.materials_table.height() > compact_height
     assert tab.material_barcode_printing_panel.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Preferred
     assert tab.material_barcode_printing_panel.diagnostics.minimumHeight() == 60
+
+
+def test_design_used_materials_table_gets_the_section_height(tab, app):
+    tab.tabs.setCurrentWidget(tab.boms_tab)
+    tab.resize(1366, 768)
+    tab.show()
+    app.processEvents()
+
+    lines_layout = tab.lines_box.layout()
+    assert tab.lines_box.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Expanding
+    assert tab.bom_lines_table.minimumHeight() == 220
+    assert tab.bom_lines_table.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Expanding
+    assert lines_layout.stretch(lines_layout.indexOf(tab.bom_lines_table)) == 1
+    assert tab.bom_lines_table.height() >= 220
+
+    # The input row and remove button stay compact around the expanding table.
+    assert tab.add_bom_line_btn.sizePolicy().verticalPolicy() != QSizePolicy.Policy.Expanding
+    assert tab.remove_line_btn.sizePolicy().verticalPolicy() != QSizePolicy.Policy.Expanding

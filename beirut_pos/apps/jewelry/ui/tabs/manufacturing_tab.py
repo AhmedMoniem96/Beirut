@@ -379,6 +379,9 @@ class ManufacturingTab(BaseTabContainer):
         left_layout.addWidget(self.bom_box)
 
         self.lines_box = QGroupBox("Materials Used")
+        self.lines_box.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         lines_layout = QVBoxLayout(self.lines_box)
         lines_layout.setSpacing(8)
         add_line_layout = QHBoxLayout()
@@ -405,8 +408,9 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_lines_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.bom_lines_table.setAlternatingRowColors(True)
         self.bom_lines_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.bom_lines_table.setMinimumHeight(220)
         self.bom_lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        lines_layout.addWidget(self.bom_lines_table)
+        lines_layout.addWidget(self.bom_lines_table, 1)
 
         self.remove_line_btn = QPushButton("Remove Material")
         self.remove_line_btn.clicked.connect(self._remove_bom_line)
@@ -454,10 +458,9 @@ class ManufacturingTab(BaseTabContainer):
         self.boms_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.boms_table.setAlternatingRowColors(True)
         self.boms_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.boms_table.setMinimumHeight(240)
         self.boms_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.boms_table.cellClicked.connect(self._load_bom)
-        tab_layout.addWidget(self.boms_table, 2)
+        tab_layout.addWidget(self.boms_table, 1)
 
         self.bom_save_btn = QPushButton()
         self.produce_design_btn = QPushButton()
@@ -476,13 +479,12 @@ class ManufacturingTab(BaseTabContainer):
         footer.addWidget(self.bom_clear_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.produce_design_btn); footer.addWidget(self.bom_save_btn)
         tab_layout.addLayout(footer)
 
-        # Keep the design controls compact and give the saved-design list most
-        # of any extra height.  The minimum keeps the list usable on shorter
-        # desktop screens, while the stretch lets it grow with the window.
+        # Keep the add/remove controls compact while allowing the materials
+        # table in the design form to consume the section's available height.
         tab_layout.setStretch(0, 0)
         tab_layout.setStretch(1, 0)
         tab_layout.setStretch(2, 1)
-        tab_layout.setStretch(3, 2)
+        tab_layout.setStretch(3, 1)
         tab_layout.setStretch(4, 0)
 
         self.tabs.addTab(self.boms_tab, "")

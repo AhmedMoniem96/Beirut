@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -40,6 +40,7 @@ from .base_tab import BaseTabContainer
 
 
 class ReturnsTab(BaseTabContainer):
+    inventory_changed = pyqtSignal()
     RETURN_METHODS = ("Cash Return", "Exchange", "Credit / Customer Balance")
     RETURN_REASONS = ("Return", "Defective item", "Wrong item", "Customer request")
 
@@ -402,6 +403,7 @@ class ReturnsTab(BaseTabContainer):
         self._reset_after_success()
         self.refresh()
         self.load_full_history()
+        self.inventory_changed.emit()
 
     def _reset_after_success(self) -> None:
         self._clear_loaded_invoice()

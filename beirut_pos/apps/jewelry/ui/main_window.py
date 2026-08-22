@@ -110,6 +110,8 @@ class JewelryMainWindow(QMainWindow):
         if hasattr(self.manufacturing_tab, "inventory_changed"):
             self.manufacturing_tab.inventory_changed.connect(self.inventory_tab.refresh)
             self.manufacturing_tab.inventory_changed.connect(self.invoice_tab.refresh_products)
+        self.purchases_tab.inventory_changed.connect(self.invoice_tab.refresh_products)
+        self.returns_tab.inventory_changed.connect(self.invoice_tab.refresh_products)
 
         self._build_menu()
 

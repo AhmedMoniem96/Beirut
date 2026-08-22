@@ -34,6 +34,21 @@ class JewelryProduct:
 
 
 @dataclass
+class JewelrySaleCatalogItem:
+    """A sellable source presented in the invoice catalog."""
+
+    source_type: Literal["product", "material"]
+    source_id: int
+    name_ar: str
+    name_en: str
+    code: str
+    barcode: str
+    qty_on_hand: float
+    unit: str
+    price: Optional[float]
+
+
+@dataclass
 class JewelryInvoiceItem:
     product_id: Optional[int]
     product_name: str
@@ -1532,6 +1547,79 @@ def list_products(search: Optional[str] = None, category: Optional[str] = None) 
         )
         for row in rows
     ]
+
+
+def list_sale_catalog(search: Optional[str] = None, category: Optional[str] = None) -> List[JewelrySaleCatalogItem]:
+    """Return finished products and saleable materials at their selling prices."""
+    conn = get_conn()
+    cur = conn.cursor()
+    params: List[str] = []
+    product_conditions: List[str] = []
+    # Categories apply to products only; materials remain visible under All.
+    if category is not None:
+        if category == "Uncategorized":
+            product_conditions.append("(category IS NULL OR TRIM(category) = '')")
+        else:
+            product_conditions.append("category = ?")
+            params.append(category)
+    if search:
+        product_conditions.append("(name_ar LIKE ? OR name_en LIKE ? OR sku LIKE ? OR barcode LIKE ?)")
+        like = f"%{search}%"
+        params.extend([like] * 4)
+    product_where = " WHERE " + " AND ".join(product_conditions) if product_conditions else ""
+    material_params: List[str] = []
+    material_where = "saleable = 1"
+    if category is not None:
+        material_where += " AND 0"  # category buttons describe finished products
+    if search:
+        material_where += " AND (name_ar LIKE ? OR name_en LIKE ? OR code LIKE ? OR barcode LIKE ?)"
+        material_params.extend([f"%{search}%"] * 4)
+    cur.execute(
+        f"""SELECT source_type, source_id, name_ar, name_en, code, barcode,
+                   qty_on_hand, unit, price
+            FROM (
+                SELECT 'product' source_type, id source_id, name_ar, name_en,
+                       sku code, COALESCE(barcode, '') barcode, qty_on_hand,
+                       '' unit, price
+                FROM jw_products{product_where}
+                UNION ALL
+                SELECT 'material', id, name_ar, name_en, code,
+                       COALESCE(barcode, ''), qty_on_hand, COALESCE(unit, ''),
+                       sale_price
+                FROM jw_materials WHERE {material_where}
+            ) ORDER BY source_type, source_id DESC""",
+        tuple(params + material_params),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [JewelrySaleCatalogItem(*row) for row in rows]
+
+
+def find_sale_catalog_item_by_code(code: str) -> Optional[JewelrySaleCatalogItem]:
+    """Find one exact SKU/code/barcode match, rejecting ambiguous legacy data."""
+    normalized = str(code or "").strip()
+    if not normalized:
+        return None
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT source_type, source_id, name_ar, name_en, code, barcode,
+                  qty_on_hand, unit, price
+           FROM (
+             SELECT 'product' source_type, id source_id, name_ar, name_en, sku code,
+                    COALESCE(barcode, '') barcode, qty_on_hand, '' unit, price
+             FROM jw_products WHERE sku = ? OR barcode = ?
+             UNION ALL
+             SELECT 'material', id, name_ar, name_en, code, COALESCE(barcode, ''),
+                    qty_on_hand, COALESCE(unit, ''), sale_price
+             FROM jw_materials
+             WHERE saleable = 1 AND (code = ? OR barcode = ?)
+           )""",
+        (normalized, normalized, normalized, normalized),
+    ).fetchall()
+    conn.close()
+    if len(rows) > 1:
+        raise ValueError(f"Ambiguous code/barcode '{normalized}': {len(rows)} catalog matches")
+    return JewelrySaleCatalogItem(*rows[0]) if rows else None
 
 
 

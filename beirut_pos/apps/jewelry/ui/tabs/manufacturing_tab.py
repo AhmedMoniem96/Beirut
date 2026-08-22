@@ -693,6 +693,7 @@ class ManufacturingTab(BaseTabContainer):
             t("manufacturing.material_saved_successfully", language=self._language),
         )
         self._refresh_materials()
+        self.inventory_changed.emit()
         for row in range(self.materials_table.rowCount()):
             if self.materials_table.item(row, 0).data(Qt.ItemDataRole.UserRole) == saved_id:
                 self.materials_table.selectRow(row)
@@ -796,6 +797,7 @@ class ManufacturingTab(BaseTabContainer):
         )
         self._refresh_materials()
         self._update_material_edit_ui()
+        self.inventory_changed.emit()
 
     def _clear_material_form(self) -> None:
         self._selected_material_id = None

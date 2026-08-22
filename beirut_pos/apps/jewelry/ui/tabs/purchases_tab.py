@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -28,6 +28,7 @@ from .base_tab import BaseTabContainer
 
 
 class PurchasesTab(BaseTabContainer):
+    inventory_changed = pyqtSignal()
     EXPENSE_CATEGORIES = ["Electricity Bill", "Rent", "Maintenance", "Packaging", "Other", "Shop Bill"]
 
     def __init__(self) -> None:
@@ -256,12 +257,14 @@ class PurchasesTab(BaseTabContainer):
         try:
             create_purchase(date=self.mat_date.date().toString("yyyy-MM-dd"), category="Material Purchase", vendor=self.mat_supplier.text().strip(), amount=float(self.mat_total.value()), payment_method=self.mat_payment.text().strip(), description="", notes=self.mat_notes.text().strip(), linked_material_id=self.mat_material.currentData() if self.mat_add_stock.isChecked() else None, material_qty=float(self.mat_qty.value()) if self.mat_add_stock.isChecked() else None)
             self.refresh_table(); self._clear_material()
+            self.inventory_changed.emit()
         except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
     def _save_material_purchase(self):
         if not self._selected_material_purchase_id: return self._add_material_purchase()
         try:
             update_purchase(self._selected_material_purchase_id, date=self.mat_date.date().toString("yyyy-MM-dd"), category="Material Purchase", vendor=self.mat_supplier.text().strip(), amount=float(self.mat_total.value()), payment_method=self.mat_payment.text().strip(), description="", notes=self.mat_notes.text().strip(), linked_material_id=self.mat_material.currentData() if self.mat_add_stock.isChecked() else None, material_qty=float(self.mat_qty.value()) if self.mat_add_stock.isChecked() else None)
             self.refresh_table(); self._clear_material()
+            self.inventory_changed.emit()
         except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
     def _delete_material_purchase(self):
         # Read the id from the table selection at click time.  The form's cached
@@ -291,6 +294,7 @@ class PurchasesTab(BaseTabContainer):
             delete_purchase(int(purchase_id), reverse_stock=True)
             self.refresh_table()
             self._clear_material()
+            self.inventory_changed.emit()
         except Exception as exc:
             QMessageBox.warning(self, "Error", str(exc))
         finally:

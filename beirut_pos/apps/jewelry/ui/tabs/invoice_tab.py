@@ -1057,7 +1057,8 @@ class InvoiceTab(BaseTabContainer):
         name = choose_name(item.name_ar, item.name_en, language=self._language)
         if item.source_type == "material":
             stock = f"{item.qty_on_hand:g} {item.unit}".strip()
-            return f"{name} — Material — {stock}"
+            source_label = "خامة" if self._language == "ar" else "Material"
+            return f"{name} — {source_label} — {stock}"
         return name
 
     def render_category_buttons(self) -> None:

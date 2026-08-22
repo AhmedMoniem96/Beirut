@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Dict, Iterable, List, Literal, Optional, Tuple
 import logging
 import math
+import sqlite3
 
 from beirut_pos.core.config_store import get_config_value
 from beirut_pos.core.db import get_conn
@@ -104,6 +105,9 @@ class JewelryMaterial:
     unit: str
     min_qty: float
     cost_per_unit: float
+    saleable: bool = False
+    sale_price: Optional[float] = None
+    barcode: str = ""
 
 
 @dataclass
@@ -487,9 +491,15 @@ def init_jewelry_db() -> None:
             qty_on_hand REAL NOT NULL DEFAULT 0,
             unit TEXT DEFAULT '',
             min_qty REAL NOT NULL DEFAULT 0,
-            cost_per_unit REAL NOT NULL DEFAULT 0
+            cost_per_unit REAL NOT NULL DEFAULT 0,
+            saleable INTEGER NOT NULL DEFAULT 0,
+            sale_price REAL,
+            barcode TEXT
         )"""
     )
+    _ensure_column(cur, "jw_materials", "saleable", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_materials", "sale_price", "REAL")
+    _ensure_column(cur, "jw_materials", "barcode", "TEXT")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_boms(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -627,6 +637,14 @@ def init_jewelry_db() -> None:
         )
     except Exception:
         pass
+    try:
+        cur.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS jw_materials_barcode_unique
+               ON jw_materials(barcode)
+               WHERE barcode IS NOT NULL AND TRIM(barcode) != ''"""
+        )
+    except Exception:
+        pass
     _migrate_customer_tables(cur)
     conn.commit()
     conn.close()
@@ -710,6 +728,11 @@ def _ensure_column(cur, table: str, column: str, column_type: str) -> None:
     columns = {row[1] for row in cur.fetchall()}
     if column not in columns:
         cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
+def _has_column(cur, table: str, column: str) -> bool:
+    cur.execute(f"PRAGMA table_info({table})")
+    return column in {row[1] for row in cur.fetchall()}
 
 
 def _migrate_customer_tables(cur) -> None:
@@ -1505,6 +1528,10 @@ def upsert_product_by_sku(product: dict) -> str:
     existing = cur.fetchone()
 
     if barcode:
+        cur.execute("SELECT 1 FROM jw_materials WHERE barcode = ? LIMIT 1", (barcode,))
+        if cur.fetchone():
+            conn.close()
+            raise ValueError("Duplicate barcode")
         if existing:
             cur.execute(
                 "SELECT 1 FROM jw_products WHERE barcode = ? AND id != ? LIMIT 1",
@@ -1571,6 +1598,19 @@ def save_product(
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
+    barcode = (barcode or "").strip()
+    if barcode:
+        cur.execute("SELECT 1 FROM jw_materials WHERE barcode = ? LIMIT 1", (barcode,))
+        if cur.fetchone() is not None:
+            conn.close()
+            raise ValueError("Duplicate barcode")
+        if product_id:
+            cur.execute("SELECT 1 FROM jw_products WHERE barcode = ? AND id != ? LIMIT 1", (barcode, product_id))
+        else:
+            cur.execute("SELECT 1 FROM jw_products WHERE barcode = ? LIMIT 1", (barcode,))
+        if cur.fetchone() is not None:
+            conn.close()
+            raise ValueError("Duplicate barcode")
     if product_id:
         cur.execute(
             """UPDATE jw_products
@@ -1622,6 +1662,7 @@ def save_product(
 
 
 def barcode_exists(barcode: str, *, exclude_product_id: Optional[int] = None) -> bool:
+    barcode = (barcode or "").strip()
     if not barcode:
         return False
     conn = get_conn()
@@ -1634,6 +1675,9 @@ def barcode_exists(barcode: str, *, exclude_product_id: Optional[int] = None) ->
     else:
         cur.execute("SELECT 1 FROM jw_products WHERE barcode = ? LIMIT 1", (barcode,))
     exists = cur.fetchone() is not None
+    if not exists:
+        cur.execute("SELECT 1 FROM jw_materials WHERE barcode = ? LIMIT 1", (barcode,))
+        exists = cur.fetchone() is not None
     conn.close()
     return exists
 
@@ -1687,7 +1731,8 @@ def list_materials() -> List[JewelryMaterial]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT id, name_ar, name_en, code, qty_on_hand, unit, min_qty, cost_per_unit
+        """SELECT id, name_ar, name_en, code, qty_on_hand, unit, min_qty, cost_per_unit,
+                  saleable, sale_price, COALESCE(barcode, '')
            FROM jw_materials ORDER BY id DESC"""
     )
     rows = cur.fetchall()
@@ -1702,6 +1747,9 @@ def list_materials() -> List[JewelryMaterial]:
             unit=row[5],
             min_qty=row[6],
             cost_per_unit=row[7],
+            saleable=bool(row[8]),
+            sale_price=row[9],
+            barcode=row[10] or "",
         )
         for row in rows
     ]
@@ -2017,42 +2065,72 @@ def save_material(
     unit: str,
     min_qty: float,
     cost_per_unit: float,
-) -> None:
+    saleable: bool = False,
+    sale_price: Optional[float] = None,
+    barcode: str = "",
+) -> int:
+    if saleable and (
+        sale_price is None
+        or not math.isfinite(float(sale_price))
+        or float(sale_price) <= 0
+    ):
+        raise ValueError("Sale price must be greater than zero for a saleable material.")
+    barcode = (barcode or "").strip()
     conn = get_conn()
-    cur = conn.cursor()
-    if material_id:
-        cur.execute(
-            """UPDATE jw_materials
-               SET name_ar=?, name_en=?, code=?, qty_on_hand=?, unit=?, min_qty=?, cost_per_unit=?
-               WHERE id=?""",
-            (
-                name_ar,
-                name_en,
-                code,
-                qty_on_hand,
-                unit,
-                min_qty,
-                cost_per_unit,
-                material_id,
-            ),
-        )
-    else:
-        cur.execute(
-            """INSERT INTO jw_materials
-               (name_ar, name_en, code, qty_on_hand, unit, min_qty, cost_per_unit)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                name_ar,
-                name_en,
-                code,
-                qty_on_hand,
-                unit,
-                min_qty,
-                cost_per_unit,
-            ),
-        )
-    conn.commit()
-    conn.close()
+    try:
+        cur = conn.cursor()
+        cur.execute("BEGIN")
+        if material_id and not barcode:
+            cur.execute("SELECT barcode FROM jw_materials WHERE id=?", (material_id,))
+            row = cur.fetchone()
+            if row is None:
+                raise ValueError("Material does not exist.")
+            barcode = (row[0] or "").strip()
+        if barcode:
+            cur.execute("SELECT 1 FROM jw_products WHERE barcode=? LIMIT 1", (barcode,))
+            if cur.fetchone():
+                raise ValueError("Barcode already belongs to a product.")
+            cur.execute(
+                "SELECT 1 FROM jw_materials WHERE barcode=? AND (? IS NULL OR id!=?) LIMIT 1",
+                (barcode, material_id, material_id),
+            )
+            if cur.fetchone():
+                raise ValueError("Barcode already belongs to another material.")
+        if material_id:
+            cur.execute(
+                """UPDATE jw_materials SET name_ar=?, name_en=?, code=?, qty_on_hand=?, unit=?, min_qty=?, cost_per_unit=?, saleable=?, sale_price=?, barcode=? WHERE id=?""",
+                (name_ar, name_en, code, qty_on_hand, unit, min_qty,
+                 cost_per_unit, 1 if saleable else 0, sale_price, barcode,
+                 material_id),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("Material does not exist.")
+            saved_id = int(material_id)
+        else:
+            cur.execute(
+                """INSERT INTO jw_materials(name_ar,name_en,code,qty_on_hand,unit,min_qty,cost_per_unit,saleable,sale_price,barcode) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (name_ar, name_en, code, qty_on_hand, unit, min_qty,
+                 cost_per_unit, 1 if saleable else 0, sale_price, barcode),
+            )
+            saved_id = int(cur.lastrowid)
+            if not barcode:
+                barcode = f"M{saved_id:06d}"
+                cur.execute("SELECT 1 FROM jw_products WHERE barcode=? LIMIT 1", (barcode,))
+                if cur.fetchone():
+                    raise ValueError("Generated barcode already belongs to a product.")
+                cur.execute("UPDATE jw_materials SET barcode=? WHERE id=?", (barcode, saved_id))
+        conn.commit()
+        return saved_id
+    except sqlite3.IntegrityError as exc:
+        conn.rollback()
+        if "barcode" in str(exc).lower():
+            raise ValueError("Barcode already belongs to another material.") from exc
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def delete_material(material_id: int) -> None:
@@ -2206,6 +2284,23 @@ def save_product_design(
         )
         if cur.fetchone() is not None:
             raise ValueError("SKU/code already belongs to another product.")
+
+        normalized_barcode = (barcode or "").strip()
+        if normalized_barcode and _has_column(cur, "jw_materials", "barcode"):
+            cur.execute(
+                "SELECT 1 FROM jw_materials WHERE barcode=? LIMIT 1",
+                (normalized_barcode,),
+            )
+            if cur.fetchone():
+                raise ValueError("Barcode already belongs to a material.")
+        if normalized_barcode:
+            cur.execute(
+                "SELECT 1 FROM jw_products WHERE barcode=? AND (? IS NULL OR id!=?) LIMIT 1",
+                (normalized_barcode, product_id, product_id),
+            )
+            if cur.fetchone():
+                raise ValueError("Barcode already belongs to another product.")
+        barcode = normalized_barcode
 
         if product_id is not None:
             cur.execute(

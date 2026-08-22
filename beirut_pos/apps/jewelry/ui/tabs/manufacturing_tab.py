@@ -1517,7 +1517,7 @@ class ManufacturingTab(BaseTabContainer):
         self._language = language
         if self.header_label is not None:
             self.header_label.setText(t("manufacturing.header", language=language))
-        self.tabs.setTabText(0, "التصاميم" if language == "ar" else "Designs")
+        self.tabs.setTabText(0, "إنشاء تصميم" if language == "ar" else "Designs")
         self.tabs.setTabText(1, "الخامات" if language == "ar" else "Materials")
         self.tabs.setTabText(2, "سجل التصنيع" if language == "ar" else "Manufacturing History")
         self.materials_box.setTitle(t("manufacturing.materials_box", language=language))
@@ -1543,7 +1543,7 @@ class ManufacturingTab(BaseTabContainer):
                 "الحد الأدنى" if language == "ar" else "Min Qty",
             ]
         )
-        self.tabs.setTabText(0, "التصاميم" if language == "ar" else "Designs")
+        self.tabs.setTabText(0, "إنشاء تصميم" if language == "ar" else "Designs")
         self.new_design_btn.setText("تصميم جديد" if language == "ar" else "New Design")
         self.edit_design_btn.setText(
             "تعديل تصميم موجود" if language == "ar" else "Edit Existing Design"
@@ -1588,7 +1588,7 @@ class ManufacturingTab(BaseTabContainer):
             "إنتاج من هذا التصميم" if language == "ar" else "Produce This Design"
         )
         self.duplicate_design_btn.setText("تكرار التصميم" if language == "ar" else "Duplicate Design")
-        self.bom_delete_btn.setText(t("manufacturing.delete_bom", language=language))
+        self.bom_delete_btn.setText(t("manufacturing.delete_bom_label", language=language))
         self.bom_clear_btn.setText("Clear")
         self.boms_table.setHorizontalHeaderLabels(
             [
@@ -1627,7 +1627,7 @@ class ManufacturingTab(BaseTabContainer):
                 ]
             )
         self.history_box.setTitle(t("manufacturing.history_box", language=language))
-        self.history_help.setText("3 steps: 1) Add materials. 2) Build a workshop design. 3) Create product and review history.")
+        self.history_help.setText(t("manufacturing.history_help", language=language))
         self.history_from_label.setText(f"{t('common.from', language=language)}:")
         self.history_to_label.setText(f"{t('common.to', language=language)}:")
         self.history_status_label.setText(f"{t('manufacturing.history_status', language=language)}:")

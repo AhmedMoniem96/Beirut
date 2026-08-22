@@ -45,6 +45,8 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QDialog,
     QDialogButtonBox,
+    QAbstractItemView,
+    QToolTip,
 )
 
 from .base_tab import BaseTabContainer
@@ -1988,7 +1990,7 @@ class InvoiceTab(BaseTabContainer):
         filters_row.addWidget(refresh_btn)
         layout.addLayout(filters_row)
 
-        table = QTableWidget(0, 10)
+        table = QTableWidget(0, 9)
         table.setHorizontalHeaderLabels(
             [
                 t("invoice.history_invoice_no", language=self._language),
@@ -1999,7 +2001,6 @@ class InvoiceTab(BaseTabContainer):
                 t("invoice.history_source_ref", language=self._language),
                 t("invoice.history_payment_method", language=self._language),
                 t("invoice.history_status", language=self._language),
-                t("invoice.history_actions", language=self._language),
                 t("invoice.history_invoice_id", language=self._language),
             ]
         )
@@ -2007,15 +2008,68 @@ class InvoiceTab(BaseTabContainer):
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
-        table.setColumnHidden(9, True)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setColumnHidden(8, True)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(True)
         table.setSortingEnabled(False)
         layout.addWidget(table, 1)
 
         is_admin = bool(get_current_user() and get_current_user().role == "Admin")
+
+        actions_row = QHBoxLayout()
+        open_btn = QPushButton("Open")
+        print_btn = QPushButton("Print")
+        edit_btn = QPushButton("Edit")
+        copy_btn = QPushButton("نسخ رقم الفاتورة / Copy Invoice #")
+        return_btn = QPushButton("إرسال للمرتجعات / Send to Returns")
+        for button in (open_btn, print_btn, edit_btn, copy_btn, return_btn):
+            button.setEnabled(False)
+            actions_row.addWidget(button)
+        actions_row.addStretch()
+        layout.addLayout(actions_row)
+
+        def selected_invoice_no() -> str | None:
+            current = table.currentRow()
+            item = table.item(current, 0) if current >= 0 else None
+            return item.text() if item is not None else None
+
+        def update_actions() -> None:
+            selected = selected_invoice_no() is not None
+            open_btn.setEnabled(selected)
+            print_btn.setEnabled(selected)
+            copy_btn.setEnabled(selected)
+            edit_btn.setEnabled(selected and is_admin)
+            status_item = table.item(table.currentRow(), 7) if selected else None
+            # Invoice History contains sale invoices only.  Returns performs the
+            # authoritative item/quantity validation when the invoice is loaded.
+            return_btn.setEnabled(selected and status_item is not None and status_item.text().upper() == "PAID")
+            if not is_admin:
+                edit_btn.setToolTip(t("invoice.admin_only_edit", language=self._language))
+
+        def with_selected(action) -> None:
+            invoice_no = selected_invoice_no()
+            if invoice_no is not None:
+                action(invoice_no)
+
+        def copy_selected() -> None:
+            invoice_no = selected_invoice_no()
+            if invoice_no is None:
+                return
+            QApplication.clipboard().setText(invoice_no)
+            QToolTip.showText(
+                copy_btn.mapToGlobal(QPoint(0, copy_btn.height())),
+                "تم نسخ رقم الفاتورة\nInvoice number copied",
+                copy_btn,
+            )
+
+        def send_selected_to_returns() -> None:
+            invoice_no = selected_invoice_no()
+            if invoice_no is None:
+                return
+            dialog.accept()
+            QTimer.singleShot(0, lambda: self._open_returns_for_invoice(invoice_no))
 
         def load_rows() -> None:
             date_from = None
@@ -2045,24 +2099,10 @@ class InvoiceTab(BaseTabContainer):
                 table.setItem(row, 5, QTableWidgetItem(source_ref))
                 table.setItem(row, 6, QTableWidgetItem(invoice.payment_method or ""))
                 table.setItem(row, 7, QTableWidgetItem(row_data.payment_status or ""))
-                table.setItem(row, 9, QTableWidgetItem(str(row_data.id)))
-                actions_widget = QWidget()
-                actions_layout = QHBoxLayout(actions_widget)
-                actions_layout.setContentsMargins(0, 0, 0, 0)
-                view_btn = QPushButton("Open")
-                print_btn = QPushButton("Print")
-                return_btn = QPushButton("Return")
-                edit_btn = QPushButton("Edit")
-                edit_btn.setEnabled(is_admin)
-                if not is_admin:
-                    edit_btn.setToolTip(t("invoice.admin_only_edit", language=self._language))
-                view_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._open_recent_invoice_details(inv))
-                print_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._print_recent_invoice(inv))
-                return_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._open_returns_for_invoice(inv))
-                edit_btn.clicked.connect(lambda _c=False, inv=row_data.invoice_no: self._edit_invoice(inv))
-                for btn in (view_btn, print_btn, return_btn, edit_btn):
-                    actions_layout.addWidget(btn)
-                table.setCellWidget(row, 8, actions_widget)
+                table.setItem(row, 8, QTableWidgetItem(str(row_data.id)))
+            table.clearSelection()
+            table.setCurrentItem(None)
+            update_actions()
 
         def open_selected() -> None:
             current = table.currentRow()
@@ -2074,6 +2114,12 @@ class InvoiceTab(BaseTabContainer):
         refresh_btn.clicked.connect(load_rows)
         search_input.returnPressed.connect(load_rows)
         table.cellDoubleClicked.connect(lambda _r, _c: open_selected())
+        table.itemSelectionChanged.connect(update_actions)
+        open_btn.clicked.connect(lambda: with_selected(self._open_recent_invoice_details))
+        print_btn.clicked.connect(lambda: with_selected(self._print_recent_invoice))
+        edit_btn.clicked.connect(lambda: with_selected(self._edit_invoice))
+        copy_btn.clicked.connect(copy_selected)
+        return_btn.clicked.connect(send_selected_to_returns)
         load_rows()
         dialog.exec()
 

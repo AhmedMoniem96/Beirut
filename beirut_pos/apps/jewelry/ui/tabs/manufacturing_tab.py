@@ -30,7 +30,6 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -204,6 +203,7 @@ class ManufacturingTab(BaseTabContainer):
         self.materials_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.materials_table.setAlternatingRowColors(True)
         self.materials_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.materials_table.setMinimumHeight(240)
         self.materials_table.verticalHeader().setVisible(False)
         header = self.materials_table.horizontalHeader()
         header.setStretchLastSection(True)
@@ -229,18 +229,24 @@ class ManufacturingTab(BaseTabContainer):
         form_and_actions_layout.addLayout(actions_row)
 
         self.material_barcode_printing_panel = BarcodePrintingPanel(self)
+        self.material_barcode_printing_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        self.material_barcode_printing_panel.diagnostics.setMinimumHeight(60)
         self.material_barcode_printing_panel.print_requested.connect(
             self._print_material_barcode
         )
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(form_and_actions)
-        splitter.addWidget(self.materials_table)
-        splitter.addWidget(self.material_barcode_printing_panel)
-        splitter.setChildrenCollapsible(False)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        tab_layout.addWidget(splitter)
+        # Keep the form and printing controls at their preferred heights and
+        # dedicate all surplus vertical space to the material list.  A splitter
+        # used size hints for its initial allocation, allowing the diagnostics
+        # panel to squeeze the table before the user moved a handle.
+        tab_layout.addWidget(form_and_actions, 0)
+        tab_layout.addWidget(self.materials_table, 1)
+        tab_layout.addWidget(self.material_barcode_printing_panel, 0)
+        tab_layout.setStretch(0, 0)
+        tab_layout.setStretch(1, 1)
+        tab_layout.setStretch(2, 0)
 
         self.tabs.addTab(self.materials_tab, "")
 

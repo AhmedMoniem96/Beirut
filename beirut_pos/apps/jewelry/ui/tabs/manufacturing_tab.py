@@ -39,7 +39,6 @@ from PyQt6.QtWidgets import (
 )
 
 from ...services.db import (
-    create_production_order,
     delete_bom,
     delete_material,
     list_bom_lines,
@@ -48,7 +47,7 @@ from ...services.db import (
     list_products,
     list_production_consumption,
     list_production_orders,
-    mark_production_done,
+    produce_from_bom,
     save_bom,
     save_material,
     save_product,
@@ -1057,7 +1056,8 @@ class ManufacturingTab(BaseTabContainer):
 
     def _open_production_for_selected_design(self) -> None:
         """Open the focused quantity dialog for the currently selected BOM."""
-        bom = next((item for item in list_boms() if item.id == self._selected_bom_id), None)
+        selected_bom_id = self._selected_bom_id
+        bom = next((item for item in list_boms() if item.id == selected_bom_id), None)
         if bom is None:
             self.produce_design_btn.setEnabled(False)
             return
@@ -1074,12 +1074,15 @@ class ManufacturingTab(BaseTabContainer):
         dialog.resize(620, 440)
         layout = QVBoxLayout(dialog)
         details = QFormLayout()
-        details.addRow("اسم التصميم" if language == "ar" else "Design Name", QLabel(bom.name))
+        bom_name_label = QLabel(bom.name)
+        details.addRow("اسم التصميم" if language == "ar" else "Design Name", bom_name_label)
         product_name = choose_name(product.name_ar, product.name_en, language=language)
-        details.addRow("المنتج المرتبط" if language == "ar" else "Linked Product", QLabel(product_name))
+        product_name_label = QLabel(product_name)
+        details.addRow("المنتج المرتبط" if language == "ar" else "Linked Product", product_name_label)
+        product_stock_label = QLabel(f"{product.qty_on_hand:.3f}")
         details.addRow(
             "المخزون النهائي الحالي" if language == "ar" else "Current Finished Stock",
-            QLabel(f"{product.qty_on_hand:.3f}"),
+            product_stock_label,
         )
         self.produced_qty_input = QDoubleSpinBox()
         self.produced_qty_input.setObjectName("producedQuantityInput")
@@ -1102,13 +1105,29 @@ class ManufacturingTab(BaseTabContainer):
         preview.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(preview, 1)
 
+        dialog._is_submitting = False
+
         def refresh_preview() -> None:
-            # Reload materials for every calculation so the preview never uses
-            # stock captured when the design screen was opened.
+            # Refresh every input to the calculation.  In particular, do not
+            # retain quantities from a failed production transaction.
+            current_bom = next((item for item in list_boms() if item.id == selected_bom_id), None)
+            current_product = None
+            if current_bom is not None:
+                current_product = next(
+                    (item for item in list_products() if item.id == current_bom.product_id), None
+                )
+            lines = list_bom_lines(selected_bom_id)
             materials = {material.id: material for material in list_materials()}
+            if current_bom is not None:
+                bom_name_label.setText(current_bom.name)
+            if current_product is not None:
+                product_name_label.setText(
+                    choose_name(current_product.name_ar, current_product.name_en, language=language)
+                )
+                product_stock_label.setText(f"{current_product.qty_on_hand:.3f}")
             quantity = float(self.produced_qty_input.value())
             preview.setRowCount(0)
-            for line in list_bom_lines(bom.id):
+            for line in lines:
                 material = materials.get(line.material_id)
                 row = preview.rowCount()
                 preview.insertRow(row)
@@ -1123,39 +1142,65 @@ class ManufacturingTab(BaseTabContainer):
                     preview.setItem(row, column, QTableWidgetItem(value))
 
         def confirm_production() -> None:
+            if dialog._is_submitting:
+                return
+            dialog._is_submitting = True
+            confirm.setEnabled(False)
             quantity = float(self.produced_qty_input.value())
-            materials = {material.id: material for material in list_materials()}
-            insufficient = any(
-                materials.get(line.material_id) is None
-                or materials[line.material_id].qty_on_hand < line.qty_required * quantity
-                for line in list_bom_lines(bom.id)
-            )
-            if insufficient:
-                refresh_preview()
-                QMessageBox.warning(
-                    dialog,
-                    "نقص في الخامات" if language == "ar" else "Material Shortage",
-                    "الخامات المتاحة غير كافية." if language == "ar" else "Available materials are insufficient.",
-                )
-                return
-            order = create_production_order(
-                product_id=product.id, qty_to_produce=quantity, labor_cost=0,
-                overhead_cost=0, notes="", bom_id=bom.id,
-            )
             try:
-                mark_production_done(order.id)
-            except ValueError:
+                result = produce_from_bom(selected_bom_id, quantity)
+            except Exception as exc:
                 refresh_preview()
                 QMessageBox.warning(
                     dialog,
-                    "نقص في الخامات" if language == "ar" else "Material Shortage",
-                    "الخامات المتاحة غير كافية." if language == "ar" else "Available materials are insufficient.",
+                    "خطأ في الإنتاج" if language == "ar" else "Production Error",
+                    str(exc),
                 )
-                return
-            dialog.accept()
-            self._refresh_materials()
-            self._refresh_history_report()
-            self.inventory_changed.emit()
+            else:
+                if result.get("success"):
+                    dialog.accept()
+                    self._refresh_materials()
+                    self._refresh_history_report()
+                    self.inventory_changed.emit()
+                    message = (
+                        f"تمت إضافة {quantity:g} قطعة إلى المخزون بنجاح"
+                        if language == "ar"
+                        else f"Successfully added {quantity:g} units to inventory"
+                    )
+                    QMessageBox.information(self, "نجاح" if language == "ar" else "Success", message)
+                    return
+
+                refresh_preview()
+                shortage_lines = []
+                for shortage in result.get("shortages", []):
+                    name = shortage.get(f"material_name_{language}") or shortage.get("material_name", "")
+                    unit = shortage.get("unit", "")
+                    if language == "ar":
+                        details_text = (
+                            f"{name}: المطلوب {shortage['required']:g} {unit}، "
+                            f"المتاح {shortage['available']:g} {unit}، "
+                            f"الناقص {shortage['missing']:g} {unit}"
+                        )
+                    else:
+                        details_text = (
+                            f"{name}: Required {shortage['required']:g} {unit}, "
+                            f"Available {shortage['available']:g} {unit}, "
+                            f"Missing {shortage['missing']:g} {unit}"
+                        )
+                    shortage_lines.append(details_text)
+                heading = (
+                    f"لا يمكن إنتاج {quantity:g} قطعة"
+                    if language == "ar" else f"Cannot produce {quantity:g} units"
+                )
+                QMessageBox.warning(
+                    dialog,
+                    "نقص في الخامات" if language == "ar" else "Material Shortage",
+                    "\n".join([heading, *shortage_lines]),
+                )
+            finally:
+                if dialog.isVisible():
+                    dialog._is_submitting = False
+                    confirm.setEnabled(True)
 
         actions = QHBoxLayout()
         actions.addStretch(1)

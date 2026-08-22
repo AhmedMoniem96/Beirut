@@ -16,7 +16,14 @@ def app():
 
 @pytest.fixture
 def tab(monkeypatch, app):
-    product = SimpleNamespace(id=7, name_ar="خاتم", name_en="Ring", sku="R-1")
+    product = SimpleNamespace(
+        id=7,
+        name_ar="خاتم",
+        name_en="Ring",
+        sku="R-1",
+        barcode="1007",
+        price=75.0,
+    )
     monkeypatch.setattr(manufacturing_tab, "list_products", lambda: [product])
     monkeypatch.setattr(manufacturing_tab, "list_materials", lambda: [])
     monkeypatch.setattr(manufacturing_tab, "list_boms", lambda: [])
@@ -44,6 +51,37 @@ def test_design_name_is_visible_editable_and_has_client_facing_validation(monkey
     assert warnings == ["Design Name is required."]
     assert "BOM" not in warnings[0]
     assert "Recipe" not in warnings[0]
+
+
+def test_design_form_does_not_create_a_product_selector(tab):
+    assert not hasattr(tab, "bom_product_combo")
+    assert "product" not in tab._design_field_labels
+
+
+def test_edit_design_loads_its_linked_product_without_a_product_selector(monkeypatch, tab):
+    bom = SimpleNamespace(
+        id=12,
+        product_id=7,
+        name="Classic Ring",
+        active=True,
+        labor_cost=4.0,
+        packaging_cost=2.0,
+        other_cost=1.0,
+    )
+    line = SimpleNamespace(material_id=3, qty_required=1.25)
+    monkeypatch.setattr(manufacturing_tab, "list_boms", lambda: [bom])
+    monkeypatch.setattr(manufacturing_tab, "list_bom_lines", lambda _bom_id: [line])
+
+    tab._load_design_by_id(bom.id)
+
+    assert tab._selected_bom_id == bom.id
+    assert tab._editing_product_id == bom.product_id
+    assert tab.bom_name_input.text() == "Classic Ring"
+    assert tab.design_product_name_en.text() == "Ring"
+    assert tab.design_product_sku.text() == "R-1"
+    assert tab.design_product_barcode.text() == "1007"
+    assert tab.design_product_price.value() == 75.0
+    assert tab.bom_lines_table.rowCount() == 1
 
 
 def test_design_name_maps_to_bom_name_when_saved(monkeypatch, tab):

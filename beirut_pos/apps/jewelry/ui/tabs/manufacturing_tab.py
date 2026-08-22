@@ -363,7 +363,6 @@ class ManufacturingTab(BaseTabContainer):
         form_layout.setHorizontalSpacing(10)
         form_layout.setVerticalSpacing(8)
 
-        self.bom_product_combo = QComboBox()
         self.design_product_name_ar = QLineEdit()
         self.design_product_name_en = QLineEdit()
         self.design_product_sku = QLineEdit()
@@ -375,11 +374,9 @@ class ManufacturingTab(BaseTabContainer):
         self.design_profit_pct = QDoubleSpinBox(); self.design_profit_pct.setRange(0, 1000); self.design_profit_pct.setValue(25)
         self.bom_name_input = QLineEdit()
         self.bom_active_check = QCheckBox()
-        self.bom_product_label = QLabel()
         self.bom_name_label = QLabel()
 
         fields = [
-            ("product", self.bom_product_combo),
             ("product_name_ar", self.design_product_name_ar),
             ("product_name_en", self.design_product_name_en),
             ("design_name", self.bom_name_input),
@@ -652,10 +649,6 @@ class ManufacturingTab(BaseTabContainer):
             f"{choose_name(p.name_ar, p.name_en, language=self._language)} ({p.sku})": p.id
             for p in products
         }
-        self.bom_product_combo.clear()
-        self.bom_product_combo.addItem("", None)
-        for label, product_id in self._product_map.items():
-            self.bom_product_combo.addItem(label, product_id)
 
     def _refresh_history_products(self) -> None:
         if not hasattr(self, "history_product"):
@@ -1110,9 +1103,6 @@ class ManufacturingTab(BaseTabContainer):
 
         self._editing_product_id = int(product_id)
         self._refresh_products()
-        product_index = self.bom_product_combo.findData(product_id)
-        if product_index >= 0:
-            self.bom_product_combo.setCurrentIndex(product_index)
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),
@@ -1149,7 +1139,6 @@ class ManufacturingTab(BaseTabContainer):
         self.new_design_btn.setChecked(True)
         self.edit_design_btn.setChecked(False)
         self.produce_design_btn.setEnabled(False)
-        self.bom_product_combo.setCurrentIndex(0)
         self.design_product_name_ar.clear()
         self.design_product_name_en.clear()
         self.design_product_sku.clear()
@@ -1190,9 +1179,6 @@ class ManufacturingTab(BaseTabContainer):
         self.design_product_sku.setText(product.sku or "")
         self.design_product_barcode.setText(product.barcode or "")
         self.design_product_price.setValue(float(product.price or 0.0))
-        product_index = self.bom_product_combo.findData(product.id)
-        if product_index >= 0:
-            self.bom_product_combo.setCurrentIndex(product_index)
         self.bom_name_input.setText(bom.name)
         self.bom_active_check.setChecked(bom.active)
         self.bom_lines_table.setRowCount(0)
@@ -1510,9 +1496,6 @@ class ManufacturingTab(BaseTabContainer):
         self._start_new_design()
         self.design_product_name_ar.setText(source_product.name_ar or "")
         self.design_product_name_en.setText(source_product.name_en or "")
-        product_index = self.bom_product_combo.findData(source_product.id)
-        if product_index >= 0:
-            self.bom_product_combo.setCurrentIndex(product_index)
         source_sku = (source_product.sku or "").strip()
         copy_sku = f"{source_sku}-COPY" if source_sku else "DES-COPY"
         used_skus = {(product.sku or "").strip().casefold() for product in list_products()}
@@ -1610,7 +1593,6 @@ class ManufacturingTab(BaseTabContainer):
             else "Search by design name, product name, or SKU"
         )
         self.bom_box.setTitle("المنتج النهائي" if language == "ar" else "Final Product")
-        self._design_field_labels["product"].setText(t("manufacturing.bom_product", language=language))
         self._design_field_labels["product_name_ar"].setText("اسم المنتج بالعربية" if language == "ar" else "Product Name Arabic")
         self._design_field_labels["product_name_en"].setText("اسم المنتج بالإنجليزية" if language == "ar" else "Product Name English")
         self._design_field_labels["sku_code"].setText("الرمز/الكود" if language == "ar" else "SKU/Code")
@@ -1619,7 +1601,6 @@ class ManufacturingTab(BaseTabContainer):
         self._design_field_labels["labor_cost"].setText("تقدير تكلفة العمالة" if language == "ar" else "Labor Estimate")
         self._design_field_labels["packaging_cost"].setText("تقدير تكلفة التغليف" if language == "ar" else "Packaging Estimate")
         self._design_field_labels["other_cost"].setText("تقدير تكلفة أخرى" if language == "ar" else "Other Estimate")
-        self.bom_product_label.setText(t("manufacturing.bom_product", language=language))
         self.bom_name_label.setText("اسم التصميم" if language == "ar" else "Design Name")
         self.bom_name_label.setToolTip("أدخل اسمًا واضحًا للتصميم." if language == "ar" else "Enter a clear name for this design.")
         self.bom_active_check.setText(t("manufacturing.bom_active", language=language))

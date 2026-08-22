@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Iterable, List, Literal, Optional, Tuple
 import logging
+import math
 
 from beirut_pos.core.config_store import get_config_value
 from beirut_pos.core.db import get_conn
@@ -2158,6 +2159,163 @@ def _next_production_order_no(cur) -> str:
     cur.execute("SELECT MAX(id) FROM jw_production_orders")
     max_id = cur.fetchone()[0] or 0
     return f"JWO-{max_id + 1:05d}"
+
+
+def produce_from_bom(
+    bom_id: int,
+    quantity: float,
+    labor_cost: float = 0,
+    overhead_cost: float = 0,
+) -> Dict[str, object]:
+    """Complete a BOM production run as one atomic inventory transaction.
+
+    An unavailable-material result is expected business validation rather than an
+    exception.  Missing/invalid records and database failures raise after the
+    transaction has been rolled back.
+    """
+    if not math.isfinite(quantity) or quantity <= 0:
+        raise ValueError("Production quantity must be positive")
+
+    conn = get_conn()
+    try:
+        # Acquire the write lock before taking any of the inventory snapshots.
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT b.id, b.product_id, b.name, p.name_ar, p.name_en
+               FROM jw_boms b
+               LEFT JOIN jw_products p ON p.id = b.product_id
+               WHERE b.id = ?""",
+            (bom_id,),
+        )
+        bom_row = cur.fetchone()
+        if not bom_row:
+            raise ValueError("BOM not found")
+        _, product_id, bom_name, product_name_ar, product_name_en = bom_row
+        if product_name_ar is None:
+            raise ValueError("BOM linked product not found")
+
+        # SUM also makes duplicate lines for one material safe: availability is
+        # checked against, and stock is deducted by, its complete requirement.
+        cur.execute(
+            """SELECT l.material_id, m.name_ar, m.name_en, m.unit,
+                      SUM(l.qty_required) * ?, m.qty_on_hand, m.cost_per_unit,
+                      SUM(CASE WHEN l.qty_required <= 0 THEN 1 ELSE 0 END)
+               FROM jw_bom_lines l
+               LEFT JOIN jw_materials m ON m.id = l.material_id
+               WHERE l.bom_id = ?
+               GROUP BY l.material_id, m.name_ar, m.name_en, m.unit,
+                        m.qty_on_hand, m.cost_per_unit""",
+            (quantity, bom_id),
+        )
+        materials = cur.fetchall()
+        if not materials:
+            raise ValueError("BOM has no valid lines")
+        for material_id, name_ar, _name_en, _unit, required, available, _cost, invalid_lines in materials:
+            if name_ar is None:
+                raise ValueError(f"BOM material {material_id} not found")
+            if invalid_lines or required is None or required <= 0:
+                raise ValueError("BOM lines must require positive quantities")
+
+        shortages = []
+        for _material_id, name_ar, name_en, unit, required, available, _cost, _count in materials:
+            if available < required:
+                shortages.append(
+                    {
+                        "material_name": name_en or name_ar,
+                        "material_name_ar": name_ar,
+                        "material_name_en": name_en,
+                        "unit": unit or "",
+                        "required": required,
+                        "available": available,
+                        "missing": required - available,
+                    }
+                )
+        if shortages:
+            conn.rollback()
+            return {
+                "success": False,
+                "bom_id": bom_id,
+                "product_id": product_id,
+                "quantity": quantity,
+                "shortages": shortages,
+            }
+
+        order_no = _next_production_order_no(cur)
+        order_datetime = datetime.now().isoformat(timespec="seconds")
+        cur.execute(
+            """INSERT INTO jw_production_orders
+               (order_no, datetime, status, product_id, qty_to_produce,
+                qty_produced, labor_cost, overhead_cost, notes, bom_id)
+               VALUES (?, ?, 'done', ?, ?, ?, ?, ?, '', ?)""",
+            (
+                order_no,
+                order_datetime,
+                product_id,
+                quantity,
+                quantity,
+                labor_cost,
+                overhead_cost,
+                bom_id,
+            ),
+        )
+        order_id = int(cur.lastrowid)
+
+        consumed = []
+        for material_id, name_ar, name_en, unit, required, _available, cost, _count in materials:
+            cur.execute(
+                """UPDATE jw_materials
+                   SET qty_on_hand = qty_on_hand - ?
+                   WHERE id = ? AND qty_on_hand >= ?""",
+                (required, material_id, required),
+            )
+            if cur.rowcount != 1:
+                raise RuntimeError(f"Material stock changed during production: {material_id}")
+            cur.execute(
+                """INSERT INTO jw_production_consumption
+                   (production_order_id, material_id, qty_consumed, cost_at_time)
+                   VALUES (?, ?, ?, ?)""",
+                (order_id, material_id, required, cost),
+            )
+            consumed.append(
+                {
+                    "material_id": material_id,
+                    "material_name": name_en or name_ar,
+                    "unit": unit or "",
+                    "quantity": required,
+                    "cost_per_unit": cost,
+                }
+            )
+
+        cur.execute(
+            "UPDATE jw_products SET qty_on_hand = qty_on_hand + ? WHERE id = ?",
+            (quantity, product_id),
+        )
+        if cur.rowcount != 1:
+            raise RuntimeError("Finished product disappeared during production")
+
+        conn.commit()
+        return {
+            "success": True,
+            "production_order_id": order_id,
+            "order_no": order_no,
+            "datetime": order_datetime,
+            "status": "done",
+            "bom_id": bom_id,
+            "bom_name": bom_name,
+            "product_id": product_id,
+            "product_name": product_name_en or product_name_ar,
+            "quantity_produced": quantity,
+            "labor_cost": labor_cost,
+            "overhead_cost": overhead_cost,
+            "consumption": consumed,
+            "shortages": [],
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def create_production_order(

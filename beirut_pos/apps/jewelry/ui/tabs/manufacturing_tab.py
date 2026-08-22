@@ -172,18 +172,18 @@ class ManufacturingTab(BaseTabContainer):
         self.material_save_btn = QPushButton()
         self.material_delete_btn = QPushButton()
         self.material_clear_btn = QPushButton()
-        self.material_restock_btn = QPushButton()
+        self.material_adjust_stock_btn = QPushButton()
         self.material_edit_indicator = QLabel()
         self.material_save_btn.clicked.connect(self._save_material)
         self.material_delete_btn.clicked.connect(self._delete_material)
         self.material_clear_btn.clicked.connect(self._clear_material_form)
-        self.material_restock_btn.clicked.connect(self._restock_material)
+        self.material_adjust_stock_btn.clicked.connect(self._adjust_material_stock)
 
         actions_row = QHBoxLayout()
         actions_row.setSpacing(8)
         actions_row.addWidget(self.material_clear_btn)
         actions_row.addWidget(self.material_save_btn)
-        actions_row.addWidget(self.material_restock_btn)
+        actions_row.addWidget(self.material_adjust_stock_btn)
         actions_row.addWidget(self.material_delete_btn)
         actions_row.addStretch(1)
 
@@ -790,34 +790,84 @@ class ManufacturingTab(BaseTabContainer):
         self._refresh_materials()
         self._clear_material_form()
 
-    def _restock_material(self) -> None:
+    def _adjust_material_stock(self) -> None:
         if not self._selected_material_id:
-            QMessageBox.warning(self, t("common.select", language=self._language), "Select a material first.")
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                "اختر خامة أولاً." if self._language == "ar" else "Select a material first.",
+            )
             return
-        amount, ok = QInputDialog.getDouble(
-            self,
-            "Restock Material",
-            "Restock Quantity",
-            0.0,
-            0.001,
-            999999.0,
-            3,
+
+        material = next(
+            (
+                record
+                for record in list_materials()
+                if record.id == self._selected_material_id
+            ),
+            None,
         )
-        if not ok:
+        if material is None:
             return
-        new_qty = float(self.material_qty.value()) + float(amount)
+
+        is_arabic = self._language == "ar"
+        dialog = QDialog(self)
+        dialog.setWindowTitle("تعديل الرصيد" if is_arabic else "Adjust Stock")
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+
+        current_qty = QLabel(f"{material.qty_on_hand:.3f}")
+        new_qty_input = QDoubleSpinBox()
+        new_qty_input.setRange(0, 999999)
+        new_qty_input.setDecimals(3)
+        new_qty_input.setValue(float(material.qty_on_hand))
+        new_qty_input.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+
+        reason_combo = QComboBox()
+        reasons = (
+            ("Opening Balance", "رصيد افتتاحي"),
+            ("Inventory Count", "جرد المخزون"),
+            ("Correction", "تصحيح"),
+            ("Other", "أخرى"),
+        )
+        for english_label, arabic_label in reasons:
+            reason_combo.addItem(arabic_label if is_arabic else english_label, english_label)
+
+        form.addRow("الكمية الحالية" if is_arabic else "Current Qty", current_qty)
+        form.addRow("الكمية الجديدة" if is_arabic else "New Qty", new_qty_input)
+        form.addRow("السبب" if is_arabic else "Reason", reason_combo)
+        layout.addLayout(form)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        confirm_button = QPushButton("تأكيد" if is_arabic else "Confirm")
+        cancel_button = QPushButton("إلغاء" if is_arabic else "Cancel")
+        confirm_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+        buttons.addWidget(confirm_button)
+        buttons.addWidget(cancel_button)
+        layout.addLayout(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        new_qty = float(new_qty_input.value())
         save_material(
-            self._selected_material_id,
-            self.material_name_ar.text().strip(),
-            self.material_name_en.text().strip(),
-            self.material_code.text().strip(),
+            material.id,
+            material.name_ar,
+            material.name_en,
+            material.code,
             new_qty,
-            self.material_unit.text().strip(),
-            float(self.material_min_qty.value()),
-            float(self.material_cost.value()),
+            material.unit,
+            material.min_qty,
+            material.cost_per_unit,
         )
         self.material_qty.setValue(new_qty)
-        QMessageBox.information(self, t("common.saved_title", language=self._language), "Material restocked.")
+        QMessageBox.information(
+            self,
+            t("common.saved_title", language=self._language),
+            "تم تعديل الرصيد." if is_arabic else "Stock adjusted.",
+        )
         self._refresh_materials()
         self._update_material_edit_ui()
 
@@ -838,7 +888,7 @@ class ManufacturingTab(BaseTabContainer):
         in_edit_mode = self._editing_material_id is not None
         self.material_save_btn.setText("حفظ خامة" if self._language == "ar" else "Save Material")
         has_selection = self._selected_material_id is not None
-        self.material_restock_btn.setEnabled(has_selection)
+        self.material_adjust_stock_btn.setEnabled(has_selection)
         self.material_delete_btn.setEnabled(has_selection)
         if in_edit_mode:
             name = self.material_name_en.text().strip() or self.material_name_ar.text().strip() or "-"
@@ -1468,7 +1518,7 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit_label.setText(t("manufacturing.material_unit", language=language))
         self.material_min_qty_label.setText(t("manufacturing.material_min_qty", language=language))
         self.material_cost_label.setText(t("manufacturing.material_cost", language=language))
-        self.material_restock_btn.setText("تعديل المخزون" if language == "ar" else "Adjust Stock")
+        self.material_adjust_stock_btn.setText("تعديل الرصيد" if language == "ar" else "Adjust Stock")
         self.material_delete_btn.setText("حذف خامة" if language == "ar" else "Delete Material")
         self.material_clear_btn.setText("خامة جديدة" if language == "ar" else "New Material")
         self._update_material_edit_ui()

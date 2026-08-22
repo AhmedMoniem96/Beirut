@@ -100,7 +100,6 @@ class ManufacturingTab(BaseTabContainer):
             "material_min_qty",
             "material_cost",
             "design_product_price",
-            "design_qty_produced",
             "design_labor_cost",
             "design_packaging_cost",
             "design_other_cost",
@@ -250,10 +249,17 @@ class ManufacturingTab(BaseTabContainer):
         self.design_product_name = QLineEdit()
         self.design_product_sku = QLineEdit()
         self.design_product_price = QDoubleSpinBox(); self.design_product_price.setRange(0, 999999); self.design_product_price.setDecimals(2)
-        self.design_qty_produced = QDoubleSpinBox(); self.design_qty_produced.setRange(0, 999999); self.design_qty_produced.setDecimals(3)
         self.design_labor_cost = QDoubleSpinBox(); self.design_labor_cost.setRange(0, 999999)
         self.design_packaging_cost = QDoubleSpinBox(); self.design_packaging_cost.setRange(0, 999999)
         self.design_other_cost = QDoubleSpinBox(); self.design_other_cost.setRange(0, 999999)
+        for estimate_input in (
+            self.design_labor_cost,
+            self.design_packaging_cost,
+            self.design_other_cost,
+        ):
+            estimate_input.setToolTip(
+                "Session-only estimate; this value is not saved with the design."
+            )
         self.design_profit_pct = QDoubleSpinBox(); self.design_profit_pct.setRange(0, 1000); self.design_profit_pct.setValue(25)
         self.bom_name_input = QLineEdit()
         self.bom_active_check = QCheckBox()
@@ -266,7 +272,6 @@ class ManufacturingTab(BaseTabContainer):
             ("design_name", self.bom_name_input),
             ("sku_code", self.design_product_sku),
             ("selling_price", self.design_product_price),
-            ("qty_produced", self.design_qty_produced),
             ("labor_cost", self.design_labor_cost),
             ("packaging_cost", self.design_packaging_cost),
             ("other_cost", self.design_other_cost),
@@ -373,7 +378,6 @@ class ManufacturingTab(BaseTabContainer):
         self.tabs.addTab(self.boms_tab, "")
 
         self._selected_bom_id: Optional[int] = None
-        self.design_qty_produced.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_product_name.textEdited.connect(self._suggest_design_name)
         self.design_labor_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_packaging_cost.valueChanged.connect(self._refresh_design_cost_summary)
@@ -799,7 +803,6 @@ class ManufacturingTab(BaseTabContainer):
             self._refresh_design_cost_summary()
 
     def _refresh_design_cost_summary(self) -> None:
-        qty_produced = float(self.design_qty_produced.value()) if hasattr(self, "design_qty_produced") else 0.0
         materials = {m.id: m for m in list_materials()}
         material_total_cost = 0.0
         for row in range(self.bom_lines_table.rowCount()):
@@ -808,8 +811,7 @@ class ManufacturingTab(BaseTabContainer):
             material = materials.get(material_id)
             if not material:
                 continue
-            line_total_qty = qty_used * qty_produced
-            line_total_cost = line_total_qty * material.cost_per_unit
+            line_total_cost = qty_used * material.cost_per_unit
             material_total_cost += line_total_cost
             self.bom_lines_table.setItem(row, 1, QTableWidgetItem(f"{material.qty_on_hand:.3f}"))
             self.bom_lines_table.setItem(row, 3, QTableWidgetItem(f"{material.cost_per_unit:.2f}"))
@@ -826,11 +828,16 @@ class ManufacturingTab(BaseTabContainer):
         self.summary_profit.setText(f"{profit:.2f}")
         self.summary_margin.setText(f"{margin:.2f}%")
 
+    def _clear_design_cost_estimates(self) -> None:
+        """Reset design estimates because the product/BOM model cannot persist them."""
+        self.design_labor_cost.setValue(0.0)
+        self.design_packaging_cost.setValue(0.0)
+        self.design_other_cost.setValue(0.0)
+
     def _save_bom(self) -> None:
         name = self.design_product_name.text().strip()
         sku = self.design_product_sku.text().strip()
         design_name = self.bom_name_input.text().strip()
-        qty_produced = float(self.design_qty_produced.value())
         if not name:
             QMessageBox.warning(self, "Validation", "Product name is required.")
             return
@@ -840,9 +847,6 @@ class ManufacturingTab(BaseTabContainer):
                 t("common.select", language=self._language),
                 t("manufacturing.bom_name_required", language=self._language),
             )
-            return
-        if qty_produced <= 0:
-            QMessageBox.warning(self, "Validation", "Qty produced must be greater than zero.")
             return
         if not sku:
             sku = re.sub(r"[^A-Z0-9]+", "-", name.upper()).strip("-")[:20]
@@ -950,6 +954,7 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_name_input.clear()
         self.bom_active_check.setChecked(False)
         self.bom_lines_table.setRowCount(0)
+        self._clear_design_cost_estimates()
         self._refresh_design_cost_summary()
         self._cancel_edit_product()
 
@@ -1033,12 +1038,9 @@ class ManufacturingTab(BaseTabContainer):
                 self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
                 self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
                 self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
-        order = next((o for o in reversed(list_production_orders()) if o.product_id == product.id), None)
-        if order:
-            self.design_qty_produced.setValue(float(order.qty_to_produce or 1.0))
-            self.design_labor_cost.setValue(float(order.labor_cost or 0.0))
-            self.design_packaging_cost.setValue(float(order.overhead_cost or 0.0))
-            self.design_other_cost.setValue(0.0)
+        # Estimates are intentionally session-only: neither products nor BOMs have
+        # fields that can safely persist them as design defaults.
+        self._clear_design_cost_estimates()
         self.editing_product_label.setText(f"Editing Product: {product.name_en}")
         self.cancel_edit_btn.setVisible(True)
         self._refresh_design_cost_summary()
@@ -1078,6 +1080,7 @@ class ManufacturingTab(BaseTabContainer):
             self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
             self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
             self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
+        self._clear_design_cost_estimates()
         self._refresh_design_cost_summary()
 
     def _create_order(self) -> None:
@@ -1329,11 +1332,7 @@ class ManufacturingTab(BaseTabContainer):
         self._selected_bom_id = None
         self.design_product_sku.clear()
         self.design_product_price.setValue(float(source_product.price or 0.0))
-        self.design_qty_produced.setValue(1.0)
-        self.design_labor_cost.setValue(float(source_order.labor_cost or 0.0))
-        overhead_cost = float(source_order.overhead_cost or 0.0)
-        self.design_packaging_cost.setValue(overhead_cost)
-        self.design_other_cost.setValue(0.0)
+        self._clear_design_cost_estimates()
         self.bom_name_input.setText(f"{source_product.name_en} Design Copy")
         self.bom_active_check.setChecked(True)
         self.bom_lines_table.setRowCount(0)
@@ -1409,10 +1408,9 @@ class ManufacturingTab(BaseTabContainer):
         self._design_field_labels["product_name_ar"].setText("اسم المنتج بالعربية" if language == "ar" else "Product Name Arabic")
         self._design_field_labels["sku_code"].setText("الرمز/الكود" if language == "ar" else "SKU/Code")
         self._design_field_labels["selling_price"].setText("سعر البيع" if language == "ar" else "Selling Price")
-        self._design_field_labels["qty_produced"].setText("الكمية المنتجة" if language == "ar" else "Qty Produced")
-        self._design_field_labels["labor_cost"].setText("تكلفة العمالة" if language == "ar" else "Labor Cost")
-        self._design_field_labels["packaging_cost"].setText("تكلفة التغليف" if language == "ar" else "Packaging Cost")
-        self._design_field_labels["other_cost"].setText("تكلفة أخرى" if language == "ar" else "Other Cost")
+        self._design_field_labels["labor_cost"].setText("تقدير تكلفة العمالة" if language == "ar" else "Labor Estimate")
+        self._design_field_labels["packaging_cost"].setText("تقدير تكلفة التغليف" if language == "ar" else "Packaging Estimate")
+        self._design_field_labels["other_cost"].setText("تقدير تكلفة أخرى" if language == "ar" else "Other Estimate")
         self.bom_product_label.setText(t("manufacturing.bom_product", language=language))
         self.bom_name_label.setText("اسم التصميم" if language == "ar" else "Design Name")
         self.bom_name_label.setToolTip("أدخل اسمًا واضحًا للتصميم." if language == "ar" else "Enter a clear name for this design.")
@@ -1421,11 +1419,11 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_material_label.setText("الخامة" if language == "ar" else "Material")
         self.bom_qty_label.setText("الكمية المستخدمة" if language == "ar" else "Qty Used")
         self.add_bom_line_btn.setText("إضافة خامة" if language == "ar" else "Add Material")
-        self.bom_lines_table.setHorizontalHeaderLabels(["الخامة", "الكمية المتاحة", "الكمية المستخدمة", "تكلفة الوحدة", "التكلفة الإجمالية"] if language == "ar" else ["Material", "Available Qty", "Qty Used", "Unit Cost", "Total Cost"])
+        self.bom_lines_table.setHorizontalHeaderLabels(["الخامة", "الكمية المتاحة", "الكمية المستخدمة لكل وحدة", "تكلفة وحدة الخامة", "التكلفة لكل وحدة"] if language == "ar" else ["Material", "Available Qty", "Qty Used Per Unit", "Material Unit Cost", "Cost Per Unit"])
         self.remove_line_btn.setText("حذف خامة" if language == "ar" else "Remove Material")
         self.cost_summary_box.setTitle("ملخص التكلفة" if language == "ar" else "Cost Summary")
         self.summary_material_cost_label.setText("تكلفة الخامات" if language == "ar" else "Material Cost")
-        self.summary_extra_cost_label.setText("تكلفة إضافية" if language == "ar" else "Extra Cost")
+        self.summary_extra_cost_label.setText("تقدير التكلفة الإضافية" if language == "ar" else "Estimated Extra Cost")
         self.summary_total_cost_label.setText("التكلفة الإجمالية" if language == "ar" else "Total Cost")
         self.summary_selling_price_label.setText("سعر البيع" if language == "ar" else "Selling Price")
         self.summary_profit_label.setText("الربح" if language == "ar" else "Profit")

@@ -79,3 +79,25 @@ def test_barcodes_are_unique_across_products_and_materials(material_db):
                VALUES ('م', 'P', 'P2', 'PRODUCT-CODE', '', 1, 0, 0, '', 0, '', '')""")
     with pytest.raises(ValueError, match="product"):
         save(material_id=material_id, barcode="PRODUCT-CODE")
+
+
+def test_product_generated_barcode_is_preserved_by_blank_edits_and_imports(material_db):
+    product_id = db.save_product(
+        None, "منتج", "Product", "P1", "", "", 10, 0, 0, "", False, "", ""
+    )
+    generated = f"P{product_id:010d}"
+    assert db.find_product_by_code(generated).barcode == generated
+
+    db.save_product(
+        product_id, "معدل", "Updated", "P1", "", "", 12, 0, 0, "", False, "", ""
+    )
+    assert db.find_product_by_code("P1").barcode == generated
+
+    assert db.upsert_product_by_sku({"sku": "P1", "name_en": "Imported"}) == "updated"
+    assert db.find_product_by_code("P1").barcode == generated
+
+
+def test_new_import_without_barcode_gets_generated_product_barcode(material_db):
+    assert db.upsert_product_by_sku({"sku": "IMPORTED", "name_en": "Imported"}) == "created"
+    product = db.find_product_by_code("IMPORTED")
+    assert product.barcode == f"P{product.id:010d}"

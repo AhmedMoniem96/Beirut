@@ -988,7 +988,7 @@ class ManufacturingTab(BaseTabContainer):
             return
         existing = existing or sku_product
 
-        saved_product_id, _saved_bom_id = save_product_design(
+        saved_product_id, saved_bom_id = save_product_design(
             product_id=existing.id if existing else None,
             bom_id=self._selected_bom_id,
             name_ar=name_ar,
@@ -1030,7 +1030,7 @@ class ManufacturingTab(BaseTabContainer):
         )
         self._refresh_boms()
         self.inventory_changed.emit()
-        self._clear_bom_form()
+        self._load_design_by_id(saved_bom_id)
 
     def _delete_bom(self) -> None:
         if not self._selected_bom_id:

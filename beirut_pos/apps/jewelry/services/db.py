@@ -1516,39 +1516,70 @@ def list_products(search: Optional[str] = None, category: Optional[str] = None) 
 
 
 
+def _normalize_barcode(barcode: object) -> str:
+    """Return the canonical representation stored by both jewelry catalogs."""
+    return str(barcode or "").strip()
+
+
+def _validate_barcode_uniqueness(
+    cur: sqlite3.Cursor,
+    barcode: object,
+    *,
+    exclude_product_id: Optional[int] = None,
+    exclude_material_id: Optional[int] = None,
+) -> str:
+    """Validate a nonblank barcode across products and materials."""
+    normalized = _normalize_barcode(barcode)
+    if not normalized:
+        return normalized
+    cur.execute(
+        "SELECT 1 FROM jw_products WHERE barcode=? AND (? IS NULL OR id!=?) LIMIT 1",
+        (normalized, exclude_product_id, exclude_product_id),
+    )
+    if cur.fetchone() is not None:
+        raise ValueError("Duplicate barcode: already belongs to another product.")
+    # Older databases are upgraded by init_jewelry_db(); retaining this guard
+    # also keeps isolated/legacy callers safe while they are being migrated.
+    if _has_column(cur, "jw_materials", "barcode"):
+        cur.execute(
+            "SELECT 1 FROM jw_materials WHERE barcode=? AND (? IS NULL OR id!=?) LIMIT 1",
+            (normalized, exclude_material_id, exclude_material_id),
+        )
+        if cur.fetchone() is not None:
+            raise ValueError("Duplicate barcode: already belongs to another material.")
+    return normalized
+
+
+def _generated_product_barcode(product_id: int) -> str:
+    return f"P{product_id:010d}"
+
+
 def upsert_product_by_sku(product: dict) -> str:
     sku = str(product.get("sku", "")).strip()
     if not sku:
         raise ValueError("SKU is required")
-    barcode = str(product.get("barcode", "")).strip()
+    supplied_barcode = _normalize_barcode(product.get("barcode", ""))
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id FROM jw_products WHERE sku = ? LIMIT 1", (sku,))
+    cur.execute("SELECT id, COALESCE(barcode, ''), COALESCE(barcode_type, '') FROM jw_products WHERE sku = ? LIMIT 1", (sku,))
     existing = cur.fetchone()
-
-    if barcode:
-        cur.execute("SELECT 1 FROM jw_materials WHERE barcode = ? LIMIT 1", (barcode,))
-        if cur.fetchone():
-            conn.close()
-            raise ValueError("Duplicate barcode")
-        if existing:
-            cur.execute(
-                "SELECT 1 FROM jw_products WHERE barcode = ? AND id != ? LIMIT 1",
-                (barcode, existing[0]),
-            )
-        else:
-            cur.execute("SELECT 1 FROM jw_products WHERE barcode = ? LIMIT 1", (barcode,))
-        if cur.fetchone():
-            conn.close()
-            raise ValueError("Duplicate barcode")
+    barcode = supplied_barcode or (_normalize_barcode(existing[1]) if existing else "")
+    barcode_type = (
+        str(product.get("barcode_type", "")).strip()
+        if supplied_barcode or not existing
+        else str(existing[2] or "").strip()
+    )
+    _validate_barcode_uniqueness(
+        cur, barcode, exclude_product_id=int(existing[0]) if existing else None
+    )
 
     values = (
         str(product.get("name_ar", "")).strip(),
         str(product.get("name_en", "")).strip(),
         sku,
         barcode,
-        str(product.get("barcode_type", "")).strip(),
+        barcode_type,
         float(product.get("price", 0.0) or 0.0),
         float(product.get("qty_on_hand", 0.0) or 0.0),
         float(product.get("min_qty", 0.0) or 0.0),
@@ -1577,6 +1608,10 @@ def upsert_product_by_sku(product: dict) -> str:
             values,
         )
         status = "created"
+        product_id = int(cur.lastrowid)
+        if not barcode:
+            barcode = _validate_barcode_uniqueness(cur, _generated_product_barcode(product_id))
+            cur.execute("UPDATE jw_products SET barcode=? WHERE id=?", (barcode, product_id))
 
     conn.commit()
     conn.close()
@@ -1598,20 +1633,17 @@ def save_product(
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
-    barcode = (barcode or "").strip()
-    if barcode:
-        cur.execute("SELECT 1 FROM jw_materials WHERE barcode = ? LIMIT 1", (barcode,))
-        if cur.fetchone() is not None:
-            conn.close()
-            raise ValueError("Duplicate barcode")
-        if product_id:
-            cur.execute("SELECT 1 FROM jw_products WHERE barcode = ? AND id != ? LIMIT 1", (barcode, product_id))
-        else:
-            cur.execute("SELECT 1 FROM jw_products WHERE barcode = ? LIMIT 1", (barcode,))
-        if cur.fetchone() is not None:
-            conn.close()
-            raise ValueError("Duplicate barcode")
+    supplied_barcode = _normalize_barcode(barcode)
     if product_id:
+        cur.execute("SELECT COALESCE(barcode, ''), COALESCE(barcode_type, '') FROM jw_products WHERE id=?", (product_id,))
+        current = cur.fetchone()
+        if current is None:
+            conn.close()
+            raise ValueError("Product does not exist.")
+        barcode = supplied_barcode or _normalize_barcode(current[0])
+        if not supplied_barcode:
+            barcode_type = str(current[1] or "").strip()
+        _validate_barcode_uniqueness(cur, barcode, exclude_product_id=product_id)
         cur.execute(
             """UPDATE jw_products
                SET name_ar=?, name_en=?, sku=?, barcode=?, barcode_type=?, price=?,
@@ -1635,6 +1667,7 @@ def save_product(
             ),
         )
     else:
+        barcode = _validate_barcode_uniqueness(cur, supplied_barcode)
         cur.execute(
             """INSERT INTO jw_products
                (name_ar, name_en, sku, barcode, barcode_type, price, qty_on_hand,
@@ -1656,28 +1689,25 @@ def save_product(
             ),
         )
         product_id = int(cur.lastrowid)
+        if not barcode:
+            barcode = _validate_barcode_uniqueness(cur, _generated_product_barcode(product_id))
+            cur.execute("UPDATE jw_products SET barcode=? WHERE id=?", (barcode, product_id))
     conn.commit()
     conn.close()
     return int(product_id)
 
 
 def barcode_exists(barcode: str, *, exclude_product_id: Optional[int] = None) -> bool:
-    barcode = (barcode or "").strip()
+    barcode = _normalize_barcode(barcode)
     if not barcode:
         return False
     conn = get_conn()
     cur = conn.cursor()
-    if exclude_product_id:
-        cur.execute(
-            "SELECT 1 FROM jw_products WHERE barcode = ? AND id != ? LIMIT 1",
-            (barcode, exclude_product_id),
-        )
-    else:
-        cur.execute("SELECT 1 FROM jw_products WHERE barcode = ? LIMIT 1", (barcode,))
-    exists = cur.fetchone() is not None
-    if not exists:
-        cur.execute("SELECT 1 FROM jw_materials WHERE barcode = ? LIMIT 1", (barcode,))
-        exists = cur.fetchone() is not None
+    try:
+        _validate_barcode_uniqueness(cur, barcode, exclude_product_id=exclude_product_id)
+        exists = False
+    except ValueError:
+        exists = True
     conn.close()
     return exists
 
@@ -2075,7 +2105,7 @@ def save_material(
         or float(sale_price) <= 0
     ):
         raise ValueError("Sale price must be greater than zero for a saleable material.")
-    barcode = (barcode or "").strip()
+    barcode = _normalize_barcode(barcode)
     conn = get_conn()
     try:
         cur = conn.cursor()
@@ -2086,16 +2116,7 @@ def save_material(
             if row is None:
                 raise ValueError("Material does not exist.")
             barcode = (row[0] or "").strip()
-        if barcode:
-            cur.execute("SELECT 1 FROM jw_products WHERE barcode=? LIMIT 1", (barcode,))
-            if cur.fetchone():
-                raise ValueError("Barcode already belongs to a product.")
-            cur.execute(
-                "SELECT 1 FROM jw_materials WHERE barcode=? AND (? IS NULL OR id!=?) LIMIT 1",
-                (barcode, material_id, material_id),
-            )
-            if cur.fetchone():
-                raise ValueError("Barcode already belongs to another material.")
+        _validate_barcode_uniqueness(cur, barcode, exclude_material_id=material_id)
         if material_id:
             cur.execute(
                 """UPDATE jw_materials SET name_ar=?, name_en=?, code=?, qty_on_hand=?, unit=?, min_qty=?, cost_per_unit=?, saleable=?, sale_price=?, barcode=? WHERE id=?""",
@@ -2115,9 +2136,7 @@ def save_material(
             saved_id = int(cur.lastrowid)
             if not barcode:
                 barcode = f"M{saved_id:06d}"
-                cur.execute("SELECT 1 FROM jw_products WHERE barcode=? LIMIT 1", (barcode,))
-                if cur.fetchone():
-                    raise ValueError("Generated barcode already belongs to a product.")
+                _validate_barcode_uniqueness(cur, barcode, exclude_material_id=saved_id)
                 cur.execute("UPDATE jw_materials SET barcode=? WHERE id=?", (barcode, saved_id))
         conn.commit()
         return saved_id
@@ -2285,34 +2304,25 @@ def save_product_design(
         if cur.fetchone() is not None:
             raise ValueError("SKU/code already belongs to another product.")
 
-        normalized_barcode = (barcode or "").strip()
-        if normalized_barcode and _has_column(cur, "jw_materials", "barcode"):
-            cur.execute(
-                "SELECT 1 FROM jw_materials WHERE barcode=? LIMIT 1",
-                (normalized_barcode,),
-            )
-            if cur.fetchone():
-                raise ValueError("Barcode already belongs to a material.")
-        if normalized_barcode:
-            cur.execute(
-                "SELECT 1 FROM jw_products WHERE barcode=? AND (? IS NULL OR id!=?) LIMIT 1",
-                (normalized_barcode, product_id, product_id),
-            )
-            if cur.fetchone():
-                raise ValueError("Barcode already belongs to another product.")
-        barcode = normalized_barcode
+        supplied_barcode = _normalize_barcode(barcode)
+        barcode = supplied_barcode
 
         if product_id is not None:
+            cur.execute("SELECT COALESCE(barcode, '') FROM jw_products WHERE id=?", (product_id,))
+            current = cur.fetchone()
+            if current is None:
+                raise ValueError("Product does not exist.")
+            barcode = supplied_barcode or _normalize_barcode(current[0])
+            _validate_barcode_uniqueness(cur, barcode, exclude_product_id=product_id)
             cur.execute(
                 """UPDATE jw_products
                    SET name_ar=?, name_en=?, sku=?, barcode=?, price=?
                    WHERE id=?""",
                 (name_ar, name_en, sku, barcode, price, product_id),
             )
-            if cur.rowcount != 1:
-                raise ValueError("Product does not exist.")
             saved_product_id = product_id
         else:
+            _validate_barcode_uniqueness(cur, barcode)
             cur.execute(
                 """INSERT INTO jw_products
                    (name_ar, name_en, sku, barcode, barcode_type, price,
@@ -2321,6 +2331,14 @@ def save_product_design(
                 (name_ar, name_en, sku, barcode, price),
             )
             saved_product_id = int(cur.lastrowid)
+            if not barcode:
+                barcode = _validate_barcode_uniqueness(
+                    cur, _generated_product_barcode(saved_product_id)
+                )
+                cur.execute(
+                    "UPDATE jw_products SET barcode=? WHERE id=?",
+                    (barcode, saved_product_id),
+                )
 
         if bom_id is not None:
             cur.execute(

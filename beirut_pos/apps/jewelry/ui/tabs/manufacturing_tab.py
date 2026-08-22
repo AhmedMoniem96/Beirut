@@ -170,15 +170,11 @@ class ManufacturingTab(BaseTabContainer):
             form_layout.addWidget(widget, row + 1, column)
 
         self.material_save_btn = QPushButton()
-        self.material_edit_btn = QPushButton()
-        self.material_cancel_edit_btn = QPushButton()
         self.material_delete_btn = QPushButton()
         self.material_clear_btn = QPushButton()
         self.material_restock_btn = QPushButton()
         self.material_edit_indicator = QLabel()
         self.material_save_btn.clicked.connect(self._save_material)
-        self.material_edit_btn.clicked.connect(self._start_edit_material)
-        self.material_cancel_edit_btn.clicked.connect(self._clear_material_form)
         self.material_delete_btn.clicked.connect(self._delete_material)
         self.material_clear_btn.clicked.connect(self._clear_material_form)
         self.material_restock_btn.clicked.connect(self._restock_material)
@@ -186,8 +182,6 @@ class ManufacturingTab(BaseTabContainer):
         actions_row = QHBoxLayout()
         actions_row.setSpacing(8)
         actions_row.addWidget(self.material_clear_btn)
-        actions_row.addWidget(self.material_edit_btn)
-        actions_row.addWidget(self.material_cancel_edit_btn)
         actions_row.addWidget(self.material_save_btn)
         actions_row.addWidget(self.material_restock_btn)
         actions_row.addWidget(self.material_delete_btn)
@@ -840,19 +834,12 @@ class ManufacturingTab(BaseTabContainer):
         self.material_cost.setValue(0)
         self._update_material_edit_ui()
 
-
-    def _start_edit_material(self) -> None:
-        if not self._selected_material_id:
-            QMessageBox.warning(self, t("common.select", language=self._language), "Select a material first.")
-            return
-        self._editing_material_id = self._selected_material_id
-        self._update_material_edit_ui()
-
     def _update_material_edit_ui(self) -> None:
         in_edit_mode = self._editing_material_id is not None
-        self.material_save_btn.setText(("تحديث خامة" if self._language == "ar" else "Update Material") if in_edit_mode else ("حفظ خامة" if self._language == "ar" else "Save Material"))
-        self.material_edit_btn.setEnabled(not in_edit_mode)
-        self.material_cancel_edit_btn.setVisible(in_edit_mode)
+        self.material_save_btn.setText("حفظ خامة" if self._language == "ar" else "Save Material")
+        has_selection = self._selected_material_id is not None
+        self.material_restock_btn.setEnabled(has_selection)
+        self.material_delete_btn.setEnabled(has_selection)
         if in_edit_mode:
             name = self.material_name_en.text().strip() or self.material_name_ar.text().strip() or "-"
             self.material_edit_indicator.setText(f"Editing Material: {name}")
@@ -861,7 +848,7 @@ class ManufacturingTab(BaseTabContainer):
 
     def _load_material(self, row: int) -> None:
         self._selected_material_id = self.materials_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        self._editing_material_id = None
+        self._editing_material_id = self._selected_material_id
         self.material_name_ar.setText(self.materials_table.item(row, 0).text())
         self.material_name_en.setText(self.materials_table.item(row, 1).text())
         self.material_code.setText(self.materials_table.item(row, 2).text())
@@ -1481,11 +1468,9 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit_label.setText(t("manufacturing.material_unit", language=language))
         self.material_min_qty_label.setText(t("manufacturing.material_min_qty", language=language))
         self.material_cost_label.setText(t("manufacturing.material_cost", language=language))
-        self.material_restock_btn.setText("إعادة تعبئة خامة" if language == "ar" else "Restock Material")
+        self.material_restock_btn.setText("تعديل المخزون" if language == "ar" else "Adjust Stock")
         self.material_delete_btn.setText("حذف خامة" if language == "ar" else "Delete Material")
-        self.material_clear_btn.setText("إضافة خامة" if language == "ar" else "Add Material")
-        self.material_edit_btn.setText("تعديل خامة" if language == "ar" else "Edit Material")
-        self.material_cancel_edit_btn.setText("Cancel Edit")
+        self.material_clear_btn.setText("خامة جديدة" if language == "ar" else "New Material")
         self._update_material_edit_ui()
         self.materials_table.setHorizontalHeaderLabels(
             [

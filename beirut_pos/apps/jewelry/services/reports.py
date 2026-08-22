@@ -374,13 +374,29 @@ def production_history(
 ) -> List[ProductionHistoryRow]:
     conn = get_conn()
     cur = conn.cursor()
-    query = """SELECT o.id, o.order_no, o.datetime, o.status,
+    # Some callers open pre-migration databases directly.  Treat an absent
+    # snapshot column exactly like a NULL legacy value rather than failing the
+    # whole report; init_jewelry_db() adds both columns to normal databases.
+    cur.execute("PRAGMA table_info(jw_production_orders)")
+    order_columns = {row[1] for row in cur.fetchall()}
+    unit_price = (
+        "COALESCE(o.selling_price_per_unit_snapshot, p.price, 0)"
+        if "selling_price_per_unit_snapshot" in order_columns
+        else "COALESCE(p.price, 0)"
+    )
+    additional_cost = (
+        "COALESCE(o.additional_cost_batch_snapshot, "
+        "COALESCE(o.labor_cost, 0) + COALESCE(o.overhead_cost, 0))"
+        if "additional_cost_batch_snapshot" in order_columns
+        else "COALESCE(o.labor_cost, 0) + COALESCE(o.overhead_cost, 0)"
+    )
+    query = f"""SELECT o.id, o.order_no, o.datetime, o.status,
                       p.name_en || ' / ' || p.name_ar,
                       o.qty_to_produce, o.qty_produced,
                       COALESCE(SUM(c.qty_consumed * c.cost_at_time), 0) AS material_cost,
-                      (o.labor_cost + o.overhead_cost) AS extra_cost,
-                      (COALESCE(SUM(c.qty_consumed * c.cost_at_time), 0) + o.labor_cost + o.overhead_cost) AS total_cost,
-                      (COALESCE(o.qty_produced, 0) * COALESCE(p.price, 0)) AS selling_price
+                      ({additional_cost}) AS extra_cost,
+                      (COALESCE(SUM(c.qty_consumed * c.cost_at_time), 0) + ({additional_cost})) AS total_cost,
+                      (COALESCE(o.qty_produced, 0) * ({unit_price})) AS selling_price
                FROM jw_production_orders o
                JOIN jw_products p ON p.id = o.product_id
                LEFT JOIN jw_production_consumption c ON c.production_order_id = o.id

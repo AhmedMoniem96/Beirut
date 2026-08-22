@@ -48,6 +48,7 @@ class PurchasesTab(BaseTabContainer):
         self._build_expenses_tab()
         self._build_material_tab()
         self._build_workers_tab()
+        self.tabs.currentChanged.connect(self._handle_section_change)
         self.add_content_widget(self.tabs)
 
         self.set_page_content_widget(content)
@@ -148,9 +149,42 @@ class PurchasesTab(BaseTabContainer):
         layout.addWidget(self.wage_table)
         self.tabs.addTab(self.workers_tab, "")
 
+    def _material_label(self, material) -> str:
+        name = choose_name(
+            material.name_ar,
+            material.name_en,
+            language=self._language,
+        ).strip()
+        code = (getattr(material, "code", "") or "").strip()
+        if name and code:
+            return f"{name} ({code})"
+        return name or code
+
+    def _refresh_material_combo(self) -> None:
+        """Reload the shared manufacturing materials without losing selection."""
+        selected_material_id = self.mat_material.currentData()
+        self._materials = list_materials()
+        self.mat_material.blockSignals(True)
+        try:
+            self.mat_material.clear()
+            self.mat_material.addItem("", None)
+            for material in self._materials:
+                self.mat_material.addItem(self._material_label(material), material.id)
+            selected_index = self.mat_material.findData(selected_material_id)
+            self.mat_material.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+        finally:
+            self.mat_material.blockSignals(False)
+
+    def _handle_section_change(self, _index: int) -> None:
+        if self.tabs.currentWidget() is self.material_tab:
+            self._refresh_material_combo()
+
+    def on_activated(self) -> None:
+        """Refresh data that may have changed in another main application tab."""
+        self._refresh_material_combo()
+
     def _reload_dropdowns(self):
-        self._materials = list_materials(); self.mat_material.clear(); self.mat_material.addItem("", None)
-        for m in self._materials: self.mat_material.addItem(choose_name(m.name_ar, m.name_en, language=self._language), m.id)
+        self._refresh_material_combo()
         workers = list_workers(); self._workers = [(w.id, w.name, w.wage_type, w.phone, w.role, w.default_wage) for w in workers]
         for combo in [self.worker_manage, self.wp_worker]:
             combo.blockSignals(True); combo.clear(); combo.addItem("", None)
@@ -319,7 +353,7 @@ class PurchasesTab(BaseTabContainer):
         self.material_table.setRowCount(0)
         for p in mat:
             r = self.material_table.rowCount(); self.material_table.insertRow(r)
-            mname = next((choose_name(m.name_ar,m.name_en,language=self._language) for m in self._materials if m.id == p.linked_material_id), "")
+            mname = next((self._material_label(m) for m in self._materials if m.id == p.linked_material_id), "")
             vals = [p.date, mname, p.vendor, f"{float(p.material_qty or 0):.2f}", "", f"{p.amount:.2f}", p.payment_method, "✓" if p.linked_material_id else "", p.notes]
             for c,v in enumerate(vals): self.material_table.setItem(r,c,QTableWidgetItem(v))
             self.material_table.item(r,0).setData(Qt.ItemDataRole.UserRole, p.id)

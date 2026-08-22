@@ -232,6 +232,8 @@ class JewelryMainWindow(QMainWindow):
         user = get_current_user()
         if not user:
             self._last_allowed_tab = index
+            if self.tabs.widget(index) is self.purchases_tab:
+                self.purchases_tab.on_activated()
             return
         if user.role != "Admin" and self.tabs.widget(index) in (
             self.settings_tab,
@@ -247,6 +249,8 @@ class JewelryMainWindow(QMainWindow):
             del blocker
             return
         self._last_allowed_tab = index
+        if self.tabs.widget(index) is self.purchases_tab:
+            self.purchases_tab.on_activated()
 
     def _toggle_maximize_restore(self) -> None:
         logger.debug(

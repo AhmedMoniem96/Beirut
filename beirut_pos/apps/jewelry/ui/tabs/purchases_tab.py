@@ -101,9 +101,13 @@ class PurchasesTab(BaseTabContainer):
         self.material_completer.activated[QModelIndex].connect(self._select_completed_material)
         self.mat_material.setCompleter(self.material_completer)
         self.mat_material.lineEdit().editingFinished.connect(self._validate_material_text)
-        self.mat_supplier = QLineEdit(); self.mat_qty = QDoubleSpinBox(); self.mat_qty.setRange(0, 999999); self.mat_qty.setDecimals(2)
-        self.mat_unit_cost = QDoubleSpinBox(); self.mat_unit_cost.setRange(0, 999999999); self.mat_unit_cost.setDecimals(2)
-        self.mat_total = QDoubleSpinBox(); self.mat_total.setRange(0, 999999999); self.mat_total.setDecimals(2)
+        self.mat_supplier = QLineEdit(); self.mat_qty = QDoubleSpinBox(); self.mat_qty.setRange(0, 999999); self.mat_qty.setDecimals(3)
+        self.mat_unit_cost = QDoubleSpinBox(); self.mat_unit_cost.setRange(0, 999999999); self.mat_unit_cost.setDecimals(4)
+        self.mat_total = QDoubleSpinBox(); self.mat_total.setRange(0, 999999999); self.mat_total.setDecimals(4)
+        self.mat_total.setReadOnly(True)
+        self.mat_total.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.mat_qty.valueChanged.connect(self._calculate_material_total)
+        self.mat_unit_cost.valueChanged.connect(self._calculate_material_total)
         self.mat_payment = QLineEdit(); self.mat_add_stock = QCheckBox(); self.mat_notes = QLineEdit()
         self.material_labels = [QLabel() for _ in range(8)]
         form.addWidget(self.material_labels[0],0,0); form.addWidget(self.mat_date,0,1)
@@ -118,8 +122,10 @@ class PurchasesTab(BaseTabContainer):
         layout.addWidget(form_box)
         btns = QHBoxLayout()
         self.mat_add_btn = QPushButton(); self.mat_add_btn.clicked.connect(self._add_material_purchase)
+        self.mat_add_btn.setStyleSheet("font-weight: 600;")
         self.mat_save_btn = QPushButton(); self.mat_save_btn.clicked.connect(self._save_material_purchase)
         self.mat_del_btn = QPushButton(); self.mat_del_btn.clicked.connect(self._delete_material_purchase)
+        self.mat_del_btn.setStyleSheet("color: #b91c1c;")
         self.mat_clear_btn = QPushButton(); self.mat_clear_btn.clicked.connect(self._clear_material)
         for b in [self.mat_add_btn, self.mat_save_btn, self.mat_del_btn, self.mat_clear_btn]: btns.addWidget(b)
         btns.addStretch(1); layout.addLayout(btns)
@@ -182,6 +188,7 @@ class PurchasesTab(BaseTabContainer):
                 material.name_ar or "",
                 material.name_en or "",
                 getattr(material, "code", "") or "",
+                getattr(material, "barcode", "") or "",
             )
             if value.strip()
         )
@@ -205,6 +212,7 @@ class PurchasesTab(BaseTabContainer):
                 (material.name_ar or "").strip().casefold(),
                 (material.name_en or "").strip().casefold(),
                 (getattr(material, "code", "") or "").strip().casefold(),
+                (getattr(material, "barcode", "") or "").strip().casefold(),
             }
             if entered_text and entered_text in exact_matches:
                 self.mat_material.setCurrentIndex(index)
@@ -314,6 +322,12 @@ class PurchasesTab(BaseTabContainer):
             self.refresh_table(); self._clear_material()
             self.inventory_changed.emit()
         except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
+
+    def _calculate_material_total(self) -> None:
+        """Keep the persisted purchase amount equal to quantity times unit cost."""
+        self.mat_total.setValue(
+            float(self.mat_qty.value()) * float(self.mat_unit_cost.value())
+        )
     def _save_material_purchase(self):
         if not self._selected_material_purchase_id: return self._add_material_purchase()
         try:
@@ -393,7 +407,8 @@ class PurchasesTab(BaseTabContainer):
     def _load_material_row(self, row, _):
         p = next((x for x in list_purchases() if x.id == self.material_table.item(row,0).data(Qt.ItemDataRole.UserRole)), None)
         if not p: return
-        self._selected_material_purchase_id = p.id; self.mat_date.setDate(date.fromisoformat(p.date)); self.mat_supplier.setText(p.vendor); self.mat_qty.setValue(float(p.material_qty or 0)); self.mat_total.setValue(float(p.amount)); self.mat_payment.setText(p.payment_method); self.mat_notes.setText(p.notes); self.mat_add_stock.setChecked(bool(p.linked_material_id)); self.mat_material.setCurrentIndex(max(0, self.mat_material.findData(p.linked_material_id)))
+        quantity = float(p.material_qty or 0)
+        self._selected_material_purchase_id = p.id; self.mat_date.setDate(date.fromisoformat(p.date)); self.mat_supplier.setText(p.vendor); self.mat_qty.setValue(quantity); self.mat_unit_cost.setValue(float(p.amount) / quantity if quantity else 0); self.mat_payment.setText(p.payment_method); self.mat_notes.setText(p.notes); self.mat_add_stock.setChecked(bool(p.linked_material_id)); self.mat_material.setCurrentIndex(max(0, self.mat_material.findData(p.linked_material_id)))
     def _load_wage_row(self, row, _):
         pid = self.wage_table.item(row,0).data(Qt.ItemDataRole.UserRole); self._selected_wage_payment_id = pid
 
@@ -413,7 +428,12 @@ class PurchasesTab(BaseTabContainer):
         for p in mat:
             r = self.material_table.rowCount(); self.material_table.insertRow(r)
             mname = next((self._material_label(m) for m in self._materials if m.id == p.linked_material_id), "")
-            vals = [p.date, mname, p.vendor, f"{float(p.material_qty or 0):.2f}", "", f"{p.amount:.2f}", p.payment_method, "✓" if p.linked_material_id else "", p.notes]
+            material = next((m for m in self._materials if m.id == p.linked_material_id), None)
+            unit = (material.unit or "").strip() if material else ""
+            quantity = float(p.material_qty or 0)
+            quantity_text = f"{quantity:.3f} {unit}".rstrip()
+            unit_cost = float(p.amount) / quantity if quantity else 0.0
+            vals = [p.date, mname, p.vendor, quantity_text, f"{unit_cost:.4f}", f"{p.amount:.4f}", p.payment_method, "✓" if p.linked_material_id else "", p.notes]
             for c,v in enumerate(vals): self.material_table.setItem(r,c,QTableWidgetItem(v))
             self.material_table.item(r,0).setData(Qt.ItemDataRole.UserRole, p.id)
         self.workers_table.setRowCount(0)

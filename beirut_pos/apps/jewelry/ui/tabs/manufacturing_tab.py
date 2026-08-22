@@ -238,6 +238,31 @@ class ManufacturingTab(BaseTabContainer):
         tab_layout.setSpacing(8)
         tab_layout.setContentsMargins(0, 0, 0, 0)
 
+        mode_layout = QHBoxLayout()
+        self.new_design_btn = QPushButton()
+        self.edit_design_btn = QPushButton()
+        self.new_design_btn.setCheckable(True)
+        self.edit_design_btn.setCheckable(True)
+        self.new_design_btn.clicked.connect(self._start_new_design)
+        self.edit_design_btn.clicked.connect(self._show_design_picker)
+        mode_layout.addWidget(self.new_design_btn)
+        mode_layout.addWidget(self.edit_design_btn)
+        mode_layout.addStretch(1)
+        tab_layout.addLayout(mode_layout)
+
+        self.design_picker = QWidget()
+        picker_layout = QVBoxLayout(self.design_picker)
+        picker_layout.setContentsMargins(0, 0, 0, 0)
+        self.design_search_input = QLineEdit()
+        self.design_search_results = QListWidget()
+        self.design_search_results.setMaximumHeight(160)
+        self.design_search_input.textChanged.connect(self._populate_design_picker)
+        self.design_search_results.itemClicked.connect(self._load_picker_design)
+        picker_layout.addWidget(self.design_search_input)
+        picker_layout.addWidget(self.design_search_results)
+        self.design_picker.setVisible(False)
+        tab_layout.addWidget(self.design_picker)
+
         main_layout = QHBoxLayout()
         main_layout.setSpacing(10)
 
@@ -252,7 +277,9 @@ class ManufacturingTab(BaseTabContainer):
 
         self.bom_product_combo = QComboBox()
         self.design_product_name = QLineEdit()
+        self.design_product_name_en = QLineEdit()
         self.design_product_sku = QLineEdit()
+        self.design_product_barcode = QLineEdit()
         self.design_product_price = QDoubleSpinBox(); self.design_product_price.setRange(0, 999999); self.design_product_price.setDecimals(2)
         self.design_labor_cost = QDoubleSpinBox(); self.design_labor_cost.setRange(0, 999999)
         self.design_packaging_cost = QDoubleSpinBox(); self.design_packaging_cost.setRange(0, 999999)
@@ -274,8 +301,10 @@ class ManufacturingTab(BaseTabContainer):
         fields = [
             ("product", self.bom_product_combo),
             ("product_name_ar", self.design_product_name),
+            ("product_name_en", self.design_product_name_en),
             ("design_name", self.bom_name_input),
             ("sku_code", self.design_product_sku),
+            ("barcode", self.design_product_barcode),
             ("selling_price", self.design_product_price),
             ("labor_cost", self.design_labor_cost),
             ("packaging_cost", self.design_packaging_cost),
@@ -364,29 +393,22 @@ class ManufacturingTab(BaseTabContainer):
         self.produce_design_btn.setProperty("secondary", True)
         self.produce_design_btn.setEnabled(False)
         self.duplicate_design_btn = QPushButton("Duplicate Design")
-        self.edit_product_btn = QPushButton("Edit Product")
-        self.cancel_edit_btn = QPushButton("Cancel Edit")
-        self.cancel_edit_btn.setVisible(False)
-        self.editing_product_label = QLabel("")
         self.bom_delete_btn = QPushButton()
         self.bom_clear_btn = QPushButton()
         self.bom_save_btn.clicked.connect(self._save_bom)
         self.produce_design_btn.clicked.connect(self._open_production_for_selected_design)
         self.duplicate_design_btn.clicked.connect(self._open_duplicate_design_picker)
-        self.edit_product_btn.clicked.connect(self._open_edit_product_picker)
-        self.cancel_edit_btn.clicked.connect(self._cancel_edit_product)
         self.bom_delete_btn.clicked.connect(self._delete_bom)
         self.bom_clear_btn.clicked.connect(self._clear_bom_form)
 
         footer = QHBoxLayout(); footer.addStretch(1)
-        footer.addWidget(self.editing_product_label)
-        footer.addWidget(self.cancel_edit_btn)
-        footer.addWidget(self.bom_clear_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.edit_product_btn); footer.addWidget(self.produce_design_btn); footer.addWidget(self.bom_save_btn)
+        footer.addWidget(self.bom_clear_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.produce_design_btn); footer.addWidget(self.bom_save_btn)
         tab_layout.addLayout(footer)
 
         self.tabs.addTab(self.boms_tab, "")
 
         self._selected_bom_id: Optional[int] = None
+        self.new_design_btn.setChecked(True)
         self.design_product_name.textEdited.connect(self._suggest_design_name)
         self.design_labor_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_packaging_cost.valueChanged.connect(self._refresh_design_cost_summary)
@@ -602,6 +624,7 @@ class ManufacturingTab(BaseTabContainer):
             for p in products
         }
         self.bom_product_combo.clear()
+        self.bom_product_combo.addItem("", None)
         for label, product_id in self._product_map.items():
             self.bom_product_combo.addItem(label, product_id)
         self.order_product_combo.clear()
@@ -642,7 +665,40 @@ class ManufacturingTab(BaseTabContainer):
             display = f"{product_name} - {bom.name}"
             self._bom_entries.append((display, bom.id, bom.product_id))
 
+        if hasattr(self, "design_search_results"):
+            self._populate_design_picker(self.design_search_input.text())
         self._refresh_bom_combo()
+
+    def _populate_design_picker(self, filter_text: str = "") -> None:
+        """Populate the design-first picker with exact BOM identities."""
+        self.design_search_results.clear()
+        products = {product.id: product for product in list_products()}
+        needle = filter_text.strip().casefold()
+        for bom in list_boms():
+            product = products.get(bom.product_id)
+            product_name = " / ".join(
+                value for value in (
+                    (product.name_ar or "").strip() if product else "",
+                    (product.name_en or "").strip() if product else "",
+                ) if value
+            ) or f"Product {bom.product_id}"
+            sku = (product.sku or "").strip() if product else ""
+            label = f"{bom.name} | {product_name} | SKU: {sku or '-'}"
+            if needle and needle not in label.casefold():
+                continue
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, bom.id)
+            self.design_search_results.addItem(item)
+
+    def _show_design_picker(self) -> None:
+        self.new_design_btn.setChecked(False)
+        self.edit_design_btn.setChecked(True)
+        self.design_picker.setVisible(True)
+        self._populate_design_picker(self.design_search_input.text())
+        self.design_search_input.setFocus()
+
+    def _load_picker_design(self, item: QListWidgetItem) -> None:
+        self._load_design_by_id(int(item.data(Qt.ItemDataRole.UserRole)))
 
     def _refresh_bom_combo(self) -> None:
         if not hasattr(self, "order_bom_combo") or not hasattr(self, "order_product_combo"):
@@ -852,7 +908,9 @@ class ManufacturingTab(BaseTabContainer):
         self.design_other_cost.setValue(0.0)
 
     def _save_bom(self) -> None:
-        name = self.design_product_name.text().strip()
+        name_ar = self.design_product_name.text().strip()
+        name_en = self.design_product_name_en.text().strip()
+        name = name_ar or name_en
         sku = self.design_product_sku.text().strip()
         design_name = self.bom_name_input.text().strip()
         if not name:
@@ -903,10 +961,10 @@ class ManufacturingTab(BaseTabContainer):
 
         saved_product_id = save_product(
             existing.id if existing else None,
-            name_ar=name,
-            name_en=existing.name_en if existing else name,
+            name_ar=name_ar,
+            name_en=name_en,
             sku=sku,
-            barcode=existing.barcode if existing else "",
+            barcode=self.design_product_barcode.text().strip(),
             barcode_type=existing.barcode_type if existing else "",
             price=float(self.design_product_price.value()),
             qty_on_hand=existing.qty_on_hand if existing else 0.0,
@@ -966,124 +1024,60 @@ class ManufacturingTab(BaseTabContainer):
         self._clear_bom_form()
 
     def _clear_bom_form(self) -> None:
+        self._start_new_design()
+
+    def _start_new_design(self) -> None:
+        """Reset every persisted and session-only field to an unsaved design."""
         self._selected_bom_id = None
+        self._editing_product_id = None
+        self.boms_table.clearSelection()
+        self.design_search_results.clearSelection()
+        self.design_picker.setVisible(False)
+        self.new_design_btn.setChecked(True)
+        self.edit_design_btn.setChecked(False)
         self.produce_design_btn.setEnabled(False)
         self.bom_product_combo.setCurrentIndex(0)
+        self.design_product_name.clear()
+        self.design_product_name_en.clear()
+        self.design_product_sku.clear()
+        self.design_product_barcode.clear()
+        self.design_product_price.setValue(0.0)
         self.bom_name_input.clear()
         self.bom_active_check.setChecked(False)
         self.bom_lines_table.setRowCount(0)
         self._clear_design_cost_estimates()
+        self.design_profit_pct.setValue(25.0)
         self._refresh_design_cost_summary()
-        self._cancel_edit_product()
-
-
-
-    def _open_edit_product_picker(self) -> None:
-        products = list_products()
-        if not products:
-            QMessageBox.information(self, "Edit Product", "No products available.")
-            return
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Edit Product")
-        layout = QVBoxLayout(dialog)
-        search_input = QLineEdit()
-        search_input.setPlaceholderText("Search by product name or SKU/code")
-        results = QListWidget()
-        buttons = QHBoxLayout()
-        open_btn = QPushButton("Load")
-        cancel_btn = QPushButton("Cancel")
-        buttons.addStretch(1)
-        buttons.addWidget(cancel_btn)
-        buttons.addWidget(open_btn)
-        layout.addWidget(search_input)
-        layout.addWidget(results, 1)
-        layout.addLayout(buttons)
-
-        def populate(filter_text: str = "") -> None:
-            results.clear()
-            text = filter_text.strip().lower()
-            for product in products:
-                name = (product.name_en or "").strip()
-                sku = (product.sku or "").strip()
-                if text and text not in name.lower() and text not in sku.lower():
-                    continue
-                item = QListWidgetItem(f"{name} | SKU: {sku or '-'}")
-                item.setData(Qt.ItemDataRole.UserRole, product.id)
-                results.addItem(item)
-
-        def accept_selected() -> None:
-            if results.currentItem() is None:
-                return
-            dialog.accept()
-
-        search_input.textChanged.connect(populate)
-        open_btn.clicked.connect(accept_selected)
-        cancel_btn.clicked.connect(dialog.reject)
-        results.itemDoubleClicked.connect(lambda _: accept_selected())
-        populate()
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        selected = results.currentItem()
-        if selected is None:
-            return
-        self._load_product_for_edit(int(selected.data(Qt.ItemDataRole.UserRole)))
-
-    def _load_product_for_edit(self, product_id: int) -> None:
-        product = next((p for p in list_products() if p.id == product_id), None)
-        if not product:
-            QMessageBox.warning(self, "Edit Product", "Could not load selected product.")
-            return
-        bom = next((b for b in list_boms() if b.product_id == product.id), None)
-        self._selected_bom_id = None
-        self.produce_design_btn.setEnabled(False)
-        self._editing_product_id = product.id
-        self.design_product_name.setText(product.name_en or "")
-        self.design_product_sku.setText(product.sku or "")
-        self.design_product_price.setValue(float(product.price or 0.0))
-        product_index = self.bom_product_combo.findData(product.id)
-        if product_index >= 0:
-            self.bom_product_combo.setCurrentIndex(product_index)
-        self.bom_lines_table.setRowCount(0)
-        if bom:
-            self._selected_bom_id = bom.id
-            self.produce_design_btn.setEnabled(True)
-            self.bom_name_input.setText(bom.name)
-            self.bom_active_check.setChecked(bom.active)
-            for line in list_bom_lines(bom.id):
-                material_label = next((label for label, mid in self._material_map.items() if mid == line.material_id), f"{t('manufacturing.material_label', language=self._language)} {line.material_id}")
-                row_idx = self.bom_lines_table.rowCount()
-                self.bom_lines_table.insertRow(row_idx)
-                self.bom_lines_table.setItem(row_idx, 0, QTableWidgetItem(material_label))
-                self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem("0.000"))
-                self.bom_lines_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.qty_required:.3f}"))
-                self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
-                self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
-                self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
-        # Estimates are intentionally session-only: neither products nor BOMs have
-        # fields that can safely persist them as design defaults.
-        self._clear_design_cost_estimates()
-        self.editing_product_label.setText(f"Editing Product: {product.name_en}")
-        self.cancel_edit_btn.setVisible(True)
-        self._refresh_design_cost_summary()
-
-    def _cancel_edit_product(self) -> None:
-        self._editing_product_id = None
-        self.editing_product_label.setText("")
-        self.cancel_edit_btn.setVisible(False)
 
     def _load_bom(self, row: int) -> None:
-        self._selected_bom_id = self.boms_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        bom = next((b for b in list_boms() if b.id == self._selected_bom_id), None)
-        if not bom:
+        """Table adapter for the same exact-BOM loader used by the picker."""
+        item = self.boms_table.item(row, 0)
+        if item is not None:
+            self._load_design_by_id(int(item.data(Qt.ItemDataRole.UserRole)))
+
+    def _load_design_by_id(self, bom_id: int) -> None:
+        """Load one BOM and its linked product without product-first ambiguity."""
+        bom = next((candidate for candidate in list_boms() if candidate.id == bom_id), None)
+        if bom is None:
+            QMessageBox.warning(self, "Edit Design", "Could not load selected design.")
             return
+        product = next((candidate for candidate in list_products() if candidate.id == bom.product_id), None)
+        if product is None:
+            QMessageBox.warning(self, "Edit Design", "Could not load the design's linked product.")
+            return
+
+        self._selected_bom_id = bom.id
+        self._editing_product_id = product.id
+        self.new_design_btn.setChecked(False)
+        self.edit_design_btn.setChecked(True)
+        self.design_picker.setVisible(True)
         self.produce_design_btn.setEnabled(True)
-        product = next((p for p in list_products() if p.id == bom.product_id), None)
-        if product:
-            self._editing_product_id = product.id
-            self.design_product_name.setText(product.name_ar or product.name_en or "")
-            self.design_product_sku.setText(product.sku or "")
-            self.design_product_price.setValue(float(product.price or 0.0))
-        product_index = self.bom_product_combo.findData(bom.product_id)
+        self.design_product_name.setText(product.name_ar or "")
+        self.design_product_name_en.setText(product.name_en or "")
+        self.design_product_sku.setText(product.sku or "")
+        self.design_product_barcode.setText(product.barcode or "")
+        self.design_product_price.setValue(float(product.price or 0.0))
+        product_index = self.bom_product_combo.findData(product.id)
         if product_index >= 0:
             self.bom_product_combo.setCurrentIndex(product_index)
         self.bom_name_input.setText(bom.name)
@@ -1091,17 +1085,15 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_lines_table.setRowCount(0)
         for line in list_bom_lines(bom.id):
             material_label = next(
-                (label for label, mid in self._material_map.items() if mid == line.material_id),
+                (label for label, material_id in self._material_map.items() if material_id == line.material_id),
                 f"{t('manufacturing.material_label', language=self._language)} {line.material_id}",
             )
-            row_idx = self.bom_lines_table.rowCount()
-            self.bom_lines_table.insertRow(row_idx)
-            self.bom_lines_table.setItem(row_idx, 0, QTableWidgetItem(material_label))
-            self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem("0.000"))
-            self.bom_lines_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.qty_required:.3f}"))
-            self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
-            self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
-            self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
+            row = self.bom_lines_table.rowCount()
+            self.bom_lines_table.insertRow(row)
+            values = (material_label, "0.000", f"{line.qty_required:.3f}", "0.00", "0.00")
+            for column, value in enumerate(values):
+                self.bom_lines_table.setItem(row, column, QTableWidgetItem(value))
+            self.bom_lines_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
         self._clear_design_cost_estimates()
         self._refresh_design_cost_summary()
 
@@ -1365,13 +1357,15 @@ class ManufacturingTab(BaseTabContainer):
             QMessageBox.warning(self, "Duplicate Design", "Could not load source product.")
             return
 
-        self._cancel_edit_product()
-        self.design_product_name.setText(source_product.name_en)
+        self._start_new_design()
+        self.design_product_name.setText(source_product.name_ar)
+        self.design_product_name_en.setText(source_product.name_en)
         product_index = self.bom_product_combo.findData(source_product.id)
         if product_index >= 0:
             self.bom_product_combo.setCurrentIndex(product_index)
         self._selected_bom_id = None
         self.design_product_sku.clear()
+        self.design_product_barcode.clear()
         self.design_product_price.setValue(float(source_product.price or 0.0))
         self._clear_design_cost_estimates()
         self.bom_name_input.setText(f"{source_product.name_en} Design Copy")
@@ -1444,10 +1438,21 @@ class ManufacturingTab(BaseTabContainer):
             ]
         )
         self.tabs.setTabText(0, "التصاميم" if language == "ar" else "Designs")
+        self.new_design_btn.setText("تصميم جديد" if language == "ar" else "New Design")
+        self.edit_design_btn.setText(
+            "تعديل تصميم موجود" if language == "ar" else "Edit Existing Design"
+        )
+        self.design_search_input.setPlaceholderText(
+            "ابحث باسم التصميم أو المنتج أو الرمز"
+            if language == "ar"
+            else "Search by design name, product name, or SKU"
+        )
         self.bom_box.setTitle("المنتج النهائي" if language == "ar" else "Final Product")
         self._design_field_labels["product"].setText(t("manufacturing.bom_product", language=language))
         self._design_field_labels["product_name_ar"].setText("اسم المنتج بالعربية" if language == "ar" else "Product Name Arabic")
+        self._design_field_labels["product_name_en"].setText("اسم المنتج بالإنجليزية" if language == "ar" else "Product Name English")
         self._design_field_labels["sku_code"].setText("الرمز/الكود" if language == "ar" else "SKU/Code")
+        self._design_field_labels["barcode"].setText("الباركود" if language == "ar" else "Barcode")
         self._design_field_labels["selling_price"].setText("سعر البيع" if language == "ar" else "Selling Price")
         self._design_field_labels["labor_cost"].setText("تقدير تكلفة العمالة" if language == "ar" else "Labor Estimate")
         self._design_field_labels["packaging_cost"].setText("تقدير تكلفة التغليف" if language == "ar" else "Packaging Estimate")
@@ -1474,8 +1479,6 @@ class ManufacturingTab(BaseTabContainer):
             "إنتاج من هذا التصميم" if language == "ar" else "Produce This Design"
         )
         self.duplicate_design_btn.setText("تكرار التصميم" if language == "ar" else "Duplicate Design")
-        self.edit_product_btn.setText("تعديل المنتج" if language == "ar" else "Edit Product")
-        self.cancel_edit_btn.setText("Cancel Edit")
         self.bom_delete_btn.setText(t("manufacturing.delete_bom", language=language))
         self.bom_clear_btn.setText("Clear")
         self.boms_table.setHorizontalHeaderLabels(

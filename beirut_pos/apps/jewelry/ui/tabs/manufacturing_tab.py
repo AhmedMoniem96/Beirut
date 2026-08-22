@@ -51,6 +51,7 @@ from ...services.db import (
     list_boms,
     list_materials,
     list_products,
+    list_production_consumption,
     list_production_orders,
     mark_production_done,
     save_bom,
@@ -1375,21 +1376,23 @@ class ManufacturingTab(BaseTabContainer):
             self.usage_box.setVisible(False)
             return
         source_order = next((o for o in list_production_orders() if o.order_no == order_no), None)
-        if not source_order or not source_order.bom_id:
+        if not source_order:
             self.usage_box.setVisible(False)
             return
-        for line in list_bom_lines(source_order.bom_id):
-            material = next((m for m in list_materials() if m.id == line.material_id), None)
-            material_name = (
-                choose_name(material.name_ar, material.name_en, language=self._language)
-                if material
-                else ("خامة غير متاحة" if self._language == "ar" else "Unavailable Material")
+        for consumption in list_production_consumption(source_order.id):
+            material_name = choose_name(
+                consumption.material_name_ar,
+                consumption.material_name_en,
+                language=self._language,
             )
             row_idx = self.usage_table.rowCount()
             self.usage_table.insertRow(row_idx)
             self.usage_table.setItem(row_idx, 0, QTableWidgetItem(material_name))
-            self.usage_table.setItem(row_idx, 1, QTableWidgetItem(f"{line.qty_required:.3f}"))
-            self.usage_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.unit_cost:.2f}"))
+            self.usage_table.setItem(
+                row_idx, 1, QTableWidgetItem(f"{consumption.qty_consumed:.3f}")
+            )
+            historical_cost = consumption.qty_consumed * consumption.cost_at_time
+            self.usage_table.setItem(row_idx, 2, QTableWidgetItem(f"{historical_cost:.2f}"))
         self.usage_box.setVisible(self.usage_table.rowCount() > 0)
 
     def _view_history_details(self) -> None:

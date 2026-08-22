@@ -137,6 +137,14 @@ class JewelryProductionOrder:
 
 
 @dataclass
+class JewelryProductionConsumption:
+    material_name_ar: str
+    material_name_en: str
+    qty_consumed: float
+    cost_at_time: float
+
+
+@dataclass
 class JewelryPurchase:
     id: int
     date: str
@@ -2069,6 +2077,33 @@ def list_bom_lines(bom_id: int) -> List[JewelryBomLine]:
             bom_id=row[1],
             material_id=row[2],
             qty_required=row[3],
+        )
+        for row in rows
+    ]
+
+
+def list_production_consumption(
+    production_order_id: int,
+) -> List[JewelryProductionConsumption]:
+    """Return the material consumption recorded for a production order."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT m.name_ar, m.name_en, c.qty_consumed, c.cost_at_time
+           FROM jw_production_consumption c
+           JOIN jw_materials m ON m.id = c.material_id
+           WHERE c.production_order_id = ?
+           ORDER BY c.id""",
+        (production_order_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        JewelryProductionConsumption(
+            material_name_ar=row[0],
+            material_name_en=row[1],
+            qty_consumed=row[2],
+            cost_at_time=row[3],
         )
         for row in rows
     ]

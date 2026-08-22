@@ -1322,40 +1322,48 @@ class ManufacturingTab(BaseTabContainer):
         )
 
     def _open_duplicate_design_picker(self) -> None:
-        orders = list_production_orders()
-        if not orders:
+        boms = list_boms()
+        if not boms:
             QMessageBox.information(self, "Duplicate Design", "No previous designs available.")
             return
-        choices: list[tuple[str, str]] = []
-        for order in orders:
-            product_name = next((p.name_en for p in list_products() if p.id == order.product_id), f"Product {order.product_id}")
-            label = f"{order.created_at:%Y-%m-%d %H:%M} | {product_name} | {order.order_no}"
-            choices.append((label, order.order_no))
+        products = {product.id: product for product in list_products()}
+        choices: list[tuple[str, int]] = []
+        for bom in boms:
+            product = products.get(bom.product_id)
+            product_name = (
+                choose_name(product.name_ar, product.name_en, language=self._language)
+                if product
+                else f"Product {bom.product_id}"
+            )
+            sku = (product.sku or "").strip() if product else ""
+            label = f"{bom.name} | {product_name} | SKU: {sku or '-'}"
+            choices.append((label, bom.id))
         selected_label, ok = QInputDialog.getItem(
             self,
             "Duplicate Design",
-            "Select a previous design:",
+            "Select a design:",
             [label for label, _ in choices],
             0,
             False,
         )
         if not ok or not selected_label:
             return
-        selected_order_no = next((order_no for label, order_no in choices if label == selected_label), None)
-        if not selected_order_no:
-            QMessageBox.warning(self, "Duplicate Design", "Missing history reference.")
+        selected_bom_id = next((bom_id for label, bom_id in choices if label == selected_label), None)
+        if selected_bom_id is None:
+            QMessageBox.warning(self, "Duplicate Design", "Missing design reference.")
             return
-        self._duplicate_design_from_order(selected_order_no)
+        self._duplicate_design_from_bom(selected_bom_id)
 
-    def _duplicate_design_from_order(self, order_no: str) -> None:
-        source_order = next((o for o in list_production_orders() if o.order_no == order_no), None)
-        if not source_order:
-            QMessageBox.warning(self, "Duplicate Design", "Could not load selected design history.")
+    def _duplicate_design_from_bom(self, bom_id: int) -> None:
+        source_bom = next((bom for bom in list_boms() if bom.id == bom_id), None)
+        if not source_bom:
+            QMessageBox.warning(self, "Duplicate Design", "Could not load selected design.")
             return
-        source_product = next((p for p in list_products() if p.id == source_order.product_id), None)
+        source_product = next((p for p in list_products() if p.id == source_bom.product_id), None)
         if not source_product:
-            QMessageBox.warning(self, "Duplicate Design", "Could not load source product.")
+            QMessageBox.warning(self, "Duplicate Design", "Could not load the design's linked product.")
             return
+        source_lines = list_bom_lines(source_bom.id)
 
         self._start_new_design()
         self.design_product_name_ar.setText(source_product.name_ar or "")
@@ -1363,28 +1371,31 @@ class ManufacturingTab(BaseTabContainer):
         product_index = self.bom_product_combo.findData(source_product.id)
         if product_index >= 0:
             self.bom_product_combo.setCurrentIndex(product_index)
-        self._selected_bom_id = None
         self.design_product_sku.setText(source_product.sku or "")
         self.design_product_barcode.setText(source_product.barcode or "")
         self.design_product_price.setValue(float(source_product.price or 0.0))
         self._clear_design_cost_estimates()
-        self.bom_name_input.setText(f"{source_product.name_en} Design Copy")
-        self.bom_active_check.setChecked(True)
+        copy_suffix = "نسخة" if self._language == "ar" else "Copy"
+        self.bom_name_input.setText(f"{source_bom.name} - {copy_suffix}")
+        self.bom_active_check.setChecked(source_bom.active)
         self.bom_lines_table.setRowCount(0)
-        if source_order.bom_id:
-            for line in list_bom_lines(source_order.bom_id):
-                material_label = next(
-                    (label for label, mid in self._material_map.items() if mid == line.material_id),
-                    f"{t('manufacturing.material_label', language=self._language)} {line.material_id}",
-                )
-                row_idx = self.bom_lines_table.rowCount()
-                self.bom_lines_table.insertRow(row_idx)
-                self.bom_lines_table.setItem(row_idx, 0, QTableWidgetItem(material_label))
-                self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem("0.000"))
-                self.bom_lines_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.qty_required:.3f}"))
-                self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
-                self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
-                self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
+        for line in source_lines:
+            material_label = next(
+                (label for label, mid in self._material_map.items() if mid == line.material_id),
+                f"{t('manufacturing.material_label', language=self._language)} {line.material_id}",
+            )
+            row_idx = self.bom_lines_table.rowCount()
+            self.bom_lines_table.insertRow(row_idx)
+            self.bom_lines_table.setItem(row_idx, 0, QTableWidgetItem(material_label))
+            self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem("0.000"))
+            self.bom_lines_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.qty_required:.3f}"))
+            self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
+            self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
+            self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
+        # Duplication must remain an unsaved form: Save Design inserts a BOM
+        # rather than updating either source identity.
+        self._selected_bom_id = None
+        self._editing_product_id = None
         self._refresh_design_cost_summary()
 
         self.tabs.setCurrentIndex(0)

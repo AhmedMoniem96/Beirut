@@ -28,6 +28,8 @@ class ProductAggregate:
     name: str
     code: str
     qty: float
+    source_type: str = "product"
+    source_id: int | None = None
 
 
 @dataclass
@@ -46,6 +48,8 @@ class ProductRevenueAggregate:
     code: str
     qty: float
     revenue: float
+    source_type: str = "product"
+    source_id: int | None = None
 
 
 @dataclass
@@ -83,20 +87,24 @@ class WorkerWageAggregate:
 def top_products_by_revenue(start_iso: str, end_iso: str, limit: int = 10, product_id: int | None = None) -> List[ProductRevenueAggregate]:
     conn = get_conn()
     cur = conn.cursor()
-    query = """SELECT ii.product_name, ii.product_code, COALESCE(SUM(ii.qty), 0), COALESCE(SUM(ii.line_total), 0)
+    query = """SELECT ii.product_name, ii.product_code, COALESCE(SUM(ii.qty), 0), COALESCE(SUM(ii.line_total), 0),
+                      COALESCE(ii.item_type, 'product'),
+                      CASE WHEN COALESCE(ii.item_type, 'product') = 'material' THEN ii.material_id ELSE ii.product_id END
                FROM jw_invoice_items ii
                JOIN jw_invoices i ON i.id = ii.invoice_id
                WHERE i.txn_type = 'sale' AND i.datetime BETWEEN ? AND ?"""
     params: List = [start_iso, end_iso]
     if product_id is not None:
-        query += " AND ii.product_id = ?"
+        query += " AND (COALESCE(ii.item_type, 'product') = 'material' OR ii.product_id = ?)"
         params.append(product_id)
-    query += " GROUP BY ii.product_name, ii.product_code ORDER BY 4 DESC LIMIT ?"
+    query += """ GROUP BY COALESCE(ii.item_type, 'product'),
+                           CASE WHEN COALESCE(ii.item_type, 'product') = 'material' THEN ii.material_id ELSE ii.product_id END,
+                           ii.product_name, ii.product_code ORDER BY 4 DESC LIMIT ?"""
     params.append(limit)
     cur.execute(query, tuple(params))
     rows = cur.fetchall()
     conn.close()
-    return [ProductRevenueAggregate(row[0], row[1], row[2], row[3]) for row in rows]
+    return [ProductRevenueAggregate(*row) for row in rows]
 
 
 def customer_aggregates(start_iso: str, end_iso: str, customer_term: str = '', limit: int = 20) -> List[CustomerAggregate]:
@@ -294,7 +302,9 @@ def top_products(
 ) -> List[ProductAggregate]:
     conn = get_conn()
     cur = conn.cursor()
-    query = """SELECT product_name, product_code, COALESCE(SUM(qty), 0) AS total_qty
+    query = """SELECT product_name, product_code, COALESCE(SUM(qty), 0) AS total_qty,
+                      COALESCE(item_type, 'product'),
+                      CASE WHEN COALESCE(item_type, 'product') = 'material' THEN material_id ELSE product_id END
                FROM jw_invoice_items
                WHERE invoice_id IN (
                    SELECT id FROM jw_invoices
@@ -302,17 +312,19 @@ def top_products(
                )"""
     params: List = [start_iso, end_iso]
     if product_id is not None:
-        query += " AND product_id = ?"
+        query += " AND (COALESCE(item_type, 'product') = 'material' OR product_id = ?)"
         params.append(product_id)
     query += """
-               GROUP BY product_name, product_code
+               GROUP BY COALESCE(item_type, 'product'),
+                        CASE WHEN COALESCE(item_type, 'product') = 'material' THEN material_id ELSE product_id END,
+                        product_name, product_code
                ORDER BY total_qty DESC
                LIMIT ?"""
     params.append(limit)
     cur.execute(query, tuple(params))
     rows = cur.fetchall()
     conn.close()
-    return [ProductAggregate(row[0], row[1], row[2]) for row in rows]
+    return [ProductAggregate(*row) for row in rows]
 
 
 def lowest_products(
@@ -323,7 +335,9 @@ def lowest_products(
 ) -> List[ProductAggregate]:
     conn = get_conn()
     cur = conn.cursor()
-    query = """SELECT product_name, product_code, COALESCE(SUM(qty), 0) AS total_qty
+    query = """SELECT product_name, product_code, COALESCE(SUM(qty), 0) AS total_qty,
+                      COALESCE(item_type, 'product'),
+                      CASE WHEN COALESCE(item_type, 'product') = 'material' THEN material_id ELSE product_id END
                FROM jw_invoice_items
                WHERE invoice_id IN (
                    SELECT id FROM jw_invoices
@@ -331,10 +345,12 @@ def lowest_products(
                )"""
     params: List = [start_iso, end_iso]
     if product_id is not None:
-        query += " AND product_id = ?"
+        query += " AND (COALESCE(item_type, 'product') = 'material' OR product_id = ?)"
         params.append(product_id)
     query += """
-               GROUP BY product_name, product_code
+               GROUP BY COALESCE(item_type, 'product'),
+                        CASE WHEN COALESCE(item_type, 'product') = 'material' THEN material_id ELSE product_id END,
+                        product_name, product_code
                HAVING total_qty > 0
                ORDER BY total_qty ASC
                LIMIT ?"""
@@ -342,7 +358,7 @@ def lowest_products(
     cur.execute(query, tuple(params))
     rows = cur.fetchall()
     conn.close()
-    return [ProductAggregate(row[0], row[1], row[2]) for row in rows]
+    return [ProductAggregate(*row) for row in rows]
 
 
 def stock_alerts() -> Tuple[List[Tuple], List[Tuple]]:

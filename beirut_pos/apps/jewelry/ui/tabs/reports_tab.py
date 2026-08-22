@@ -520,8 +520,8 @@ class ReportsTab(BaseTabContainer):
                 t("common.total", language=language),
             ]
         )
-        self.top_table.setHorizontalHeaderLabels(["Product", "SKU", "Qty", "Revenue"])
-        self.low_table.setHorizontalHeaderLabels(["Product", "SKU", "Qty", "Movement"])
+        self.top_table.setHorizontalHeaderLabels(["Item", "Code", "Qty", "Revenue"])
+        self.low_table.setHorizontalHeaderLabels(["Item", "Code", "Qty", "Movement"])
         self.customer_table.setHorizontalHeaderLabels(["Customer", "Phone", "Spend", "Loyalty", "Invoices / Last Purchase"])
         self.stock_table.setHorizontalHeaderLabels(
             [
@@ -628,11 +628,11 @@ class ReportsTab(BaseTabContainer):
         )
         self._populate_table(
             self.top_table,
-            [(p.name, p.code, f"{p.qty:.2f}", f"{p.revenue:.2f}") for p in top_rev],
+            [(self._sales_item_label(p), p.code, f"{p.qty:.2f}", f"{p.revenue:.2f}") for p in top_rev],
         )
         self._populate_table(
             self.low_table,
-            [(p.name, p.code, f"{p.qty:.2f}", "Slow") for p in low],
+            [(self._sales_item_label(p), p.code, f"{p.qty:.2f}", "Slow") for p in low],
         )
         self._populate_table(
             self.customer_table,
@@ -739,7 +739,7 @@ class ReportsTab(BaseTabContainer):
         self._set_summary_card("total_expenses", f"{expenses:.2f}", f"{len(purchases)} entries")
         self._set_summary_card("net_cash_profit", f"{net_profit:.2f}")
         self._set_summary_card("returns", f"{returns.return_total:.2f}", f"{returns.return_count} returns")
-        self._set_summary_card("top_product", top_product.name if top_product else "—", f"Qty {top_product.qty:.2f}" if top_product else "No sales")
+        self._set_summary_card("top_product", self._sales_item_label(top_product) if top_product else "—", f"Qty {top_product.qty:.2f}" if top_product else "No sales")
         self._set_summary_card("top_customer", top_customer.customer if top_customer else "—", f"Spend {top_customer.spend:.2f}" if top_customer else "No customer data")
         self._set_summary_card("low_stock_alerts", str(low_stock_count), f"Out: {len(out_of_stock)} | Near: {len(near_out)}")
 
@@ -762,8 +762,8 @@ class ReportsTab(BaseTabContainer):
             payment_breakdown=list(payments.items()),
             returns_summary=(returns.return_count, returns.return_total),
             return_reasons=normalized_reasons,
-            top_products=[(p.name, p.code, p.qty) for p in top_rev],
-            low_products=[(p.name, p.code, p.qty) for p in low],
+            top_products=[(self._sales_item_label(p), p.code, p.qty) for p in top_rev],
+            low_products=[(self._sales_item_label(p), p.code, p.qty) for p in low],
             out_of_stock=list(out_of_stock),
             near_out=list(near_out),
         )
@@ -773,6 +773,9 @@ class ReportsTab(BaseTabContainer):
         self.product_filter_combo.blockSignals(True)
         self.product_filter_combo.clear()
         self.product_filter_combo.addItem("", None)
+        self.product_filter_combo.setToolTip(
+            "Filters finished products; Material sales remain included in item rankings."
+        )
         for product in list_products():
             label = choose_name(product.name_ar, product.name_en, language=self._language)
             self.product_filter_combo.addItem(f"{label} ({product.sku})", product.id)
@@ -781,6 +784,11 @@ class ReportsTab(BaseTabContainer):
             if index >= 0:
                 self.product_filter_combo.setCurrentIndex(index)
         self.product_filter_combo.blockSignals(False)
+
+    @staticmethod
+    def _sales_item_label(item) -> str:
+        """Disambiguate material snapshots from identically named products."""
+        return f"Material: {item.name}" if item.source_type == "material" else item.name
 
     def _refresh_cash_diff(self) -> None:
         if not self._last_report:

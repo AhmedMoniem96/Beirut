@@ -80,6 +80,8 @@ def test_selected_design_opens_only_simplified_quantity_dialog(app, tab):
 def test_confirmation_handler_ignores_reentrant_signal(app, tab, monkeypatch):
     widget, _material = tab
     service_calls = []
+    inventory_changes = []
+    widget.inventory_changed.connect(lambda: inventory_changes.append(True))
 
     def produce_once(bom_id, quantity):
         service_calls.append((bom_id, quantity))
@@ -99,3 +101,4 @@ def test_confirmation_handler_ignores_reentrant_signal(app, tab, monkeypatch):
 
     assert service_calls == [(11, 1.0)]
     assert dialog.result() == QtWidgets.QDialog.DialogCode.Accepted
+    assert inventory_changes == [True]

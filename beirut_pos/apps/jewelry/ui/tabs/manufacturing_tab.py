@@ -274,14 +274,6 @@ class ManufacturingTab(BaseTabContainer):
         self.design_labor_cost = QDoubleSpinBox(); self.design_labor_cost.setRange(0, 999999)
         self.design_packaging_cost = QDoubleSpinBox(); self.design_packaging_cost.setRange(0, 999999)
         self.design_other_cost = QDoubleSpinBox(); self.design_other_cost.setRange(0, 999999)
-        for estimate_input in (
-            self.design_labor_cost,
-            self.design_packaging_cost,
-            self.design_other_cost,
-        ):
-            estimate_input.setToolTip(
-                "Session-only estimate; this value is not saved with the design."
-            )
         self.design_profit_pct = QDoubleSpinBox(); self.design_profit_pct.setRange(0, 1000); self.design_profit_pct.setValue(25)
         self.bom_name_input = QLineEdit()
         self.bom_active_check = QCheckBox()
@@ -867,7 +859,7 @@ class ManufacturingTab(BaseTabContainer):
         self.summary_margin.setText(f"{margin:.2f}%")
 
     def _clear_design_cost_estimates(self) -> None:
-        """Reset design estimates because the product/BOM model cannot persist them."""
+        """Reset per-unit estimates for a brand-new design."""
         self.design_labor_cost.setValue(0.0)
         self.design_packaging_cost.setValue(0.0)
         self.design_other_cost.setValue(0.0)
@@ -935,6 +927,9 @@ class ManufacturingTab(BaseTabContainer):
             design_name=design_name,
             active=self.bom_active_check.isChecked(),
             lines=lines,
+            labor_cost=float(self.design_labor_cost.value()),
+            packaging_cost=float(self.design_packaging_cost.value()),
+            other_cost=float(self.design_other_cost.value()),
         )
         product_id = saved_product_id or (existing.id if existing else None)
         if product_id is None:
@@ -1050,7 +1045,9 @@ class ManufacturingTab(BaseTabContainer):
             for column, value in enumerate(values):
                 self.bom_lines_table.setItem(row, column, QTableWidgetItem(value))
             self.bom_lines_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
-        self._clear_design_cost_estimates()
+        self.design_labor_cost.setValue(float(getattr(bom, "labor_cost", 0.0) or 0.0))
+        self.design_packaging_cost.setValue(float(getattr(bom, "packaging_cost", 0.0) or 0.0))
+        self.design_other_cost.setValue(float(getattr(bom, "other_cost", 0.0) or 0.0))
         self._refresh_design_cost_summary()
 
     def _open_production_for_selected_design(self) -> None:
@@ -1354,10 +1351,20 @@ class ManufacturingTab(BaseTabContainer):
         product_index = self.bom_product_combo.findData(source_product.id)
         if product_index >= 0:
             self.bom_product_combo.setCurrentIndex(product_index)
-        self.design_product_sku.setText(source_product.sku or "")
+        source_sku = (source_product.sku or "").strip()
+        copy_sku = f"{source_sku}-COPY" if source_sku else "DES-COPY"
+        used_skus = {(product.sku or "").strip().casefold() for product in list_products()}
+        suffix = 2
+        candidate = copy_sku
+        while candidate.casefold() in used_skus:
+            candidate = f"{copy_sku}-{suffix}"
+            suffix += 1
+        self.design_product_sku.setText(candidate)
         self.design_product_barcode.setText(source_product.barcode or "")
         self.design_product_price.setValue(float(source_product.price or 0.0))
-        self._clear_design_cost_estimates()
+        self.design_labor_cost.setValue(float(getattr(source_bom, "labor_cost", 0.0) or 0.0))
+        self.design_packaging_cost.setValue(float(getattr(source_bom, "packaging_cost", 0.0) or 0.0))
+        self.design_other_cost.setValue(float(getattr(source_bom, "other_cost", 0.0) or 0.0))
         copy_suffix = "نسخة" if self._language == "ar" else "Copy"
         self.bom_name_input.setText(f"{source_bom.name} - {copy_suffix}")
         self.bom_active_check.setChecked(source_bom.active)

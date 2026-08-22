@@ -112,6 +112,9 @@ class JewelryBom:
     product_id: int
     name: str
     active: bool
+    labor_cost: float = 0.0
+    packaging_cost: float = 0.0
+    other_cost: float = 0.0
 
 
 @dataclass
@@ -493,9 +496,17 @@ def init_jewelry_db() -> None:
             product_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             active INTEGER NOT NULL DEFAULT 1,
+            labor_cost REAL NOT NULL DEFAULT 0,
+            packaging_cost REAL NOT NULL DEFAULT 0,
+            other_cost REAL NOT NULL DEFAULT 0,
             FOREIGN KEY(product_id) REFERENCES jw_products(id)
         )"""
     )
+    # Databases created by earlier versions already have jw_boms.  Keep the
+    # migration additive so existing designs and their identities are retained.
+    _ensure_column(cur, "jw_boms", "labor_cost", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_boms", "packaging_cost", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_boms", "other_cost", "REAL NOT NULL DEFAULT 0")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_bom_lines(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2046,7 +2057,7 @@ def list_boms() -> List[JewelryBom]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT id, product_id, name, active
+        """SELECT id, product_id, name, active, labor_cost, packaging_cost, other_cost
            FROM jw_boms ORDER BY id DESC"""
     )
     rows = cur.fetchall()
@@ -2057,6 +2068,9 @@ def list_boms() -> List[JewelryBom]:
             product_id=row[1],
             name=row[2],
             active=bool(row[3]),
+            labor_cost=float(row[4] or 0),
+            packaging_cost=float(row[5] or 0),
+            other_cost=float(row[6] or 0),
         )
         for row in rows
     ]
@@ -2158,6 +2172,9 @@ def save_product_design(
     design_name: str,
     active: bool,
     lines: Iterable[Tuple[int, float]],
+    labor_cost: float = 0,
+    packaging_cost: float = 0,
+    other_cost: float = 0,
 ) -> Tuple[int, int]:
     """Persist a finished-product identity and its BOM as one transaction.
 
@@ -2202,8 +2219,10 @@ def save_product_design(
 
         if bom_id is not None:
             cur.execute(
-                """UPDATE jw_boms SET product_id=?, name=?, active=? WHERE id=?""",
-                (saved_product_id, design_name, 1 if active else 0, bom_id),
+                """UPDATE jw_boms SET product_id=?, name=?, active=?, labor_cost=?,
+                   packaging_cost=?, other_cost=? WHERE id=?""",
+                (saved_product_id, design_name, 1 if active else 0, labor_cost,
+                 packaging_cost, other_cost, bom_id),
             )
             if cur.rowcount != 1:
                 raise ValueError("Design does not exist.")
@@ -2211,8 +2230,10 @@ def save_product_design(
             cur.execute("DELETE FROM jw_bom_lines WHERE bom_id=?", (saved_bom_id,))
         else:
             cur.execute(
-                "INSERT INTO jw_boms(product_id, name, active) VALUES (?, ?, ?)",
-                (saved_product_id, design_name, 1 if active else 0),
+                """INSERT INTO jw_boms(product_id, name, active, labor_cost,
+                   packaging_cost, other_cost) VALUES (?, ?, ?, ?, ?, ?)""",
+                (saved_product_id, design_name, 1 if active else 0, labor_cost,
+                 packaging_cost, other_cost),
             )
             saved_bom_id = int(cur.lastrowid)
 
@@ -2249,8 +2270,8 @@ def _next_production_order_no(cur) -> str:
 def produce_from_bom(
     bom_id: int,
     quantity: float,
-    labor_cost: float = 0,
-    overhead_cost: float = 0,
+    labor_cost: Optional[float] = None,
+    overhead_cost: Optional[float] = None,
 ) -> Dict[str, object]:
     """Complete a BOM production run as one atomic inventory transaction.
 
@@ -2267,7 +2288,8 @@ def produce_from_bom(
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.cursor()
         cur.execute(
-            """SELECT b.id, b.product_id, b.name, p.name_ar, p.name_en
+            """SELECT b.id, b.product_id, b.name, p.name_ar, p.name_en,
+                      b.labor_cost, b.packaging_cost, b.other_cost
                FROM jw_boms b
                LEFT JOIN jw_products p ON p.id = b.product_id
                WHERE b.id = ?""",
@@ -2276,9 +2298,18 @@ def produce_from_bom(
         bom_row = cur.fetchone()
         if not bom_row:
             raise ValueError("BOM not found")
-        _, product_id, bom_name, product_name_ar, product_name_en = bom_row
+        (_, product_id, bom_name, product_name_ar, product_name_en,
+         unit_labor_cost, unit_packaging_cost, unit_other_cost) = bom_row
         if product_name_ar is None:
             raise ValueError("BOM linked product not found")
+        # Production orders are historical batch snapshots, while BOM costs are
+        # reusable per-finished-unit estimates.
+        if labor_cost is None:
+            labor_cost = float(unit_labor_cost or 0) * quantity
+        if overhead_cost is None:
+            overhead_cost = (
+                float(unit_packaging_cost or 0) + float(unit_other_cost or 0)
+            ) * quantity
 
         # SUM also makes duplicate lines for one material safe: availability is
         # checked against, and stock is deducted by, its complete requirement.

@@ -28,7 +28,10 @@ def design_db(tmp_path, monkeypatch):
             CREATE TABLE jw_materials(id INTEGER PRIMARY KEY);
             CREATE TABLE jw_boms(id INTEGER PRIMARY KEY AUTOINCREMENT,
               product_id INTEGER NOT NULL REFERENCES jw_products(id),
-              name TEXT NOT NULL, active INTEGER NOT NULL);
+              name TEXT NOT NULL, active INTEGER NOT NULL,
+              labor_cost REAL NOT NULL DEFAULT 0,
+              packaging_cost REAL NOT NULL DEFAULT 0,
+              other_cost REAL NOT NULL DEFAULT 0);
             CREATE TABLE jw_bom_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,
               bom_id INTEGER NOT NULL REFERENCES jw_boms(id),
               material_id INTEGER NOT NULL REFERENCES jw_materials(id),
@@ -71,7 +74,10 @@ def test_update_preserves_inventory_and_unrelated_product_attributes(design_db):
                 'Limited', 0, 'Ruby', 'Red')"""
         )
         product_id = cursor.lastrowid
-        cursor = conn.execute("INSERT INTO jw_boms VALUES(NULL, ?, 'Old design', 1)", (product_id,))
+        cursor = conn.execute(
+            "INSERT INTO jw_boms(product_id, name, active) VALUES(?, 'Old design', 1)",
+            (product_id,),
+        )
         bom_id = cursor.lastrowid
         conn.execute("INSERT INTO jw_bom_lines VALUES(NULL, ?, 10, 4)", (bom_id,))
 
@@ -103,3 +109,23 @@ def test_line_failure_rolls_back_new_product_and_design(design_db):
     assert query(design_db, "SELECT count(*) FROM jw_products") == [(0,)]
     assert query(design_db, "SELECT count(*) FROM jw_boms") == [(0,)]
     assert query(design_db, "SELECT count(*) FROM jw_bom_lines") == [(0,)]
+
+
+def test_duplicate_saves_costs_without_modifying_source_design(design_db):
+    source_product, source_bom = db.save_product_design(
+        product_id=None, bom_id=None, name_ar="أصل", name_en="Original",
+        sku="ORIGINAL", barcode="", price=100, design_name="Original design",
+        active=True, lines=[(10, 1)], labor_cost=4, packaging_cost=2, other_cost=1,
+    )
+
+    copy_product, copy_bom = db.save_product_design(
+        product_id=None, bom_id=None, name_ar="نسخة", name_en="Copy",
+        sku="ORIGINAL-COPY", barcode="", price=100, design_name="Original design - Copy",
+        active=True, lines=[(10, 1)], labor_cost=4, packaging_cost=2, other_cost=1,
+    )
+
+    assert (copy_product, copy_bom) != (source_product, source_bom)
+    assert query(design_db, "SELECT name, labor_cost, packaging_cost, other_cost FROM jw_boms ORDER BY id") == [
+        ("Original design", 4.0, 2.0, 1.0),
+        ("Original design - Copy", 4.0, 2.0, 1.0),
+    ]

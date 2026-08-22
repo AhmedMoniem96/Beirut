@@ -1538,7 +1538,7 @@ def save_product(
     handmade_flag: bool,
     stone_type: str,
     color: str,
-) -> None:
+) -> int:
     conn = get_conn()
     cur = conn.cursor()
     if product_id:
@@ -1585,8 +1585,10 @@ def save_product(
                 color,
             ),
         )
+        product_id = int(cur.lastrowid)
     conn.commit()
     conn.close()
+    return int(product_id)
 
 
 def barcode_exists(barcode: str, *, exclude_product_id: Optional[int] = None) -> bool:

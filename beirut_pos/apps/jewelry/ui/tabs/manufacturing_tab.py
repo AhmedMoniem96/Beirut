@@ -85,11 +85,16 @@ class ManufacturingTab(BaseTabContainer):
         self._build_design_tab()
         self._build_materials_tab()
         self._build_history_tab()
+        # The order UI is kept in a dialog rather than becoming a fourth
+        # permanent navigation tab.  Build it before any refresh method can
+        # address its widgets.
+        self._build_orders_tab()
 
         self._refresh_materials()
         self._refresh_design_products()
         self._refresh_history_products()
         self._refresh_boms()
+        self._refresh_orders()
         self._disable_spinbox_arrows()
         self.apply_language(self._language)
 
@@ -355,6 +360,9 @@ class ManufacturingTab(BaseTabContainer):
         tab_layout.addWidget(self.boms_table, 1)
 
         self.bom_save_btn = QPushButton()
+        self.produce_design_btn = QPushButton()
+        self.produce_design_btn.setProperty("secondary", True)
+        self.produce_design_btn.setEnabled(False)
         self.duplicate_design_btn = QPushButton("Duplicate Design")
         self.edit_product_btn = QPushButton("Edit Product")
         self.cancel_edit_btn = QPushButton("Cancel Edit")
@@ -363,6 +371,7 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_delete_btn = QPushButton()
         self.bom_clear_btn = QPushButton()
         self.bom_save_btn.clicked.connect(self._save_bom)
+        self.produce_design_btn.clicked.connect(self._open_production_for_selected_design)
         self.duplicate_design_btn.clicked.connect(self._open_duplicate_design_picker)
         self.edit_product_btn.clicked.connect(self._open_edit_product_picker)
         self.cancel_edit_btn.clicked.connect(self._cancel_edit_product)
@@ -372,7 +381,7 @@ class ManufacturingTab(BaseTabContainer):
         footer = QHBoxLayout(); footer.addStretch(1)
         footer.addWidget(self.editing_product_label)
         footer.addWidget(self.cancel_edit_btn)
-        footer.addWidget(self.bom_clear_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.edit_product_btn); footer.addWidget(self.bom_save_btn)
+        footer.addWidget(self.bom_clear_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.edit_product_btn); footer.addWidget(self.produce_design_btn); footer.addWidget(self.bom_save_btn)
         tab_layout.addLayout(footer)
 
         self.tabs.addTab(self.boms_tab, "")
@@ -391,6 +400,9 @@ class ManufacturingTab(BaseTabContainer):
             self.bom_name_input.setText(f"{product_name.strip()} - Design")
 
     def _build_orders_tab(self) -> None:
+        self.production_dialog = QDialog(self)
+        self.production_dialog.setModal(False)
+        self.production_dialog.resize(820, 680)
         self.orders_tab = QWidget()
         tab_layout = QVBoxLayout(self.orders_tab)
         tab_layout.setSpacing(12)
@@ -468,7 +480,9 @@ class ManufacturingTab(BaseTabContainer):
         splitter.setStretchFactor(1, 1)
         tab_layout.addWidget(splitter)
 
-        self.tabs.addTab(self.orders_tab, "")
+        dialog_layout = QVBoxLayout(self.production_dialog)
+        dialog_layout.setContentsMargins(10, 10, 10, 10)
+        dialog_layout.addWidget(self.orders_tab)
 
         self._selected_order_id: Optional[int] = None
         self._status_colors = {
@@ -590,6 +604,9 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_product_combo.clear()
         for label, product_id in self._product_map.items():
             self.bom_product_combo.addItem(label, product_id)
+        self.order_product_combo.clear()
+        for label, product_id in self._product_map.items():
+            self.order_product_combo.addItem(label, product_id)
 
     def _refresh_history_products(self) -> None:
         if not hasattr(self, "history_product"):
@@ -950,6 +967,7 @@ class ManufacturingTab(BaseTabContainer):
 
     def _clear_bom_form(self) -> None:
         self._selected_bom_id = None
+        self.produce_design_btn.setEnabled(False)
         self.bom_product_combo.setCurrentIndex(0)
         self.bom_name_input.clear()
         self.bom_active_check.setChecked(False)
@@ -1016,6 +1034,8 @@ class ManufacturingTab(BaseTabContainer):
             QMessageBox.warning(self, "Edit Product", "Could not load selected product.")
             return
         bom = next((b for b in list_boms() if b.product_id == product.id), None)
+        self._selected_bom_id = None
+        self.produce_design_btn.setEnabled(False)
         self._editing_product_id = product.id
         self.design_product_name.setText(product.name_en or "")
         self.design_product_sku.setText(product.sku or "")
@@ -1026,6 +1046,7 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_lines_table.setRowCount(0)
         if bom:
             self._selected_bom_id = bom.id
+            self.produce_design_btn.setEnabled(True)
             self.bom_name_input.setText(bom.name)
             self.bom_active_check.setChecked(bom.active)
             for line in list_bom_lines(bom.id):
@@ -1055,6 +1076,7 @@ class ManufacturingTab(BaseTabContainer):
         bom = next((b for b in list_boms() if b.id == self._selected_bom_id), None)
         if not bom:
             return
+        self.produce_design_btn.setEnabled(True)
         product = next((p for p in list_products() if p.id == bom.product_id), None)
         if product:
             self._editing_product_id = product.id
@@ -1082,6 +1104,25 @@ class ManufacturingTab(BaseTabContainer):
             self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
         self._clear_design_cost_estimates()
         self._refresh_design_cost_summary()
+
+    def _open_production_for_selected_design(self) -> None:
+        """Reveal the existing order workflow for the selected design."""
+        bom = next((b for b in list_boms() if b.id == self._selected_bom_id), None)
+        if not bom:
+            self.produce_design_btn.setEnabled(False)
+            return
+
+        product_index = self.order_product_combo.findData(bom.product_id)
+        if product_index >= 0:
+            self.order_product_combo.setCurrentIndex(product_index)
+        bom_index = self.order_bom_combo.findData(bom.id)
+        if bom_index >= 0:
+            self.order_bom_combo.setCurrentIndex(bom_index)
+        self._refresh_shortages()
+        self.production_dialog.show()
+        self.production_dialog.raise_()
+        self.production_dialog.activateWindow()
+        self.order_qty_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
     def _create_order(self) -> None:
         product_id = self.order_product_combo.currentData()
@@ -1374,9 +1415,9 @@ class ManufacturingTab(BaseTabContainer):
         self._language = language
         if self.header_label is not None:
             self.header_label.setText(t("manufacturing.header", language=language))
-        self.tabs.setTabText(0, "Design")
+        self.tabs.setTabText(0, "التصاميم" if language == "ar" else "Designs")
         self.tabs.setTabText(1, "الخامات" if language == "ar" else "Materials")
-        self.tabs.setTabText(2, "السجل" if language == "ar" else "History")
+        self.tabs.setTabText(2, "سجل التصنيع" if language == "ar" else "Manufacturing History")
         self.materials_box.setTitle(t("manufacturing.materials_box", language=language))
         self.material_name_ar_label.setText(t("manufacturing.material_name_ar", language=language))
         self.material_name_en_label.setText(t("manufacturing.material_name_en", language=language))
@@ -1402,7 +1443,7 @@ class ManufacturingTab(BaseTabContainer):
                 "الحد الأدنى" if language == "ar" else "Min Qty",
             ]
         )
-        self.tabs.setTabText(0, "إنشاء تصميم" if language == "ar" else "Create Design")
+        self.tabs.setTabText(0, "التصاميم" if language == "ar" else "Designs")
         self.bom_box.setTitle("المنتج النهائي" if language == "ar" else "Final Product")
         self._design_field_labels["product"].setText(t("manufacturing.bom_product", language=language))
         self._design_field_labels["product_name_ar"].setText("اسم المنتج بالعربية" if language == "ar" else "Product Name Arabic")
@@ -1429,6 +1470,9 @@ class ManufacturingTab(BaseTabContainer):
         self.summary_profit_label.setText("الربح" if language == "ar" else "Profit")
         self.summary_margin_label.setText("هامش %" if language == "ar" else "Margin %")
         self.bom_save_btn.setText("حفظ التصميم" if language == "ar" else "Save Design")
+        self.produce_design_btn.setText(
+            "إنتاج من هذا التصميم" if language == "ar" else "Produce This Design"
+        )
         self.duplicate_design_btn.setText("تكرار التصميم" if language == "ar" else "Duplicate Design")
         self.edit_product_btn.setText("تعديل المنتج" if language == "ar" else "Edit Product")
         self.cancel_edit_btn.setText("Cancel Edit")
@@ -1442,6 +1486,9 @@ class ManufacturingTab(BaseTabContainer):
             ]
         )
         if hasattr(self, "orders_box"):
+            self.production_dialog.setWindowTitle(
+                "أمر إنتاج" if language == "ar" else "Production Order"
+            )
             self.orders_box.setTitle(t("manufacturing.orders_box", language=language))
             self.order_no_text.setText(t("manufacturing.order_no", language=language))
             if not self.order_no_label.text().strip():

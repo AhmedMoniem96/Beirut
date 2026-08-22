@@ -35,12 +35,19 @@ class JewelryProduct:
 
 @dataclass
 class JewelryInvoiceItem:
-    product_id: int
+    product_id: Optional[int]
     product_name: str
     product_code: str
     qty: float
     unit_price: float
     line_total: float
+    item_type: Literal["product", "material"] = "product"
+    material_id: Optional[int] = None
+    unit: str = ""
+
+    @property
+    def source_id(self) -> Optional[int]:
+        return self.material_id if self.item_type == "material" else self.product_id
 
 
 @dataclass
@@ -48,13 +55,20 @@ class ReturnableInvoiceItem:
     invoice_item_id: int
     invoice_id: int
     invoice_no: str
-    product_id: int
+    product_id: Optional[int]
     product_name: str
     product_code: str
     sold_qty: float
     returned_qty: float
     remaining_qty: float
     unit_price: float
+    item_type: Literal["product", "material"] = "product"
+    material_id: Optional[int] = None
+    unit: str = ""
+
+    @property
+    def source_id(self) -> Optional[int]:
+        return self.material_id if self.item_type == "material" else self.product_id
 
 
 @dataclass
@@ -426,6 +440,9 @@ def init_jewelry_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             invoice_id INTEGER NOT NULL,
             product_id INTEGER,
+            item_type TEXT NOT NULL DEFAULT 'product',
+            material_id INTEGER,
+            unit TEXT NOT NULL DEFAULT '',
             product_name TEXT NOT NULL,
             product_code TEXT NOT NULL,
             qty REAL NOT NULL,
@@ -434,6 +451,9 @@ def init_jewelry_db() -> None:
             FOREIGN KEY(invoice_id) REFERENCES jw_invoices(id)
         )"""
     )
+    _ensure_column(cur, "jw_invoice_items", "item_type", "TEXT NOT NULL DEFAULT 'product'")
+    _ensure_column(cur, "jw_invoice_items", "material_id", "INTEGER")
+    _ensure_column(cur, "jw_invoice_items", "unit", "TEXT NOT NULL DEFAULT ''")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_invoice_links(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2832,65 +2852,53 @@ def create_invoice(
     invoice_datetime = datetime.now().isoformat(timespec="seconds")
     conn = get_conn()
     cur = conn.cursor()
-    invoice_no = _next_invoice_no(cur)
-    cur.execute(
-        """INSERT INTO jw_invoices
-           (invoice_no, datetime, cashier_name, txn_type, customer_id, customer_name, customer_phone,
-            subtotal, discount, discount_type, discount_value, loyalty_earned, loyalty_redeemed,
-            total, payment_method, payment_due_date, payment_order_status_id,
-            order_source, website_order_ref, delivery_enabled, delivery_customer_name, delivery_phone,
-            delivery_company_id, delivery_fee, delivery_address, delivery_status_id, notes, return_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            invoice_no,
-            invoice_datetime,
-            cashier_name,
-            txn_type,
-            customer_id,
-            customer_name,
-            customer_phone,
-            subtotal,
-            discount,
-            discount_type,
-            discount_value,
-            loyalty_earned,
-            loyalty_redeemed,
-            total,
-            payment_method,
-            payment_due_date.strip() if payment_due_date else "",
-            payment_order_status_id,
-            order_source,
-            website_order_ref,
-            int(bool(delivery_enabled)),
-            delivery_customer_name.strip() if delivery_customer_name else "",
-            delivery_phone.strip() if delivery_phone else "",
-            delivery_company_id,
-            float(delivery_fee),
-            delivery_address.strip() if delivery_address else "",
-            delivery_status_id,
-            "\n".join(v for v in [notes.strip(), delivery_notes.strip()] if v),
-            return_reason,
-        ),
-    )
-    invoice_id = cur.lastrowid
-    for item in items:
+    try:
+        cur.execute("BEGIN IMMEDIATE")
+        invoice_no = _next_invoice_no(cur)
         cur.execute(
-            """INSERT INTO jw_invoice_items
-               (invoice_id, product_id, product_name, product_code, qty, unit_price, line_total)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO jw_invoices
+               (invoice_no, datetime, cashier_name, txn_type, customer_id, customer_name, customer_phone,
+                subtotal, discount, discount_type, discount_value, loyalty_earned, loyalty_redeemed,
+                total, payment_method, payment_due_date, payment_order_status_id,
+                order_source, website_order_ref, delivery_enabled, delivery_customer_name, delivery_phone,
+                delivery_company_id, delivery_fee, delivery_address, delivery_status_id, notes, return_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                invoice_id,
-                item.product_id,
-                item.product_name,
-                item.product_code,
-                item.qty,
-                item.unit_price,
-                item.line_total,
+                invoice_no, invoice_datetime, cashier_name, txn_type, customer_id, customer_name,
+                customer_phone, subtotal, discount, discount_type, discount_value, loyalty_earned,
+                loyalty_redeemed, total, payment_method,
+                payment_due_date.strip() if payment_due_date else "", payment_order_status_id,
+                order_source, website_order_ref, int(bool(delivery_enabled)),
+                delivery_customer_name.strip() if delivery_customer_name else "",
+                delivery_phone.strip() if delivery_phone else "", delivery_company_id,
+                float(delivery_fee), delivery_address.strip() if delivery_address else "",
+                delivery_status_id,
+                "\n".join(v for v in [notes.strip(), delivery_notes.strip()] if v), return_reason,
             ),
         )
-        _apply_stock_adjustment(cur, item.product_id, item.qty, txn_type)
-    conn.commit()
-    conn.close()
+        invoice_id = cur.lastrowid
+        for item in items:
+            if item.item_type not in {"product", "material"}:
+                raise ValueError(f"Unsupported invoice item type: {item.item_type}")
+            if item.qty <= 0:
+                raise ValueError("Invoice item quantity must be positive")
+            cur.execute(
+                """INSERT INTO jw_invoice_items
+                   (invoice_id, product_id, item_type, material_id, unit,
+                    product_name, product_code, qty, unit_price, line_total)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    invoice_id, item.product_id, item.item_type, item.material_id, item.unit,
+                    item.product_name, item.product_code, item.qty, item.unit_price, item.line_total,
+                ),
+            )
+            _apply_invoice_item_stock_adjustment(cur, item, txn_type)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
     recalculate_invoice_payment_totals(int(invoice_id))
     return invoice_no, int(invoice_id)
 
@@ -2906,6 +2914,7 @@ def fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no: str) ->
     cur.execute(
         """SELECT i.id, i.invoice_no, i.payment_status, ii.id, ii.product_id, ii.product_name, ii.product_code,
                   ii.qty, ii.unit_price,
+                  COALESCE(ii.item_type, 'product'), ii.material_id, COALESCE(ii.unit, ''),
                   COALESCE(SUM(iir.qty_returned), 0) AS returned_qty
            FROM jw_invoices i
            JOIN jw_invoice_items ii ON ii.invoice_id = i.id
@@ -2939,7 +2948,7 @@ def fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no: str) ->
     for row in rows:
         try:
             sold_qty = float(row[7] or 0)
-            returned_qty = float(row[9] or 0)
+            returned_qty = float(row[12] or 0)
         except (TypeError, ValueError):
             skipped_rows += 1
             logger.warning("Returns lookup skipped malformed quantity row for invoice=%s row=%s", normalized_invoice_no, row)
@@ -2959,6 +2968,9 @@ def fetch_source_invoice_items_with_remaining_returnable_qty(invoice_no: str) ->
                 returned_qty=returned_qty,
                 remaining_qty=remaining,
                 unit_price=float(row[8] or 0),
+                item_type=row[9] or "product",
+                material_id=row[10],
+                unit=row[11] or "",
             )
         )
     logger.debug(
@@ -3033,7 +3045,8 @@ def create_return_invoice_from_source(
                 raise ValueError("Return quantity must be positive")
             cur.execute(
                 """SELECT ii.product_id, ii.product_name, ii.product_code, ii.qty, ii.unit_price,
-                          COALESCE(SUM(iir.qty_returned), 0)
+                          COALESCE(SUM(iir.qty_returned), 0), COALESCE(ii.item_type, 'product'),
+                          ii.material_id, COALESCE(ii.unit, '')
                    FROM jw_invoice_items ii
                    LEFT JOIN jw_invoice_item_returns iir ON iir.source_invoice_item_id = ii.id
                    WHERE ii.id = ? AND ii.invoice_id = ?
@@ -3050,13 +3063,19 @@ def create_return_invoice_from_source(
                 raise ValueError("Cannot return more than remaining quantity")
             sold_unit_price = float(item_row[4] or 0)
             unit_price = sold_unit_price
-            if return_price_basis == "current_catalog_price":
+            item_type = item_row[6] or "product"
+            if return_price_basis == "current_catalog_price" and item_type == "product":
                 cur.execute("SELECT price FROM jw_products WHERE id = ?", (int(item_row[0] or 0),))
                 product_row = cur.fetchone()
                 unit_price = float(product_row[0] or 0) if product_row else 0.0
             line_total = unit_price * qty
             subtotal += line_total
-            invoice_items.append(JewelryInvoiceItem(int(item_row[0] or 0), item_row[1] or "", item_row[2] or "", qty, unit_price, line_total))
+            invoice_items.append(
+                JewelryInvoiceItem(
+                    item_row[0], item_row[1] or "", item_row[2] or "", qty, unit_price,
+                    line_total, item_type, item_row[7], item_row[8] or "",
+                )
+            )
             created_items.append((source_item_id, qty))
 
         invoice_no = _next_invoice_no(cur)
@@ -3085,16 +3104,18 @@ def create_return_invoice_from_source(
         for ii, mapping in zip(invoice_items, created_items):
             cur.execute(
                 """INSERT INTO jw_invoice_items
-                   (invoice_id, product_id, product_name, product_code, qty, unit_price, line_total)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (return_invoice_id, ii.product_id, ii.product_name, ii.product_code, ii.qty, ii.unit_price, ii.line_total),
+                   (invoice_id, product_id, item_type, material_id, unit,
+                    product_name, product_code, qty, unit_price, line_total)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (return_invoice_id, ii.product_id, ii.item_type, ii.material_id, ii.unit,
+                 ii.product_name, ii.product_code, ii.qty, ii.unit_price, ii.line_total),
             )
             return_item_id = int(cur.lastrowid)
             cur.execute(
                 "INSERT INTO jw_invoice_item_returns(source_invoice_item_id, return_invoice_item_id, qty_returned, created_at) VALUES (?, ?, ?, ?)",
                 (mapping[0], return_item_id, mapping[1], now),
             )
-            _apply_stock_adjustment(cur, ii.product_id, ii.qty, "return")
+            _apply_invoice_item_stock_adjustment(cur, ii, "return")
         cur.execute(
             "INSERT OR IGNORE INTO jw_invoice_links(source_invoice_id, return_invoice_id, link_type, created_at) VALUES (?, ?, 'return', ?)",
             (source_invoice_id, return_invoice_id, now),
@@ -3506,6 +3527,44 @@ def _apply_stock_adjustment(cur, product_id: int, qty: float, txn_type: str) -> 
         )
 
 
+def _apply_invoice_item_stock_adjustment(cur, item: JewelryInvoiceItem, txn_type: str) -> None:
+    """Apply stock to the explicitly identified invoice-line source."""
+    if item.item_type == "material":
+        if not item.material_id:
+            raise ValueError("Material invoice item requires a material ID")
+        if txn_type == "sale":
+            cur.execute(
+                """UPDATE jw_materials
+                   SET qty_on_hand = qty_on_hand - ?
+                   WHERE id = ? AND saleable = 1 AND qty_on_hand >= ?""",
+                (item.qty, item.material_id, item.qty),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("Material has insufficient stock or is no longer saleable")
+        else:
+            cur.execute(
+                "UPDATE jw_materials SET qty_on_hand = qty_on_hand + ? WHERE id = ?",
+                (item.qty, item.material_id),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("Material no longer exists")
+        return
+    if item.item_type != "product":
+        raise ValueError(f"Unsupported invoice item type: {item.item_type}")
+    if not item.product_id:
+        raise ValueError("Product invoice item requires a product ID")
+    if txn_type == "sale":
+        cur.execute(
+            """UPDATE jw_products SET qty_on_hand = qty_on_hand - ?
+               WHERE id = ? AND qty_on_hand >= ?""",
+            (item.qty, item.product_id, item.qty),
+        )
+        if cur.rowcount != 1:
+            raise ValueError("Product has insufficient stock or no longer exists")
+    else:
+        _apply_stock_adjustment(cur, item.product_id, item.qty, txn_type)
+
+
 def list_return_invoices(date_iso: Optional[str] = None) -> List[JewelryInvoice]:
     conn = get_conn()
     cur = conn.cursor()
@@ -3595,7 +3654,8 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
         return_reason=row[23],
     )
     cur.execute(
-        """SELECT product_id, product_name, product_code, qty, unit_price, line_total
+        """SELECT product_id, product_name, product_code, qty, unit_price, line_total,
+                  COALESCE(item_type, 'product'), material_id, COALESCE(unit, '')
            FROM jw_invoice_items
            WHERE invoice_id = (SELECT id FROM jw_invoices WHERE invoice_no = ?)
            ORDER BY id""",
@@ -3611,6 +3671,9 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
             qty=row[3],
             unit_price=row[4],
             line_total=row[5],
+            item_type=row[6] or "product",
+            material_id=row[7],
+            unit=row[8] or "",
         )
         for row in items_rows
     ]

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QLayout,
     QMessageBox,
     QInputDialog,
     QListWidget,
@@ -300,9 +301,28 @@ class ManufacturingTab(BaseTabContainer):
 
     def _build_design_tab(self) -> None:
         self.boms_tab = QWidget()
-        tab_layout = QVBoxLayout(self.boms_tab)
+        outer_layout = QVBoxLayout(self.boms_tab)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.design_scroll_area = QScrollArea()
+        self.design_scroll_area.setWidgetResizable(True)
+        self.design_scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.design_scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.design_scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        scroll_content = QWidget()
+        tab_layout = QVBoxLayout(scroll_content)
         tab_layout.setSpacing(8)
         tab_layout.setContentsMargins(0, 0, 0, 0)
+        # Preserve the natural height of the form and both tables.  The scroll
+        # area, rather than its children, handles windows shorter than this.
+        tab_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        self.design_scroll_area.setWidget(scroll_content)
+        outer_layout.addWidget(self.design_scroll_area)
 
         mode_layout = QHBoxLayout()
         self.new_design_btn = QPushButton()
@@ -410,6 +430,7 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_lines_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.bom_lines_table.setAlternatingRowColors(True)
         self.bom_lines_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.bom_lines_table.setMinimumHeight(240)
         self.bom_lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         lines_layout.addWidget(self.bom_lines_table, 1)
 
@@ -458,20 +479,12 @@ class ManufacturingTab(BaseTabContainer):
         self.boms_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.boms_table.setAlternatingRowColors(True)
         self.boms_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.boms_table.setMinimumHeight(260)
         self.boms_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.boms_table.cellClicked.connect(self._load_bom)
 
-        # Keep both the design workspace (including Used Materials) and the
-        # Saved Designs table visible.  The user can adjust the balance, while
-        # the initial 65/35 split gives both tables room for multiple rows.
-        self.design_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.design_splitter.setChildrenCollapsible(False)
-        self.design_splitter.addWidget(design_area)
-        self.design_splitter.addWidget(self.boms_table)
-        self.design_splitter.setStretchFactor(0, 65)
-        self.design_splitter.setStretchFactor(1, 35)
-        self.design_splitter.setSizes([650, 350])
-        tab_layout.addWidget(self.design_splitter, 1)
+        tab_layout.addWidget(design_area)
+        tab_layout.addWidget(self.boms_table)
 
         self.bom_save_btn = QPushButton()
         self.produce_design_btn = QPushButton()
@@ -489,13 +502,6 @@ class ManufacturingTab(BaseTabContainer):
         footer = QHBoxLayout(); footer.addStretch(1)
         footer.addWidget(self.bom_clear_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.produce_design_btn); footer.addWidget(self.bom_save_btn)
         tab_layout.addLayout(footer)
-
-        # Keep the mode/picker/footer controls compact and give all remaining
-        # height to the balanced, user-adjustable table workspace.
-        tab_layout.setStretch(0, 0)
-        tab_layout.setStretch(1, 0)
-        tab_layout.setStretch(2, 1)
-        tab_layout.setStretch(3, 0)
 
         self.tabs.addTab(self.boms_tab, "")
 

@@ -1749,6 +1749,11 @@ def save_product(
             conn.close()
             raise ValueError("Product does not exist.")
         barcode = supplied_barcode or _normalize_barcode(current[0])
+        if not barcode:
+            barcode = _validate_barcode_uniqueness(
+                cur, _generated_product_barcode(int(product_id)),
+                exclude_product_id=int(product_id),
+            )
         if not supplied_barcode:
             barcode_type = str(current[1] or "").strip()
         _validate_barcode_uniqueness(cur, barcode, exclude_product_id=product_id)
@@ -2235,6 +2240,13 @@ def save_material(
             if cur.rowcount != 1:
                 raise ValueError("Material does not exist.")
             saved_id = int(material_id)
+            # Older databases may contain materials created before barcodes were
+            # introduced.  A normal save is the safe migration point: the row
+            # already has a stable id and uniqueness can be checked transactionally.
+            if not barcode:
+                barcode = f"M{saved_id:06d}"
+                _validate_barcode_uniqueness(cur, barcode, exclude_material_id=saved_id)
+                cur.execute("UPDATE jw_materials SET barcode=? WHERE id=?", (barcode, saved_id))
         else:
             cur.execute(
                 """INSERT INTO jw_materials(name_ar,name_en,code,qty_on_hand,unit,min_qty,cost_per_unit,saleable,sale_price,barcode) VALUES (?,?,?,?,?,?,?,?,?,?)""",
@@ -2421,6 +2433,11 @@ def save_product_design(
             if current is None:
                 raise ValueError("Product does not exist.")
             barcode = supplied_barcode or _normalize_barcode(current[0])
+            if not barcode:
+                barcode = _validate_barcode_uniqueness(
+                    cur, _generated_product_barcode(int(product_id)),
+                    exclude_product_id=int(product_id),
+                )
             _validate_barcode_uniqueness(cur, barcode, exclude_product_id=product_id)
             cur.execute(
                 """UPDATE jw_products

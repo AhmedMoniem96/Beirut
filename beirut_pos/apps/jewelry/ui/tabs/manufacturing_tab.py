@@ -48,9 +48,8 @@ from ...services.db import (
     list_production_consumption,
     list_production_orders,
     produce_from_bom,
-    save_bom,
+    save_product_design,
     save_material,
-    save_product,
 )
 from ...services.reports import production_history
 from ...services.i18n import choose_name, get_ui_language, t
@@ -925,20 +924,17 @@ class ManufacturingTab(BaseTabContainer):
             return
         existing = existing or sku_product
 
-        saved_product_id = save_product(
-            existing.id if existing else None,
+        saved_product_id, _saved_bom_id = save_product_design(
+            product_id=existing.id if existing else None,
+            bom_id=self._selected_bom_id,
             name_ar=name_ar,
             name_en=name_en,
             sku=sku,
             barcode=self.design_product_barcode.text().strip(),
-            barcode_type=existing.barcode_type if existing else "",
             price=float(self.design_product_price.value()),
-            qty_on_hand=existing.qty_on_hand if existing else 0.0,
-            min_qty=existing.min_qty if existing else 0.0,
-            category=existing.category if existing else "Handmade",
-            handmade_flag=existing.handmade_flag if existing else True,
-            stone_type=existing.stone_type if existing else "",
-            color=existing.color if existing else "",
+            design_name=design_name,
+            active=self.bom_active_check.isChecked(),
+            lines=lines,
         )
         product_id = saved_product_id or (existing.id if existing else None)
         if product_id is None:
@@ -960,13 +956,6 @@ class ManufacturingTab(BaseTabContainer):
         product_index = self.bom_product_combo.findData(product_id)
         if product_index >= 0:
             self.bom_product_combo.setCurrentIndex(product_index)
-        save_bom(
-            self._selected_bom_id,
-            product_id,
-            design_name,
-            self.bom_active_check.isChecked(),
-            lines,
-        )
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),

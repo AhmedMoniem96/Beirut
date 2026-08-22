@@ -263,6 +263,7 @@ class ManufacturingTab(BaseTabContainer):
         fields = [
             ("product", self.bom_product_combo),
             ("product_name_ar", self.design_product_name),
+            ("design_name", self.bom_name_input),
             ("sku_code", self.design_product_sku),
             ("selling_price", self.design_product_price),
             ("qty_produced", self.design_qty_produced),
@@ -274,7 +275,7 @@ class ManufacturingTab(BaseTabContainer):
         for i, (label_key, widget) in enumerate(fields):
             r = i // 2
             c = (i % 2) * 2
-            label = QLabel()
+            label = self.bom_name_label if label_key == "design_name" else QLabel()
             self._design_field_labels[label_key] = label
             form_layout.addWidget(label, r, c)
             form_layout.addWidget(widget, r, c + 1)
@@ -375,11 +376,17 @@ class ManufacturingTab(BaseTabContainer):
 
         self._selected_bom_id: Optional[int] = None
         self.design_qty_produced.valueChanged.connect(self._refresh_design_cost_summary)
+        self.design_product_name.textEdited.connect(self._suggest_design_name)
         self.design_labor_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_packaging_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_other_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_product_price.valueChanged.connect(self._refresh_design_cost_summary)
         self._refresh_design_cost_summary()
+
+    def _suggest_design_name(self, product_name: str) -> None:
+        """Suggest a design name without overwriting a name entered by the user."""
+        if product_name.strip() and not self.bom_name_input.text().strip():
+            self.bom_name_input.setText(f"{product_name.strip()} - Design")
 
     def _build_orders_tab(self) -> None:
         self.orders_tab = QWidget()
@@ -1430,8 +1437,8 @@ class ManufacturingTab(BaseTabContainer):
         self._design_field_labels["packaging_cost"].setText("تكلفة التغليف" if language == "ar" else "Packaging Cost")
         self._design_field_labels["other_cost"].setText("تكلفة أخرى" if language == "ar" else "Other Cost")
         self.bom_product_label.setText(t("manufacturing.bom_product", language=language))
-        self.bom_name_label.setText("ورشة" if language == "ar" else "Workshop")
-        self.bom_name_label.setToolTip("أدخل اسمًا واضحًا للورشة لهذا التصميم." if language == "ar" else "Enter a clear workshop name for this design.")
+        self.bom_name_label.setText("اسم التصميم" if language == "ar" else "Design Name")
+        self.bom_name_label.setToolTip("أدخل اسمًا واضحًا للتصميم." if language == "ar" else "Enter a clear name for this design.")
         self.bom_active_check.setText(t("manufacturing.bom_active", language=language))
         self.lines_box.setTitle("الخامات المستخدمة" if language == "ar" else "Materials Used")
         self.bom_material_label.setText("الخامة" if language == "ar" else "Material")

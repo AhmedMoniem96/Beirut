@@ -179,6 +179,7 @@ class JewelryProductionConsumption:
     material_name_en: str
     qty_consumed: float
     cost_at_time: float
+    unit: str
 
 
 @dataclass
@@ -2331,7 +2332,8 @@ def list_production_consumption(
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT m.name_ar, m.name_en, c.qty_consumed, c.cost_at_time
+        """SELECT m.name_ar, m.name_en, c.qty_consumed, c.cost_at_time,
+                  COALESCE(m.unit, '')
            FROM jw_production_consumption c
            JOIN jw_materials m ON m.id = c.material_id
            WHERE c.production_order_id = ?
@@ -2346,6 +2348,7 @@ def list_production_consumption(
             material_name_en=row[1],
             qty_consumed=row[2],
             cost_at_time=row[3],
+            unit=row[4],
         )
         for row in rows
     ]
@@ -2414,6 +2417,16 @@ def save_product_design(
     try:
         cur = conn.cursor()
         cur.execute("BEGIN")
+
+        if product_id is None and not sku.strip():
+            cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM jw_products")
+            candidate_id = int(cur.fetchone()[0])
+            sku = f"SKU{candidate_id:010d}"
+            while cur.execute(
+                "SELECT 1 FROM jw_products WHERE lower(trim(sku))=lower(?)", (sku,)
+            ).fetchone() is not None:
+                candidate_id += 1
+                sku = f"SKU{candidate_id:010d}"
 
         cur.execute(
             """SELECT id FROM jw_products

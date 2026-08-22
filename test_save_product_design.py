@@ -146,3 +146,20 @@ def test_blank_design_barcode_is_generated_then_preserved_on_edit(design_db):
         active=True, lines=[(11, 2)],
     )
     assert query(design_db, "SELECT barcode FROM jw_products") == [(generated,)]
+
+
+def test_blank_sku_is_generated_once_and_preserved_on_edit(design_db):
+    product_id, bom_id = db.save_product_design(
+        product_id=None, bom_id=None, name_ar="سوار", name_en="Bracelet",
+        sku="", barcode="", price=25, design_name="Bracelet design",
+        active=True, lines=[(10, 1)],
+    )
+    generated = f"SKU{product_id:010d}"
+    assert query(design_db, "SELECT sku FROM jw_products") == [(generated,)]
+
+    db.save_product_design(
+        product_id=product_id, bom_id=bom_id, name_ar="سوار", name_en="Bracelet",
+        sku=generated, barcode="", price=30, design_name="Updated design",
+        active=True, lines=[(11, 2)],
+    )
+    assert query(design_db, "SELECT sku FROM jw_products") == [(generated,)]

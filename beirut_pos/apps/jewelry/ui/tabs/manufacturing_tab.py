@@ -5,13 +5,12 @@ from __future__ import annotations
 from datetime import datetime, time
 from typing import Dict, List, Optional
 
-import re
-
-from PyQt6.QtCore import QDate, Qt, pyqtSignal
+from PyQt6.QtCore import QDate, QModelIndex, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
     QComboBox,
+    QCompleter,
     QDateEdit,
     QDialog,
     QDoubleSpinBox,
@@ -62,6 +61,7 @@ from ..widgets.barcode_printing_panel import BarcodePrintingPanel
 
 class ManufacturingTab(BaseTabContainer):
     inventory_changed = pyqtSignal()
+    MATERIAL_SEARCH_ROLE = Qt.ItemDataRole.UserRole + 1
 
     def __init__(self) -> None:
         super().__init__()
@@ -76,6 +76,7 @@ class ManufacturingTab(BaseTabContainer):
         content_layout.addWidget(self.tabs, 1)
 
         self._material_map: Dict[str, int] = {}
+        self._materials = []
         self._product_map: Dict[str, int] = {}
         self._bom_entries: List[tuple[str, int, int]] = []
         self._editing_product_id: Optional[int] = None
@@ -183,9 +184,12 @@ class ManufacturingTab(BaseTabContainer):
             form_layout.addWidget(widget, row + 1, column)
 
         self.material_save_btn = QPushButton()
+        self.material_save_btn.setStyleSheet("font-weight: 600;")
         self.material_delete_btn = QPushButton()
+        self.material_delete_btn.setStyleSheet("color: #b91c1c;")
         self.material_clear_btn = QPushButton()
         self.material_adjust_stock_btn = QPushButton()
+        self.material_adjust_stock_btn.setStyleSheet("color: #475569;")
         self.material_edit_indicator = QLabel()
         self.material_save_btn.clicked.connect(self._save_material)
         self.material_delete_btn.clicked.connect(self._delete_material)
@@ -350,7 +354,7 @@ class ManufacturingTab(BaseTabContainer):
         tab_layout.addWidget(self.design_picker)
 
         design_area = QWidget()
-        main_layout = QHBoxLayout(design_area)
+        main_layout = QVBoxLayout(design_area)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(10)
 
@@ -406,6 +410,23 @@ class ManufacturingTab(BaseTabContainer):
         add_line_layout = QHBoxLayout()
         add_line_layout.setSpacing(8)
         self.bom_material_combo = QComboBox()
+        self.bom_material_combo.setEditable(True)
+        self.bom_material_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.bom_material_completer = QCompleter(
+            self.bom_material_combo.model(), self.bom_material_combo
+        )
+        self.bom_material_completer.setCaseSensitivity(
+            Qt.CaseSensitivity.CaseInsensitive
+        )
+        self.bom_material_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.bom_material_completer.setCompletionRole(self.MATERIAL_SEARCH_ROLE)
+        self.bom_material_completer.activated[QModelIndex].connect(
+            self._select_completed_bom_material
+        )
+        self.bom_material_combo.setCompleter(self.bom_material_completer)
+        self.bom_material_combo.lineEdit().editingFinished.connect(
+            self._validate_bom_material_text
+        )
         self.bom_material_combo.currentIndexChanged.connect(
             self._update_bom_available_qty
         )
@@ -432,13 +453,13 @@ class ManufacturingTab(BaseTabContainer):
         lines_layout.addWidget(self.bom_lines_table, 1)
 
         self.remove_line_btn = QPushButton("Remove Material")
+        self.remove_line_btn.setStyleSheet("color: #b91c1c;")
         self.remove_line_btn.clicked.connect(self._remove_bom_line)
         lines_layout.addWidget(self.remove_line_btn)
         left_layout.addWidget(self.lines_box, 1)
 
         self.cost_summary_box = QGroupBox("Cost Summary")
-        self.cost_summary_box.setFixedWidth(300)
-        self.cost_summary_box.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        self.cost_summary_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         cost_layout = QFormLayout(self.cost_summary_box)
         cost_layout.setHorizontalSpacing(10)
         cost_layout.setVerticalSpacing(8)
@@ -467,9 +488,12 @@ class ManufacturingTab(BaseTabContainer):
         cost_layout.addRow(self.summary_profit_label, self.summary_profit)
         cost_layout.addRow(self.summary_margin_label, self.summary_margin)
 
+        # Keep the workflow in reading order: identity, costs, materials.
+        left_layout.removeWidget(self.lines_box)
         left_wrap = QWidget(); left_wrap.setLayout(left_layout)
-        main_layout.addWidget(left_wrap, 3)
-        main_layout.addWidget(self.cost_summary_box, 1)
+        main_layout.addWidget(left_wrap)
+        main_layout.addWidget(self.cost_summary_box)
+        main_layout.addWidget(self.lines_box)
 
         self.boms_table = QTableWidget(0, 3)
         self.boms_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -484,11 +508,15 @@ class ManufacturingTab(BaseTabContainer):
         tab_layout.addWidget(self.boms_table)
 
         self.bom_save_btn = QPushButton()
+        self.bom_save_btn.setProperty("primary", True)
+        self.bom_save_btn.setStyleSheet("font-weight: 600;")
         self.produce_design_btn = QPushButton()
         self.produce_design_btn.setProperty("secondary", True)
         self.produce_design_btn.setEnabled(False)
         self.duplicate_design_btn = QPushButton("Duplicate Design")
         self.bom_delete_btn = QPushButton()
+        self.bom_delete_btn.setProperty("destructive", True)
+        self.bom_delete_btn.setStyleSheet("color: #b91c1c;")
         self.bom_clear_btn = QPushButton()
         self.bom_save_btn.clicked.connect(self._save_bom)
         self.produce_design_btn.clicked.connect(self._open_production_for_selected_design)
@@ -505,16 +533,49 @@ class ManufacturingTab(BaseTabContainer):
         self._selected_bom_id: Optional[int] = None
         self.new_design_btn.setChecked(True)
         self.design_product_name_ar.textEdited.connect(self._suggest_design_name)
+        self.design_product_name_en.textEdited.connect(self._suggest_design_name)
+        for line_edit in (
+            self.design_product_name_ar,
+            self.design_product_name_en,
+            self.design_product_sku,
+            self.bom_name_input,
+        ):
+            line_edit.textChanged.connect(self._update_save_design_state)
+        self.design_product_price.valueChanged.connect(self._update_save_design_state)
         self.design_labor_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_packaging_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_other_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_product_price.valueChanged.connect(self._refresh_design_cost_summary)
         self._refresh_design_cost_summary()
+        self._update_save_design_state()
 
     def _suggest_design_name(self, product_name: str) -> None:
         """Suggest a design name without overwriting a name entered by the user."""
         if product_name.strip() and not self.bom_name_input.text().strip():
             self.bom_name_input.setText(f"{product_name.strip()} - Design")
+
+    def _update_save_design_state(self) -> None:
+        """Avoid completeness popups while still allowing automatic SKU creation."""
+        has_product_name = bool(
+            self.design_product_name_ar.text().strip()
+            or self.design_product_name_en.text().strip()
+        )
+        has_design_name = bool(self.bom_name_input.text().strip())
+        has_valid_material = any(
+            self.bom_lines_table.item(row, 0) is not None
+            and self.bom_lines_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            and self.bom_lines_table.item(row, 2) is not None
+            and float(
+                self.bom_lines_table.item(row, 2).data(Qt.ItemDataRole.UserRole)
+                or 0
+            )
+            > 0
+            for row in range(self.bom_lines_table.rowCount())
+        )
+        # SKU may be blank for a new product because persistence generates it.
+        self.bom_save_btn.setEnabled(
+            has_product_name and has_design_name and has_valid_material
+        )
 
     def _build_history_tab(self) -> None:
         self.reports_tab = QWidget()
@@ -595,6 +656,7 @@ class ManufacturingTab(BaseTabContainer):
 
     def _refresh_materials(self) -> None:
         materials = list_materials()
+        self._materials = materials
         self.materials_table.setRowCount(0)
         self._material_map = {}
         for material in materials:
@@ -603,10 +665,10 @@ class ManufacturingTab(BaseTabContainer):
             self.materials_table.setItem(row, 0, QTableWidgetItem(material.name_ar))
             self.materials_table.setItem(row, 1, QTableWidgetItem(material.name_en))
             self.materials_table.setItem(row, 2, QTableWidgetItem(material.code))
-            self.materials_table.setItem(row, 3, QTableWidgetItem(f"{material.qty_on_hand:.3f}"))
+            self.materials_table.setItem(row, 3, QTableWidgetItem(self._format_material_qty(material.qty_on_hand, material.unit)))
             self.materials_table.setItem(row, 4, QTableWidgetItem(material.unit))
             self.materials_table.setItem(row, 5, QTableWidgetItem(f"{material.cost_per_unit:.2f}"))
-            self.materials_table.setItem(row, 6, QTableWidgetItem(f"{material.min_qty:.3f}"))
+            self.materials_table.setItem(row, 6, QTableWidgetItem(self._format_material_qty(material.min_qty, material.unit)))
             self.materials_table.setItem(row, 7, QTableWidgetItem(material.barcode))
             saleable_text = t(
                 "common.yes" if material.saleable else "common.no",
@@ -624,9 +686,58 @@ class ManufacturingTab(BaseTabContainer):
             self._material_map[display] = material.id
 
         self.bom_material_combo.clear()
-        for label in self._material_map:
-            self.bom_material_combo.addItem(label, self._material_map[label])
+        self.bom_material_combo.addItem("", None)
+        for material in materials:
+            label = next(label for label, material_id in self._material_map.items() if material_id == material.id)
+            self.bom_material_combo.addItem(label, material.id)
+            self.bom_material_combo.setItemData(
+                self.bom_material_combo.count() - 1,
+                self._material_search_text(material),
+                self.MATERIAL_SEARCH_ROLE,
+            )
         self._update_bom_available_qty()
+
+    @staticmethod
+    def _format_material_qty(quantity: float, unit: str) -> str:
+        number = f"{quantity:.0f}" if unit.strip().casefold() == "pcs" and float(quantity).is_integer() else f"{quantity:.3f}"
+        return f"{number} {unit.strip()}".rstrip()
+
+    @staticmethod
+    def _material_search_text(material) -> str:
+        return " ".join(
+            str(value).strip()
+            for value in (
+                material.name_ar,
+                material.name_en,
+                material.code,
+                getattr(material, "barcode", ""),
+            )
+            if str(value or "").strip()
+        )
+
+    def _select_completed_bom_material(self, index: QModelIndex) -> None:
+        combo_index = self.bom_material_combo.findData(
+            index.data(Qt.ItemDataRole.UserRole)
+        )
+        if combo_index >= 0:
+            self.bom_material_combo.setCurrentIndex(combo_index)
+
+    def _validate_bom_material_text(self) -> None:
+        if self.bom_material_combo.currentIndex() >= 0:
+            return
+        entered = self.bom_material_combo.currentText().strip().casefold()
+        for index, material in enumerate(self._materials, start=1):
+            identifiers = {
+                self.bom_material_combo.itemText(index).strip().casefold(),
+                (material.name_ar or "").strip().casefold(),
+                (material.name_en or "").strip().casefold(),
+                (material.code or "").strip().casefold(),
+                (getattr(material, "barcode", "") or "").strip().casefold(),
+            }
+            if entered and entered in identifiers:
+                self.bom_material_combo.setCurrentIndex(index)
+                return
+        self.bom_material_combo.setCurrentIndex(0)
 
     def _update_bom_available_qty(self) -> None:
         """Show current stock for the material selected for the BOM line."""
@@ -636,7 +747,8 @@ class ManufacturingTab(BaseTabContainer):
             None,
         )
         available_qty = material.qty_on_hand if material is not None else 0.0
-        self.bom_available_qty_value.setText(f"{available_qty:.3f}")
+        unit = material.unit if material is not None else ""
+        self.bom_available_qty_value.setText(self._format_material_qty(available_qty, unit))
 
     def _refresh_products(self) -> None:
         """Backward-compatible wrapper for older call sites."""
@@ -821,7 +933,9 @@ class ManufacturingTab(BaseTabContainer):
         layout = QVBoxLayout(dialog)
         form = QFormLayout()
 
-        current_qty = QLabel(f"{material.qty_on_hand:.3f}")
+        current_qty = QLabel(
+            self._format_material_qty(material.qty_on_hand, material.unit)
+        )
         new_qty_input = QDoubleSpinBox()
         new_qty_input.setRange(0, 999999)
         new_qty_input.setDecimals(3)
@@ -919,10 +1033,10 @@ class ManufacturingTab(BaseTabContainer):
         self.material_name_ar.setText(self.materials_table.item(row, 0).text())
         self.material_name_en.setText(self.materials_table.item(row, 1).text())
         self.material_code.setText(self.materials_table.item(row, 2).text())
-        self.material_qty.setValue(float(self.materials_table.item(row, 3).text()))
+        self.material_qty.setValue(float(self.materials_table.item(row, 3).text().split()[0]))
         self.material_unit.setText(self.materials_table.item(row, 4).text())
         self.material_cost.setValue(float(self.materials_table.item(row, 5).text()))
-        self.material_min_qty.setValue(float(self.materials_table.item(row, 6).text()))
+        self.material_min_qty.setValue(float(self.materials_table.item(row, 6).text().split()[0]))
         self.material_barcode.setText(self.materials_table.item(row, 7).text())
         self.material_saleable.setChecked(self.materials_table.item(row, 8).text() == t("common.yes", language=self._language))
         sale_price = self.materials_table.item(row, 9).text()
@@ -956,13 +1070,13 @@ class ManufacturingTab(BaseTabContainer):
                 self,
                 "Availability Warning" if self._language != "ar" else "تحذير التوفر",
                 (
-                    f"Qty Used Per Unit ({qty_required:.3f}) exceeds the current "
-                    f"Available Qty ({available_qty:.3f}). The design can still be "
+                    f"Qty Used Per Unit ({self._format_material_qty(qty_required, material.unit if material else '')}) exceeds the current "
+                    f"Available Qty ({self._format_material_qty(available_qty, material.unit if material else '')}). The design can still be "
                     "saved because saving a design does not consume stock; stock is "
                     "consumed only during production."
                     if self._language != "ar"
-                    else f"الكمية المستخدمة لكل وحدة ({qty_required:.3f}) تتجاوز "
-                    f"الكمية المتاحة حاليًا ({available_qty:.3f}). لا يزال بإمكانك "
+                    else f"الكمية المستخدمة لكل وحدة ({self._format_material_qty(qty_required, material.unit if material else '')}) تتجاوز "
+                    f"الكمية المتاحة حاليًا ({self._format_material_qty(available_qty, material.unit if material else '')}). لا يزال بإمكانك "
                     "حفظ التصميم لأن حفظ التصميم لا يستهلك المخزون؛ يُستهلك المخزون "
                     "فقط أثناء الإنتاج."
                 ),
@@ -970,31 +1084,38 @@ class ManufacturingTab(BaseTabContainer):
         row = self.bom_lines_table.rowCount()
         self.bom_lines_table.insertRow(row)
         self.bom_lines_table.setItem(row, 0, QTableWidgetItem(self.bom_material_combo.currentText()))
-        self.bom_lines_table.setItem(row, 1, QTableWidgetItem("0.000"))
-        self.bom_lines_table.setItem(row, 2, QTableWidgetItem(f"{qty_required:.3f}"))
+        material = next((item for item in self._materials if item.id == material_id), None)
+        unit = material.unit if material else ""
+        self.bom_lines_table.setItem(row, 1, QTableWidgetItem(self._format_material_qty(0, unit)))
+        qty_item = QTableWidgetItem(self._format_material_qty(qty_required, unit))
+        qty_item.setData(Qt.ItemDataRole.UserRole, qty_required)
+        self.bom_lines_table.setItem(row, 2, qty_item)
         self.bom_lines_table.setItem(row, 3, QTableWidgetItem("0.00"))
         self.bom_lines_table.setItem(row, 4, QTableWidgetItem("0.00"))
         self.bom_lines_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, material_id)
         self._refresh_design_cost_summary()
+        self._update_save_design_state()
 
     def _remove_bom_line(self) -> None:
         row = self.bom_lines_table.currentRow()
         if row >= 0:
             self.bom_lines_table.removeRow(row)
             self._refresh_design_cost_summary()
+            self._update_save_design_state()
 
     def _refresh_design_cost_summary(self) -> None:
         materials = {m.id: m for m in list_materials()}
         material_total_cost = 0.0
         for row in range(self.bom_lines_table.rowCount()):
             material_id = self.bom_lines_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            qty_used = float(self.bom_lines_table.item(row, 2).text())
+            qty_item = self.bom_lines_table.item(row, 2)
+            qty_used = float(qty_item.data(Qt.ItemDataRole.UserRole) or 0)
             material = materials.get(material_id)
             if not material:
                 continue
             line_total_cost = qty_used * material.cost_per_unit
             material_total_cost += line_total_cost
-            self.bom_lines_table.setItem(row, 1, QTableWidgetItem(f"{material.qty_on_hand:.3f}"))
+            self.bom_lines_table.setItem(row, 1, QTableWidgetItem(self._format_material_qty(material.qty_on_hand, material.unit)))
             self.bom_lines_table.setItem(row, 3, QTableWidgetItem(f"{material.cost_per_unit:.2f}"))
             self.bom_lines_table.setItem(row, 4, QTableWidgetItem(f"{line_total_cost:.2f}"))
         labor_cost = float(self.design_labor_cost.value())
@@ -1035,15 +1156,12 @@ class ManufacturingTab(BaseTabContainer):
                 t("manufacturing.bom_name_required", language=self._language),
             )
             return
-        if not sku:
-            sku = re.sub(r"[^A-Z0-9]+", "-", name.upper()).strip("-")[:20]
-            sku = sku or f"DES-{datetime.now().strftime('%H%M%S')}"
-            self.design_product_sku.setText(sku)
-
         lines = []
         for row in range(self.bom_lines_table.rowCount()):
             material_id = self.bom_lines_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            qty_required = float(self.bom_lines_table.item(row, 2).text())
+            qty_required = float(
+                self.bom_lines_table.item(row, 2).data(Qt.ItemDataRole.UserRole)
+            )
             lines.append((material_id, qty_required))
         if not lines:
             QMessageBox.warning(
@@ -1063,7 +1181,12 @@ class ManufacturingTab(BaseTabContainer):
             explicit_product_id = selected_bom.product_id if selected_bom else None
         existing = next((p for p in products if p.id == explicit_product_id), None)
         sku_product = next(
-            (p for p in products if (p.sku or "").strip().casefold() == sku.casefold()),
+            (
+                p
+                for p in products
+                if sku
+                and (p.sku or "").strip().casefold() == sku.casefold()
+            ),
             None,
         )
         if existing and sku_product and sku_product.id != existing.id:
@@ -1071,21 +1194,25 @@ class ManufacturingTab(BaseTabContainer):
             return
         existing = existing or sku_product
 
-        saved_product_id, saved_bom_id = save_product_design(
-            product_id=existing.id if existing else None,
-            bom_id=self._selected_bom_id,
-            name_ar=name_ar,
-            name_en=name_en,
-            sku=sku,
-            barcode=self.design_product_barcode.text().strip(),
-            price=float(self.design_product_price.value()),
-            design_name=design_name,
-            active=self.bom_active_check.isChecked(),
-            lines=lines,
-            labor_cost=float(self.design_labor_cost.value()),
-            packaging_cost=float(self.design_packaging_cost.value()),
-            other_cost=float(self.design_other_cost.value()),
-        )
+        try:
+            saved_product_id, saved_bom_id = save_product_design(
+                product_id=existing.id if existing else None,
+                bom_id=self._selected_bom_id,
+                name_ar=name_ar,
+                name_en=name_en,
+                sku=sku,
+                barcode=self.design_product_barcode.text().strip(),
+                price=float(self.design_product_price.value()),
+                design_name=design_name,
+                active=self.bom_active_check.isChecked(),
+                lines=lines,
+                labor_cost=float(self.design_labor_cost.value()),
+                packaging_cost=float(self.design_packaging_cost.value()),
+                other_cost=float(self.design_other_cost.value()),
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Validation", str(exc))
+            return
         product_id = saved_product_id or (existing.id if existing else None)
         if product_id is None:
             product = next(
@@ -1103,10 +1230,19 @@ class ManufacturingTab(BaseTabContainer):
 
         self._editing_product_id = int(product_id)
         self._refresh_products()
+        saved_product = next((p for p in list_products() if p.id == product_id), None)
+        if saved_product is not None:
+            self.design_product_sku.setText(saved_product.sku or "")
+            self.design_product_barcode.setText(saved_product.barcode or "")
+        success_message = (
+            f"تم حفظ التصميم بنجاح\nالمنتج: {name}\nالباركود: {saved_product.barcode if saved_product else ''}"
+            if self._language == "ar"
+            else f"Design saved successfully\nProduct: {name}\nBarcode: {saved_product.barcode if saved_product else ''}"
+        )
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),
-            t("manufacturing.bom_saved", language=self._language),
+            success_message,
         )
         self._refresh_boms()
         self.inventory_changed.emit()
@@ -1150,6 +1286,7 @@ class ManufacturingTab(BaseTabContainer):
         self._clear_design_cost_estimates()
         self.design_profit_pct.setValue(25.0)
         self._refresh_design_cost_summary()
+        self._update_save_design_state()
 
     def _load_bom(self, row: int) -> None:
         """Table adapter for the same exact-BOM loader used by the picker."""
@@ -1189,10 +1326,13 @@ class ManufacturingTab(BaseTabContainer):
             )
             row = self.bom_lines_table.rowCount()
             self.bom_lines_table.insertRow(row)
-            values = (material_label, "0.000", f"{line.qty_required:.3f}", "0.00", "0.00")
+            material = next((item for item in self._materials if item.id == line.material_id), None)
+            unit = material.unit if material else ""
+            values = (material_label, self._format_material_qty(0, unit), self._format_material_qty(line.qty_required, unit), "0.00", "0.00")
             for column, value in enumerate(values):
                 self.bom_lines_table.setItem(row, column, QTableWidgetItem(value))
             self.bom_lines_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
+            self.bom_lines_table.item(row, 2).setData(Qt.ItemDataRole.UserRole, float(line.qty_required))
         self.design_labor_cost.setValue(float(getattr(bom, "labor_cost", 0.0) or 0.0))
         self.design_packaging_cost.setValue(float(getattr(bom, "packaging_cost", 0.0) or 0.0))
         self.design_other_cost.setValue(float(getattr(bom, "other_cost", 0.0) or 0.0))
@@ -1280,8 +1420,10 @@ class ManufacturingTab(BaseTabContainer):
                     if material else ("خامة غير متاحة" if language == "ar" else "Unavailable Material")
                 )
                 available = float(material.qty_on_hand) if material else 0.0
-                values = (name, f"{line.qty_required:.3f}",
-                          f"{line.qty_required * quantity:.3f}", f"{available:.3f}")
+                unit = material.unit if material else ""
+                values = (name, self._format_material_qty(line.qty_required, unit),
+                          self._format_material_qty(line.qty_required * quantity, unit),
+                          self._format_material_qty(available, unit))
                 for column, value in enumerate(values):
                     preview.setItem(row, column, QTableWidgetItem(value))
 
@@ -1417,7 +1559,9 @@ class ManufacturingTab(BaseTabContainer):
             self.usage_table.insertRow(row_idx)
             self.usage_table.setItem(row_idx, 0, QTableWidgetItem(material_name))
             self.usage_table.setItem(
-                row_idx, 1, QTableWidgetItem(f"{consumption.qty_consumed:.3f}")
+                row_idx, 1, QTableWidgetItem(
+                    self._format_material_qty(consumption.qty_consumed, consumption.unit)
+                )
             )
             historical_cost = consumption.qty_consumed * consumption.cost_at_time
             self.usage_table.setItem(row_idx, 2, QTableWidgetItem(f"{historical_cost:.2f}"))
@@ -1522,8 +1666,12 @@ class ManufacturingTab(BaseTabContainer):
             row_idx = self.bom_lines_table.rowCount()
             self.bom_lines_table.insertRow(row_idx)
             self.bom_lines_table.setItem(row_idx, 0, QTableWidgetItem(material_label))
-            self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem("0.000"))
-            self.bom_lines_table.setItem(row_idx, 2, QTableWidgetItem(f"{line.qty_required:.3f}"))
+            material = next((item for item in self._materials if item.id == line.material_id), None)
+            unit = material.unit if material else ""
+            self.bom_lines_table.setItem(row_idx, 1, QTableWidgetItem(self._format_material_qty(0, unit)))
+            qty_item = QTableWidgetItem(self._format_material_qty(line.qty_required, unit))
+            qty_item.setData(Qt.ItemDataRole.UserRole, float(line.qty_required))
+            self.bom_lines_table.setItem(row_idx, 2, qty_item)
             self.bom_lines_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
             self.bom_lines_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
             self.bom_lines_table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, line.material_id)
@@ -1598,9 +1746,9 @@ class ManufacturingTab(BaseTabContainer):
         self._design_field_labels["sku_code"].setText("الرمز/الكود" if language == "ar" else "SKU/Code")
         self._design_field_labels["barcode"].setText("الباركود" if language == "ar" else "Barcode")
         self._design_field_labels["selling_price"].setText("سعر البيع" if language == "ar" else "Selling Price")
-        self._design_field_labels["labor_cost"].setText("تقدير تكلفة العمالة" if language == "ar" else "Labor Estimate")
-        self._design_field_labels["packaging_cost"].setText("تقدير تكلفة التغليف" if language == "ar" else "Packaging Estimate")
-        self._design_field_labels["other_cost"].setText("تقدير تكلفة أخرى" if language == "ar" else "Other Estimate")
+        self._design_field_labels["labor_cost"].setText("تكلفة العمالة" if language == "ar" else "Labor Cost")
+        self._design_field_labels["packaging_cost"].setText("تكلفة التغليف" if language == "ar" else "Packaging Cost")
+        self._design_field_labels["other_cost"].setText("تكلفة أخرى" if language == "ar" else "Other Cost")
         self.bom_name_label.setText("اسم التصميم" if language == "ar" else "Design Name")
         self.bom_name_label.setToolTip("أدخل اسمًا واضحًا للتصميم." if language == "ar" else "Enter a clear name for this design.")
         self.bom_active_check.setText(t("manufacturing.bom_active", language=language))

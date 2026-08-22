@@ -276,7 +276,7 @@ class ManufacturingTab(BaseTabContainer):
         form_layout.setVerticalSpacing(8)
 
         self.bom_product_combo = QComboBox()
-        self.design_product_name = QLineEdit()
+        self.design_product_name_ar = QLineEdit()
         self.design_product_name_en = QLineEdit()
         self.design_product_sku = QLineEdit()
         self.design_product_barcode = QLineEdit()
@@ -300,7 +300,7 @@ class ManufacturingTab(BaseTabContainer):
 
         fields = [
             ("product", self.bom_product_combo),
-            ("product_name_ar", self.design_product_name),
+            ("product_name_ar", self.design_product_name_ar),
             ("product_name_en", self.design_product_name_en),
             ("design_name", self.bom_name_input),
             ("sku_code", self.design_product_sku),
@@ -409,7 +409,7 @@ class ManufacturingTab(BaseTabContainer):
 
         self._selected_bom_id: Optional[int] = None
         self.new_design_btn.setChecked(True)
-        self.design_product_name.textEdited.connect(self._suggest_design_name)
+        self.design_product_name_ar.textEdited.connect(self._suggest_design_name)
         self.design_labor_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_packaging_cost.valueChanged.connect(self._refresh_design_cost_summary)
         self.design_other_cost.valueChanged.connect(self._refresh_design_cost_summary)
@@ -908,7 +908,7 @@ class ManufacturingTab(BaseTabContainer):
         self.design_other_cost.setValue(0.0)
 
     def _save_bom(self) -> None:
-        name_ar = self.design_product_name.text().strip()
+        name_ar = self.design_product_name_ar.text().strip()
         name_en = self.design_product_name_en.text().strip()
         name = name_ar or name_en
         sku = self.design_product_sku.text().strip()
@@ -1037,7 +1037,7 @@ class ManufacturingTab(BaseTabContainer):
         self.edit_design_btn.setChecked(False)
         self.produce_design_btn.setEnabled(False)
         self.bom_product_combo.setCurrentIndex(0)
-        self.design_product_name.clear()
+        self.design_product_name_ar.clear()
         self.design_product_name_en.clear()
         self.design_product_sku.clear()
         self.design_product_barcode.clear()
@@ -1072,7 +1072,7 @@ class ManufacturingTab(BaseTabContainer):
         self.edit_design_btn.setChecked(True)
         self.design_picker.setVisible(True)
         self.produce_design_btn.setEnabled(True)
-        self.design_product_name.setText(product.name_ar or "")
+        self.design_product_name_ar.setText(product.name_ar or "")
         self.design_product_name_en.setText(product.name_en or "")
         self.design_product_sku.setText(product.sku or "")
         self.design_product_barcode.setText(product.barcode or "")
@@ -1358,14 +1358,14 @@ class ManufacturingTab(BaseTabContainer):
             return
 
         self._start_new_design()
-        self.design_product_name.setText(source_product.name_ar)
-        self.design_product_name_en.setText(source_product.name_en)
+        self.design_product_name_ar.setText(source_product.name_ar or "")
+        self.design_product_name_en.setText(source_product.name_en or "")
         product_index = self.bom_product_combo.findData(source_product.id)
         if product_index >= 0:
             self.bom_product_combo.setCurrentIndex(product_index)
         self._selected_bom_id = None
-        self.design_product_sku.clear()
-        self.design_product_barcode.clear()
+        self.design_product_sku.setText(source_product.sku or "")
+        self.design_product_barcode.setText(source_product.barcode or "")
         self.design_product_price.setValue(float(source_product.price or 0.0))
         self._clear_design_cost_estimates()
         self.bom_name_input.setText(f"{source_product.name_en} Design Copy")

@@ -50,7 +50,11 @@ def test_design_name_maps_to_bom_name_when_saved(monkeypatch, tab):
     saved = []
     inventory_changes = []
     tab.inventory_changed.connect(lambda: inventory_changes.append(True))
-    monkeypatch.setattr(manufacturing_tab, "save_bom", lambda *args: saved.append(args))
+    def save_design(**kwargs):
+        saved.append(kwargs)
+        return 7, 8
+
+    monkeypatch.setattr(manufacturing_tab, "save_product_design", save_design)
     monkeypatch.setattr(manufacturing_tab.QMessageBox, "information", lambda *args: None)
     tab.bom_name_input.setText("Summer Ring")
     tab.bom_lines_table.insertRow(0)
@@ -61,5 +65,7 @@ def test_design_name_maps_to_bom_name_when_saved(monkeypatch, tab):
 
     tab._save_bom()
 
-    assert saved[0][1:3] == (7, "Summer Ring")
+    assert saved[0]["product_id"] == 7
+    assert saved[0]["design_name"] == "Summer Ring"
+    assert saved[0]["lines"] == [(3, 1.25)]
     assert inventory_changes == [True]

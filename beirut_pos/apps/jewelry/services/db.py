@@ -2146,6 +2146,91 @@ def save_bom(
     return int(bom_row_id)
 
 
+def save_product_design(
+    *,
+    product_id: Optional[int],
+    bom_id: Optional[int],
+    name_ar: str,
+    name_en: str,
+    sku: str,
+    barcode: str,
+    price: float,
+    design_name: str,
+    active: bool,
+    lines: Iterable[Tuple[int, float]],
+) -> Tuple[int, int]:
+    """Persist a finished-product identity and its BOM as one transaction.
+
+    This operation only maintains product master data and design rows.  In
+    particular, it deliberately does not invoke production or adjust either
+    finished-product or material inventory.
+    """
+    material_lines = list(lines)
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("BEGIN")
+
+        cur.execute(
+            """SELECT id FROM jw_products
+               WHERE lower(trim(sku)) = lower(trim(?))
+                 AND (? IS NULL OR id <> ?)""",
+            (sku, product_id, product_id),
+        )
+        if cur.fetchone() is not None:
+            raise ValueError("SKU/code already belongs to another product.")
+
+        if product_id is not None:
+            cur.execute(
+                """UPDATE jw_products
+                   SET name_ar=?, name_en=?, sku=?, barcode=?, price=?
+                   WHERE id=?""",
+                (name_ar, name_en, sku, barcode, price, product_id),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("Product does not exist.")
+            saved_product_id = product_id
+        else:
+            cur.execute(
+                """INSERT INTO jw_products
+                   (name_ar, name_en, sku, barcode, barcode_type, price,
+                    qty_on_hand, min_qty, category, handmade_flag, stone_type, color)
+                   VALUES (?, ?, ?, ?, '', ?, 0, 0, 'Handmade', 1, '', '')""",
+                (name_ar, name_en, sku, barcode, price),
+            )
+            saved_product_id = int(cur.lastrowid)
+
+        if bom_id is not None:
+            cur.execute(
+                """UPDATE jw_boms SET product_id=?, name=?, active=? WHERE id=?""",
+                (saved_product_id, design_name, 1 if active else 0, bom_id),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("Design does not exist.")
+            saved_bom_id = bom_id
+            cur.execute("DELETE FROM jw_bom_lines WHERE bom_id=?", (saved_bom_id,))
+        else:
+            cur.execute(
+                "INSERT INTO jw_boms(product_id, name, active) VALUES (?, ?, ?)",
+                (saved_product_id, design_name, 1 if active else 0),
+            )
+            saved_bom_id = int(cur.lastrowid)
+
+        for material_id, qty_required in material_lines:
+            cur.execute(
+                """INSERT INTO jw_bom_lines(bom_id, material_id, qty_required)
+                   VALUES (?, ?, ?)""",
+                (saved_bom_id, material_id, qty_required),
+            )
+        conn.commit()
+        return int(saved_product_id), int(saved_bom_id)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def delete_bom(bom_id: int) -> None:
     conn = get_conn()
     cur = conn.cursor()

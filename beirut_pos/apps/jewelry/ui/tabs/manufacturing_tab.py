@@ -454,9 +454,10 @@ class ManufacturingTab(BaseTabContainer):
         self.boms_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.boms_table.setAlternatingRowColors(True)
         self.boms_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.boms_table.setMinimumHeight(240)
         self.boms_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.boms_table.cellClicked.connect(self._load_bom)
-        tab_layout.addWidget(self.boms_table, 1)
+        tab_layout.addWidget(self.boms_table, 2)
 
         self.bom_save_btn = QPushButton()
         self.produce_design_btn = QPushButton()
@@ -474,6 +475,15 @@ class ManufacturingTab(BaseTabContainer):
         footer = QHBoxLayout(); footer.addStretch(1)
         footer.addWidget(self.bom_clear_btn); footer.addWidget(self.duplicate_design_btn); footer.addWidget(self.produce_design_btn); footer.addWidget(self.bom_save_btn)
         tab_layout.addLayout(footer)
+
+        # Keep the design controls compact and give the saved-design list most
+        # of any extra height.  The minimum keeps the list usable on shorter
+        # desktop screens, while the stretch lets it grow with the window.
+        tab_layout.setStretch(0, 0)
+        tab_layout.setStretch(1, 0)
+        tab_layout.setStretch(2, 1)
+        tab_layout.setStretch(3, 2)
+        tab_layout.setStretch(4, 0)
 
         self.tabs.addTab(self.boms_tab, "")
 

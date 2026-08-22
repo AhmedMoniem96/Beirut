@@ -530,6 +530,8 @@ def init_jewelry_db() -> None:
             overhead_cost REAL NOT NULL DEFAULT 0,
             notes TEXT DEFAULT '',
             bom_id INTEGER,
+            selling_price_per_unit_snapshot REAL,
+            additional_cost_batch_snapshot REAL,
             FOREIGN KEY(product_id) REFERENCES jw_products(id)
         )"""
     )
@@ -576,6 +578,14 @@ def init_jewelry_db() -> None:
     )
     _ensure_column(cur, "jw_order_payments", "reference", "TEXT DEFAULT ''")
     _ensure_column(cur, "jw_production_orders", "bom_id", "INTEGER")
+    # Nullable snapshot columns preserve the distinction between new orders and
+    # legacy rows, whose report values require the documented fallbacks.
+    _ensure_column(
+        cur, "jw_production_orders", "selling_price_per_unit_snapshot", "REAL"
+    )
+    _ensure_column(
+        cur, "jw_production_orders", "additional_cost_batch_snapshot", "REAL"
+    )
     _ensure_column(cur, "jw_purchases", "payment_method", "TEXT NOT NULL DEFAULT ''")
     _ensure_column(cur, "jw_purchases", "notes", "TEXT NOT NULL DEFAULT ''")
     _ensure_column(cur, "jw_purchases", "linked_material_id", "INTEGER")
@@ -2288,7 +2298,7 @@ def produce_from_bom(
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.cursor()
         cur.execute(
-            """SELECT b.id, b.product_id, b.name, p.name_ar, p.name_en,
+            """SELECT b.id, b.product_id, b.name, p.name_ar, p.name_en, p.price,
                       b.labor_cost, b.packaging_cost, b.other_cost
                FROM jw_boms b
                LEFT JOIN jw_products p ON p.id = b.product_id
@@ -2298,7 +2308,7 @@ def produce_from_bom(
         bom_row = cur.fetchone()
         if not bom_row:
             raise ValueError("BOM not found")
-        (_, product_id, bom_name, product_name_ar, product_name_en,
+        (_, product_id, bom_name, product_name_ar, product_name_en, selling_price,
          unit_labor_cost, unit_packaging_cost, unit_other_cost) = bom_row
         if product_name_ar is None:
             raise ValueError("BOM linked product not found")
@@ -2362,8 +2372,9 @@ def produce_from_bom(
         cur.execute(
             """INSERT INTO jw_production_orders
                (order_no, datetime, status, product_id, qty_to_produce,
-                qty_produced, labor_cost, overhead_cost, notes, bom_id)
-               VALUES (?, ?, 'done', ?, ?, ?, ?, ?, '', ?)""",
+                qty_produced, labor_cost, overhead_cost, notes, bom_id,
+                selling_price_per_unit_snapshot, additional_cost_batch_snapshot)
+               VALUES (?, ?, 'done', ?, ?, ?, ?, ?, '', ?, ?, ?)""",
             (
                 order_no,
                 order_datetime,
@@ -2373,6 +2384,8 @@ def produce_from_bom(
                 labor_cost,
                 overhead_cost,
                 bom_id,
+                float(selling_price or 0),
+                float(labor_cost) + float(overhead_cost),
             ),
         )
         order_id = int(cur.lastrowid)

@@ -19,7 +19,7 @@ def production_db(tmp_path, monkeypatch):
     conn.executescript(
         """
         CREATE TABLE jw_products(id INTEGER PRIMARY KEY, name_ar TEXT NOT NULL,
-          name_en TEXT NOT NULL, qty_on_hand REAL NOT NULL);
+          name_en TEXT NOT NULL, price REAL NOT NULL, qty_on_hand REAL NOT NULL);
         CREATE TABLE jw_materials(id INTEGER PRIMARY KEY, name_ar TEXT NOT NULL,
           name_en TEXT NOT NULL, unit TEXT, qty_on_hand REAL NOT NULL,
           cost_per_unit REAL NOT NULL);
@@ -32,11 +32,13 @@ def production_db(tmp_path, monkeypatch):
           order_no TEXT NOT NULL UNIQUE, datetime TEXT NOT NULL, status TEXT NOT NULL,
           product_id INTEGER NOT NULL, qty_to_produce REAL NOT NULL,
           qty_produced REAL NOT NULL, labor_cost REAL NOT NULL,
-          overhead_cost REAL NOT NULL, notes TEXT, bom_id INTEGER);
+          overhead_cost REAL NOT NULL, notes TEXT, bom_id INTEGER,
+          selling_price_per_unit_snapshot REAL,
+          additional_cost_batch_snapshot REAL);
         CREATE TABLE jw_production_consumption(id INTEGER PRIMARY KEY AUTOINCREMENT,
           production_order_id INTEGER NOT NULL, material_id INTEGER NOT NULL,
           qty_consumed REAL NOT NULL, cost_at_time REAL NOT NULL);
-        INSERT INTO jw_products VALUES (1, 'خاتم', 'Ring', 2);
+        INSERT INTO jw_products VALUES (1, 'خاتم', 'Ring', 100, 2);
         INSERT INTO jw_materials VALUES (10, 'ذهب', 'Gold', 'g', 100, 12.5);
         INSERT INTO jw_materials VALUES (11, 'حجر', 'Stone', 'pc', 20, 3);
         INSERT INTO jw_boms VALUES (20, 1, 'Ring BOM', 5, 2, 1);
@@ -123,9 +125,11 @@ def test_repeated_invocations_create_independent_completed_orders(production_db)
 def test_saved_per_unit_additional_costs_are_snapshotted_for_batch(production_db):
     db.produce_from_bom(20, 4)
 
-    assert rows(production_db, "SELECT labor_cost, overhead_cost FROM jw_production_orders") == [
-        (20.0, 12.0)
-    ]
+    assert rows(
+        production_db,
+        """SELECT labor_cost, overhead_cost, selling_price_per_unit_snapshot,
+                  additional_cost_batch_snapshot FROM jw_production_orders""",
+    ) == [(20.0, 12.0, 100.0, 32.0)]
     assert rows(production_db, "SELECT labor_cost, packaging_cost, other_cost FROM jw_boms") == [
         (5.0, 2.0, 1.0)
     ]

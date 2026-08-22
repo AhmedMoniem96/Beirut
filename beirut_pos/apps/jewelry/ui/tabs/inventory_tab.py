@@ -402,7 +402,7 @@ class InventoryTab(BaseTabContainer):
             )
             return
         barcode_type_value = ""
-        save_product(
+        saved_product_id = save_product(
             self._selected_product_id,
             self.name_ar_input.text().strip(),
             self.name_en_input.text().strip(),
@@ -423,6 +423,11 @@ class InventoryTab(BaseTabContainer):
             t("inventory.saved_message", language=self._language),
         )
         self.refresh()
+        for row in range(self.table.rowCount()):
+            if self.table.item(row, 0).data(Qt.ItemDataRole.UserRole) == saved_product_id:
+                self.table.selectRow(row)
+                self._load_selected_product(row)
+                break
         if self._on_products_changed:
             self._on_products_changed()
 

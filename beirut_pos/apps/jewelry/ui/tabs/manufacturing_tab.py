@@ -326,12 +326,18 @@ class ManufacturingTab(BaseTabContainer):
         add_line_layout = QHBoxLayout()
         add_line_layout.setSpacing(8)
         self.bom_material_combo = QComboBox()
+        self.bom_material_combo.currentIndexChanged.connect(
+            self._update_bom_available_qty
+        )
+        self.bom_available_qty_label = QLabel()
+        self.bom_available_qty_value = QLabel("0.000")
         self.bom_qty_input = QDoubleSpinBox(); self.bom_qty_input.setRange(0.001, 999999); self.bom_qty_input.setDecimals(3)
         self.add_bom_line_btn = QPushButton("Add Material")
         self.add_bom_line_btn.clicked.connect(self._add_bom_line)
         self.bom_material_label = QLabel()
         self.bom_qty_label = QLabel()
         add_line_layout.addWidget(self.bom_material_label); add_line_layout.addWidget(self.bom_material_combo)
+        add_line_layout.addWidget(self.bom_available_qty_label); add_line_layout.addWidget(self.bom_available_qty_value)
         add_line_layout.addWidget(self.bom_qty_label); add_line_layout.addWidget(self.bom_qty_input)
         add_line_layout.addWidget(self.add_bom_line_btn)
         lines_layout.addLayout(add_line_layout)
@@ -611,6 +617,17 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_material_combo.clear()
         for label in self._material_map:
             self.bom_material_combo.addItem(label, self._material_map[label])
+        self._update_bom_available_qty()
+
+    def _update_bom_available_qty(self) -> None:
+        """Show current stock for the material selected for the BOM line."""
+        material_id = self.bom_material_combo.currentData()
+        material = next(
+            (record for record in list_materials() if record.id == material_id),
+            None,
+        )
+        available_qty = material.qty_on_hand if material is not None else 0.0
+        self.bom_available_qty_value.setText(f"{available_qty:.3f}")
 
     def _refresh_products(self) -> None:
         """Backward-compatible wrapper for older call sites."""
@@ -859,6 +876,39 @@ class ManufacturingTab(BaseTabContainer):
         if not material_id:
             return
         qty_required = float(self.bom_qty_input.value())
+        if qty_required <= 0:
+            QMessageBox.warning(
+                self,
+                "Validation" if self._language != "ar" else "التحقق",
+                (
+                    "Qty Used Per Unit must be strictly greater than zero."
+                    if self._language != "ar"
+                    else "يجب أن تكون الكمية المستخدمة لكل وحدة أكبر من صفر."
+                ),
+            )
+            return
+
+        material = next(
+            (record for record in list_materials() if record.id == material_id),
+            None,
+        )
+        available_qty = material.qty_on_hand if material is not None else 0.0
+        if qty_required > available_qty:
+            QMessageBox.warning(
+                self,
+                "Availability Warning" if self._language != "ar" else "تحذير التوفر",
+                (
+                    f"Qty Used Per Unit ({qty_required:.3f}) exceeds the current "
+                    f"Available Qty ({available_qty:.3f}). The design can still be "
+                    "saved because saving a design does not consume stock; stock is "
+                    "consumed only during production."
+                    if self._language != "ar"
+                    else f"الكمية المستخدمة لكل وحدة ({qty_required:.3f}) تتجاوز "
+                    f"الكمية المتاحة حاليًا ({available_qty:.3f}). لا يزال بإمكانك "
+                    "حفظ التصميم لأن حفظ التصميم لا يستهلك المخزون؛ يُستهلك المخزون "
+                    "فقط أثناء الإنتاج."
+                ),
+            )
         row = self.bom_lines_table.rowCount()
         self.bom_lines_table.insertRow(row)
         self.bom_lines_table.setItem(row, 0, QTableWidgetItem(self.bom_material_combo.currentText()))
@@ -1086,7 +1136,7 @@ class ManufacturingTab(BaseTabContainer):
         for line in list_bom_lines(bom.id):
             material_label = next(
                 (label for label, material_id in self._material_map.items() if material_id == line.material_id),
-                f"{t('manufacturing.material_label', language=self._language)} {line.material_id}",
+                "خامة غير متاحة" if self._language == "ar" else "Unavailable Material",
             )
             row = self.bom_lines_table.rowCount()
             self.bom_lines_table.insertRow(row)
@@ -1286,7 +1336,7 @@ class ManufacturingTab(BaseTabContainer):
             material_name = (
                 choose_name(material.name_ar, material.name_en, language=self._language)
                 if material
-                else f"{t('manufacturing.material_label', language=self._language)} {line.material_id}"
+                else ("خامة غير متاحة" if self._language == "ar" else "Unavailable Material")
             )
             row_idx = self.usage_table.rowCount()
             self.usage_table.insertRow(row_idx)
@@ -1382,7 +1432,7 @@ class ManufacturingTab(BaseTabContainer):
         for line in source_lines:
             material_label = next(
                 (label for label, mid in self._material_map.items() if mid == line.material_id),
-                f"{t('manufacturing.material_label', language=self._language)} {line.material_id}",
+                "خامة غير متاحة" if self._language == "ar" else "Unavailable Material",
             )
             row_idx = self.bom_lines_table.rowCount()
             self.bom_lines_table.insertRow(row_idx)
@@ -1474,9 +1524,10 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_active_check.setText(t("manufacturing.bom_active", language=language))
         self.lines_box.setTitle("الخامات المستخدمة" if language == "ar" else "Materials Used")
         self.bom_material_label.setText("الخامة" if language == "ar" else "Material")
+        self.bom_available_qty_label.setText("الكمية المتاحة" if language == "ar" else "Available Qty")
         self.bom_qty_label.setText("الكمية المستخدمة" if language == "ar" else "Qty Used")
         self.add_bom_line_btn.setText("إضافة خامة" if language == "ar" else "Add Material")
-        self.bom_lines_table.setHorizontalHeaderLabels(["الخامة", "الكمية المتاحة", "الكمية المستخدمة لكل وحدة", "تكلفة وحدة الخامة", "التكلفة لكل وحدة"] if language == "ar" else ["Material", "Available Qty", "Qty Used Per Unit", "Material Unit Cost", "Cost Per Unit"])
+        self.bom_lines_table.setHorizontalHeaderLabels(["الخامة", "الكمية المتاحة", "الكمية المستخدمة لكل وحدة", "تكلفة الوحدة", "التكلفة لكل وحدة"] if language == "ar" else ["Material", "Available Qty", "Qty Used Per Unit", "Unit Cost", "Cost Per Unit"])
         self.remove_line_btn.setText("حذف خامة" if language == "ar" else "Remove Material")
         self.cost_summary_box.setTitle("ملخص التكلفة" if language == "ar" else "Cost Summary")
         self.summary_material_cost_label.setText("تكلفة الخامات" if language == "ar" else "Material Cost")

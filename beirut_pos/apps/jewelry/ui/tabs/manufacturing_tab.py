@@ -88,6 +88,15 @@ class ManufacturingTab(BaseTabContainer):
         self._disable_spinbox_arrows()
         self.apply_language(self._language)
 
+    def on_activated(self) -> None:
+        """Reload manufacturing data changed elsewhere without rebuilding the tab."""
+        self._refresh_materials()
+        self._refresh_design_products()
+        self._refresh_history_products()
+        self._refresh_boms()
+        self._refresh_history_report()
+        self._refresh_design_cost_summary()
+
 
     def _disable_spinbox_arrows(self) -> None:
         for widget_name in (
@@ -964,6 +973,7 @@ class ManufacturingTab(BaseTabContainer):
             t("manufacturing.bom_saved", language=self._language),
         )
         self._refresh_boms()
+        self.inventory_changed.emit()
         self._clear_bom_form()
 
     def _delete_bom(self) -> None:
@@ -1159,8 +1169,7 @@ class ManufacturingTab(BaseTabContainer):
             else:
                 if result.get("success"):
                     dialog.accept()
-                    self._refresh_materials()
-                    self._refresh_history_report()
+                    self.on_activated()
                     self.inventory_changed.emit()
                     message = (
                         f"تمت إضافة {quantity:g} قطعة إلى المخزون بنجاح"

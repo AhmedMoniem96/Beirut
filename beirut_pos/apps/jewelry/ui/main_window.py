@@ -109,6 +109,7 @@ class JewelryMainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.manufacturing_tab)
         if hasattr(self.manufacturing_tab, "inventory_changed"):
             self.manufacturing_tab.inventory_changed.connect(self.inventory_tab.refresh)
+            self.manufacturing_tab.inventory_changed.connect(self.invoice_tab.refresh_products)
 
         self._build_menu()
 
@@ -232,8 +233,7 @@ class JewelryMainWindow(QMainWindow):
         user = get_current_user()
         if not user:
             self._last_allowed_tab = index
-            if self.tabs.widget(index) is self.purchases_tab:
-                self.purchases_tab.on_activated()
+            self._activate_tab(index)
             return
         if user.role != "Admin" and self.tabs.widget(index) in (
             self.settings_tab,
@@ -249,7 +249,18 @@ class JewelryMainWindow(QMainWindow):
             del blocker
             return
         self._last_allowed_tab = index
-        if self.tabs.widget(index) is self.purchases_tab:
+        self._activate_tab(index)
+
+    def _activate_tab(self, index: int) -> None:
+        """Refresh data sources for the tab the user has just opened."""
+        current_tab = self.tabs.widget(index)
+        if current_tab is self.manufacturing_tab:
+            self.manufacturing_tab.on_activated()
+        elif current_tab is self.inventory_tab:
+            self.inventory_tab.refresh()
+        elif current_tab is self.invoice_tab:
+            self.invoice_tab.refresh_products()
+        elif current_tab is self.purchases_tab:
             self.purchases_tab.on_activated()
 
     def _toggle_maximize_restore(self) -> None:

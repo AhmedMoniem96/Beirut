@@ -48,6 +48,8 @@ def test_design_name_is_visible_editable_and_has_client_facing_validation(monkey
 
 def test_design_name_maps_to_bom_name_when_saved(monkeypatch, tab):
     saved = []
+    inventory_changes = []
+    tab.inventory_changed.connect(lambda: inventory_changes.append(True))
     monkeypatch.setattr(manufacturing_tab, "save_bom", lambda *args: saved.append(args))
     monkeypatch.setattr(manufacturing_tab.QMessageBox, "information", lambda *args: None)
     tab.bom_name_input.setText("Summer Ring")
@@ -60,3 +62,4 @@ def test_design_name_maps_to_bom_name_when_saved(monkeypatch, tab):
     tab._save_bom()
 
     assert saved[0][1:3] == (7, "Summer Ring")
+    assert inventory_changes == [True]

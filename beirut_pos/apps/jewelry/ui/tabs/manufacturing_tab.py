@@ -8,7 +8,6 @@ from typing import Dict, List, Optional
 import re
 
 from PyQt6.QtCore import QDate, Qt, pyqtSignal
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
@@ -35,18 +34,14 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from ...services.db import (
-    check_material_availability,
-    confirm_production_order,
     create_production_order,
     delete_bom,
     delete_material,
-    fetch_production_order,
     list_bom_lines,
     list_boms,
     list_materials,
@@ -86,16 +81,11 @@ class ManufacturingTab(BaseTabContainer):
         self._build_design_tab()
         self._build_materials_tab()
         self._build_history_tab()
-        # The order UI is kept in a dialog rather than becoming a fourth
-        # permanent navigation tab.  Build it before any refresh method can
-        # address its widgets.
-        self._build_orders_tab()
 
         self._refresh_materials()
         self._refresh_design_products()
         self._refresh_history_products()
         self._refresh_boms()
-        self._refresh_orders()
         self._disable_spinbox_arrows()
         self.apply_language(self._language)
 
@@ -111,9 +101,7 @@ class ManufacturingTab(BaseTabContainer):
             "design_other_cost",
             "design_profit_pct",
             "bom_qty_input",
-            "order_qty_input",
-            "order_labor_input",
-            "order_overhead_input",
+            "produced_qty_input",
         ):
             widget = getattr(self, widget_name, None)
             if widget is not None:
@@ -428,98 +416,6 @@ class ManufacturingTab(BaseTabContainer):
         if product_name.strip() and not self.bom_name_input.text().strip():
             self.bom_name_input.setText(f"{product_name.strip()} - Design")
 
-    def _build_orders_tab(self) -> None:
-        self.production_dialog = QDialog(self)
-        self.production_dialog.setModal(False)
-        self.production_dialog.resize(820, 680)
-        self.orders_tab = QWidget()
-        tab_layout = QVBoxLayout(self.orders_tab)
-        tab_layout.setSpacing(12)
-
-        form_box = QGroupBox()
-        form_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.orders_box = form_box
-        form_layout = QFormLayout(form_box)
-        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.order_no_label = QLabel("")
-        self.order_product_combo = QComboBox()
-        self.order_bom_combo = QComboBox()
-        self.order_qty_input = QDoubleSpinBox()
-        self.order_qty_input.setRange(0.01, 999999)
-        self.order_qty_input.setDecimals(3)
-        self.order_qty_input.valueChanged.connect(self._refresh_shortages)
-        self.order_labor_input = QDoubleSpinBox()
-        self.order_labor_input.setRange(0, 999999)
-        self.order_labor_input.setDecimals(2)
-        self.order_overhead_input = QDoubleSpinBox()
-        self.order_overhead_input.setRange(0, 999999)
-        self.order_overhead_input.setDecimals(2)
-        self.order_notes_input = QTextEdit()
-        self.order_notes_input.setMinimumHeight(90)
-        self.order_notes_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.order_bom_combo.currentIndexChanged.connect(self._refresh_shortages)
-        self.order_product_combo.currentIndexChanged.connect(self._refresh_bom_combo)
-        self.order_no_text = QLabel()
-        self.order_product_label = QLabel()
-        self.order_bom_label = QLabel()
-        self.order_qty_label = QLabel()
-        self.order_labor_label = QLabel()
-        self.order_overhead_label = QLabel()
-        self.order_notes_label = QLabel()
-        form_layout.addRow(self.order_no_text, self.order_no_label)
-        form_layout.addRow(self.order_product_label, self.order_product_combo)
-        form_layout.addRow(self.order_bom_label, self.order_bom_combo)
-        form_layout.addRow(self.order_qty_label, self.order_qty_input)
-        form_layout.addRow(self.order_labor_label, self.order_labor_input)
-        form_layout.addRow(self.order_overhead_label, self.order_overhead_input)
-        form_layout.addRow(self.order_notes_label, self.order_notes_input)
-
-        self.order_create_btn = QPushButton()
-        self.order_confirm_btn = QPushButton()
-        self.order_done_btn = QPushButton()
-        self.order_create_btn.clicked.connect(self._create_order)
-        self.order_confirm_btn.clicked.connect(self._confirm_order)
-        self.order_done_btn.clicked.connect(self._mark_done)
-
-        self.orders_table = QTableWidget(0, 7)
-        self.orders_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.orders_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.orders_table.setAlternatingRowColors(True)
-        self.orders_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.orders_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.orders_table.cellClicked.connect(self._load_order)
-        self.shortage_label = QLabel("")
-        self.status_legend_label = QLabel("")
-        form_container = BaseTabContainer(show_header=False)
-        form_content = QWidget()
-        form_content_layout = QVBoxLayout(form_content)
-        form_content_layout.setSpacing(12)
-        form_content_layout.addWidget(form_box)
-        form_content_layout.addWidget(self.status_legend_label)
-        form_content_layout.addWidget(self.shortage_label)
-        form_container.set_page_content_widget(form_content)
-        form_container.footer_layout.addWidget(self.order_create_btn)
-        form_container.footer_layout.addWidget(self.order_confirm_btn)
-        form_container.footer_layout.addWidget(self.order_done_btn)
-
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(form_container)
-        splitter.addWidget(self.orders_table)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        tab_layout.addWidget(splitter)
-
-        dialog_layout = QVBoxLayout(self.production_dialog)
-        dialog_layout.setContentsMargins(10, 10, 10, 10)
-        dialog_layout.addWidget(self.orders_tab)
-
-        self._selected_order_id: Optional[int] = None
-        self._status_colors = {
-            "draft": QColor("#B7791F"),
-            "confirmed": QColor("#1D4ED8"),
-            "done": QColor("#15803D"),
-        }
-
     def _build_history_tab(self) -> None:
         self.reports_tab = QWidget()
         tab_layout = QVBoxLayout(self.reports_tab)
@@ -645,9 +541,6 @@ class ManufacturingTab(BaseTabContainer):
         self.bom_product_combo.addItem("", None)
         for label, product_id in self._product_map.items():
             self.bom_product_combo.addItem(label, product_id)
-        self.order_product_combo.clear()
-        for label, product_id in self._product_map.items():
-            self.order_product_combo.addItem(label, product_id)
 
     def _refresh_history_products(self) -> None:
         if not hasattr(self, "history_product"):
@@ -685,7 +578,6 @@ class ManufacturingTab(BaseTabContainer):
 
         if hasattr(self, "design_search_results"):
             self._populate_design_picker(self.design_search_input.text())
-        self._refresh_bom_combo()
 
     def _populate_design_picker(self, filter_text: str = "") -> None:
         """Populate the design-first picker with exact BOM identities."""
@@ -717,38 +609,6 @@ class ManufacturingTab(BaseTabContainer):
 
     def _load_picker_design(self, item: QListWidgetItem) -> None:
         self._load_design_by_id(int(item.data(Qt.ItemDataRole.UserRole)))
-
-    def _refresh_bom_combo(self) -> None:
-        if not hasattr(self, "order_bom_combo") or not hasattr(self, "order_product_combo"):
-            return
-        self.order_bom_combo.clear()
-        self.order_bom_combo.addItem(t("manufacturing.select_bom_label", language=self._language), None)
-        selected_product_id = self.order_product_combo.currentData()
-        for label, bom_id, product_id in self._bom_entries:
-            if selected_product_id and product_id != selected_product_id:
-                continue
-            self.order_bom_combo.addItem(label, bom_id)
-
-    def _refresh_orders(self) -> None:
-        orders = list_production_orders()
-        self.orders_table.setRowCount(0)
-        for order in orders:
-            product_label = next(
-                (label for label, pid in self._product_map.items() if pid == order.product_id),
-                f"{t('common.product', language=self._language)} {order.product_id}",
-            )
-            row = self.orders_table.rowCount()
-            self.orders_table.insertRow(row)
-            self.orders_table.setItem(row, 0, QTableWidgetItem(order.order_no))
-            self.orders_table.setItem(row, 1, QTableWidgetItem(order.datetime))
-            self.orders_table.setItem(row, 2, QTableWidgetItem(self._status_label(order.status)))
-            self._paint_status_cell(self.orders_table.item(row, 2), order.status)
-            self.orders_table.setItem(row, 3, QTableWidgetItem(product_label))
-            self.orders_table.setItem(row, 4, QTableWidgetItem(f"{order.qty_to_produce:.3f}"))
-            self.orders_table.setItem(row, 5, QTableWidgetItem(f"{order.qty_produced:.3f}"))
-            cost_total = order.labor_cost + order.overhead_cost
-            self.orders_table.setItem(row, 6, QTableWidgetItem(f"{cost_total:.2f}"))
-            self.orders_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, order.id)
 
     def _save_material(self) -> None:
         if not self.material_name_en.text().strip():
@@ -1196,146 +1056,126 @@ class ManufacturingTab(BaseTabContainer):
         self._refresh_design_cost_summary()
 
     def _open_production_for_selected_design(self) -> None:
-        """Reveal the existing order workflow for the selected design."""
-        bom = next((b for b in list_boms() if b.id == self._selected_bom_id), None)
-        if not bom:
+        """Open the focused quantity dialog for the currently selected BOM."""
+        bom = next((item for item in list_boms() if item.id == self._selected_bom_id), None)
+        if bom is None:
             self.produce_design_btn.setEnabled(False)
             return
+        product = next((item for item in list_products() if item.id == bom.product_id), None)
+        if product is None:
+            QMessageBox.warning(self, "Production", "Could not load the linked product.")
+            return
 
-        product_index = self.order_product_combo.findData(bom.product_id)
-        if product_index >= 0:
-            self.order_product_combo.setCurrentIndex(product_index)
-        bom_index = self.order_bom_combo.findData(bom.id)
-        if bom_index >= 0:
-            self.order_bom_combo.setCurrentIndex(bom_index)
-        self._refresh_shortages()
-        self.production_dialog.show()
-        self.production_dialog.raise_()
-        self.production_dialog.activateWindow()
-        self.order_qty_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        language = self._language
+        dialog = QDialog(self)
+        dialog.setObjectName("producedQuantityDialog")
+        dialog.setModal(True)
+        dialog.setWindowTitle("إضافة كمية منتجة" if language == "ar" else "Add Produced Quantity")
+        dialog.resize(620, 440)
+        layout = QVBoxLayout(dialog)
+        details = QFormLayout()
+        details.addRow("اسم التصميم" if language == "ar" else "Design Name", QLabel(bom.name))
+        product_name = choose_name(product.name_ar, product.name_en, language=language)
+        details.addRow("المنتج المرتبط" if language == "ar" else "Linked Product", QLabel(product_name))
+        details.addRow(
+            "المخزون النهائي الحالي" if language == "ar" else "Current Finished Stock",
+            QLabel(f"{product.qty_on_hand:.3f}"),
+        )
+        self.produced_qty_input = QDoubleSpinBox()
+        self.produced_qty_input.setObjectName("producedQuantityInput")
+        self.produced_qty_input.setRange(0.001, 999999)
+        self.produced_qty_input.setDecimals(3)
+        self.produced_qty_input.setValue(1.0)
+        self.produced_qty_input.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        details.addRow("الكمية" if language == "ar" else "Quantity", self.produced_qty_input)
+        layout.addLayout(details)
 
-    def _create_order(self) -> None:
-        product_id = self.order_product_combo.currentData()
-        bom_id = self.order_bom_combo.currentData()
-        if not product_id:
-            QMessageBox.warning(
-                self,
-                t("common.select", language=self._language),
-                t("manufacturing.select_product", language=self._language),
-            )
-            return
-        if not bom_id:
-            QMessageBox.warning(
-                self,
-                t("common.select", language=self._language),
-                t("manufacturing.select_bom", language=self._language),
-            )
-            return
-        if float(self.order_qty_input.value()) <= 0:
-            QMessageBox.warning(
-                self,
-                t("common.select", language=self._language),
-                t("manufacturing.enter_qty", language=self._language),
-            )
-            return
-        order = create_production_order(
-            product_id=product_id,
-            qty_to_produce=float(self.order_qty_input.value()),
-            labor_cost=float(self.order_labor_input.value()),
-            overhead_cost=float(self.order_overhead_input.value()),
-            notes=self.order_notes_input.toPlainText().strip(),
-            bom_id=bom_id,
+        materials_title = QLabel("الخامات المطلوبة" if language == "ar" else "Required Materials")
+        layout.addWidget(materials_title)
+        preview = QTableWidget(0, 4)
+        preview.setObjectName("requiredMaterialsPreview")
+        preview.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        preview.setHorizontalHeaderLabels(
+            ["الخامة", "لكل وحدة", "المطلوب", "المتاح"] if language == "ar"
+            else ["Material", "Per Unit", "Required", "Available"]
         )
-        self.order_no_label.setText(order.order_no)
-        self._refresh_orders()
-        QMessageBox.information(
-            self,
-            t("common.saved_title", language=self._language),
-            t("manufacturing.order_created", language=self._language, order_no=order.order_no),
-        )
+        preview.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(preview, 1)
 
-    def _confirm_order(self) -> None:
-        if not self._selected_order_id:
-            QMessageBox.warning(
-                self,
-                t("common.select", language=self._language),
-                t("manufacturing.select_order", language=self._language),
-            )
-            return
-        try:
-            confirm_production_order(self._selected_order_id)
-        except ValueError:
-            QMessageBox.warning(
-                self,
-                t("manufacturing.shortage", language=self._language),
-                t("manufacturing.shortage_message", language=self._language),
-            )
-            return
-        self._refresh_orders()
-        QMessageBox.information(
-            self,
-            t("common.saved_title", language=self._language),
-            t("manufacturing.order_confirmed", language=self._language),
-        )
+        def refresh_preview() -> None:
+            # Reload materials for every calculation so the preview never uses
+            # stock captured when the design screen was opened.
+            materials = {material.id: material for material in list_materials()}
+            quantity = float(self.produced_qty_input.value())
+            preview.setRowCount(0)
+            for line in list_bom_lines(bom.id):
+                material = materials.get(line.material_id)
+                row = preview.rowCount()
+                preview.insertRow(row)
+                name = (
+                    choose_name(material.name_ar, material.name_en, language=language)
+                    if material else ("خامة غير متاحة" if language == "ar" else "Unavailable Material")
+                )
+                available = float(material.qty_on_hand) if material else 0.0
+                values = (name, f"{line.qty_required:.3f}",
+                          f"{line.qty_required * quantity:.3f}", f"{available:.3f}")
+                for column, value in enumerate(values):
+                    preview.setItem(row, column, QTableWidgetItem(value))
 
-    def _mark_done(self) -> None:
-        if not self._selected_order_id:
-            QMessageBox.warning(
-                self,
-                t("common.select", language=self._language),
-                t("manufacturing.select_order", language=self._language),
+        def confirm_production() -> None:
+            quantity = float(self.produced_qty_input.value())
+            materials = {material.id: material for material in list_materials()}
+            insufficient = any(
+                materials.get(line.material_id) is None
+                or materials[line.material_id].qty_on_hand < line.qty_required * quantity
+                for line in list_bom_lines(bom.id)
             )
-            return
-        try:
-            mark_production_done(self._selected_order_id)
-        except ValueError:
-            QMessageBox.warning(
-                self,
-                t("manufacturing.shortage", language=self._language),
-                t("manufacturing.shortage_message", language=self._language),
+            if insufficient:
+                refresh_preview()
+                QMessageBox.warning(
+                    dialog,
+                    "نقص في الخامات" if language == "ar" else "Material Shortage",
+                    "الخامات المتاحة غير كافية." if language == "ar" else "Available materials are insufficient.",
+                )
+                return
+            order = create_production_order(
+                product_id=product.id, qty_to_produce=quantity, labor_cost=0,
+                overhead_cost=0, notes="", bom_id=bom.id,
             )
-            return
-        self._refresh_orders()
-        QMessageBox.information(
-            self,
-            t("common.saved_title", language=self._language),
-            t("manufacturing.order_done", language=self._language),
-        )
+            try:
+                mark_production_done(order.id)
+            except ValueError:
+                refresh_preview()
+                QMessageBox.warning(
+                    dialog,
+                    "نقص في الخامات" if language == "ar" else "Material Shortage",
+                    "الخامات المتاحة غير كافية." if language == "ar" else "Available materials are insufficient.",
+                )
+                return
+            dialog.accept()
+            self._refresh_materials()
+            self._refresh_history_report()
+            self.inventory_changed.emit()
 
-    def _load_order(self, row: int) -> None:
-        self._selected_order_id = self.orders_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        order = fetch_production_order(self._selected_order_id)
-        if not order:
-            return
-        self.order_no_label.setText(order.order_no)
-        product_index = self.order_product_combo.findData(order.product_id)
-        if product_index >= 0:
-            self.order_product_combo.setCurrentIndex(product_index)
-        bom_index = self.order_bom_combo.findData(order.bom_id)
-        if bom_index >= 0:
-            self.order_bom_combo.setCurrentIndex(bom_index)
-        self.order_qty_input.setValue(order.qty_to_produce)
-        self.order_labor_input.setValue(order.labor_cost)
-        self.order_overhead_input.setValue(order.overhead_cost)
-        self.order_notes_input.setPlainText(order.notes)
-        self._refresh_shortages()
-
-    def _refresh_shortages(self) -> None:
-        bom_id = self.order_bom_combo.currentData()
-        qty = float(self.order_qty_input.value())
-        if not bom_id or qty <= 0:
-            self.shortage_label.setText("")
-            return
-        shortages = check_material_availability(bom_id, qty)
-        if not shortages:
-            self.shortage_label.setText(t("manufacturing.materials_ok", language=self._language))
-            return
-        details = ", ".join(
-            [f"{name} ({available:.2f}/{required:.2f})" for name, available, required in shortages]
-        )
-        self.shortage_label.setText(
-            t("manufacturing.shortages_label", language=self._language, details=details)
-        )
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+        cancel = QPushButton("إلغاء" if language == "ar" else "Cancel")
+        confirm = QPushButton("تأكيد الإنتاج" if language == "ar" else "Confirm Production")
+        cancel.setObjectName("cancelProductionButton")
+        confirm.setObjectName("confirmProductionButton")
+        cancel.clicked.connect(dialog.reject)
+        confirm.clicked.connect(confirm_production)
+        actions.addWidget(cancel)
+        actions.addWidget(confirm)
+        layout.addLayout(actions)
+        self.produced_quantity_dialog = dialog
+        self.produced_materials_preview = preview
+        self.produced_qty_input.valueChanged.connect(refresh_preview)
+        refresh_preview()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        self.produced_qty_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
     def _refresh_history_report(self) -> None:
         start_dt = datetime.combine(self.history_start.date().toPyDate(), time.min)
@@ -1501,11 +1341,6 @@ class ManufacturingTab(BaseTabContainer):
         self.tabs.setCurrentIndex(0)
         QMessageBox.information(self, "Duplicate Design", "Design copied. Review details then create product.")
 
-    def _paint_status_cell(self, item: QTableWidgetItem, status: str) -> None:
-        color = self._status_colors.get(status)
-        if color:
-            item.setForeground(color)
-
     def _status_label(self, status: str) -> str:
         mapping = {
             "draft": t("manufacturing.status_draft", language=self._language),
@@ -1588,7 +1423,7 @@ class ManufacturingTab(BaseTabContainer):
         self.summary_margin_label.setText("هامش %" if language == "ar" else "Margin %")
         self.bom_save_btn.setText("حفظ التصميم" if language == "ar" else "Save Design")
         self.produce_design_btn.setText(
-            "إنتاج من هذا التصميم" if language == "ar" else "Produce This Design"
+            "إضافة كمية منتجة" if language == "ar" else "Add Produced Quantity"
         )
         self.duplicate_design_btn.setText("تكرار التصميم" if language == "ar" else "Duplicate Design")
         self.bom_delete_btn.setText(t("manufacturing.delete_bom_label", language=language))
@@ -1600,35 +1435,6 @@ class ManufacturingTab(BaseTabContainer):
                 t("manufacturing.bom_table_active", language=language),
             ]
         )
-        if hasattr(self, "orders_box"):
-            self.production_dialog.setWindowTitle(
-                "أمر إنتاج" if language == "ar" else "Production Order"
-            )
-            self.orders_box.setTitle(t("manufacturing.orders_box", language=language))
-            self.order_no_text.setText(t("manufacturing.order_no", language=language))
-            if not self.order_no_label.text().strip():
-                self.order_no_label.setText(t("common.auto", language=language))
-            self.order_product_label.setText(t("manufacturing.order_product", language=language))
-            self.order_bom_label.setText(t("manufacturing.order_bom", language=language))
-            self.order_qty_label.setText(t("manufacturing.order_qty", language=language))
-            self.order_labor_label.setText(t("manufacturing.order_labor", language=language))
-            self.order_overhead_label.setText(t("manufacturing.order_overhead", language=language))
-            self.order_notes_label.setText(t("manufacturing.order_notes", language=language))
-            self.order_create_btn.setText(t("manufacturing.create_draft", language=language))
-            self.order_confirm_btn.setText(t("manufacturing.confirm", language=language))
-            self.order_done_btn.setText(t("manufacturing.mark_done", language=language))
-            self.status_legend_label.setText("الحالات: Draft (مسودة) / Confirmed (تم التأكيد) / Done (مكتمل)")
-            self.orders_table.setHorizontalHeaderLabels(
-                [
-                    t("manufacturing.orders_table_order", language=language),
-                    t("manufacturing.orders_table_date", language=language),
-                    t("manufacturing.orders_table_status", language=language),
-                    t("manufacturing.orders_table_product", language=language),
-                    t("manufacturing.orders_table_qty", language=language),
-                    t("manufacturing.orders_table_produced", language=language),
-                    t("manufacturing.orders_table_costs", language=language),
-                ]
-            )
         self.history_box.setTitle(t("manufacturing.history_box", language=language))
         self.history_help.setText(t("manufacturing.history_help", language=language))
         self.history_from_label.setText(f"{t('common.from', language=language)}:")

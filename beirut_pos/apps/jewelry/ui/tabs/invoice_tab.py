@@ -52,14 +52,14 @@ from ...services.db import (
     JewelryInvoiceItem,
     create_invoice,
     fetch_invoice_details,
-    find_product_by_code,
+    find_sale_catalog_item_by_code,
     find_customer_by_phone,
     get_loyalty_balance,
     list_active_statuses,
     list_delivery_companies,
     list_payment_methods,
     list_product_categories,
-    list_products,
+    list_sale_catalog,
     create_order_payment,
     recalculate_invoice_payment_totals,
     search_customers,
@@ -561,8 +561,9 @@ class InvoiceTab(BaseTabContainer):
         self.products_table.itemSelectionChanged.connect(self._update_add_state)
 
         self.qty_label = QLabel()
-        self.qty_input = QSpinBox()
-        self.qty_input.setRange(1, 1000)
+        self.qty_input = QDoubleSpinBox()
+        self.qty_input.setRange(0.001, 1000)
+        self.qty_input.setDecimals(3)
         self.add_btn = QPushButton()
         self.add_btn.setText("Add Selected")
         self.add_btn.clicked.connect(self._add_selected_product)
@@ -1024,7 +1025,7 @@ class InvoiceTab(BaseTabContainer):
 
     def load_products(self, category_id: Optional[str] = None, search_text: str = "") -> None:
         search = search_text.strip()
-        self._products = list_products(search=search if search else None, category=category_id)
+        self._products = list_sale_catalog(search=search if search else None, category=category_id)
         self.products_table.setRowCount(0)
         name_font = QFont(self.products_table.font())
         name_font.setPointSize(name_font.pointSize() + 2)
@@ -1038,13 +1039,26 @@ class InvoiceTab(BaseTabContainer):
             self.products_table.setItem(
                 row,
                 0,
-                QTableWidgetItem(choose_name(product.name_ar, product.name_en, language=self._language)),
+                QTableWidgetItem(self._catalog_display_name(product)),
             )
-            self.products_table.setItem(row, 1, QTableWidgetItem(product.sku))
+            self.products_table.setItem(row, 1, QTableWidgetItem(product.code))
             self.products_table.setItem(row, 2, QTableWidgetItem(product.barcode))
-            self.products_table.setItem(row, 3, QTableWidgetItem(f"{product.price:.2f}"))
-            self.products_table.setItem(row, 4, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
-            self.products_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
+            self.products_table.setItem(row, 3, QTableWidgetItem("" if product.price is None else f"{product.price:.2f}"))
+            stock = f"{product.qty_on_hand:.3f} {product.unit}".strip()
+            self.products_table.setItem(row, 4, QTableWidgetItem(stock))
+            self.products_table.item(row, 0).setData(
+                Qt.ItemDataRole.UserRole, (product.source_type, product.source_id)
+            )
+            self.products_table.item(row, 0).setData(
+                Qt.ItemDataRole.UserRole + 1, product.qty_on_hand <= 0 or product.price is None
+            )
+
+    def _catalog_display_name(self, item) -> str:
+        name = choose_name(item.name_ar, item.name_en, language=self._language)
+        if item.source_type == "material":
+            stock = f"{item.qty_on_hand:g} {item.unit}".strip()
+            return f"{name} — Material — {stock}"
+        return name
 
     def render_category_buttons(self) -> None:
         while self.category_layout.count():
@@ -1545,8 +1559,8 @@ class InvoiceTab(BaseTabContainer):
             return
         if self._is_out_of_stock_row(row):
             return
-        product_id = self.products_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        product = next((p for p in self._products if p.id == product_id), None)
+        source_key = self.products_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        product = next((p for p in self._products if (p.source_type, p.source_id) == source_key), None)
         if not product:
             return
         self._add_product_to_invoice(product, float(self.qty_input.value()))
@@ -1704,7 +1718,8 @@ class InvoiceTab(BaseTabContainer):
     def _collect_items(self) -> List[JewelryInvoiceItem]:
         items = []
         for row in range(self.items_table.rowCount()):
-            product_id = self.items_table.item(row, self.ITEM_COL_PRODUCT).data(Qt.ItemDataRole.UserRole)
+            metadata = self.items_table.item(row, self.ITEM_COL_PRODUCT).data(Qt.ItemDataRole.UserRole)
+            source_type, source_id, unit = metadata
             name = self.items_table.item(row, self.ITEM_COL_PRODUCT).text()
             code = self.items_table.item(row, self.ITEM_COL_CODE).text()
             qty = float(self.items_table.item(row, self.ITEM_COL_QTY).text())
@@ -1712,12 +1727,15 @@ class InvoiceTab(BaseTabContainer):
             line_total = float(self.items_table.item(row, self.ITEM_COL_LINE_TOTAL).text())
             items.append(
                 JewelryInvoiceItem(
-                    product_id=product_id,
+                    product_id=source_id if source_type == "product" else None,
                     product_name=name,
                     product_code=code,
                     qty=qty,
                     unit_price=unit_price,
                     line_total=line_total,
+                    item_type=source_type,
+                    material_id=source_id if source_type == "material" else None,
+                    unit=unit,
                 )
             )
         return items
@@ -1811,6 +1829,14 @@ class InvoiceTab(BaseTabContainer):
                 notes = f"{notes}\n{website_notes}".strip()
         return_reason = self.return_reason_input.text().strip() if txn_type == "return" else ""
         items = self._collect_items()
+        if txn_type == "sale":
+            try:
+                self._validate_material_stock(items)
+            except ValueError as exc:
+                QMessageBox.warning(self, "Insufficient material stock", str(exc))
+                self._save_in_progress = False
+                self._update_validation_state()
+                return
         try:
             invoice_no, invoice_id = create_invoice(
                 cashier,
@@ -2344,10 +2370,21 @@ class InvoiceTab(BaseTabContainer):
         return True
 
     def _add_product_to_invoice(self, product, qty: float) -> None:
+        if product.price is None:
+            QMessageBox.warning(self, "Missing sale price", "This material has no sale price and cannot be sold.")
+            return
+        if product.source_type == "material" and qty > product.qty_on_hand:
+            self._show_material_stock_error(product, qty)
+            return
+        source_key = (product.source_type, product.source_id)
         for row in range(self.items_table.rowCount()):
-            if self.items_table.item(row, self.ITEM_COL_PRODUCT).data(Qt.ItemDataRole.UserRole) == product.id:
+            metadata = self.items_table.item(row, self.ITEM_COL_PRODUCT).data(Qt.ItemDataRole.UserRole)
+            if metadata[:2] == source_key:
                 existing_qty = float(self.items_table.item(row, self.ITEM_COL_QTY).text())
                 new_qty = existing_qty + qty
+                if product.source_type == "material" and new_qty > product.qty_on_hand:
+                    self._show_material_stock_error(product, new_qty)
+                    return
                 self.items_table.setItem(row, self.ITEM_COL_QTY, QTableWidgetItem(f"{new_qty:.2f}"))
                 line_total = new_qty * product.price
                 self.items_table.setItem(
@@ -2355,7 +2392,7 @@ class InvoiceTab(BaseTabContainer):
                     self.ITEM_COL_LINE_TOTAL,
                     QTableWidgetItem(f"{line_total:.2f}"),
                 )
-                self._attach_qty_buttons(row, product.id)
+                self._attach_qty_buttons(row, source_key)
                 self._recalculate_totals()
                 self._focus_product_search()
                 return
@@ -2365,10 +2402,10 @@ class InvoiceTab(BaseTabContainer):
         self.items_table.setItem(
             item_row,
             self.ITEM_COL_PRODUCT,
-            QTableWidgetItem(choose_name(product.name_ar, product.name_en, language=self._language)),
+            QTableWidgetItem(self._catalog_display_name(product)),
         )
-        self.items_table.setItem(item_row, self.ITEM_COL_CODE, QTableWidgetItem(product.sku))
-        self.items_table.setItem(item_row, self.ITEM_COL_QTY, QTableWidgetItem(f"{qty:.2f}"))
+        self.items_table.setItem(item_row, self.ITEM_COL_CODE, QTableWidgetItem(product.code))
+        self.items_table.setItem(item_row, self.ITEM_COL_QTY, QTableWidgetItem(f"{qty:.3f}" if product.source_type == "material" else f"{qty:.2f}"))
         self.items_table.setItem(
             item_row,
             self.ITEM_COL_UNIT_PRICE,
@@ -2379,25 +2416,25 @@ class InvoiceTab(BaseTabContainer):
             self.ITEM_COL_LINE_TOTAL,
             QTableWidgetItem(f"{line_total:.2f}"),
         )
-        self.items_table.item(item_row, self.ITEM_COL_PRODUCT).setData(Qt.ItemDataRole.UserRole, product.id)
-        self._attach_qty_buttons(item_row, product.id)
+        self.items_table.item(item_row, self.ITEM_COL_PRODUCT).setData(
+            Qt.ItemDataRole.UserRole, (product.source_type, product.source_id, product.unit)
+        )
+        self._attach_qty_buttons(item_row, source_key)
         self._recalculate_totals()
         self._focus_product_search()
 
-    def _attach_qty_buttons(self, row: int, product_id: int) -> None:
+    def _attach_qty_buttons(self, row: int, source_key) -> None:
         minus_btn = QPushButton("−")
-        minus_btn.setProperty("product_id", product_id)
-        minus_btn.clicked.connect(lambda _checked=False, delta=-1.0: self._adjust_item_qty(product_id, delta))
+        minus_btn.clicked.connect(lambda _checked=False, delta=-1.0: self._adjust_item_qty(source_key, delta))
         plus_btn = QPushButton("+")
-        plus_btn.setProperty("product_id", product_id)
-        plus_btn.clicked.connect(lambda _checked=False, delta=1.0: self._adjust_item_qty(product_id, delta))
+        plus_btn.clicked.connect(lambda _checked=False, delta=1.0: self._adjust_item_qty(source_key, delta))
         minus_btn.setFixedWidth(JEWELRY_CONTROLS.icon_button_size)
         plus_btn.setFixedWidth(JEWELRY_CONTROLS.icon_button_size)
         self.items_table.setCellWidget(row, self.ITEM_COL_DECREMENT, minus_btn)
         self.items_table.setCellWidget(row, self.ITEM_COL_INCREMENT, plus_btn)
 
-    def _adjust_item_qty(self, product_id: int, delta: float) -> None:
-        row = self._find_item_row(product_id)
+    def _adjust_item_qty(self, source_key, delta: float) -> None:
+        row = self._find_item_row(source_key)
         if row < 0:
             return
         try:
@@ -2410,6 +2447,17 @@ class InvoiceTab(BaseTabContainer):
             self._recalculate_totals()
             self._show_status_message(t("invoice.item_removed", language=self._language))
             return
+        if source_key[0] == "material" and delta > 0:
+            current = next(
+                (entry for entry in list_sale_catalog() if entry.source_type == "material" and entry.source_id == source_key[1]),
+                None,
+            )
+            if current is None or new_qty > current.qty_on_hand:
+                if current is not None:
+                    self._show_material_stock_error(current, new_qty)
+                else:
+                    QMessageBox.warning(self, "Unavailable material", "This material is no longer saleable.")
+                return
         unit_price = float(self.items_table.item(row, self.ITEM_COL_UNIT_PRICE).text())
         self.items_table.setItem(row, self.ITEM_COL_QTY, QTableWidgetItem(f"{new_qty:.2f}"))
         self.items_table.setItem(
@@ -2441,12 +2489,30 @@ class InvoiceTab(BaseTabContainer):
         if self._instant_invoice_mode:
             self._focus_barcode_input()
 
-    def _find_item_row(self, product_id: int) -> int:
+    def _find_item_row(self, source_key) -> int:
         for row in range(self.items_table.rowCount()):
             item = self.items_table.item(row, self.ITEM_COL_PRODUCT)
-            if item and item.data(Qt.ItemDataRole.UserRole) == product_id:
+            metadata = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if metadata and metadata[:2] == source_key:
                 return row
         return -1
+
+    def _show_material_stock_error(self, material, requested: float) -> None:
+        QMessageBox.warning(
+            self, "Insufficient material stock",
+            f"{self._catalog_display_name(material)}\nAvailable: {material.qty_on_hand:g} {material.unit}\nRequested: {requested:g} {material.unit}",
+        )
+
+    def _validate_material_stock(self, items: List[JewelryInvoiceItem]) -> None:
+        for item in items:
+            if item.item_type != "material":
+                continue
+            current = next((entry for entry in list_sale_catalog() if entry.source_type == "material" and entry.source_id == item.material_id), None)
+            available = current.qty_on_hand if current else 0.0
+            if current is None or item.qty > available:
+                raise ValueError(
+                    f"{item.product_name}\nAvailable: {available:g} {item.unit}\nRequested: {item.qty:g} {item.unit}"
+                )
 
     def _is_out_of_stock_row(self, row: int) -> bool:
         item = self.products_table.item(row, 0)
@@ -2690,7 +2756,11 @@ class InvoiceTab(BaseTabContainer):
 
     def handle_scan(self, code: str) -> str:
         normalized_code = self._normalize_scan_text(code)
-        product = find_product_by_code(normalized_code)
+        try:
+            product = find_sale_catalog_item_by_code(normalized_code)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Ambiguous code/barcode", str(exc))
+            return str(exc)
         if not product:
             self._show_scan_fallback_popup(normalized_code)
             return t("invoice.unknown_barcode", language=self._language, code=normalized_code)

@@ -21,7 +21,7 @@ def tab(monkeypatch, app):
     )
     bom = SimpleNamespace(id=11, product_id=7, name="Summer Ring", active=True)
     material = SimpleNamespace(
-        id=3, name_ar="ذهب", name_en="Gold", qty_on_hand=10.0
+        id=3, name_ar="ذهب", name_en="Gold", qty_on_hand=10.0, unit="g"
     )
     line = SimpleNamespace(material_id=3, qty_required=1.25)
     monkeypatch.setattr(manufacturing_tab, "list_products", lambda: [product])
@@ -76,3 +76,26 @@ def test_selected_design_opens_only_simplified_quantity_dialog(app, tab):
     assert preview.item(0, 3).text() == "8.000"
     dialog.reject()
 
+
+def test_confirmation_handler_ignores_reentrant_signal(app, tab, monkeypatch):
+    widget, _material = tab
+    service_calls = []
+
+    def produce_once(bom_id, quantity):
+        service_calls.append((bom_id, quantity))
+        # Simulate a second queued/direct confirmation signal arriving while
+        # the first database operation is still in progress.
+        confirm.clicked.emit()
+        return {"success": True, "shortages": []}
+
+    monkeypatch.setattr(manufacturing_tab, "produce_from_bom", produce_once)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *args: None)
+    widget._open_production_for_selected_design()
+    app.processEvents()
+    dialog = widget.produced_quantity_dialog
+    confirm = dialog.findChild(QtWidgets.QPushButton, "confirmProductionButton")
+
+    confirm.clicked.emit()
+
+    assert service_calls == [(11, 1.0)]
+    assert dialog.result() == QtWidgets.QDialog.DialogCode.Accepted

@@ -820,6 +820,18 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "manufacturing.material_unit": {"en": "Unit", "ar": "الوحدة"},
     "manufacturing.material_min_qty": {"en": "Min Qty", "ar": "الحد الأدنى"},
     "manufacturing.material_cost": {"en": "Cost/Unit", "ar": "تكلفة الوحدة"},
+    "manufacturing.material_barcode": {"en": "Barcode", "ar": "الباركود"},
+    "manufacturing.material_saleable": {"en": "Saleable", "ar": "متاح للبيع"},
+    "manufacturing.material_sale_price": {"en": "Sale Price", "ar": "سعر البيع"},
+    "manufacturing.validation_title": {"en": "Validation", "ar": "التحقق من البيانات"},
+    "manufacturing.sale_price_positive": {
+        "en": "Enter a sale price greater than zero for a saleable material.",
+        "ar": "يرجى إدخال سعر بيع أكبر من صفر للخامة المتاحة للبيع.",
+    },
+    "manufacturing.barcode_duplicate": {
+        "en": "This barcode is already assigned to a product or material.",
+        "ar": "هذا الباركود مستخدم بالفعل لمنتج أو خامة.",
+    },
     "manufacturing.save_material": {"en": "Save Material", "ar": "حفظ خامة"},
     "manufacturing.delete": {"en": "Delete", "ar": "حذف"},
     "manufacturing.clear": {"en": "Clear", "ar": "مسح"},

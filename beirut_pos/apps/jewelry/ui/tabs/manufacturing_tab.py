@@ -102,6 +102,7 @@ class ManufacturingTab(BaseTabContainer):
             "material_qty",
             "material_min_qty",
             "material_cost",
+            "material_sale_price",
             "design_product_price",
             "design_labor_cost",
             "design_packaging_cost",
@@ -142,6 +143,12 @@ class ManufacturingTab(BaseTabContainer):
         self.material_cost = QDoubleSpinBox()
         self.material_cost.setRange(0, 999999)
         self.material_cost.setDecimals(2)
+        self.material_barcode = QLineEdit()
+        self.material_saleable = QCheckBox()
+        self.material_sale_price = QDoubleSpinBox()
+        self.material_sale_price.setRange(0, 999999)
+        self.material_sale_price.setDecimals(2)
+        self.material_saleable.toggled.connect(self._update_material_sale_price_state)
         self.material_name_ar_label = QLabel()
         self.material_name_en_label = QLabel()
         self.material_code_label = QLabel()
@@ -149,6 +156,9 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit_label = QLabel()
         self.material_min_qty_label = QLabel()
         self.material_cost_label = QLabel()
+        self.material_barcode_label = QLabel()
+        self.material_saleable_label = QLabel()
+        self.material_sale_price_label = QLabel()
 
         form_fields = [
             (self.material_name_ar_label, self.material_name_ar),
@@ -158,6 +168,9 @@ class ManufacturingTab(BaseTabContainer):
             (self.material_unit_label, self.material_unit),
             (self.material_cost_label, self.material_cost),
             (self.material_min_qty_label, self.material_min_qty),
+            (self.material_barcode_label, self.material_barcode),
+            (self.material_saleable_label, self.material_saleable),
+            (self.material_sale_price_label, self.material_sale_price),
         ]
         for index, (label, widget) in enumerate(form_fields):
             row = (index // 3) * 2
@@ -183,7 +196,7 @@ class ManufacturingTab(BaseTabContainer):
         actions_row.addWidget(self.material_delete_btn)
         actions_row.addStretch(1)
 
-        self.materials_table = QTableWidget(0, 7)
+        self.materials_table = QTableWidget(0, 10)
         self.materials_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.materials_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.materials_table.setAlternatingRowColors(True)
@@ -199,6 +212,9 @@ class ManufacturingTab(BaseTabContainer):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)
         self.materials_table.cellClicked.connect(self._load_material)
 
         form_and_actions = QWidget()
@@ -506,6 +522,18 @@ class ManufacturingTab(BaseTabContainer):
             self.materials_table.setItem(row, 4, QTableWidgetItem(material.unit))
             self.materials_table.setItem(row, 5, QTableWidgetItem(f"{material.cost_per_unit:.2f}"))
             self.materials_table.setItem(row, 6, QTableWidgetItem(f"{material.min_qty:.3f}"))
+            self.materials_table.setItem(row, 7, QTableWidgetItem(material.barcode))
+            saleable_text = t(
+                "common.yes" if material.saleable else "common.no",
+                language=self._language,
+            )
+            self.materials_table.setItem(row, 8, QTableWidgetItem(saleable_text))
+            sale_price = (
+                f"{material.sale_price:.2f}"
+                if material.sale_price is not None
+                else ""
+            )
+            self.materials_table.setItem(row, 9, QTableWidgetItem(sale_price))
             self.materials_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, material.id)
             display = f"{choose_name(material.name_ar, material.name_en, language=self._language)} ({material.code})"
             self._material_map[display] = material.id
@@ -624,23 +652,52 @@ class ManufacturingTab(BaseTabContainer):
                 t("manufacturing.material_code_required", language=self._language),
             )
             return
-        save_material(
-            self._editing_material_id,
-            self.material_name_ar.text().strip(),
-            self.material_name_en.text().strip(),
-            self.material_code.text().strip(),
-            float(self.material_qty.value()),
-            self.material_unit.text().strip(),
-            float(self.material_min_qty.value()),
-            float(self.material_cost.value()),
-        )
+        if self.material_saleable.isChecked() and self.material_sale_price.value() <= 0:
+            QMessageBox.warning(
+                self,
+                t("manufacturing.validation_title", language=self._language),
+                t("manufacturing.sale_price_positive", language=self._language),
+            )
+            return
+        try:
+            saved_id = save_material(
+                self._editing_material_id,
+                self.material_name_ar.text().strip(),
+                self.material_name_en.text().strip(),
+                self.material_code.text().strip(),
+                float(self.material_qty.value()),
+                self.material_unit.text().strip(),
+                float(self.material_min_qty.value()),
+                float(self.material_cost.value()),
+                self.material_saleable.isChecked(),
+                float(self.material_sale_price.value())
+                if self.material_saleable.isChecked()
+                else None,
+                self.material_barcode.text().strip(),
+            )
+        except ValueError as exc:
+            message = (
+                t("manufacturing.barcode_duplicate", language=self._language)
+                if "barcode" in str(exc).lower()
+                else str(exc)
+            )
+            QMessageBox.warning(
+                self,
+                t("manufacturing.validation_title", language=self._language),
+                message,
+            )
+            return
         QMessageBox.information(
             self,
             t("common.saved_title", language=self._language),
             t("manufacturing.material_saved_successfully", language=self._language),
         )
         self._refresh_materials()
-        self._clear_material_form()
+        for row in range(self.materials_table.rowCount()):
+            if self.materials_table.item(row, 0).data(Qt.ItemDataRole.UserRole) == saved_id:
+                self.materials_table.selectRow(row)
+                self._load_material(row)
+                break
 
     def _delete_material(self) -> None:
         if not self._selected_material_id:
@@ -727,6 +784,9 @@ class ManufacturingTab(BaseTabContainer):
             material.unit,
             material.min_qty,
             material.cost_per_unit,
+            material.saleable,
+            material.sale_price,
+            material.barcode,
         )
         self.material_qty.setValue(new_qty)
         QMessageBox.information(
@@ -748,6 +808,10 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit.clear()
         self.material_min_qty.setValue(0)
         self.material_cost.setValue(0)
+        self.material_barcode.clear()
+        self.material_saleable.setChecked(False)
+        self.material_sale_price.setValue(0)
+        self._update_material_sale_price_state(False)
         self._update_material_edit_ui()
 
     def _update_material_edit_ui(self) -> None:
@@ -762,6 +826,10 @@ class ManufacturingTab(BaseTabContainer):
         else:
             self.material_edit_indicator.clear()
 
+    def _update_material_sale_price_state(self, saleable: bool) -> None:
+        self.material_sale_price.setEnabled(saleable)
+        self.material_sale_price_label.setEnabled(saleable)
+
     def _load_material(self, row: int) -> None:
         self._selected_material_id = self.materials_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         self._editing_material_id = self._selected_material_id
@@ -772,6 +840,10 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit.setText(self.materials_table.item(row, 4).text())
         self.material_cost.setValue(float(self.materials_table.item(row, 5).text()))
         self.material_min_qty.setValue(float(self.materials_table.item(row, 6).text()))
+        self.material_barcode.setText(self.materials_table.item(row, 7).text())
+        self.material_saleable.setChecked(self.materials_table.item(row, 8).text() == t("common.yes", language=self._language))
+        sale_price = self.materials_table.item(row, 9).text()
+        self.material_sale_price.setValue(float(sale_price) if sale_price else 0)
         self._update_material_edit_ui()
 
     def _add_bom_line(self) -> None:
@@ -1416,6 +1488,9 @@ class ManufacturingTab(BaseTabContainer):
         self.material_unit_label.setText(t("manufacturing.material_unit", language=language))
         self.material_min_qty_label.setText(t("manufacturing.material_min_qty", language=language))
         self.material_cost_label.setText(t("manufacturing.material_cost", language=language))
+        self.material_barcode_label.setText(t("manufacturing.material_barcode", language=language))
+        self.material_saleable_label.setText(t("manufacturing.material_saleable", language=language))
+        self.material_sale_price_label.setText(t("manufacturing.material_sale_price", language=language))
         self.material_adjust_stock_btn.setText("تعديل الرصيد" if language == "ar" else "Adjust Stock")
         self.material_delete_btn.setText("حذف خامة" if language == "ar" else "Delete Material")
         self.material_clear_btn.setText("خامة جديدة" if language == "ar" else "New Material")
@@ -1429,6 +1504,9 @@ class ManufacturingTab(BaseTabContainer):
                 "الوحدة" if language == "ar" else "Unit",
                 "التكلفة" if language == "ar" else "Unit Cost",
                 "الحد الأدنى" if language == "ar" else "Min Qty",
+                t("manufacturing.material_barcode", language=language),
+                t("manufacturing.material_saleable", language=language),
+                t("manufacturing.material_sale_price", language=language),
             ]
         )
         self.tabs.setTabText(0, "إنشاء تصميم" if language == "ar" else "Designs")

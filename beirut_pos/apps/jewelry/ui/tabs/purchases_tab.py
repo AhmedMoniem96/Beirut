@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -25,7 +26,7 @@ from PyQt6.QtWidgets import (
 
 from ...services.db import (add_worker, create_purchase, create_wage_movement,
     delete_purchase, delete_wage_movement, delete_worker, latest_material_purchase_unit_cost,
-    list_materials, list_purchases, list_workers, update_purchase, update_worker)
+    get_worker_wage_account, list_materials, list_purchases, list_workers, update_purchase, update_worker)
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
 
@@ -140,8 +141,10 @@ class PurchasesTab(BaseTabContainer):
         self.tabs.addTab(self.material_tab, "")
 
     def _build_workers_tab(self) -> None:
-        self.workers_tab = QWidget(); layout = QVBoxLayout(self.workers_tab)
-        box = QGroupBox(); g = QGridLayout(box)
+        self.workers_tab = QWidget(); outer = QVBoxLayout(self.workers_tab)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        content = QWidget(); layout = QVBoxLayout(content); scroll.setWidget(content); outer.addWidget(scroll)
+        self.worker_info_box = QGroupBox(); g = QGridLayout(self.worker_info_box)
         self.worker_manage = QComboBox(); self.worker_manage.currentIndexChanged.connect(self._load_worker_form)
         self.worker_name = QLineEdit(); self.worker_phone = QLineEdit(); self.worker_role = QLineEdit(); self.worker_default_wage = QDoubleSpinBox(); self.worker_default_wage.setRange(0, 999999999); self.worker_default_wage.setDecimals(2)
         self.worker_wage_type = QComboBox()
@@ -153,31 +156,45 @@ class PurchasesTab(BaseTabContainer):
         g.addWidget(self.worker_labels[3],2,0); g.addWidget(self.worker_role,2,1)
         g.addWidget(self.worker_labels[4],2,2); g.addWidget(self.worker_default_wage,2,3)
         g.addWidget(self.worker_labels[5],3,0); g.addWidget(self.worker_wage_type,3,1)
-        g.addWidget(QLabel(),3,2); g.addWidget(self.worker_notes,3,3)
+        self.worker_notes_label = QLabel(); g.addWidget(self.worker_notes_label,3,2); g.addWidget(self.worker_notes,3,3)
         actions = QHBoxLayout(); self.worker_add_btn = QPushButton(); self.worker_add_btn.clicked.connect(self._add_worker); self.worker_save_btn = QPushButton(); self.worker_save_btn.clicked.connect(self._update_worker); self.worker_del_btn = QPushButton(); self.worker_del_btn.clicked.connect(self._delete_worker)
         actions.addWidget(self.worker_add_btn); actions.addWidget(self.worker_save_btn); actions.addWidget(self.worker_del_btn); actions.addStretch(1); g.addLayout(actions,4,0,1,4)
-        layout.addWidget(box)
-        self.workers_table = QTableWidget(0,6); self.workers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); layout.addWidget(self.workers_table)
-        pay_box = QGroupBox(); p = QGridLayout(pay_box)
+        layout.addWidget(self.worker_info_box)
+        self.workers_table = QTableWidget(0,6); self.workers_table.setMinimumHeight(150); self.workers_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.workers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.workers_table.cellClicked.connect(self._select_worker_row); layout.addWidget(self.workers_table)
+        self.worker_account_box = QGroupBox(); account_layout = QVBoxLayout(self.worker_account_box)
+        summary = QGridLayout(); self.account_labels = [QLabel() for _ in range(4)]; self.account_values = [QLabel("—") for _ in range(4)]
+        for index in range(4): summary.addWidget(self.account_labels[index], index // 2, (index % 2) * 2); summary.addWidget(self.account_values[index], index // 2, (index % 2) * 2 + 1)
+        account_layout.addLayout(summary)
+        self.movement_box = QGroupBox(); p = QGridLayout(self.movement_box)
         self.wp_worker = QComboBox(); self.wp_date = QDateEdit(); self.wp_date.setCalendarPopup(True); self.wp_date.setDate(date.today()); self.wp_amount = QDoubleSpinBox(); self.wp_amount.setRange(0, 999999999); self.wp_amount.setDecimals(2)
+        self.wp_worker.currentIndexChanged.connect(self._refresh_worker_account)
+        self.wp_date.dateChanged.connect(self._refresh_worker_account)
+        self.wp_amount.valueChanged.connect(self._refresh_worker_account)
         self.wp_movement_type = QComboBox()
-        self.wp_movement_type.addItem("Wage Payment / دفعة أجر", "wage_payment")
-        self.wp_movement_type.addItem("Advance / سلفة", "advance")
-        self.wp_movement_type.addItem("Deduction / خصم", "deduction")
+        for key in ("wage_payment", "advance", "deduction"): self.wp_movement_type.addItem("", key)
+        self.wp_movement_type.currentIndexChanged.connect(self._update_movement_form)
         self.wp_period = QComboBox();
         for key in ["daily", "weekly", "monthly", "custom"]: self.wp_period.addItem(key, key)
-        self.wp_notes = QLineEdit(); self.wp_labels = [QLabel() for _ in range(6)]
+        self.wp_notes = QLineEdit(); self.wp_labels = [QLabel() for _ in range(7)]
+        self.wp_apply_to = QComboBox(); self.wp_apply_to.addItem("", "next"); self.wp_apply_to.addItem("", "specific")
+        self.wp_apply_month = QDateEdit(); self.wp_apply_month.setDisplayFormat("MMMM yyyy"); self.wp_apply_month.setDate(date.today()); self.wp_apply_to.currentIndexChanged.connect(self._update_movement_form)
         p.addWidget(self.wp_labels[0],0,0); p.addWidget(self.wp_worker,0,1)
         p.addWidget(self.wp_labels[1],0,2); p.addWidget(self.wp_date,0,3)
         p.addWidget(self.wp_labels[2],1,0); p.addWidget(self.wp_amount,1,1)
         p.addWidget(self.wp_labels[3],1,2); p.addWidget(self.wp_period,1,3)
         p.addWidget(self.wp_labels[4],2,0); p.addWidget(self.wp_notes,2,1,1,3)
         p.addWidget(self.wp_labels[5],3,0); p.addWidget(self.wp_movement_type,3,1)
-        self.wp_add_btn = QPushButton(); self.wp_add_btn.clicked.connect(self._add_wage_payment); p.addWidget(self.wp_add_btn,4,0,1,2)
-        self.wp_delete_btn = QPushButton(); self.wp_delete_btn.clicked.connect(self._delete_wage_movement); p.addWidget(self.wp_delete_btn,4,2,1,2)
-        layout.addWidget(pay_box)
-        self.wage_table = QTableWidget(0,9); self.wage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.wage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.wage_table.cellClicked.connect(self._load_wage_row)
-        layout.addWidget(self.wage_table)
+        p.addWidget(self.wp_labels[6],3,2); p.addWidget(self.wp_apply_to,3,3); p.addWidget(self.wp_apply_month,4,3)
+        self.preview_widget = QWidget(); preview = QGridLayout(self.preview_widget); preview.setContentsMargins(0,0,0,0)
+        self.preview_labels = [QLabel() for _ in range(4)]; self.preview_values = [QLabel("—") for _ in range(4)]
+        for index in range(4): preview.addWidget(self.preview_labels[index], index, 0); preview.addWidget(self.preview_values[index], index, 1)
+        p.addWidget(self.preview_widget,4,0,1,2)
+        self.wp_add_btn = QPushButton(); self.wp_add_btn.clicked.connect(self._add_wage_payment); p.addWidget(self.wp_add_btn,5,0,1,2)
+        account_layout.addWidget(self.movement_box); layout.addWidget(self.worker_account_box)
+        self.wage_history_box = QGroupBox(); history = QVBoxLayout(self.wage_history_box)
+        self.wage_table = QTableWidget(0,10); self.wage_table.setMinimumHeight(190); self.wage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.wage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.wage_table.cellClicked.connect(self._load_wage_row); history.addWidget(self.wage_table)
+        self.wp_delete_btn = QPushButton(); self.wp_delete_btn.clicked.connect(self._delete_wage_movement); history.addWidget(self.wp_delete_btn)
+        layout.addWidget(self.wage_history_box)
         self.tabs.addTab(self.workers_tab, "")
 
     def _material_label(self, material) -> str:
@@ -280,9 +297,55 @@ class PurchasesTab(BaseTabContainer):
         self._refresh_material_combo()
         workers = list_workers(); self._workers = [(w.id, w.name, w.wage_type, w.phone, w.role, w.default_wage) for w in workers]
         for combo in [self.worker_manage, self.wp_worker]:
+            selected = combo.currentData()
             combo.blockSignals(True); combo.clear(); combo.addItem("", None)
             for w in workers: combo.addItem(w.name, w.id)
+            index = combo.findData(selected); combo.setCurrentIndex(index if index >= 0 else 0)
             combo.blockSignals(False)
+
+    def _select_worker_row(self, row: int, _column: int = 0) -> None:
+        item = self.workers_table.item(row, 0)
+        worker_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not worker_id:
+            return
+        self.worker_manage.setCurrentIndex(self.worker_manage.findData(worker_id))
+        self.wp_worker.setCurrentIndex(self.wp_worker.findData(worker_id))
+        worker = next((w for w in list_workers() if w.id == worker_id), None)
+        if worker:
+            self.wp_amount.setValue(float(worker.default_wage))
+        self._refresh_worker_account()
+
+    def _refresh_worker_account(self) -> None:
+        worker_id = self.wp_worker.currentData()
+        if not worker_id:
+            for label in self.account_values + self.preview_values: label.setText("—")
+            return
+        try:
+            values = get_worker_wage_account(
+                worker_id, gross=float(self.wp_amount.value()),
+                wage_date=self.wp_date.date().toString("yyyy-MM-dd"),
+            )
+        except ValueError:
+            return
+        numbers = (values["default_wage"], values["outstanding_advances"],
+                   values["outstanding_deductions"],
+                   max(values["default_wage"] - values["outstanding_advances"] - values["outstanding_deductions"], 0))
+        for label, value in zip(self.account_values, numbers): label.setText(f"{value:.2f}")
+        preview_numbers = (values["gross"], values["outstanding_advances"],
+                           values["outstanding_deductions"], values["net_payable"])
+        for label, value in zip(self.preview_values, preview_numbers): label.setText(f"{value:.2f}")
+
+    def _update_movement_form(self, _index: int = -1) -> None:
+        movement = self.wp_movement_type.currentData()
+        adjustment = movement in {"advance", "deduction"}
+        self.wp_apply_to.setVisible(adjustment); self.wp_labels[6].setVisible(adjustment)
+        self.wp_apply_month.setVisible(adjustment and self.wp_apply_to.currentData() == "specific")
+        self.preview_widget.setVisible(movement == "wage_payment")
+        action_key = {"advance": "purchases.add_advance", "deduction": "purchases.add_deduction",
+                      "wage_payment": "purchases.pay_wage"}.get(movement, "purchases.pay_wage")
+        self.wp_add_btn.setText(t(action_key, language=self._language))
+        self.wp_labels[2].setText(t("purchases.gross_wage" if movement == "wage_payment" else "purchases.amount", language=self._language))
+        self._refresh_worker_account()
 
     def _worker_payload(self):
         return {"name": self.worker_name.text().strip(), "phone": self.worker_phone.text().strip(), "role": self.worker_role.text().strip(), "default_wage": float(self.worker_default_wage.value()), "wage_type": self.worker_wage_type.currentData(), "notes": self.worker_notes.text().strip()}
@@ -401,12 +464,23 @@ class PurchasesTab(BaseTabContainer):
 
     def _add_wage_payment(self):
         try:
+            apply_month = ""
+            if self.wp_movement_type.currentData() in {"advance", "deduction"} and self.wp_apply_to.currentData() == "specific":
+                apply_month = self.wp_apply_month.date().toString("yyyy-MM")
             create_wage_movement(worker_id=self.wp_worker.currentData(),
                 movement_type=self.wp_movement_type.currentData(),
                 date=self.wp_date.date().toString("yyyy-MM-dd"), amount=float(self.wp_amount.value()),
-                notes=self.wp_notes.text().strip(), wage_period=self.wp_period.currentData())
+                notes=self.wp_notes.text().strip(), wage_period=self.wp_period.currentData(),
+                apply_to_month=apply_month)
             self.refresh_table()
-        except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
+        except Exception as exc: QMessageBox.warning(self, t("common.error", language=self._language), self._wage_error(exc))
+
+    def _wage_error(self, error: Exception) -> str:
+        key = {"worker not found": "purchases.error_worker_required",
+               "amount must be positive": "purchases.error_amount_positive",
+               "This wage payment consumed an Advance or Deduction balance and cannot be deleted.": "purchases.error_delete_payment",
+               "This movement has already affected a wage payment and cannot be deleted.": "purchases.error_delete_applied"}.get(str(error))
+        return t(key, language=self._language) if key else str(error)
 
     def _delete_wage_movement(self):
         if not self.wage_table.selectionModel().hasSelection():
@@ -418,8 +492,8 @@ class PurchasesTab(BaseTabContainer):
             return
         answer = QMessageBox.question(
             self,
-            "Delete Movement / حذف الحركة",
-            "Delete the selected wage movement? / هل تريد حذف حركة الأجر المحددة؟",
+            t("purchases.delete_movement", language=self._language),
+            t("purchases.confirm_delete_movement", language=self._language),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -431,7 +505,7 @@ class PurchasesTab(BaseTabContainer):
             self.refresh_table()
             self.wage_table.clearSelection()
         except Exception as exc:
-            QMessageBox.warning(self, "Cannot Delete Movement / تعذر حذف الحركة", str(exc))
+            QMessageBox.warning(self, t("purchases.cannot_delete_movement", language=self._language), self._wage_error(exc))
 
     def _clear_expense(self):
         self._selected_expense_id = None
@@ -498,21 +572,28 @@ class PurchasesTab(BaseTabContainer):
             r = self.workers_table.rowCount(); self.workers_table.insertRow(r)
             vals = [w.name, w.phone, w.role, f"{w.default_wage:.2f}", w.wage_type, w.notes]
             for c,v in enumerate(vals): self.workers_table.setItem(r,c,QTableWidgetItem(str(v)))
+            self.workers_table.item(r,0).setData(Qt.ItemDataRole.UserRole, w.id)
         self.wage_table.setRowCount(0)
         for p in wage:
             r = self.wage_table.rowCount(); self.wage_table.insertRow(r)
             wname = next((w[1] for w in self._workers if w[0] == p.worker_id), "")
-            vals = [wname, p.movement_type, p.date, f"{p.gross_amount:.2f}", f"{p.amount:.2f}",
-                    f"{p.applied_amount:.2f}", f"{p.remaining_amount:.2f}", p.wage_period, p.notes]
+            movement_name = t(f"purchases.movement.{p.movement_type}", language=self._language)
+            applied = f"{p.applied_amount:.2f}" if p.movement_type in {"advance", "deduction", "wage_payment"} else "—"
+            remaining = f"{p.remaining_amount:.2f}" if p.movement_type in {"advance", "deduction"} else "—"
+            net_paid = f"{p.amount:.2f}" if p.movement_type == "wage_payment" else "—"
+            apply_to = p.apply_to_month or t("purchases.next_wage", language=self._language)
+            vals = [wname, movement_name, p.date, f"{p.gross_amount:.2f}", applied,
+                    remaining, net_paid, p.wage_period or "—", apply_to, p.notes]
             for c,v in enumerate(vals): self.wage_table.setItem(r,c,QTableWidgetItem(v))
             self.wage_table.item(r,0).setData(Qt.ItemDataRole.UserRole, p.id)
+        self._refresh_worker_account()
 
     def apply_language(self, language: str) -> None:
         self._language = language
         self.header_label.setText(t("purchases.header", language=language))
         self.tabs.setTabText(0, f"{t('purchases.expenses', language=language)} / {t('tab.purchases', language=language)}")
         self.tabs.setTabText(1, t("reports.material_purchases", language=language))
-        self.tabs.setTabText(2, f"{t('purchases.worker', language=language)} / {t('reports.worker_wages', language=language)}")
+        self.tabs.setTabText(2, t("purchases.workers_wages", language=language))
         labels = [t("common.date", language=language), t("purchases.category", language=language), t("purchases.vendor", language=language), t("purchases.amount", language=language), t("common.payment_method", language=language), t("purchases.description", language=language), t("common.notes", language=language)]
         for i,txt in enumerate(labels): self.expense_labels[i].setText(txt)
         self.expenses_table.setHorizontalHeaderLabels([t("common.date",language=language), t("purchases.category",language=language), t("purchases.vendor",language=language), t("purchases.description",language=language), t("purchases.amount",language=language), t("common.payment_method",language=language), t("common.notes",language=language), ""])
@@ -522,12 +603,23 @@ class PurchasesTab(BaseTabContainer):
         self.material_table.setHorizontalHeaderLabels([t("common.date",language=language), t("purchases.material",language=language), t("purchases.supplier",language=language), t("common.qty",language=language), t("purchases.unit_cost",language=language), t("common.total",language=language), t("common.payment_method",language=language), t("purchases.stock_updated",language=language), t("common.notes",language=language)])
         self.mat_add_btn.setText(t("common.add", language=language)); self.mat_save_btn.setText(t("common.save", language=language)); self.mat_del_btn.setText(t("common.delete", language=language)); self.mat_clear_btn.setText(t("common.clear_form", language=language))
         self.worker_labels[0].setText(t("purchases.worker", language=language)); self.worker_labels[1].setText(t("purchases.name", language=language)); self.worker_labels[2].setText(t("purchases.phone", language=language)); self.worker_labels[3].setText(t("purchases.role", language=language)); self.worker_labels[4].setText(t("purchases.default_wage", language=language)); self.worker_labels[5].setText(t("purchases.wage_type", language=language))
+        self.worker_notes_label.setText(t("common.notes", language=language))
+        self.worker_info_box.setTitle(t("purchases.worker_information", language=language))
+        self.worker_account_box.setTitle(t("purchases.worker_account", language=language)); self.movement_box.setTitle(t("purchases.movement", language=language)); self.wage_history_box.setTitle(t("purchases.movement_history", language=language))
         self.worker_add_btn.setText(t("purchases.add_worker", language=language)); self.worker_save_btn.setText(t("purchases.update_worker", language=language)); self.worker_del_btn.setText(t("purchases.delete_worker", language=language))
         self.workers_table.setHorizontalHeaderLabels([t("purchases.name",language=language), t("purchases.phone",language=language), t("purchases.role",language=language), t("purchases.default_wage",language=language), t("purchases.wage_type",language=language), t("common.notes",language=language)])
-        self.wp_labels[0].setText(t("purchases.worker", language=language)); self.wp_labels[1].setText(t("common.date", language=language)); self.wp_labels[2].setText(t("purchases.amount", language=language)); self.wp_labels[3].setText(t("purchases.wage_period", language=language)); self.wp_labels[4].setText(t("common.notes", language=language)); self.wp_labels[5].setText("Movement Type / نوع الحركة"); self.wp_add_btn.setText(t("purchases.add_wage_payment", language=language)); self.wp_delete_btn.setText("Delete Movement / حذف الحركة")
-        self.wage_table.setHorizontalHeaderLabels([t("purchases.worker",language=language), "Movement Type", t("common.date",language=language), t("purchases.amount",language=language), "Net Paid", "Applied", "Remaining", t("purchases.wage_period",language=language), t("common.notes",language=language)])
+        account_keys = ["purchases.default_wage", "purchases.outstanding_advances", "purchases.outstanding_deductions", "purchases.next_net_wage"]
+        preview_keys = ["purchases.gross_wage", "purchases.outstanding_advances", "purchases.outstanding_deductions", "purchases.net_payable"]
+        for label,key in zip(self.account_labels, account_keys): label.setText(t(key, language=language))
+        for label,key in zip(self.preview_labels, preview_keys): label.setText(t(key, language=language))
+        self.wp_labels[0].setText(t("purchases.worker", language=language)); self.wp_labels[1].setText(t("common.date", language=language)); self.wp_labels[2].setText(t("purchases.amount", language=language)); self.wp_labels[3].setText(t("purchases.wage_period", language=language)); self.wp_labels[4].setText(t("common.notes", language=language)); self.wp_labels[5].setText(t("purchases.movement_type", language=language)); self.wp_labels[6].setText(t("purchases.apply_to_wage", language=language)); self.wp_delete_btn.setText(t("purchases.delete_movement", language=language))
+        for index,key in enumerate(("wage_payment", "advance", "deduction")): self.wp_movement_type.setItemText(index, t(f"purchases.movement.{key}", language=language))
+        self.wp_apply_to.setItemText(0, t("purchases.next_wage", language=language)); self.wp_apply_to.setItemText(1, t("purchases.specific_month", language=language))
+        self.wage_table.setHorizontalHeaderLabels([t("purchases.worker",language=language), t("purchases.movement_type",language=language), t("common.date",language=language), t("purchases.original_amount",language=language), t("purchases.applied",language=language), t("purchases.remaining",language=language), t("purchases.net_paid",language=language), t("purchases.wage_period",language=language), t("purchases.apply_to",language=language), t("common.notes",language=language)])
         cat_map = {"Electricity Bill": t("purchases.electricity_bill", language=language), "Rent": t("purchases.rent", language=language), "Maintenance": t("purchases.maintenance", language=language), "Packaging": t("purchases.packaging", language=language), "Other": t("purchases.other", language=language), "Shop Bill": t("purchases.expenses", language=language)}
         for i,c in enumerate(self.EXPENSE_CATEGORIES): self.expense_category.setItemText(i, cat_map.get(c,c))
         period_map = {"daily": t("purchases.daily", language=language), "weekly": t("purchases.weekly", language=language), "monthly": t("purchases.monthly", language=language), "custom": t("purchases.custom", language=language)}
         for combo in [self.worker_wage_type, self.wp_period]:
             for i,key in enumerate(["daily","weekly","monthly","custom"]): combo.setItemText(i, period_map[key])
+        self._update_movement_form()
+        self.refresh_table()

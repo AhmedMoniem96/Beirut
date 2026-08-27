@@ -90,6 +90,9 @@ class InventoryTab(BaseTabContainer):
         self.price_input = QDoubleSpinBox()
         self.price_input.setRange(0, 999999)
         self.price_input.setDecimals(2)
+        self.cost_input = QDoubleSpinBox()
+        self.cost_input.setRange(0, 999999)
+        self.cost_input.setDecimals(2)
         self.qty_input = QDoubleSpinBox()
         self.qty_input.setRange(0, 999999)
         self.qty_input.setDecimals(2)
@@ -106,6 +109,7 @@ class InventoryTab(BaseTabContainer):
         self.sku_label = QLabel()
         self.barcode_label = QLabel()
         self.price_label = QLabel()
+        self.cost_label = QLabel()
         self.qty_label = QLabel()
         self.min_qty_label = QLabel()
         self.category_label = QLabel()
@@ -127,12 +131,14 @@ class InventoryTab(BaseTabContainer):
         pricing_box = QGroupBox()
         self.pricing_box = pricing_box
         pricing_layout = QGridLayout(pricing_box)
-        pricing_layout.addWidget(self.price_label, 0, 0)
-        pricing_layout.addWidget(self.price_input, 1, 0)
-        pricing_layout.addWidget(self.qty_label, 0, 1)
-        pricing_layout.addWidget(self.qty_input, 1, 1)
-        pricing_layout.addWidget(self.min_qty_label, 0, 2)
-        pricing_layout.addWidget(self.min_qty_input, 1, 2)
+        pricing_layout.addWidget(self.cost_label, 0, 0)
+        pricing_layout.addWidget(self.cost_input, 1, 0)
+        pricing_layout.addWidget(self.price_label, 0, 1)
+        pricing_layout.addWidget(self.price_input, 1, 1)
+        pricing_layout.addWidget(self.qty_label, 0, 2)
+        pricing_layout.addWidget(self.qty_input, 1, 2)
+        pricing_layout.addWidget(self.min_qty_label, 0, 3)
+        pricing_layout.addWidget(self.min_qty_input, 1, 3)
 
         attrs_box = QGroupBox()
         self.attrs_box = attrs_box
@@ -181,7 +187,7 @@ class InventoryTab(BaseTabContainer):
         self.footer_layout.addWidget(self.save_btn)
         self.footer_layout.addWidget(self.auto_save_barcode_check)
 
-        self.table = QTableWidget(0, 11)
+        self.table = QTableWidget(0, 12)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
@@ -234,6 +240,7 @@ class InventoryTab(BaseTabContainer):
             widget.setReadOnly(not allow_edit)
         for widget in [
             self.price_input,
+            self.cost_input,
             self.qty_input,
             self.min_qty_input,
             self.handmade_check,
@@ -256,21 +263,22 @@ class InventoryTab(BaseTabContainer):
             self.table.setItem(row, 1, QTableWidgetItem(product.name_en))
             self.table.setItem(row, 2, QTableWidgetItem(product.sku))
             self.table.setItem(row, 3, QTableWidgetItem(product.barcode))
-            self.table.setItem(row, 4, QTableWidgetItem(f"{product.price:.2f}"))
-            self.table.setItem(row, 5, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
-            self.table.setItem(row, 6, QTableWidgetItem(f"{product.min_qty:.2f}"))
-            self.table.setItem(row, 7, QTableWidgetItem(product.category))
+            self.table.setItem(row, 4, QTableWidgetItem(f"{product.cost:.2f}"))
+            self.table.setItem(row, 5, QTableWidgetItem(f"{product.price:.2f}"))
+            self.table.setItem(row, 6, QTableWidgetItem(f"{product.qty_on_hand:.2f}"))
+            self.table.setItem(row, 7, QTableWidgetItem(f"{product.min_qty:.2f}"))
+            self.table.setItem(row, 8, QTableWidgetItem(product.category))
             self.table.setItem(
                 row,
-                8,
+                9,
                 QTableWidgetItem(
                     t("common.yes", language=self._language)
                     if product.handmade_flag
                     else t("common.no", language=self._language)
                 ),
             )
-            self.table.setItem(row, 9, QTableWidgetItem(product.stone_type))
-            self.table.setItem(row, 10, QTableWidgetItem(product.color))
+            self.table.setItem(row, 10, QTableWidgetItem(product.stone_type))
+            self.table.setItem(row, 11, QTableWidgetItem(product.color))
             self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, product.id)
 
             if product.qty_on_hand <= 0 or product.qty_on_hand <= product.min_qty:
@@ -313,7 +321,8 @@ class InventoryTab(BaseTabContainer):
         self.name_en_label.setText(t("inventory.name_en", language=language))
         self.sku_label.setText(t("inventory.sku", language=language))
         self.barcode_label.setText(t("inventory.barcode", language=language))
-        self.price_label.setText(t("common.price", language=language))
+        self.cost_label.setText(t("inventory.cost", language=language))
+        self.price_label.setText(t("inventory.selling_price", language=language))
         self.qty_label.setText(t("inventory.qty_on_hand", language=language))
         self.min_qty_label.setText(t("inventory.min_qty", language=language))
         self.category_label.setText(t("inventory.category", language=language))
@@ -334,7 +343,8 @@ class InventoryTab(BaseTabContainer):
                 t("inventory.table_english", language=language),
                 t("common.code", language=language),
                 t("inventory.table_barcode", language=language),
-                t("common.price", language=language),
+                t("inventory.cost", language=language),
+                t("inventory.selling_price", language=language),
                 t("inventory.table_qty", language=language),
                 t("inventory.table_min", language=language),
                 t("inventory.table_category", language=language),
@@ -361,15 +371,16 @@ class InventoryTab(BaseTabContainer):
         self.name_en_input.setText(self.table.item(row, 1).text())
         self.sku_input.setText(self.table.item(row, 2).text())
         self.barcode_input.setText(self.table.item(row, 3).text())
-        self.price_input.setValue(float(self.table.item(row, 4).text()))
-        self.qty_input.setValue(float(self.table.item(row, 5).text()))
-        self.min_qty_input.setValue(float(self.table.item(row, 6).text()))
-        self.category_input.setText(self.table.item(row, 7).text())
+        self.cost_input.setValue(float(self.table.item(row, 4).text()))
+        self.price_input.setValue(float(self.table.item(row, 5).text()))
+        self.qty_input.setValue(float(self.table.item(row, 6).text()))
+        self.min_qty_input.setValue(float(self.table.item(row, 7).text()))
+        self.category_input.setText(self.table.item(row, 8).text())
         self.handmade_check.setChecked(
-            self.table.item(row, 8).text() == t("common.yes", language=self._language)
+            self.table.item(row, 9).text() == t("common.yes", language=self._language)
         )
-        self.stone_type_input.setText(self.table.item(row, 9).text())
-        self.color_input.setText(self.table.item(row, 10).text())
+        self.stone_type_input.setText(self.table.item(row, 10).text())
+        self.color_input.setText(self.table.item(row, 11).text())
 
     def _save_product(self) -> None:
         if not self._allow_edit:
@@ -416,6 +427,7 @@ class InventoryTab(BaseTabContainer):
             self.handmade_check.isChecked(),
             self.stone_type_input.text().strip(),
             self.color_input.text().strip(),
+            cost=float(self.cost_input.value()),
         )
         QMessageBox.information(
             self,
@@ -468,6 +480,7 @@ class InventoryTab(BaseTabContainer):
         self.sku_input.clear()
         self.barcode_input.clear()
         self.price_input.setValue(0)
+        self.cost_input.setValue(0)
         self.qty_input.setValue(0)
         self.min_qty_input.setValue(0)
         self.category_input.clear()

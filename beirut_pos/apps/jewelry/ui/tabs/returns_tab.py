@@ -320,13 +320,12 @@ class ReturnsTab(BaseTabContainer):
     def _populate_source_items(self) -> None:
         self.source_items_table.blockSignals(True)
         self.source_items_table.setRowCount(0)
-        single_item = len(self._source_items) == 1
         for item in self._source_items:
             row = self.source_items_table.rowCount()
             self.source_items_table.insertRow(row)
             check_item = QTableWidgetItem()
             check_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            check_item.setCheckState(Qt.CheckState.Checked if single_item else Qt.CheckState.Unchecked)
+            check_item.setCheckState(Qt.CheckState.Checked)
             self.source_items_table.setItem(row, 0, check_item)
             for column, value in enumerate((
                 f"{item.product_name} ({item.product_code})", f"{item.sold_qty:.2f}",
@@ -338,7 +337,7 @@ class ReturnsTab(BaseTabContainer):
             qty_spin = QDoubleSpinBox()
             qty_spin.setDecimals(3)
             qty_spin.setRange(0.0, item.remaining_qty)
-            qty_spin.setValue(item.remaining_qty if single_item else 0.0)
+            qty_spin.setValue(item.remaining_qty)
             qty_spin.valueChanged.connect(self._selection_changed)
             self.source_items_table.setCellWidget(row, 5, qty_spin)
         self.source_items_table.blockSignals(False)

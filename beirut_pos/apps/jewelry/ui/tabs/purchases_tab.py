@@ -23,7 +23,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ...services.db import add_worker, create_purchase, delete_purchase, delete_worker, list_materials, list_purchases, list_workers, update_purchase, update_worker
+from ...services.db import (add_worker, create_purchase, create_wage_movement,
+    delete_purchase, delete_worker, latest_material_purchase_unit_cost,
+    list_materials, list_purchases, list_workers, update_purchase, update_worker)
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
 
@@ -100,6 +102,7 @@ class PurchasesTab(BaseTabContainer):
         self.material_completer.setCompletionRole(self.MATERIAL_SEARCH_ROLE)
         self.material_completer.activated[QModelIndex].connect(self._select_completed_material)
         self.mat_material.setCompleter(self.material_completer)
+        self.mat_material.currentIndexChanged.connect(self._material_selected)
         self.mat_material.lineEdit().editingFinished.connect(self._validate_material_text)
         self.mat_supplier = QLineEdit(); self.mat_qty = QDoubleSpinBox(); self.mat_qty.setRange(0, 999999); self.mat_qty.setDecimals(3)
         self.mat_unit_cost = QDoubleSpinBox(); self.mat_unit_cost.setRange(0, 999999999); self.mat_unit_cost.setDecimals(4)
@@ -109,6 +112,7 @@ class PurchasesTab(BaseTabContainer):
         self.mat_qty.valueChanged.connect(self._calculate_material_total)
         self.mat_unit_cost.valueChanged.connect(self._calculate_material_total)
         self.mat_payment = QLineEdit(); self.mat_add_stock = QCheckBox(); self.mat_notes = QLineEdit()
+        self.mat_unit_value = QLabel("—"); self.mat_stock_value = QLabel("—")
         self.material_labels = [QLabel() for _ in range(8)]
         form.addWidget(self.material_labels[0],0,0); form.addWidget(self.mat_date,0,1)
         form.addWidget(self.material_labels[1],0,2); form.addWidget(self.mat_material,0,3)
@@ -119,6 +123,8 @@ class PurchasesTab(BaseTabContainer):
         form.addWidget(self.material_labels[6],3,0); form.addWidget(self.mat_payment,3,1)
         form.addWidget(self.material_labels[7],3,2); form.addWidget(self.mat_add_stock,3,3)
         form.addWidget(QLabel(),4,0); form.addWidget(self.mat_notes,4,1,1,3)
+        form.addWidget(QLabel("Unit / الوحدة"),5,0); form.addWidget(self.mat_unit_value,5,1)
+        form.addWidget(QLabel("Current Stock / المخزون الحالي"),5,2); form.addWidget(self.mat_stock_value,5,3)
         layout.addWidget(form_box)
         btns = QHBoxLayout()
         self.mat_add_btn = QPushButton(); self.mat_add_btn.clicked.connect(self._add_material_purchase)
@@ -154,17 +160,22 @@ class PurchasesTab(BaseTabContainer):
         self.workers_table = QTableWidget(0,6); self.workers_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); layout.addWidget(self.workers_table)
         pay_box = QGroupBox(); p = QGridLayout(pay_box)
         self.wp_worker = QComboBox(); self.wp_date = QDateEdit(); self.wp_date.setCalendarPopup(True); self.wp_date.setDate(date.today()); self.wp_amount = QDoubleSpinBox(); self.wp_amount.setRange(0, 999999999); self.wp_amount.setDecimals(2)
+        self.wp_movement_type = QComboBox()
+        self.wp_movement_type.addItem("Wage Payment / دفعة أجر", "wage_payment")
+        self.wp_movement_type.addItem("Advance / سلفة", "advance")
+        self.wp_movement_type.addItem("Deduction / خصم", "deduction")
         self.wp_period = QComboBox();
         for key in ["daily", "weekly", "monthly", "custom"]: self.wp_period.addItem(key, key)
-        self.wp_notes = QLineEdit(); self.wp_labels = [QLabel() for _ in range(5)]
+        self.wp_notes = QLineEdit(); self.wp_labels = [QLabel() for _ in range(6)]
         p.addWidget(self.wp_labels[0],0,0); p.addWidget(self.wp_worker,0,1)
         p.addWidget(self.wp_labels[1],0,2); p.addWidget(self.wp_date,0,3)
         p.addWidget(self.wp_labels[2],1,0); p.addWidget(self.wp_amount,1,1)
         p.addWidget(self.wp_labels[3],1,2); p.addWidget(self.wp_period,1,3)
         p.addWidget(self.wp_labels[4],2,0); p.addWidget(self.wp_notes,2,1,1,3)
-        self.wp_add_btn = QPushButton(); self.wp_add_btn.clicked.connect(self._add_wage_payment); p.addWidget(self.wp_add_btn,3,0,1,2)
+        p.addWidget(self.wp_labels[5],3,0); p.addWidget(self.wp_movement_type,3,1)
+        self.wp_add_btn = QPushButton(); self.wp_add_btn.clicked.connect(self._add_wage_payment); p.addWidget(self.wp_add_btn,4,0,1,2)
         layout.addWidget(pay_box)
-        self.wage_table = QTableWidget(0,5); self.wage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.wage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.wage_table.cellClicked.connect(self._load_wage_row)
+        self.wage_table = QTableWidget(0,9); self.wage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.wage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.wage_table.cellClicked.connect(self._load_wage_row)
         layout.addWidget(self.wage_table)
         self.tabs.addTab(self.workers_tab, "")
 
@@ -199,6 +210,22 @@ class PurchasesTab(BaseTabContainer):
         combo_index = self.mat_material.findData(material_id)
         if combo_index >= 0:
             self.mat_material.setCurrentIndex(combo_index)
+
+    def _material_selected(self, _index: int = -1) -> None:
+        """Populate known material data without changing the entered quantity."""
+        material_id = self.mat_material.currentData()
+        material = next((item for item in getattr(self, "_materials", []) if item.id == material_id), None)
+        if material is None:
+            self.mat_unit_value.setText("—")
+            self.mat_stock_value.setText("—")
+            self.mat_unit_cost.setValue(0)
+            return
+        self.mat_unit_value.setText(material.unit or "—")
+        self.mat_stock_value.setText(f"{material.qty_on_hand:.3f} {material.unit}".rstrip())
+        latest = latest_material_purchase_unit_cost(material.id)
+        self.mat_unit_cost.setValue(
+            float(latest if latest is not None else material.cost_per_unit or 0)
+        )
 
     def _validate_material_text(self) -> None:
         """Prevent editable text that does not identify a material from persisting."""
@@ -238,6 +265,7 @@ class PurchasesTab(BaseTabContainer):
             self.mat_material.setCurrentIndex(selected_index if selected_index >= 0 else 0)
         finally:
             self.mat_material.blockSignals(False)
+        self._material_selected()
 
     def _handle_section_change(self, _index: int) -> None:
         if self.tabs.currentWidget() is self.material_tab:
@@ -372,7 +400,10 @@ class PurchasesTab(BaseTabContainer):
 
     def _add_wage_payment(self):
         try:
-            create_purchase(date=self.wp_date.date().toString("yyyy-MM-dd"), category="Worker Wage", vendor="", description="", amount=float(self.wp_amount.value()), payment_method="", notes=self.wp_notes.text().strip(), worker_id=self.wp_worker.currentData(), wage_period=self.wp_period.currentData())
+            create_wage_movement(worker_id=self.wp_worker.currentData(),
+                movement_type=self.wp_movement_type.currentData(),
+                date=self.wp_date.date().toString("yyyy-MM-dd"), amount=float(self.wp_amount.value()),
+                notes=self.wp_notes.text().strip(), wage_period=self.wp_period.currentData())
             self.refresh_table()
         except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
 
@@ -445,7 +476,8 @@ class PurchasesTab(BaseTabContainer):
         for p in wage:
             r = self.wage_table.rowCount(); self.wage_table.insertRow(r)
             wname = next((w[1] for w in self._workers if w[0] == p.worker_id), "")
-            vals = [wname, p.date, f"{p.amount:.2f}", p.wage_period, p.notes]
+            vals = [wname, p.movement_type, p.date, f"{p.gross_amount:.2f}", f"{p.amount:.2f}",
+                    f"{p.applied_amount:.2f}", f"{p.remaining_amount:.2f}", p.wage_period, p.notes]
             for c,v in enumerate(vals): self.wage_table.setItem(r,c,QTableWidgetItem(v))
             self.wage_table.item(r,0).setData(Qt.ItemDataRole.UserRole, p.id)
 
@@ -466,8 +498,8 @@ class PurchasesTab(BaseTabContainer):
         self.worker_labels[0].setText(t("purchases.worker", language=language)); self.worker_labels[1].setText(t("purchases.name", language=language)); self.worker_labels[2].setText(t("purchases.phone", language=language)); self.worker_labels[3].setText(t("purchases.role", language=language)); self.worker_labels[4].setText(t("purchases.default_wage", language=language)); self.worker_labels[5].setText(t("purchases.wage_type", language=language))
         self.worker_add_btn.setText(t("purchases.add_worker", language=language)); self.worker_save_btn.setText(t("purchases.update_worker", language=language)); self.worker_del_btn.setText(t("purchases.delete_worker", language=language))
         self.workers_table.setHorizontalHeaderLabels([t("purchases.name",language=language), t("purchases.phone",language=language), t("purchases.role",language=language), t("purchases.default_wage",language=language), t("purchases.wage_type",language=language), t("common.notes",language=language)])
-        self.wp_labels[0].setText(t("purchases.worker", language=language)); self.wp_labels[1].setText(t("common.date", language=language)); self.wp_labels[2].setText(t("purchases.amount", language=language)); self.wp_labels[3].setText(t("purchases.wage_period", language=language)); self.wp_labels[4].setText(t("common.notes", language=language)); self.wp_add_btn.setText(t("purchases.add_wage_payment", language=language))
-        self.wage_table.setHorizontalHeaderLabels([t("purchases.worker",language=language), t("common.date",language=language), t("purchases.amount",language=language), t("purchases.wage_period",language=language), t("common.notes",language=language)])
+        self.wp_labels[0].setText(t("purchases.worker", language=language)); self.wp_labels[1].setText(t("common.date", language=language)); self.wp_labels[2].setText(t("purchases.amount", language=language)); self.wp_labels[3].setText(t("purchases.wage_period", language=language)); self.wp_labels[4].setText(t("common.notes", language=language)); self.wp_labels[5].setText("Movement Type / نوع الحركة"); self.wp_add_btn.setText(t("purchases.add_wage_payment", language=language))
+        self.wage_table.setHorizontalHeaderLabels([t("purchases.worker",language=language), "Movement Type", t("common.date",language=language), t("purchases.amount",language=language), "Net Paid", "Applied", "Remaining", t("purchases.wage_period",language=language), t("common.notes",language=language)])
         cat_map = {"Electricity Bill": t("purchases.electricity_bill", language=language), "Rent": t("purchases.rent", language=language), "Maintenance": t("purchases.maintenance", language=language), "Packaging": t("purchases.packaging", language=language), "Other": t("purchases.other", language=language), "Shop Bill": t("purchases.expenses", language=language)}
         for i,c in enumerate(self.EXPENSE_CATEGORIES): self.expense_category.setItemText(i, cat_map.get(c,c))
         period_map = {"daily": t("purchases.daily", language=language), "weekly": t("purchases.weekly", language=language), "monthly": t("purchases.monthly", language=language), "custom": t("purchases.custom", language=language)}

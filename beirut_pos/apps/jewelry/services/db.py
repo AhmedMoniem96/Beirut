@@ -2230,6 +2230,44 @@ def latest_material_purchase_unit_cost(material_id: int) -> Optional[float]:
 WAGE_MOVEMENT_TYPES = {"wage_payment", "advance", "deduction"}
 
 
+def delete_wage_movement(movement_id: int) -> None:
+    """Delete a wage movement only when doing so cannot rewrite wage history.
+
+    ``applied_amount`` is the durable audit marker used when a wage payment
+    consumes an advance or deduction.  There is no per-payment linkage table,
+    so any movement carrying an applied amount must remain immutable rather
+    than attempting to reconstruct historical balances.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            """SELECT category, COALESCE(movement_type, 'wage_payment'),
+                      COALESCE(applied_amount, 0)
+               FROM jw_purchases WHERE id = ?""",
+            (int(movement_id),),
+        )
+        row = cur.fetchone()
+        if row is None or row[0] != "Worker Wage" or row[1] not in WAGE_MOVEMENT_TYPES:
+            raise ValueError("Wage movement not found.")
+        if float(row[2] or 0) > 0:
+            if row[1] == "wage_payment":
+                raise ValueError(
+                    "This wage payment consumed an Advance or Deduction balance and cannot be deleted."
+                )
+            raise ValueError(
+                "This movement has already affected a wage payment and cannot be deleted."
+            )
+        cur.execute("DELETE FROM jw_purchases WHERE id = ?", (int(movement_id),))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def create_wage_movement(*, worker_id: int, movement_type: str, date: str,
                          amount: float, wage_period: str = "", notes: str = "") -> dict:
     """Record a movement and atomically consume balances for wage payments."""

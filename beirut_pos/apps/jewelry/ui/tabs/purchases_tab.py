@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...services.db import (add_worker, create_purchase, create_wage_movement,
-    delete_purchase, delete_worker, latest_material_purchase_unit_cost,
+    delete_purchase, delete_wage_movement, delete_worker, latest_material_purchase_unit_cost,
     list_materials, list_purchases, list_workers, update_purchase, update_worker)
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
@@ -174,6 +174,7 @@ class PurchasesTab(BaseTabContainer):
         p.addWidget(self.wp_labels[4],2,0); p.addWidget(self.wp_notes,2,1,1,3)
         p.addWidget(self.wp_labels[5],3,0); p.addWidget(self.wp_movement_type,3,1)
         self.wp_add_btn = QPushButton(); self.wp_add_btn.clicked.connect(self._add_wage_payment); p.addWidget(self.wp_add_btn,4,0,1,2)
+        self.wp_delete_btn = QPushButton(); self.wp_delete_btn.clicked.connect(self._delete_wage_movement); p.addWidget(self.wp_delete_btn,4,2,1,2)
         layout.addWidget(pay_box)
         self.wage_table = QTableWidget(0,9); self.wage_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.wage_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.wage_table.cellClicked.connect(self._load_wage_row)
         layout.addWidget(self.wage_table)
@@ -407,6 +408,31 @@ class PurchasesTab(BaseTabContainer):
             self.refresh_table()
         except Exception as exc: QMessageBox.warning(self, "Error", str(exc))
 
+    def _delete_wage_movement(self):
+        if not self.wage_table.selectionModel().hasSelection():
+            return
+        row = self.wage_table.currentRow()
+        id_item = self.wage_table.item(row, 0) if row >= 0 else None
+        movement_id = id_item.data(Qt.ItemDataRole.UserRole) if id_item else None
+        if not movement_id:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete Movement / حذف الحركة",
+            "Delete the selected wage movement? / هل تريد حذف حركة الأجر المحددة؟",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            delete_wage_movement(int(movement_id))
+            self._selected_wage_payment_id = None
+            self.refresh_table()
+            self.wage_table.clearSelection()
+        except Exception as exc:
+            QMessageBox.warning(self, "Cannot Delete Movement / تعذر حذف الحركة", str(exc))
+
     def _clear_expense(self):
         self._selected_expense_id = None
         self.expenses_table.clearSelection()
@@ -498,7 +524,7 @@ class PurchasesTab(BaseTabContainer):
         self.worker_labels[0].setText(t("purchases.worker", language=language)); self.worker_labels[1].setText(t("purchases.name", language=language)); self.worker_labels[2].setText(t("purchases.phone", language=language)); self.worker_labels[3].setText(t("purchases.role", language=language)); self.worker_labels[4].setText(t("purchases.default_wage", language=language)); self.worker_labels[5].setText(t("purchases.wage_type", language=language))
         self.worker_add_btn.setText(t("purchases.add_worker", language=language)); self.worker_save_btn.setText(t("purchases.update_worker", language=language)); self.worker_del_btn.setText(t("purchases.delete_worker", language=language))
         self.workers_table.setHorizontalHeaderLabels([t("purchases.name",language=language), t("purchases.phone",language=language), t("purchases.role",language=language), t("purchases.default_wage",language=language), t("purchases.wage_type",language=language), t("common.notes",language=language)])
-        self.wp_labels[0].setText(t("purchases.worker", language=language)); self.wp_labels[1].setText(t("common.date", language=language)); self.wp_labels[2].setText(t("purchases.amount", language=language)); self.wp_labels[3].setText(t("purchases.wage_period", language=language)); self.wp_labels[4].setText(t("common.notes", language=language)); self.wp_labels[5].setText("Movement Type / نوع الحركة"); self.wp_add_btn.setText(t("purchases.add_wage_payment", language=language))
+        self.wp_labels[0].setText(t("purchases.worker", language=language)); self.wp_labels[1].setText(t("common.date", language=language)); self.wp_labels[2].setText(t("purchases.amount", language=language)); self.wp_labels[3].setText(t("purchases.wage_period", language=language)); self.wp_labels[4].setText(t("common.notes", language=language)); self.wp_labels[5].setText("Movement Type / نوع الحركة"); self.wp_add_btn.setText(t("purchases.add_wage_payment", language=language)); self.wp_delete_btn.setText("Delete Movement / حذف الحركة")
         self.wage_table.setHorizontalHeaderLabels([t("purchases.worker",language=language), "Movement Type", t("common.date",language=language), t("purchases.amount",language=language), "Net Paid", "Applied", "Remaining", t("purchases.wage_period",language=language), t("common.notes",language=language)])
         cat_map = {"Electricity Bill": t("purchases.electricity_bill", language=language), "Rent": t("purchases.rent", language=language), "Maintenance": t("purchases.maintenance", language=language), "Packaging": t("purchases.packaging", language=language), "Other": t("purchases.other", language=language), "Shop Bill": t("purchases.expenses", language=language)}
         for i,c in enumerate(self.EXPENSE_CATEGORIES): self.expense_category.setItemText(i, cat_map.get(c,c))

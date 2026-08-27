@@ -59,7 +59,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "purchases.add_worker": {"en": "Add Worker", "ar": "إضافة عامل"},
     "purchases.update_worker": {"en": "Update Worker", "ar": "تحديث العامل"},
     "purchases.delete_worker": {"en": "Delete Worker", "ar": "حذف العامل"},
-    "purchases.add_wage_payment": {"en": "Add Wage Payment", "ar": "إضافة دفعة أجر"},
+    "purchases.add_wage_payment": {"en": "Add Movement / إضافة حركة", "ar": "Add Movement / إضافة حركة"},
     "reports.total_expenses": {"en": "Total Expenses", "ar": "إجمالي المصروفات"},
     "reports.net_cash_profit": {"en": "Net Cash Profit", "ar": "صافي الربح النقدي"},
     "reports.expenses_by_category": {"en": "Expenses by Category", "ar": "المصروفات حسب الفئة"},

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, Iterable, List, Literal, Optional, Tuple
 import logging
 import math
@@ -202,6 +202,7 @@ class JewelryPurchase:
     applied_amount: float = 0.0
     remaining_amount: float = 0.0
     gross_amount: float = 0.0
+    apply_to_month: str = ""
 
 
 
@@ -649,6 +650,8 @@ def init_jewelry_db() -> None:
     _ensure_column(cur, "jw_purchases", "applied_amount", "REAL NOT NULL DEFAULT 0")
     _ensure_column(cur, "jw_purchases", "remaining_amount", "REAL NOT NULL DEFAULT 0")
     _ensure_column(cur, "jw_purchases", "gross_amount", "REAL NOT NULL DEFAULT 0")
+    # YYYY-MM for a deferred adjustment; NULL keeps the historical "next wage" behaviour.
+    _ensure_column(cur, "jw_purchases", "apply_to_month", "TEXT")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_workers(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2180,7 +2183,7 @@ def list_purchases(
                   linked_material_id, material_qty, worker_id, COALESCE(wage_period, ''), created_at,
                   COALESCE(movement_type, 'wage_payment'), COALESCE(applied_amount, 0),
                   COALESCE(remaining_amount, 0)
-                  , COALESCE(gross_amount, amount)
+                  , COALESCE(gross_amount, amount), COALESCE(apply_to_month, '')
            FROM jw_purchases {where_sql}
            ORDER BY date DESC, id DESC""",
         tuple(params),
@@ -2206,6 +2209,7 @@ def list_purchases(
             applied_amount=float(row[14] or 0),
             remaining_amount=float(row[15] or 0),
             gross_amount=float(row[16] or row[5] or 0),
+            apply_to_month=str(row[17] or ""),
         )
         for row in rows
     ]
@@ -2268,8 +2272,35 @@ def delete_wage_movement(movement_id: int) -> None:
         conn.close()
 
 
+def get_worker_wage_account(worker_id: int, *, gross: float | None = None,
+                            wage_date: str | None = None) -> dict:
+    """Return the shared balance/preview calculation used by the worker UI and save."""
+    worker = next((item for item in list_workers() if item.id == int(worker_id)), None)
+    if worker is None:
+        raise ValueError("worker not found")
+    payment_month = (wage_date or date.today().isoformat())[:7]
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(
+        """SELECT movement_type, COALESCE(SUM(remaining_amount), 0)
+           FROM jw_purchases
+           WHERE category='Worker Wage' AND worker_id=?
+             AND movement_type IN ('advance','deduction') AND remaining_amount > 0
+             AND (apply_to_month IS NULL OR apply_to_month='' OR apply_to_month<=?)
+           GROUP BY movement_type""",
+        (int(worker_id), payment_month),
+    )
+    balances = {str(kind): float(value or 0) for kind, value in cur.fetchall()}
+    conn.close()
+    gross_value = float(worker.default_wage if gross is None else gross)
+    advances = balances.get("advance", 0.0); deductions = balances.get("deduction", 0.0)
+    return {"default_wage": float(worker.default_wage), "gross": gross_value,
+            "outstanding_advances": advances, "outstanding_deductions": deductions,
+            "net_payable": max(gross_value - advances - deductions, 0.0)}
+
+
 def create_wage_movement(*, worker_id: int, movement_type: str, date: str,
-                         amount: float, wage_period: str = "", notes: str = "") -> dict:
+                         amount: float, wage_period: str = "", notes: str = "",
+                         apply_to_month: str = "") -> dict:
     """Record a movement and atomically consume balances for wage payments."""
     movement = (movement_type or "").strip().lower()
     if movement not in WAGE_MOVEMENT_TYPES:
@@ -2288,10 +2319,11 @@ def create_wage_movement(*, worker_id: int, movement_type: str, date: str,
             cur.execute(
                 """INSERT INTO jw_purchases
                    (date, category, vendor, description, amount, payment_method, notes,
-                    worker_id, wage_period, created_at, movement_type, applied_amount, remaining_amount, gross_amount)
-                   VALUES (?, 'Worker Wage', '', '', ?, '', ?, ?, ?, ?, ?, 0, ?, ?)""",
+                    worker_id, wage_period, created_at, movement_type, applied_amount, remaining_amount, gross_amount,
+                    apply_to_month)
+                   VALUES (?, 'Worker Wage', '', '', ?, '', ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
                 (date.strip(), gross, notes.strip(), int(worker_id), wage_period.strip() or None,
-                 now, movement, gross, gross),
+                 now, movement, gross, gross, apply_to_month.strip() or None),
             )
             result = {"id": int(cur.lastrowid), "gross": gross, "net_payable": gross,
                       "applied": 0.0, "remaining": gross}
@@ -2302,8 +2334,9 @@ def create_wage_movement(*, worker_id: int, movement_type: str, date: str,
                 """SELECT id, remaining_amount FROM jw_purchases
                    WHERE category='Worker Wage' AND worker_id=?
                      AND movement_type IN ('advance','deduction') AND remaining_amount > 0
+                     AND (apply_to_month IS NULL OR apply_to_month='' OR apply_to_month<=?)
                    ORDER BY date ASC, COALESCE(created_at, '') ASC, id ASC""",
-                (int(worker_id),),
+                (int(worker_id), date.strip()[:7]),
             )
             for movement_id, remaining in cur.fetchall():
                 if available <= 0:

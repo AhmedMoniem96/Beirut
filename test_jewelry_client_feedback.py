@@ -58,6 +58,7 @@ def _wage_connection():
           linked_material_id INTEGER, material_qty REAL, worker_id INTEGER, wage_period TEXT,
           created_at TEXT, movement_type TEXT DEFAULT 'wage_payment',
           applied_amount REAL DEFAULT 0, remaining_amount REAL DEFAULT 0, gross_amount REAL DEFAULT 0);
+        ALTER TABLE jw_purchases ADD COLUMN apply_to_month TEXT;
     """)
     return conn
 

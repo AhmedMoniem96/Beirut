@@ -14,6 +14,7 @@ from ...services.db import (
     get_loyalty_balance,
     save_customer,
 )
+from ..dialogs.invoice_details_dialog import InvoiceDetailsDialog
 
 
 class CustomersTab(BaseTabContainer):
@@ -55,8 +56,10 @@ class CustomersTab(BaseTabContainer):
         details.addRow(self.loyalty_points_label, self.points_input)
         layout.addLayout(details)
 
-        self.invoices_table = QTableWidget(0, 6)
-        self.invoices_table.setHorizontalHeaderLabels([""] * 6)
+        self.invoices_table = QTableWidget(0, 4)
+        self.invoices_table.setHorizontalHeaderLabels([""] * 4)
+        self.invoices_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.invoices_table.cellDoubleClicked.connect(self._view_selected_invoice)
         layout.addWidget(self.invoices_table)
 
         self.loyalty_history_table = QTableWidget(0, 4)
@@ -69,9 +72,11 @@ class CustomersTab(BaseTabContainer):
         self.save_btn = QPushButton()
         self.delete_btn = QPushButton()
         self.refresh_inv_btn = QPushButton()
+        self.view_invoice_btn = QPushButton("View Details")
         actions.addWidget(self.save_btn)
         actions.addWidget(self.delete_btn)
         actions.addWidget(self.refresh_inv_btn)
+        actions.addWidget(self.view_invoice_btn)
         layout.addLayout(actions)
 
         self.set_page_content_widget(root)
@@ -86,6 +91,7 @@ class CustomersTab(BaseTabContainer):
         self.save_btn.clicked.connect(self._save_customer)
         self.refresh_inv_btn.clicked.connect(self._refresh_invoices)
         self.delete_btn.clicked.connect(self._delete_not_supported)
+        self.view_invoice_btn.clicked.connect(self._view_selected_invoice)
 
         self.apply_language(self._language)
         self.refresh()
@@ -112,8 +118,6 @@ class CustomersTab(BaseTabContainer):
             t("customers.date", language=self._language),
             t("customers.total", language=self._language),
             t("customers.status", language=self._language),
-            t("customers.payment_method", language=self._language),
-            t("customers.loyalty_earned_redeemed", language=self._language),
         ])
         self.customer_name_label.setText(t("customers.customer_name", language=self._language))
         self.phone_label.setText(t("customers.phone", language=self._language))
@@ -159,8 +163,7 @@ class CustomersTab(BaseTabContainer):
         for entry in rows:
             row = self.invoices_table.rowCount()
             self.invoices_table.insertRow(row)
-            loyalty = f"{entry['loyalty_earned']:.0f}/{entry['loyalty_redeemed']:.0f}"
-            values = [entry["invoice_no"], entry["date"], f"{entry['total']:.2f}", entry["status"], entry["payment_method"], loyalty]
+            values = [entry["invoice_no"], entry["date"], f"{entry['total']:.2f}", entry["status"]]
             for col, value in enumerate(values):
                 self.invoices_table.setItem(row, col, QTableWidgetItem(str(value)))
         history = get_loyalty_history(self._selected_customer_id)
@@ -170,6 +173,12 @@ class CustomersTab(BaseTabContainer):
             values = [entry["created_at"], entry["invoice_no"], entry["reason"], f"{entry['points_delta']:.2f}"]
             for col, value in enumerate(values):
                 self.loyalty_history_table.setItem(row, col, QTableWidgetItem(str(value)))
+
+    def _view_selected_invoice(self, *_args) -> None:
+        row = self.invoices_table.currentRow()
+        item = self.invoices_table.item(row, 0) if row >= 0 else None
+        if item is not None:
+            InvoiceDetailsDialog(item.text(), self).exec()
 
     def _save_customer(self) -> None:
         name = self.name_input.text().strip()

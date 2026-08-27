@@ -31,6 +31,7 @@ class JewelryProduct:
     handmade_flag: bool
     stone_type: str
     color: str
+    cost: float = 0.0
 
 
 @dataclass
@@ -197,6 +198,10 @@ class JewelryPurchase:
     worker_id: Optional[int]
     wage_period: str
     created_at: str
+    movement_type: str = ""
+    applied_amount: float = 0.0
+    remaining_amount: float = 0.0
+    gross_amount: float = 0.0
 
 
 
@@ -307,6 +312,7 @@ def init_jewelry_db() -> None:
     )
     _ensure_column(cur, "jw_products", "barcode", "TEXT")
     _ensure_column(cur, "jw_products", "barcode_type", "TEXT")
+    _ensure_column(cur, "jw_products", "cost", "REAL NOT NULL DEFAULT 0")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_payment_methods(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -639,6 +645,10 @@ def init_jewelry_db() -> None:
     _ensure_column(cur, "jw_purchases", "worker_id", "INTEGER")
     _ensure_column(cur, "jw_purchases", "wage_period", "TEXT")
     _ensure_column(cur, "jw_purchases", "created_at", "TEXT")
+    _ensure_column(cur, "jw_purchases", "movement_type", "TEXT NOT NULL DEFAULT 'wage_payment'")
+    _ensure_column(cur, "jw_purchases", "applied_amount", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_purchases", "remaining_amount", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(cur, "jw_purchases", "gross_amount", "REAL NOT NULL DEFAULT 0")
     cur.execute(
         """CREATE TABLE IF NOT EXISTS jw_workers(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1332,6 +1342,26 @@ def search_customers(term: str, limit: int = 8) -> List[JewelryCustomer]:
     ]
 
 
+def attach_customer_to_invoice(invoice_no: str, customer_phone: str) -> None:
+    """Change only the customer relationship/snapshot on an existing invoice."""
+    customer = find_customer_by_phone(customer_phone)
+    if customer is None:
+        raise ValueError("customer not found")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """UPDATE jw_invoices SET customer_id=?, customer_name=?, customer_phone=?
+           WHERE invoice_no=?""",
+        (customer.phone, customer.name, customer.phone, invoice_no.strip()),
+    )
+    if cur.rowcount != 1:
+        conn.rollback()
+        conn.close()
+        raise ValueError("invoice not found")
+    conn.commit()
+    conn.close()
+
+
 
 def get_customer_invoices(customer_id: str, limit: int = 100) -> List[dict]:
     normalized = (customer_id or "").strip()
@@ -1511,7 +1541,7 @@ def list_products(search: Optional[str] = None, category: Optional[str] = None) 
     cur = conn.cursor()
     params: List[str] = []
     query = """SELECT id, name_ar, name_en, sku, COALESCE(barcode, ''), COALESCE(barcode_type, ''),
-                      price, qty_on_hand, min_qty, category, handmade_flag, stone_type, color
+                      price, COALESCE(cost, 0), qty_on_hand, min_qty, category, handmade_flag, stone_type, color
                FROM jw_products"""
     conditions: List[str] = []
     if category is not None:
@@ -1539,12 +1569,13 @@ def list_products(search: Optional[str] = None, category: Optional[str] = None) 
             barcode=row[4] or "",
             barcode_type=row[5] or "",
             price=row[6],
-            qty_on_hand=row[7],
-            min_qty=row[8],
-            category=row[9],
-            handmade_flag=bool(row[10]),
-            stone_type=row[11],
-            color=row[12],
+            cost=row[7],
+            qty_on_hand=row[8],
+            min_qty=row[9],
+            category=row[10],
+            handmade_flag=bool(row[11]),
+            stone_type=row[12],
+            color=row[13],
         )
         for row in rows
     ]
@@ -1671,7 +1702,7 @@ def upsert_product_by_sku(product: dict) -> str:
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id, COALESCE(barcode, ''), COALESCE(barcode_type, '') FROM jw_products WHERE sku = ? LIMIT 1", (sku,))
+    cur.execute("SELECT id, COALESCE(barcode, ''), COALESCE(barcode_type, ''), COALESCE(cost, 0) FROM jw_products WHERE sku = ? LIMIT 1", (sku,))
     existing = cur.fetchone()
     barcode = supplied_barcode or (_normalize_barcode(existing[1]) if existing else "")
     barcode_type = (
@@ -1690,6 +1721,7 @@ def upsert_product_by_sku(product: dict) -> str:
         barcode,
         barcode_type,
         float(product.get("price", 0.0) or 0.0),
+        float(product.get("cost", existing[3] if existing else 0.0) or 0.0),
         float(product.get("qty_on_hand", 0.0) or 0.0),
         float(product.get("min_qty", 0.0) or 0.0),
         str(product.get("category", "")).strip(),
@@ -1701,7 +1733,7 @@ def upsert_product_by_sku(product: dict) -> str:
     if existing:
         cur.execute(
             """UPDATE jw_products
-               SET name_ar=?, name_en=?, sku=?, barcode=?, barcode_type=?, price=?,
+               SET name_ar=?, name_en=?, sku=?, barcode=?, barcode_type=?, price=?, cost=?,
                    qty_on_hand=?, min_qty=?, category=?, handmade_flag=?,
                    stone_type=?, color=?
                WHERE id=?""",
@@ -1711,9 +1743,9 @@ def upsert_product_by_sku(product: dict) -> str:
     else:
         cur.execute(
             """INSERT INTO jw_products
-               (name_ar, name_en, sku, barcode, barcode_type, price, qty_on_hand,
+               (name_ar, name_en, sku, barcode, barcode_type, price, cost, qty_on_hand,
                 min_qty, category, handmade_flag, stone_type, color)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             values,
         )
         status = "created"
@@ -1739,6 +1771,7 @@ def save_product(
     handmade_flag: bool,
     stone_type: str,
     color: str,
+    cost: float = 0.0,
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
@@ -1760,7 +1793,7 @@ def save_product(
         _validate_barcode_uniqueness(cur, barcode, exclude_product_id=product_id)
         cur.execute(
             """UPDATE jw_products
-               SET name_ar=?, name_en=?, sku=?, barcode=?, barcode_type=?, price=?,
+               SET name_ar=?, name_en=?, sku=?, barcode=?, barcode_type=?, price=?, cost=?,
                    qty_on_hand=?, min_qty=?, category=?, handmade_flag=?,
                    stone_type=?, color=?
                WHERE id=?""",
@@ -1771,6 +1804,7 @@ def save_product(
                 barcode,
                 barcode_type,
                 price,
+                cost,
                 qty_on_hand,
                 min_qty,
                 category,
@@ -1784,9 +1818,9 @@ def save_product(
         barcode = _validate_barcode_uniqueness(cur, supplied_barcode)
         cur.execute(
             """INSERT INTO jw_products
-               (name_ar, name_en, sku, barcode, barcode_type, price, qty_on_hand,
+               (name_ar, name_en, sku, barcode, barcode_type, price, cost, qty_on_hand,
                 min_qty, category, handmade_flag, stone_type, color)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 name_ar,
                 name_en,
@@ -1794,6 +1828,7 @@ def save_product(
                 barcode,
                 barcode_type,
                 price,
+                cost,
                 qty_on_hand,
                 min_qty,
                 category,
@@ -2142,7 +2177,10 @@ def list_purchases(
     cur = conn.cursor()
     cur.execute(
         f"""SELECT id, date, category, vendor, description, amount, payment_method, notes,
-                  linked_material_id, material_qty, worker_id, COALESCE(wage_period, ''), created_at
+                  linked_material_id, material_qty, worker_id, COALESCE(wage_period, ''), created_at,
+                  COALESCE(movement_type, 'wage_payment'), COALESCE(applied_amount, 0),
+                  COALESCE(remaining_amount, 0)
+                  , COALESCE(gross_amount, amount)
            FROM jw_purchases {where_sql}
            ORDER BY date DESC, id DESC""",
         tuple(params),
@@ -2164,9 +2202,100 @@ def list_purchases(
             worker_id=row[10],
             wage_period=str(row[11] or ""),
             created_at=str(row[12] or ""),
+            movement_type=str(row[13] or "wage_payment"),
+            applied_amount=float(row[14] or 0),
+            remaining_amount=float(row[15] or 0),
+            gross_amount=float(row[16] or row[5] or 0),
         )
         for row in rows
     ]
+
+
+def latest_material_purchase_unit_cost(material_id: int) -> Optional[float]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT amount / material_qty
+           FROM jw_purchases
+           WHERE category='Material Purchase' AND linked_material_id=?
+             AND material_qty IS NOT NULL AND material_qty > 0
+           ORDER BY date DESC, COALESCE(created_at, '') DESC, id DESC LIMIT 1""",
+        (int(material_id),),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return float(row[0]) if row and row[0] is not None else None
+
+
+WAGE_MOVEMENT_TYPES = {"wage_payment", "advance", "deduction"}
+
+
+def create_wage_movement(*, worker_id: int, movement_type: str, date: str,
+                         amount: float, wage_period: str = "", notes: str = "") -> dict:
+    """Record a movement and atomically consume balances for wage payments."""
+    movement = (movement_type or "").strip().lower()
+    if movement not in WAGE_MOVEMENT_TYPES:
+        raise ValueError("invalid wage movement type")
+    if not any(worker.id == int(worker_id) for worker in list_workers()):
+        raise ValueError("worker not found")
+    gross = float(amount)
+    if gross <= 0:
+        raise ValueError("amount must be positive")
+    conn = get_conn()
+    cur = conn.cursor()
+    now = datetime.now().isoformat(timespec="seconds")
+    try:
+        cur.execute("BEGIN")
+        if movement in {"advance", "deduction"}:
+            cur.execute(
+                """INSERT INTO jw_purchases
+                   (date, category, vendor, description, amount, payment_method, notes,
+                    worker_id, wage_period, created_at, movement_type, applied_amount, remaining_amount, gross_amount)
+                   VALUES (?, 'Worker Wage', '', '', ?, '', ?, ?, ?, ?, ?, 0, ?, ?)""",
+                (date.strip(), gross, notes.strip(), int(worker_id), wage_period.strip() or None,
+                 now, movement, gross, gross),
+            )
+            result = {"id": int(cur.lastrowid), "gross": gross, "net_payable": gross,
+                      "applied": 0.0, "remaining": gross}
+        else:
+            available = gross
+            applied = 0.0
+            cur.execute(
+                """SELECT id, remaining_amount FROM jw_purchases
+                   WHERE category='Worker Wage' AND worker_id=?
+                     AND movement_type IN ('advance','deduction') AND remaining_amount > 0
+                   ORDER BY date ASC, COALESCE(created_at, '') ASC, id ASC""",
+                (int(worker_id),),
+            )
+            for movement_id, remaining in cur.fetchall():
+                if available <= 0:
+                    break
+                consumed = min(available, float(remaining or 0))
+                cur.execute(
+                    """UPDATE jw_purchases
+                       SET applied_amount=applied_amount+?, remaining_amount=remaining_amount-?
+                       WHERE id=?""",
+                    (consumed, consumed, int(movement_id)),
+                )
+                available -= consumed
+                applied += consumed
+            net = max(gross - applied, 0.0)
+            cur.execute(
+                """INSERT INTO jw_purchases
+                   (date, category, vendor, description, amount, payment_method, notes,
+                    worker_id, wage_period, created_at, movement_type, applied_amount, remaining_amount, gross_amount)
+                   VALUES (?, 'Worker Wage', '', '', ?, '', ?, ?, ?, ?, 'wage_payment', ?, 0, ?)""",
+                (date.strip(), net, notes.strip(), int(worker_id), wage_period.strip() or None, now, applied, gross),
+            )
+            result = {"id": int(cur.lastrowid), "gross": gross, "net_payable": net,
+                      "applied": applied, "remaining": 0.0}
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def get_purchase_summary(*, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, float]:
@@ -2178,7 +2307,8 @@ def get_purchase_summary(*, date_from: Optional[str] = None, date_to: Optional[s
     if date_to:
         where.append("date <= ?")
         params.append(date_to)
-    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    where.append("NOT (category = 'Worker Wage' AND COALESCE(movement_type, 'wage_payment') = 'deduction')")
+    where_sql = f"WHERE {' AND '.join(where)}"
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(

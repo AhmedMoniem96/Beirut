@@ -475,7 +475,15 @@ def expense_report_data(start_iso: str, end_iso: str, *, category: Optional[str]
     cur = conn.cursor()
     date_from = start_iso[:10]
     date_to = end_iso[:10]
+    # Deductions are non-cash. Advances are cash outflows and later wage
+    # payments store only the net amount, preventing double-counting.
+    cur.execute("PRAGMA table_info(jw_purchases)")
+    has_movement_type = any(row[1] == "movement_type" for row in cur.fetchall())
     filters: List[str] = ["p.date BETWEEN ? AND ?"]
+    if has_movement_type:
+        filters.append(
+            "NOT (p.category = 'Worker Wage' AND COALESCE(p.movement_type, 'wage_payment') = 'deduction')"
+        )
     params: List[object] = [date_from, date_to]
     if category:
         filters.append("p.category = ?")

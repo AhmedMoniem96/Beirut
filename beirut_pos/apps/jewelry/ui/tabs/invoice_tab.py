@@ -79,6 +79,7 @@ from beirut_pos.services.printer import printer
 from ..date_utils import to_iso_date
 from ..theme import JEWELRY_CONTROLS, JEWELRY_SPACING, JEWELRY_TABLE, JEWELRY_TYPOGRAPHY
 from ..dialogs.quick_customer_dialog import QuickCustomerDialog
+from ..dialogs.invoice_details_dialog import InvoiceDetailsDialog
 from .base_tab import BaseTabContainer
 
 logger = logging.getLogger(__name__)
@@ -560,7 +561,7 @@ class InvoiceTab(BaseTabContainer):
         product_row_height = self.products_table.verticalHeader().defaultSectionSize()
         self.products_table.setMinimumHeight(product_row_height * 8 + product_header_height)
         self.products_table.cellDoubleClicked.connect(self._add_selected_product)
-        self.products_table.itemSelectionChanged.connect(self._update_add_state)
+        self.products_table.itemSelectionChanged.connect(self._handle_catalog_selection)
 
         self.qty_label = QLabel()
         self.qty_input = QDoubleSpinBox()
@@ -1567,8 +1568,16 @@ class InvoiceTab(BaseTabContainer):
         if not product:
             return
         self._add_product_to_invoice(product, float(self.qty_input.value()))
+        if self._find_item_row((product.source_type, product.source_id)) >= 0:
+            self.qty_input.setValue(1.0)
         self.search_input.clear()
         self._focus_product_search()
+
+    def _handle_catalog_selection(self) -> None:
+        """A newly selected sellable source always starts at one unit."""
+        if self.products_table.currentRow() >= 0:
+            self.qty_input.setValue(1.0)
+        self._update_add_state()
 
     def _remove_selected_item(self) -> None:
         row = self.items_table.currentRow()
@@ -1951,8 +1960,7 @@ class InvoiceTab(BaseTabContainer):
         self._print_invoice()
 
     def _open_recent_invoice_details(self, invoice_no: str) -> None:
-        invoice, _items = fetch_invoice_details(invoice_no)
-        QMessageBox.information(self, "Invoice Details", f"{invoice.invoice_no}\n{invoice.datetime}\n{invoice.total:.2f}")
+        InvoiceDetailsDialog(invoice_no, self).exec()
 
     def _open_invoice_history_dialog(self) -> None:
         dialog = QDialog(self)
@@ -2016,12 +2024,10 @@ class InvoiceTab(BaseTabContainer):
         table.setSortingEnabled(False)
         layout.addWidget(table, 1)
 
-        is_admin = bool(get_current_user() and get_current_user().role == "Admin")
-
         actions_row = QHBoxLayout()
         open_btn = QPushButton("Open")
         print_btn = QPushButton("Print")
-        edit_btn = QPushButton("Edit")
+        edit_btn = QPushButton("Correct Customer")
         copy_btn = QPushButton("نسخ رقم الفاتورة / Copy Invoice #")
         return_btn = QPushButton("إرسال للمرتجعات / Send to Returns")
         for button in (open_btn, print_btn, edit_btn, copy_btn, return_btn):
@@ -2040,13 +2046,11 @@ class InvoiceTab(BaseTabContainer):
             open_btn.setEnabled(selected)
             print_btn.setEnabled(selected)
             copy_btn.setEnabled(selected)
-            edit_btn.setEnabled(selected and is_admin)
+            edit_btn.setEnabled(selected)
             status_item = table.item(table.currentRow(), 7) if selected else None
             # Invoice History contains sale invoices only.  Returns performs the
             # authoritative item/quantity validation when the invoice is loaded.
             return_btn.setEnabled(selected and status_item is not None and status_item.text().upper() == "PAID")
-            if not is_admin:
-                edit_btn.setToolTip(t("invoice.admin_only_edit", language=self._language))
 
         def with_selected(action) -> None:
             invoice_no = selected_invoice_no()
@@ -2117,7 +2121,7 @@ class InvoiceTab(BaseTabContainer):
         table.itemSelectionChanged.connect(update_actions)
         open_btn.clicked.connect(lambda: with_selected(self._open_recent_invoice_details))
         print_btn.clicked.connect(lambda: with_selected(self._print_recent_invoice))
-        edit_btn.clicked.connect(lambda: with_selected(self._edit_invoice))
+        edit_btn.clicked.connect(lambda: with_selected(self._open_recent_invoice_details))
         copy_btn.clicked.connect(copy_selected)
         return_btn.clicked.connect(send_selected_to_returns)
         load_rows()

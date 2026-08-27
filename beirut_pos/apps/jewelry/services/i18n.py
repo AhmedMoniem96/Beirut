@@ -147,6 +147,8 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "common.qty": {"en": "Qty", "ar": "الكمية"},
     "common.code": {"en": "Code", "ar": "الكود"},
     "common.price": {"en": "Price", "ar": "السعر"},
+    "inventory.cost": {"en": "Cost", "ar": "التكلفة"},
+    "inventory.selling_price": {"en": "Selling Price", "ar": "سعر البيع"},
     "common.total": {"en": "Total", "ar": "الإجمالي"},
     "common.reason": {"en": "Reason", "ar": "السبب"},
     "common.notes": {"en": "Notes", "ar": "ملاحظات"},

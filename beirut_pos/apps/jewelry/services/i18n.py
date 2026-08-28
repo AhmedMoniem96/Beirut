@@ -468,6 +468,11 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "invoice.delivery_enabled_label": {"en": "Delivery", "ar": "التوصيل"},
     "invoice.delivery_company_label": {"en": "Delivery Company", "ar": "شركة التوصيل"},
     "invoice.delivery_fee_label": {"en": "Delivery Fee", "ar": "رسوم التوصيل"},
+    "invoice.delivery_details_title": {"en": "Delivery Details", "ar": "تفاصيل التوصيل"},
+    "invoice.delivery_customer_name_label": {"en": "Customer Name", "ar": "اسم العميل"},
+    "invoice.delivery_phone_label": {"en": "Phone", "ar": "الهاتف"},
+    "invoice.delivery_address_short_label": {"en": "Address", "ar": "العنوان"},
+    "invoice.delivery_notes_label": {"en": "Delivery Notes", "ar": "ملاحظات التوصيل"},
     "invoice.delivery_address_label": {"en": "Delivery Address", "ar": "عنوان التوصيل"},
     "invoice.delivery_address_placeholder": {
         "en": "Enter delivery address",
@@ -609,7 +614,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
         "ar": "يرجى اختيار حالة أمر الدفع.",
     },
     "invoice.validation_delivery_company": {
-        "en": "Select a delivery company.",
+        "en": "Please select a delivery company.",
         "ar": "يرجى اختيار شركة التوصيل.",
     },
     "invoice.validation_delivery_address": {

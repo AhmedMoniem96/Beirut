@@ -88,10 +88,20 @@ logger = logging.getLogger(__name__)
 class DeliveryDetailsDialog(QDialog):
     """Collects delivery details when enabling delivery on invoice."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, language: str | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Delivery Details")
+        self._language = language or get_ui_language()
+        self.setWindowTitle(t("invoice.delivery_details_title", language=self._language))
         layout = QFormLayout(self)
+        self.delivery_company_combo = QComboBox()
+        self.delivery_company_combo.addItem("", None)
+        for company in list_delivery_companies(include_inactive=False):
+            self.delivery_company_combo.addItem(company.name, company.id)
+            self.delivery_company_combo.setItemData(
+                self.delivery_company_combo.count() - 1,
+                float(company.default_fee),
+                Qt.ItemDataRole.UserRole + 1,
+            )
         self.customer_name_input = QLineEdit()
         self.phone_input = QLineEdit()
         self.address_input = QLineEdit()
@@ -100,15 +110,32 @@ class DeliveryDetailsDialog(QDialog):
         self.delivery_fee_input = QDoubleSpinBox()
         self.delivery_fee_input.setRange(0, 999999)
         self.delivery_fee_input.setDecimals(2)
-        layout.addRow("Customer Name", self.customer_name_input)
-        layout.addRow("Phone", self.phone_input)
-        layout.addRow("Address", self.address_input)
-        layout.addRow("Delivery Notes", self.notes_input)
-        layout.addRow("Delivery Fee", self.delivery_fee_input)
+        self.delivery_company_combo.currentIndexChanged.connect(self._company_changed)
+        layout.addRow(t("invoice.delivery_company_label", language=self._language), self.delivery_company_combo)
+        layout.addRow(t("invoice.delivery_customer_name_label", language=self._language), self.customer_name_input)
+        layout.addRow(t("invoice.delivery_phone_label", language=self._language), self.phone_input)
+        layout.addRow(t("invoice.delivery_address_short_label", language=self._language), self.address_input)
+        layout.addRow(t("invoice.delivery_notes_label", language=self._language), self.notes_input)
+        layout.addRow(t("invoice.delivery_fee_label", language=self._language), self.delivery_fee_input)
         actions = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         actions.accepted.connect(self.accept)
         actions.rejected.connect(self.reject)
         layout.addRow(actions)
+
+    def _company_changed(self) -> None:
+        fee = self.delivery_company_combo.currentData(Qt.ItemDataRole.UserRole + 1)
+        if fee is not None:
+            self.delivery_fee_input.setValue(float(fee))
+
+    def accept(self) -> None:
+        if self.delivery_company_combo.currentData() is None:
+            QMessageBox.warning(
+                self,
+                t("common.select", language=self._language),
+                t("invoice.validation_delivery_company", language=self._language),
+            )
+            return
+        super().accept()
 
 
 class WebsiteOrderDialog(QDialog):
@@ -223,6 +250,9 @@ class InvoiceTab(BaseTabContainer):
         self._delivery_phone = ""
         self._delivery_address = ""
         self._delivery_notes = ""
+        self._delivery_customer_applied_to_invoice = False
+        self._pre_delivery_customer_name = ""
+        self._pre_delivery_customer_phone = ""
         self._save_in_progress = False
 
         content = QWidget()
@@ -945,6 +975,10 @@ class InvoiceTab(BaseTabContainer):
             idx = self.delivery_status_combo.findData(selected_id)
             if idx >= 0:
                 self.delivery_status_combo.setCurrentIndex(idx)
+        elif required and self.delivery_status_combo.count() > 1:
+            # Statuses are returned in configured sort order; the first active
+            # delivery status is the configured initial status (normally Pending).
+            self.delivery_status_combo.setCurrentIndex(1)
         self._delivery_statuses_enabled = required
 
     def _handle_delivery_company_change(self) -> None:
@@ -980,6 +1014,13 @@ class InvoiceTab(BaseTabContainer):
             self.delivery_fee_input.blockSignals(True)
             self.delivery_fee_input.setValue(0.0)
             self.delivery_fee_input.blockSignals(False)
+            self.delivery_company_combo.setCurrentIndex(0)
+            self.delivery_status_combo.setCurrentIndex(0)
+            self.delivery_address_input.clear()
+            if self._delivery_customer_applied_to_invoice:
+                self.customer_name_input.setText(self._pre_delivery_customer_name)
+                self.customer_phone_input.setText(self._pre_delivery_customer_phone)
+                self._delivery_customer_applied_to_invoice = False
             self._delivery_customer_name = ""
             self._delivery_phone = ""
             self._delivery_address = ""
@@ -2385,7 +2426,7 @@ class InvoiceTab(BaseTabContainer):
         self._update_validation_state()
 
     def _open_delivery_details_dialog(self) -> bool:
-        dialog = DeliveryDetailsDialog(self)
+        dialog = DeliveryDetailsDialog(self, language=self._language)
         selected_customer_id = self._customer_id
         selected_name = self.customer_name_input.text().strip()
         selected_phone = self.customer_phone_input.text().strip()
@@ -2399,13 +2440,22 @@ class InvoiceTab(BaseTabContainer):
         dialog.customer_name_input.setText(prefill_name)
         dialog.phone_input.setText(prefill_phone)
         dialog.address_input.setText(prefill_address)
+        company_index = dialog.delivery_company_combo.findData(self.delivery_company_combo.currentData())
+        if company_index >= 0:
+            dialog.delivery_company_combo.setCurrentIndex(company_index)
         dialog.delivery_fee_input.setValue(float(self.delivery_fee_input.value()))
         result = dialog.exec()
         if result != QDialog.DialogCode.Accepted:
             return False
         if not self._customer_id:
+            self._pre_delivery_customer_name = selected_name
+            self._pre_delivery_customer_phone = selected_phone
+            self._delivery_customer_applied_to_invoice = True
             self.customer_name_input.setText(dialog.customer_name_input.text().strip())
             self.customer_phone_input.setText(dialog.phone_input.text().strip())
+        company_index = self.delivery_company_combo.findData(dialog.delivery_company_combo.currentData())
+        if company_index >= 0:
+            self.delivery_company_combo.setCurrentIndex(company_index)
         self.delivery_address_input.setText(dialog.address_input.text().strip())
         self.delivery_fee_input.setValue(float(dialog.delivery_fee_input.value()))
         delivery_notes = dialog.notes_input.toPlainText().strip()
@@ -2413,11 +2463,6 @@ class InvoiceTab(BaseTabContainer):
         self._delivery_phone = dialog.phone_input.text().strip()
         self._delivery_address = dialog.address_input.text().strip()
         self._delivery_notes = delivery_notes
-        if delivery_notes:
-            base_notes = self.notes_input.toPlainText().strip()
-            tagged_note = f"Delivery Notes: {delivery_notes}"
-            if tagged_note not in base_notes:
-                self.notes_input.setPlainText(f"{base_notes}\n{tagged_note}".strip())
         return True
 
     def _add_product_to_invoice(self, product, qty: float) -> None:
@@ -2871,7 +2916,10 @@ class InvoiceTab(BaseTabContainer):
         self.payment_summary_label.setText(
             t("invoice.payment_summary", language=self._language, method=payment_method)
         )
-        self.delivery_fee_summary_label.setText(f"Delivery Fee: {delivery_fee:.2f}" if delivery_fee > 0 else "")
+        self.delivery_fee_summary_label.setText(
+            f"{t('invoice.delivery_fee_label', language=self._language)}: {delivery_fee:.2f}"
+            if delivery_fee > 0 else ""
+        )
 
     def _normalize_scan_text(self, code: str) -> str:
         return code.rstrip("\r\n")

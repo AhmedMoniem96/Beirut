@@ -472,6 +472,7 @@ _TEXTS: Dict[str, Dict[str, str]] = {
     "invoice.delivery_company_label": {"en": "Delivery Company", "ar": "شركة التوصيل"},
     "invoice.delivery_fee_label": {"en": "Delivery Fee", "ar": "رسوم التوصيل"},
     "invoice.delivery_details_title": {"en": "Delivery Details", "ar": "تفاصيل التوصيل"},
+    "invoice.delivery_details_customer": {"en": "Delivery Customer", "ar": "اسم المستلم"},
     "invoice.delivery_customer_name_label": {"en": "Customer Name", "ar": "اسم العميل"},
     "invoice.delivery_phone_label": {"en": "Phone", "ar": "الهاتف"},
     "invoice.delivery_address_short_label": {"en": "Address", "ar": "العنوان"},

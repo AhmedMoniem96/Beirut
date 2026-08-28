@@ -17,6 +17,31 @@ class SalesAggregate:
 
 
 @dataclass
+class InvoiceReportRow:
+    invoice_no: str
+    datetime: str
+    customer: str
+    order_source: str
+    website_order_ref: str
+    delivery_enabled: bool
+    delivery_company: str
+    delivery_status_ar: str
+    delivery_status_en: str
+    delivery_fee: float
+    total: float
+    payment_method: str
+    payment_status: str
+
+
+@dataclass
+class SalesChannelMetrics:
+    delivery_orders: int
+    delivery_fees_total: float
+    website_orders: int
+    branch_orders: int
+
+
+@dataclass
 class ReturnsAggregate:
     return_count: int
     return_total: float
@@ -205,6 +230,86 @@ def sales_aggregate(start_iso: str, end_iso: str, product_id: int | None = None)
         discounts=row[2],
         net_sales=row[3],
     )
+
+
+def invoice_report_rows(
+    start_iso: str,
+    end_iso: str,
+    *,
+    order_source: str | None = None,
+    delivery: bool | None = None,
+    delivery_company_id: int | None = None,
+) -> List[InvoiceReportRow]:
+    """Return sales invoice metadata without changing invoice accounting totals."""
+    conditions = ["i.txn_type = 'sale'", "i.datetime BETWEEN ? AND ?"]
+    params: List = [start_iso, end_iso]
+    if order_source == "website":
+        conditions.append("COALESCE(i.order_source, 'in_store') <> 'in_store'")
+    elif order_source == "branch":
+        conditions.append("COALESCE(i.order_source, 'in_store') = 'in_store'")
+    if delivery is not None:
+        conditions.append("COALESCE(i.delivery_enabled, 0) = ?")
+        params.append(int(delivery))
+    if delivery_company_id is not None:
+        conditions.append("i.delivery_company_id = ?")
+        params.append(delivery_company_id)
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""SELECT i.invoice_no, i.datetime,
+                   COALESCE(NULLIF(TRIM(i.customer_name), ''), 'Walk-in'),
+                   COALESCE(i.order_source, 'in_store'),
+                   COALESCE(i.website_order_ref, ''),
+                   COALESCE(i.delivery_enabled, 0),
+                   CASE WHEN COALESCE(i.delivery_enabled, 0) = 1
+                        THEN COALESCE(dc.name, '') ELSE '' END,
+                   CASE WHEN COALESCE(i.delivery_enabled, 0) = 1
+                        THEN COALESCE(ds.name_ar, '') ELSE '' END,
+                   CASE WHEN COALESCE(i.delivery_enabled, 0) = 1
+                        THEN COALESCE(ds.name_en, '') ELSE '' END,
+                   CASE WHEN COALESCE(i.delivery_enabled, 0) = 1
+                        THEN COALESCE(i.delivery_fee, 0) ELSE 0 END,
+                   i.total, i.payment_method, COALESCE(i.payment_status, '')
+            FROM jw_invoices i
+            LEFT JOIN jw_delivery_companies dc ON dc.id = i.delivery_company_id
+            LEFT JOIN jw_statuses ds
+                   ON ds.id = i.delivery_status_id AND ds.status_group = 'DELIVERY'
+            WHERE {' AND '.join(conditions)}
+            ORDER BY i.datetime DESC, i.id DESC""",
+        tuple(params),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        InvoiceReportRow(
+            invoice_no=row[0], datetime=row[1], customer=row[2], order_source=row[3],
+            website_order_ref=row[4] if row[3] != "in_store" else "",
+            delivery_enabled=bool(row[5]), delivery_company=row[6],
+            delivery_status_ar=row[7], delivery_status_en=row[8],
+            delivery_fee=float(row[9] or 0), total=float(row[10] or 0),
+            payment_method=row[11], payment_status=row[12],
+        )
+        for row in rows
+    ]
+
+
+def sales_channel_metrics(start_iso: str, end_iso: str) -> SalesChannelMetrics:
+    """Informational channel KPIs; delivery fees are not added to sales revenue."""
+    conn = get_conn()
+    row = conn.execute(
+        """SELECT
+               SUM(CASE WHEN COALESCE(delivery_enabled, 0) = 1 THEN 1 ELSE 0 END),
+               SUM(CASE WHEN COALESCE(delivery_enabled, 0) = 1
+                        THEN COALESCE(delivery_fee, 0) ELSE 0 END),
+               SUM(CASE WHEN COALESCE(order_source, 'in_store') <> 'in_store' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN COALESCE(order_source, 'in_store') = 'in_store' THEN 1 ELSE 0 END)
+           FROM jw_invoices
+           WHERE txn_type = 'sale' AND datetime BETWEEN ? AND ?""",
+        (start_iso, end_iso),
+    ).fetchone()
+    conn.close()
+    return SalesChannelMetrics(int(row[0] or 0), float(row[1] or 0), int(row[2] or 0), int(row[3] or 0))
 
 
 def payment_breakdown(

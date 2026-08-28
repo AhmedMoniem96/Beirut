@@ -262,6 +262,9 @@ def export_daily_report_pdf(
     low_products: Iterable[Tuple[str, str, float]],
     out_of_stock: Iterable[Tuple[str, str, str, float, float]],
     near_out: Iterable[Tuple[str, str, str, float, float]],
+    invoice_rows: Iterable[Tuple[str, ...]] = (),
+    invoice_headers: Tuple[str, ...] = (),
+    invoice_section_title: str = "Invoice Sales Details",
 ) -> None:
     font_name = _register_arabic_font(gallery.font_path)
     c = canvas.Canvas(path, pagesize=A4)
@@ -374,6 +377,26 @@ def export_daily_report_pdf(
         c.drawString(40, y, f"Notes: {notes}")
 
     c.showPage()
+    invoice_rows = list(invoice_rows)
+    if invoice_rows:
+        y = height - 40
+        c.setFont(font_name, 12)
+        c.drawString(40, y, invoice_section_title)
+        c.setFont(font_name, 8)
+        y -= 20
+        for row in invoice_rows:
+            if y < 85:
+                c.showPage()
+                c.setFont(font_name, 8)
+                y = height - 40
+            labels = invoice_headers or ("Invoice #", "Date", "Customer", "Order Source", "Website Order #", "Delivery", "Delivery Company", "Delivery Status", "Delivery Fee", "Invoice Total", "Payment Method", "Status")
+            invoice_no, date, customer, source, website_ref, delivery, company, status, fee, total, payment, payment_status = row
+            c.drawString(40, y, f"{labels[0]}: {invoice_no} | {labels[1]}: {date} | {labels[2]}: {customer} | {labels[9]}: {total}")
+            y -= 12
+            c.drawString(55, y, f"{labels[3]}: {source} | {labels[4]}: {website_ref} | {labels[10]}: {payment} / {payment_status}")
+            y -= 12
+            c.drawString(55, y, f"{labels[5]}: {delivery} | {labels[6]}: {company} | {labels[7]}: {status} | {labels[8]}: {fee}")
+            y -= 18
     c.save()
 
 

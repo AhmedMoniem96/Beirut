@@ -35,9 +35,9 @@ from PyQt6.QtWidgets import (
 
 from beirut_pos.utils.excel import write_protected_workbook
 
-from ...services.db import fetch_shift_session_for_date, list_products, save_shift_session
+from ...services.db import fetch_shift_session_for_date, list_delivery_companies, list_products, save_shift_session
 from ...services.pdf_exports import GalleryInfo, export_daily_report_pdf
-from ...services.reports import customer_aggregates, expense_report_data, inventory_value_estimate, lowest_products, payment_breakdown, production_history, returns_aggregate, sales_aggregate, stock_alerts, top_products, top_products_by_revenue
+from ...services.reports import customer_aggregates, expense_report_data, inventory_value_estimate, invoice_report_rows, lowest_products, payment_breakdown, production_history, returns_aggregate, sales_aggregate, sales_channel_metrics, stock_alerts, top_products, top_products_by_revenue
 from ...services.session import get_current_user
 from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
@@ -63,6 +63,7 @@ class ReportData:
     low_products: List[Tuple[str, str, float]]
     out_of_stock: List[Tuple[str, str, str, float, float]]
     near_out: List[Tuple[str, str, str, float, float]]
+    invoice_rows: List[Tuple[str, ...]]
 
 
 class MostSellingChart(QWidget):
@@ -158,6 +159,14 @@ class ReportsTab(BaseTabContainer):
         self.product_filter_combo.currentIndexChanged.connect(self._generate_report)
         self.customer_filter_input = QLineEdit()
         self.customer_filter_input.textChanged.connect(self._generate_report)
+        self.order_source_filter = QComboBox()
+        self.delivery_filter = QComboBox()
+        self.delivery_company_filter = QComboBox()
+        for combo in (self.order_source_filter, self.delivery_filter, self.delivery_company_filter):
+            combo.currentIndexChanged.connect(self._generate_report)
+        self.order_source_label = QLabel()
+        self.delivery_filter_label = QLabel()
+        self.delivery_company_filter_label = QLabel()
         self.date_from_filter = QDateEdit()
         self.date_from_filter.setCalendarPopup(True)
         self.date_from_filter.setDisplayFormat("dd/MM/yyyy")
@@ -245,6 +254,7 @@ class ReportsTab(BaseTabContainer):
         self.expenses_list_table = QTableWidget(0, 6)
         self.material_purchases_table = QTableWidget(0, 4)
         self.worker_wages_table = QTableWidget(0, 3)
+        self.invoice_table = QTableWidget(0, 12)
         for table in [
             self.payment_table,
             self.returns_table,
@@ -256,6 +266,7 @@ class ReportsTab(BaseTabContainer):
             self.expenses_list_table,
             self.material_purchases_table,
             self.worker_wages_table,
+            self.invoice_table,
         ]:
             table.setAlternatingRowColors(True)
             table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -279,6 +290,7 @@ class ReportsTab(BaseTabContainer):
         self.low_products_label = QLabel()
         self.stock_alerts_label = QLabel()
         self.summary_report_tab = self._build_summary_tab(export_layout)
+        self.invoices_report_tab = self._build_invoices_tab()
         self.products_report_tab = self._build_products_tab()
         self.customers_report_tab = self._build_customers_tab()
         self.returns_report_tab = self._build_returns_tab()
@@ -286,6 +298,7 @@ class ReportsTab(BaseTabContainer):
         self.expenses_report_tab = self._build_expenses_tab()
         for report_tab in (
             self.summary_report_tab,
+            self.invoices_report_tab,
             self.products_report_tab,
             self.customers_report_tab,
             self.returns_report_tab,
@@ -298,6 +311,7 @@ class ReportsTab(BaseTabContainer):
 
         self.set_page_content_widget(content)
         self._reload_product_filter()
+        self._reload_invoice_filters()
         self.apply_language(self._language)
         self._initialize_shift_defaults()
         self._generate_report()
@@ -352,6 +366,10 @@ class ReportsTab(BaseTabContainer):
             ("top_product", "🏷️", "Top Product"),
             ("top_customer", "👤", "Top Customer"),
             ("low_stock_alerts", "⚠️", "Low Stock Alerts"),
+            ("delivery_orders", "🚚", t("reports.delivery_orders", language=self._language)),
+            ("delivery_fees", "💵", t("reports.delivery_fees_total", language=self._language)),
+            ("website_orders", "🌐", t("reports.website_orders", language=self._language)),
+            ("branch_orders", "🏬", t("reports.branch_orders", language=self._language)),
         ]
         for i, (key, icon, title) in enumerate(card_specs):
             card_widget, value_label = self._create_summary_card(title, icon)
@@ -363,6 +381,22 @@ class ReportsTab(BaseTabContainer):
         vbox.addWidget(self.payment_breakdown_label)
         vbox.addWidget(self.payment_table, 1)
         vbox.addLayout(export_layout)
+        return tab
+
+    def _build_invoices_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        filters = QHBoxLayout()
+        for label, combo in (
+            (self.order_source_label, self.order_source_filter),
+            (self.delivery_filter_label, self.delivery_filter),
+            (self.delivery_company_filter_label, self.delivery_company_filter),
+        ):
+            filters.addWidget(label)
+            filters.addWidget(combo)
+        filters.addStretch()
+        layout.addLayout(filters)
+        layout.addWidget(self.invoice_table, 1)
         return tab
 
     def _create_summary_card(self, title: str, icon: str) -> Tuple[QWidget, QLabel]:
@@ -392,6 +426,7 @@ class ReportsTab(BaseTabContainer):
         frame.setMinimumHeight(74)
         frame.setMaximumHeight(90)
         value_label.setProperty("subtitleLabel", subtitle_label)
+        value_label.setProperty("titleLabel", title_label)
         return frame, value_label
 
     def _set_summary_card(self, key: str, value: str, subtitle: str = "") -> None:
@@ -495,6 +530,10 @@ class ReportsTab(BaseTabContainer):
         self.product_filter_label.setText(f"{t('common.product_filter', language=language)}:")
         self._reload_product_filter()
         self.product_filter_combo.setItemText(0, t("common.all_products", language=language))
+        self._reload_invoice_filters()
+        self.order_source_label.setText(f"{t('reports.order_source', language=language)}:")
+        self.delivery_filter_label.setText(f"{t('reports.delivery', language=language)}:")
+        self.delivery_company_filter_label.setText(f"{t('reports.delivery_company', language=language)}:")
         self.shift_box.setTitle(t("reports.shift_box", language=language))
         self.cashier_label.setText(t("reports.cashier", language=language))
         self.open_time_label.setText(t("reports.open_time", language=language))
@@ -536,6 +575,23 @@ class ReportsTab(BaseTabContainer):
         self.expenses_list_table.setHorizontalHeaderLabels(["Date", "Category", "Vendor/Worker", "Description", "Amount", "Payment Method"])
         self.material_purchases_table.setHorizontalHeaderLabels(["Material", "Qty Purchased", "Total Cost", "Average Unit Cost"])
         self.worker_wages_table.setHorizontalHeaderLabels(["Worker", "Period", "Total Paid"])
+        self.invoice_table.setHorizontalHeaderLabels([
+            t("reports.invoice_no", language=language), t("common.date", language=language),
+            t("reports.customer", language=language), t("reports.order_source", language=language),
+            t("reports.website_order_no", language=language), t("reports.delivery", language=language),
+            t("reports.delivery_company", language=language), t("reports.delivery_status", language=language),
+            t("reports.delivery_fee", language=language), t("reports.invoice_total", language=language),
+            t("reports.payment_method", language=language), t("reports.status", language=language),
+        ])
+        for key, title_key in (
+            ("delivery_orders", "reports.delivery_orders"),
+            ("delivery_fees", "reports.delivery_fees_total"),
+            ("website_orders", "reports.website_orders"),
+            ("branch_orders", "reports.branch_orders"),
+        ):
+            title_label = self.summary_cards[key].property("titleLabel")
+            if isinstance(title_label, QLabel):
+                title_label.setText(t(title_key, language=language))
         for key, title_key in [
             ("total_expenses", "reports.total_expenses"),
             ("material_purchases", "reports.material_purchases"),
@@ -563,6 +619,7 @@ class ReportsTab(BaseTabContainer):
         self.stock_alerts_label.setText(t("reports.stock_alerts", language=language))
         tab_labels = (
             (self.summary_report_tab, "reports.summary_tab"),
+            (self.invoices_report_tab, "reports.invoices_tab"),
             (self.products_report_tab, "reports.products_tab"),
             (self.customers_report_tab, "reports.customers_tab"),
             (self.returns_report_tab, "reports.returns_tab"),
@@ -604,6 +661,13 @@ class ReportsTab(BaseTabContainer):
         product_id = self.product_filter_combo.currentData()
 
         sales = sales_aggregate(start_iso, end_iso, product_id=product_id)
+        invoice_data = invoice_report_rows(
+            start_iso, end_iso,
+            order_source=self.order_source_filter.currentData(),
+            delivery=self.delivery_filter.currentData(),
+            delivery_company_id=self.delivery_company_filter.currentData(),
+        )
+        channel_metrics = sales_channel_metrics(start_iso, end_iso)
         payments = payment_breakdown(start_iso, end_iso, product_id=product_id)
         net_payments = payment_breakdown(
             start_iso,
@@ -660,6 +724,19 @@ class ReportsTab(BaseTabContainer):
                 )
             )
         self._populate_table(self.stock_table, stock_rows)
+        dash = "—"
+        invoice_rows = [(
+            row.invoice_no, row.datetime[:16], row.customer,
+            t("reports.website", language=self._language) if row.order_source != "in_store"
+            else t("reports.branch_pos", language=self._language),
+            row.website_order_ref or dash,
+            t("common.yes", language=self._language) if row.delivery_enabled else t("common.no", language=self._language),
+            row.delivery_company or dash,
+            (row.delivery_status_ar if self._language == "ar" else row.delivery_status_en) or dash,
+            f"{row.delivery_fee:.2f}" if row.delivery_enabled else dash,
+            f"{row.total:.2f}", row.payment_method, row.payment_status or dash,
+        ) for row in invoice_data]
+        self._populate_table(self.invoice_table, invoice_rows)
 
         expected_cash = self._compute_expected_cash(net_payments)
         self.expected_cash_label.setText(
@@ -742,6 +819,10 @@ class ReportsTab(BaseTabContainer):
         self._set_summary_card("top_product", self._sales_item_label(top_product) if top_product else "—", f"Qty {top_product.qty:.2f}" if top_product else "No sales")
         self._set_summary_card("top_customer", top_customer.customer if top_customer else "—", f"Spend {top_customer.spend:.2f}" if top_customer else "No customer data")
         self._set_summary_card("low_stock_alerts", str(low_stock_count), f"Out: {len(out_of_stock)} | Near: {len(near_out)}")
+        self._set_summary_card("delivery_orders", str(channel_metrics.delivery_orders))
+        self._set_summary_card("delivery_fees", f"{channel_metrics.delivery_fees_total:.2f}")
+        self._set_summary_card("website_orders", str(channel_metrics.website_orders))
+        self._set_summary_card("branch_orders", str(channel_metrics.branch_orders))
 
         self._last_report = ReportData(
             report_date=date_iso,
@@ -766,6 +847,7 @@ class ReportsTab(BaseTabContainer):
             low_products=[(self._sales_item_label(p), p.code, p.qty) for p in low],
             out_of_stock=list(out_of_stock),
             near_out=list(near_out),
+            invoice_rows=invoice_rows,
         )
 
     def _reload_product_filter(self) -> None:
@@ -784,6 +866,30 @@ class ReportsTab(BaseTabContainer):
             if index >= 0:
                 self.product_filter_combo.setCurrentIndex(index)
         self.product_filter_combo.blockSignals(False)
+
+    def _reload_invoice_filters(self) -> None:
+        selections = (
+            self.order_source_filter.currentData(), self.delivery_filter.currentData(),
+            self.delivery_company_filter.currentData(),
+        )
+        for combo in (self.order_source_filter, self.delivery_filter, self.delivery_company_filter):
+            combo.blockSignals(True)
+            combo.clear()
+        self.order_source_filter.addItem(t("common.all", language=self._language), None)
+        self.order_source_filter.addItem(t("reports.branch_pos", language=self._language), "branch")
+        self.order_source_filter.addItem(t("reports.website", language=self._language), "website")
+        self.delivery_filter.addItem(t("common.all", language=self._language), None)
+        self.delivery_filter.addItem(t("reports.delivery", language=self._language), True)
+        self.delivery_filter.addItem(t("reports.non_delivery", language=self._language), False)
+        self.delivery_company_filter.addItem(t("common.all", language=self._language), None)
+        for company in list_delivery_companies():
+            self.delivery_company_filter.addItem(company.name, company.id)
+        for combo, selected in zip(
+            (self.order_source_filter, self.delivery_filter, self.delivery_company_filter), selections
+        ):
+            index = combo.findData(selected)
+            combo.setCurrentIndex(max(index, 0))
+            combo.blockSignals(False)
 
     @staticmethod
     def _sales_item_label(item) -> str:
@@ -887,6 +993,9 @@ class ReportsTab(BaseTabContainer):
             self._last_report.low_products,
             self._last_report.out_of_stock,
             self._last_report.near_out,
+            self._last_report.invoice_rows,
+            tuple(self.invoice_table.horizontalHeaderItem(i).text() for i in range(self.invoice_table.columnCount())),
+            t("reports.invoices_tab", language=self._language),
         )
         QMessageBox.information(
             self,
@@ -936,6 +1045,16 @@ class ReportsTab(BaseTabContainer):
         ]
         for method, total in self._last_report.payment_breakdown:
             rows.append([method, f"{total:.2f}"])
+        rows.extend([["", ""], [t("reports.invoices_tab", language=self._language), ""]])
+        rows.append([
+            t("reports.invoice_no", language=self._language), t("common.date", language=self._language),
+            t("reports.customer", language=self._language), t("reports.order_source", language=self._language),
+            t("reports.website_order_no", language=self._language), t("reports.delivery", language=self._language),
+            t("reports.delivery_company", language=self._language), t("reports.delivery_status", language=self._language),
+            t("reports.delivery_fee", language=self._language), t("reports.invoice_total", language=self._language),
+            t("reports.payment_method", language=self._language), t("reports.status", language=self._language),
+        ])
+        rows.extend([list(row) for row in self._last_report.invoice_rows])
         rows.append(["", ""])
         rows.append([t("reports.excel_returns", language=self._language), ""])
         rows.append([t("reports.excel_return_count", language=self._language), str(self._last_report.returns_summary[0])])

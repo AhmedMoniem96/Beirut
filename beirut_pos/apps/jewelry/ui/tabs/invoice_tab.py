@@ -245,7 +245,6 @@ class InvoiceTab(BaseTabContainer):
         self._active_category: Optional[str] = None
         self._instant_invoice_mode = False
         self._recent_scans: list[str] = []
-        self._delivery_toggle_in_progress = False
         self._delivery_customer_name = ""
         self._delivery_phone = ""
         self._delivery_address = ""
@@ -302,8 +301,10 @@ class InvoiceTab(BaseTabContainer):
         self.order_source_combo.activated.connect(self._handle_order_source_activated)
         self._website_order_platform = ""
         self._website_order_notes = ""
-        self.delivery_enabled_checkbox = QCheckBox()
-        self.delivery_enabled_checkbox.toggled.connect(self._update_delivery_state)
+        self.delivery_button = QPushButton()
+        self.delivery_button.clicked.connect(self._add_or_edit_delivery)
+        self.remove_delivery_button = QPushButton()
+        self.remove_delivery_button.clicked.connect(self._remove_delivery)
         self.delivery_company_combo = QComboBox()
         self.delivery_company_combo.currentIndexChanged.connect(self._handle_delivery_company_change)
         self.delivery_fee_input = QDoubleSpinBox()
@@ -447,14 +448,12 @@ class InvoiceTab(BaseTabContainer):
         self.transaction_label = QLabel()
         self.payment_method_label = QLabel()
         self.order_source_label = QLabel()
-        self.delivery_enabled_label = QLabel()
         self.customer_search_label = QLabel()
         self.customer_name_label = QLabel()
         self.customer_phone_label = QLabel()
         self._form_layout.addRow(self.cashier_label, self.cashier_input)
         self._form_layout.addRow(self.transaction_label, self.txn_type_combo)
         self._form_layout.addRow(self.order_source_label, self.order_source_combo)
-        self._form_layout.addRow(self.delivery_enabled_label, self.delivery_enabled_checkbox)
         self._form_layout.addRow("", self.delivery_panel)
         self._form_layout.addRow(self.customer_search_label, customer_search_container)
         self._form_layout.addRow(self.customer_name_label, self.customer_name_input)
@@ -520,7 +519,6 @@ class InvoiceTab(BaseTabContainer):
         self.cashier_label_value = QLabel()
         self.cashier_input.textChanged.connect(self.cashier_label_value.setText)
         self.customer_label_compact = QLabel()
-        self.delivery_enabled_checkbox.setText(t("invoice.delivery_enabled_label", language=self._language))
         self.customer_add_new_btn.setText(t("invoice.add_customer", language=self._language))
         self.invoice_history_btn = QPushButton()
         self.invoice_history_btn.clicked.connect(self._open_invoice_history_dialog)
@@ -538,7 +536,8 @@ class InvoiceTab(BaseTabContainer):
         header_row.addWidget(self.customer_search_input, 0)
         header_row.addWidget(self.customer_add_new_btn)
         header_row.addWidget(self.invoice_history_btn)
-        header_row.addWidget(self.delivery_enabled_checkbox)
+        header_row.addWidget(self.delivery_button)
+        header_row.addWidget(self.remove_delivery_button)
         header_row.addStretch()
 
         product_search_panel = QWidget()
@@ -857,7 +856,7 @@ class InvoiceTab(BaseTabContainer):
         self._configure_focus_order()
         self._apply_invoice_styles()
         self._update_advanced_panels()
-        self._update_delivery_state(self.delivery_enabled_checkbox.isChecked())
+        self._sync_delivery_ui()
         self._refresh_printer_status_badge()
         self._refresh_recently_sold()
         self.apply_language(self._language)
@@ -980,7 +979,7 @@ class InvoiceTab(BaseTabContainer):
 
     def _refresh_delivery_statuses(self, required: Optional[bool] = None) -> None:
         if required is None:
-            required = self.delivery_enabled_checkbox.isChecked()
+            required = self._delivery_is_active()
         selected_id = self.delivery_status_combo.currentData()
         self.delivery_status_combo.blockSignals(True)
         self.delivery_status_combo.clear()
@@ -1003,7 +1002,7 @@ class InvoiceTab(BaseTabContainer):
         self._delivery_statuses_enabled = required
 
     def _handle_delivery_company_change(self) -> None:
-        if not self.delivery_enabled_checkbox.isChecked():
+        if not self._delivery_is_active():
             return
         self._delivery_company_id = self._valid_delivery_company_id(
             self.delivery_company_combo.currentData()
@@ -1016,16 +1015,12 @@ class InvoiceTab(BaseTabContainer):
         self.delivery_fee_input.blockSignals(False)
         self._recalculate_totals()
 
-    def _update_delivery_state(self, enabled: bool) -> None:
-        logger.info("Delivery checkbox toggled: checked=%s", enabled)
-        if self._delivery_toggle_in_progress:
-            return
-        if enabled:
-            if not self._open_delivery_details_dialog():
-                self._delivery_toggle_in_progress = True
-                self.delivery_enabled_checkbox.setChecked(False)
-                self._delivery_toggle_in_progress = False
-                enabled = False
+    def _delivery_is_active(self) -> bool:
+        """Derive delivery state exclusively from the canonical company ID."""
+        return self._valid_delivery_company_id(self._delivery_company_id) is not None
+
+    def _sync_delivery_ui(self) -> None:
+        enabled = self._delivery_is_active()
         self.delivery_panel.setVisible(enabled)
         self.delivery_panel.setEnabled(enabled)
         self.delivery_company_combo.setEnabled(enabled)
@@ -1034,24 +1029,41 @@ class InvoiceTab(BaseTabContainer):
         self.delivery_status_combo.setEnabled(enabled)
         if enabled != self._delivery_statuses_enabled:
             self._refresh_delivery_statuses(required=enabled)
-        if not enabled:
-            self.delivery_fee_input.blockSignals(True)
-            self.delivery_fee_input.setValue(0.0)
-            self.delivery_fee_input.blockSignals(False)
-            self.delivery_company_combo.setCurrentIndex(0)
-            self._delivery_company_id = None
-            self.delivery_status_combo.setCurrentIndex(0)
-            self.delivery_address_input.clear()
-            if self._delivery_customer_applied_to_invoice:
-                self.customer_name_input.setText(self._pre_delivery_customer_name)
-                self.customer_phone_input.setText(self._pre_delivery_customer_phone)
-                self._delivery_customer_applied_to_invoice = False
-            self._delivery_customer_name = ""
-            self._delivery_phone = ""
-            self._delivery_address = ""
-            self._delivery_notes = ""
+        if enabled:
+            company_name = self.delivery_company_combo.currentText().strip()
+            fee = float(self.delivery_fee_input.value())
+            prefix = t("invoice.delivery_active", language=self._language)
+            self.delivery_button.setText(f"{prefix}: {company_name} — {fee:.2f}")
         else:
-            self._handle_delivery_company_change()
+            self.delivery_button.setText(t("invoice.add_delivery", language=self._language))
+        self.remove_delivery_button.setText(t("invoice.remove_delivery", language=self._language))
+        self.remove_delivery_button.setVisible(enabled)
+
+    def _add_or_edit_delivery(self) -> None:
+        if self._open_delivery_details_dialog():
+            if not self._delivery_statuses_enabled:
+                self._refresh_delivery_statuses(required=True)
+            self._sync_delivery_ui()
+            self._recalculate_totals()
+
+    def _remove_delivery(self) -> None:
+        self.delivery_fee_input.blockSignals(True)
+        self.delivery_fee_input.setValue(0.0)
+        self.delivery_fee_input.blockSignals(False)
+        self.delivery_company_combo.setCurrentIndex(0)
+        self._delivery_company_id = None
+        self.delivery_status_combo.setCurrentIndex(0)
+        self.delivery_address_input.clear()
+        if self._delivery_customer_applied_to_invoice:
+            self.customer_name_input.setText(self._pre_delivery_customer_name)
+            self.customer_phone_input.setText(self._pre_delivery_customer_phone)
+            self._delivery_customer_applied_to_invoice = False
+        self._delivery_customer_name = ""
+        self._delivery_phone = ""
+        self._delivery_address = ""
+        self._delivery_notes = ""
+        self._refresh_delivery_statuses(required=False)
+        self._sync_delivery_ui()
         self._recalculate_totals()
 
     def _handle_pay_now_change(self) -> None:
@@ -1234,7 +1246,7 @@ class InvoiceTab(BaseTabContainer):
     def _open_website_order_dialog(self) -> None:
         dialog = WebsiteOrderDialog(self)
         dialog.order_ref_input.setText(self.website_order_input.text().strip())
-        if self.delivery_enabled_checkbox.isChecked():
+        if self._delivery_is_active():
             dialog.delivery_required_checkbox.setChecked(True)
             dialog.delivery_address_input.setText(self.delivery_address_input.text().strip())
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -1248,10 +1260,12 @@ class InvoiceTab(BaseTabContainer):
         self.website_order_input.setText(dialog.order_ref_input.text().strip())
         self._ensure_website_order_reference()
         if dialog.delivery_required_checkbox.isChecked():
-            if not self.delivery_enabled_checkbox.isChecked():
-                self.delivery_enabled_checkbox.setChecked(True)
+            if not self._delivery_is_active() and not self._open_delivery_details_dialog():
+                return
             self.delivery_address_input.setText(dialog.delivery_address_input.text().strip())
             self._delivery_address = dialog.delivery_address_input.text().strip()
+            self._sync_delivery_ui()
+            self._recalculate_totals()
         self._update_order_source_label()
 
     def _update_order_source_label(self) -> None:
@@ -1689,7 +1703,7 @@ class InvoiceTab(BaseTabContainer):
         self._update_validation_state()
 
     def _delivery_fee_value(self) -> float:
-        if not self.delivery_enabled_checkbox.isChecked():
+        if not self._delivery_is_active():
             return 0.0
         return float(self.delivery_fee_input.value())
 
@@ -1744,7 +1758,7 @@ class InvoiceTab(BaseTabContainer):
             if txn_type == "return" or not adjustments_allowed
             else self._loyalty_redeem_amount(subtotal, discount)
         )
-        delivery_enabled = self.delivery_enabled_checkbox.isChecked()
+        delivery_enabled = self._delivery_is_active()
         delivery_fee = self._delivery_fee_value() if delivery_enabled else 0.0
         net_total = max(subtotal - discount - loyalty_redeem, 0.0)
         total = max(net_total + delivery_fee, 0.0)
@@ -1777,7 +1791,7 @@ class InvoiceTab(BaseTabContainer):
         if is_partial and self.payment_order_status_combo.count() > 1:
             if self.payment_order_status_combo.currentIndex() <= 0:
                 return t("invoice.validation_payment_status", language=self._language)
-        if self.delivery_enabled_checkbox.isChecked():
+        if self._delivery_is_active():
             if self._delivery_company_id is None:
                 return t("invoice.validation_delivery_company", language=self._language)
             if not self.delivery_address_input.text().strip():
@@ -1857,7 +1871,7 @@ class InvoiceTab(BaseTabContainer):
         discount = float(computed["discount"])
         loyalty_redeem = float(computed["loyalty_redeem"])
         net_total = float(computed["net_total"])
-        delivery_enabled = self.delivery_enabled_checkbox.isChecked()
+        delivery_enabled = self._delivery_is_active()
         delivery_fee = float(computed["delivery_fee"])
         total = float(computed["total"])
         loyalty_earned = int(computed["loyalty_earned"])
@@ -2413,7 +2427,7 @@ class InvoiceTab(BaseTabContainer):
         self.pay_now_input.setValue(0.0)
         self.payment_due_date_input.setDate(QDate.currentDate())
         self.payment_order_status_combo.setCurrentIndex(0)
-        self.delivery_enabled_checkbox.setChecked(False)
+        self._remove_delivery()
         self.delivery_company_combo.setCurrentIndex(0)
         self._delivery_company_id = None
         self.delivery_fee_input.setValue(0.0)
@@ -2458,12 +2472,13 @@ class InvoiceTab(BaseTabContainer):
         if selected_customer_id:
             customer = find_customer_by_phone(selected_customer_id)
             customer_address = customer.address if customer else ""
-        prefill_name = selected_name
-        prefill_phone = selected_phone
-        prefill_address = self.delivery_address_input.text().strip() or customer_address
+        prefill_name = self._delivery_customer_name or selected_name
+        prefill_phone = self._delivery_phone or selected_phone
+        prefill_address = self._delivery_address or customer_address
         dialog.customer_name_input.setText(prefill_name)
         dialog.phone_input.setText(prefill_phone)
         dialog.address_input.setText(prefill_address)
+        dialog.notes_input.setPlainText(self._delivery_notes)
         company_index = dialog.delivery_company_combo.findData(self._delivery_company_id)
         if company_index >= 0:
             dialog.delivery_company_combo.setCurrentIndex(company_index)
@@ -2748,7 +2763,7 @@ class InvoiceTab(BaseTabContainer):
         self.website_order_input.setPlaceholderText(
             t("invoice.website_order_placeholder", language=language)
         )
-        self.delivery_enabled_label.setText(t("invoice.delivery_enabled_label", language=language))
+        self._sync_delivery_ui()
         self.delivery_company_label.setText(t("invoice.delivery_company_label", language=language))
         self.delivery_fee_label.setText(t("invoice.delivery_fee_label", language=language))
         self.delivery_address_label.setText(t("invoice.delivery_address_label", language=language))

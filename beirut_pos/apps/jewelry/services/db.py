@@ -113,6 +113,13 @@ class JewelryInvoice:
     delivery_enabled: bool = False
     delivery_fee: float = 0.0
     delivery_address: str = ""
+    delivery_customer_name: str = ""
+    delivery_phone: str = ""
+    delivery_company_id: Optional[int] = None
+    delivery_company_name: str = ""
+    delivery_status_id: Optional[int] = None
+    delivery_status_name_ar: str = ""
+    delivery_status_name_en: str = ""
 
 
 @dataclass
@@ -3932,14 +3939,20 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT invoice_no, datetime, cashier_name, txn_type, customer_id, COALESCE(customer_name, ''),
-                  COALESCE(customer_phone, ''), subtotal, discount, COALESCE(discount_type, 'amount'),
-                  COALESCE(discount_value, 0), COALESCE(loyalty_earned, 0),
-                  COALESCE(loyalty_redeemed, 0), total, payment_method, COALESCE(paid_total, 0),
-                  COALESCE(remaining_total, 0), COALESCE(delivery_enabled, 0), COALESCE(delivery_fee, 0),
-                  COALESCE(delivery_address, ''), COALESCE(order_source, 'in_store'),
-                  COALESCE(website_order_ref, ''), notes, return_reason
-           FROM jw_invoices WHERE invoice_no = ?""",
+        """SELECT i.invoice_no, i.datetime, i.cashier_name, i.txn_type, i.customer_id, COALESCE(i.customer_name, ''),
+                  COALESCE(i.customer_phone, ''), i.subtotal, i.discount, COALESCE(i.discount_type, 'amount'),
+                  COALESCE(i.discount_value, 0), COALESCE(i.loyalty_earned, 0),
+                  COALESCE(i.loyalty_redeemed, 0), i.total, i.payment_method, COALESCE(i.paid_total, 0),
+                  COALESCE(i.remaining_total, 0), COALESCE(i.delivery_enabled, 0), COALESCE(i.delivery_fee, 0),
+                  COALESCE(i.delivery_address, ''), COALESCE(i.order_source, 'in_store'),
+                  COALESCE(i.website_order_ref, ''), i.notes, i.return_reason,
+                  COALESCE(i.delivery_customer_name, ''), COALESCE(i.delivery_phone, ''),
+                  i.delivery_company_id, COALESCE(dc.name, ''), i.delivery_status_id,
+                  COALESCE(ds.name_ar, ''), COALESCE(ds.name_en, '')
+           FROM jw_invoices i
+           LEFT JOIN jw_delivery_companies dc ON dc.id = i.delivery_company_id
+           LEFT JOIN jw_statuses ds ON ds.id = i.delivery_status_id
+           WHERE i.invoice_no = ?""",
         (invoice_no,),
     )
     row = cur.fetchone()
@@ -3971,6 +3984,13 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
         website_order_ref=row[21],
         notes=row[22],
         return_reason=row[23],
+        delivery_customer_name=row[24],
+        delivery_phone=row[25],
+        delivery_company_id=row[26],
+        delivery_company_name=row[27],
+        delivery_status_id=row[28],
+        delivery_status_name_ar=row[29],
+        delivery_status_name_en=row[30],
     )
     cur.execute(
         """SELECT product_id, product_name, product_code, qty, unit_price, line_total,

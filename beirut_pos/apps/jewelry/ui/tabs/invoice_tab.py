@@ -250,6 +250,9 @@ class InvoiceTab(BaseTabContainer):
         self._delivery_phone = ""
         self._delivery_address = ""
         self._delivery_notes = ""
+        # Database ID selected in Delivery Details.  This is the source of
+        # truth for both validation and persistence; the combo is only its UI.
+        self._delivery_company_id: Optional[int] = None
         self._delivery_customer_applied_to_invoice = False
         self._pre_delivery_customer_name = ""
         self._pre_delivery_customer_phone = ""
@@ -946,6 +949,8 @@ class InvoiceTab(BaseTabContainer):
         self._payment_statuses_enabled = required
 
     def _refresh_delivery_companies(self) -> None:
+        selected_id = self._delivery_company_id
+        self.delivery_company_combo.blockSignals(True)
         self.delivery_company_combo.clear()
         self.delivery_company_combo.addItem("", None)
         for company in list_delivery_companies(include_inactive=False):
@@ -956,6 +961,22 @@ class InvoiceTab(BaseTabContainer):
                 float(getattr(company, "default_fee", 0.0)),
                 Qt.ItemDataRole.UserRole + 1,
             )
+        selected_index = self.delivery_company_combo.findData(selected_id)
+        self.delivery_company_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+        self.delivery_company_combo.blockSignals(False)
+        if selected_index < 0:
+            self._delivery_company_id = None
+
+    @staticmethod
+    def _valid_delivery_company_id(value: object) -> Optional[int]:
+        """Return a usable database ID from QComboBox itemData."""
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            company_id = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return company_id if company_id > 0 else None
 
     def _refresh_delivery_statuses(self, required: Optional[bool] = None) -> None:
         if required is None:
@@ -984,6 +1005,9 @@ class InvoiceTab(BaseTabContainer):
     def _handle_delivery_company_change(self) -> None:
         if not self.delivery_enabled_checkbox.isChecked():
             return
+        self._delivery_company_id = self._valid_delivery_company_id(
+            self.delivery_company_combo.currentData()
+        )
         fee_value = self.delivery_company_combo.currentData(Qt.ItemDataRole.UserRole + 1)
         if fee_value is None:
             return
@@ -1015,6 +1039,7 @@ class InvoiceTab(BaseTabContainer):
             self.delivery_fee_input.setValue(0.0)
             self.delivery_fee_input.blockSignals(False)
             self.delivery_company_combo.setCurrentIndex(0)
+            self._delivery_company_id = None
             self.delivery_status_combo.setCurrentIndex(0)
             self.delivery_address_input.clear()
             if self._delivery_customer_applied_to_invoice:
@@ -1753,7 +1778,7 @@ class InvoiceTab(BaseTabContainer):
             if self.payment_order_status_combo.currentIndex() <= 0:
                 return t("invoice.validation_payment_status", language=self._language)
         if self.delivery_enabled_checkbox.isChecked():
-            if self.delivery_company_combo.currentData() is None:
+            if self._delivery_company_id is None:
                 return t("invoice.validation_delivery_company", language=self._language)
             if not self.delivery_address_input.text().strip():
                 return t("invoice.validation_delivery_address", language=self._language)
@@ -1859,9 +1884,7 @@ class InvoiceTab(BaseTabContainer):
         payment_order_status_id = None
         if is_partial and self.payment_order_status_combo.currentIndex() > 0:
             payment_order_status_id = self.payment_order_status_combo.currentData()
-        delivery_company_id = (
-            self.delivery_company_combo.currentData() if delivery_enabled else None
-        )
+        delivery_company_id = self._delivery_company_id if delivery_enabled else None
         delivery_address = self.delivery_address_input.text().strip() if delivery_enabled else ""
         delivery_status_id = (
             self.delivery_status_combo.currentData() if delivery_enabled else None
@@ -2392,6 +2415,7 @@ class InvoiceTab(BaseTabContainer):
         self.payment_order_status_combo.setCurrentIndex(0)
         self.delivery_enabled_checkbox.setChecked(False)
         self.delivery_company_combo.setCurrentIndex(0)
+        self._delivery_company_id = None
         self.delivery_fee_input.setValue(0.0)
         self.delivery_address_input.clear()
         self.delivery_status_combo.setCurrentIndex(0)
@@ -2440,7 +2464,7 @@ class InvoiceTab(BaseTabContainer):
         dialog.customer_name_input.setText(prefill_name)
         dialog.phone_input.setText(prefill_phone)
         dialog.address_input.setText(prefill_address)
-        company_index = dialog.delivery_company_combo.findData(self.delivery_company_combo.currentData())
+        company_index = dialog.delivery_company_combo.findData(self._delivery_company_id)
         if company_index >= 0:
             dialog.delivery_company_combo.setCurrentIndex(company_index)
         dialog.delivery_fee_input.setValue(float(self.delivery_fee_input.value()))
@@ -2453,9 +2477,14 @@ class InvoiceTab(BaseTabContainer):
             self._delivery_customer_applied_to_invoice = True
             self.customer_name_input.setText(dialog.customer_name_input.text().strip())
             self.customer_phone_input.setText(dialog.phone_input.text().strip())
-        company_index = self.delivery_company_combo.findData(dialog.delivery_company_combo.currentData())
-        if company_index >= 0:
-            self.delivery_company_combo.setCurrentIndex(company_index)
+        selected_company_id = self._valid_delivery_company_id(
+            dialog.delivery_company_combo.currentData()
+        )
+        company_index = self.delivery_company_combo.findData(selected_company_id)
+        if selected_company_id is None or company_index < 0:
+            return False
+        self._delivery_company_id = selected_company_id
+        self.delivery_company_combo.setCurrentIndex(company_index)
         self.delivery_address_input.setText(dialog.address_input.text().strip())
         self.delivery_fee_input.setValue(float(dialog.delivery_fee_input.value()))
         delivery_notes = dialog.notes_input.toPlainText().strip()

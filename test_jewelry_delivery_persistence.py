@@ -64,3 +64,12 @@ def test_active_companies_and_delivery_invoice_persistence(jewelry_db):
     assert configured_fee == 50
     assert pending.name_en == "Pending"
     assert pending.name_ar == "قيد الانتظار"
+
+    saved_invoice, _items = db.fetch_invoice_details(invoice_no)
+    assert saved_invoice.total == 570
+    assert saved_invoice.delivery_fee == 70
+    assert saved_invoice.delivery_company_name == "Courier"
+    assert saved_invoice.delivery_status_name_en == "Pending"
+    assert saved_invoice.delivery_status_name_ar == "قيد الانتظار"
+    assert saved_invoice.delivery_customer_name == "Customer"
+    assert saved_invoice.delivery_phone == "123"

@@ -3,7 +3,7 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
+    QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
     QTableWidgetItem, QVBoxLayout,
 )
 
@@ -11,6 +11,7 @@ from ...services.db import (
     attach_customer_to_invoice, fetch_invoice_details, find_customer_by_phone,
     list_customers, list_linked_invoices, save_customer,
 )
+from ...services.i18n import choose_name, get_ui_language, t
 from .quick_customer_dialog import QuickCustomerDialog
 
 
@@ -35,6 +36,21 @@ class InvoiceDetailsDialog(QDialog):
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             self.summary.addRow(labels[key], value)
         layout.addLayout(self.summary)
+
+        self.delivery_section = QGroupBox()
+        self.delivery_section.setObjectName("deliveryDetailsSection")
+        delivery_layout = QFormLayout(self.delivery_section)
+        self.delivery_values = {key: QLabel() for key in (
+            "company", "status", "fee", "customer", "phone", "address", "notes"
+        )}
+        self.delivery_labels = {}
+        for key, value in self.delivery_values.items():
+            value.setObjectName(f"delivery_{key}_value")
+            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            label = QLabel()
+            self.delivery_labels[key] = label
+            delivery_layout.addRow(label, value)
+        layout.addWidget(self.delivery_section)
 
         customer_actions = QHBoxLayout()
         self.customer_combo = QComboBox()
@@ -75,6 +91,7 @@ class InvoiceDetailsDialog(QDialog):
     def reload(self) -> None:
         invoice, items = fetch_invoice_details(self.invoice_no)
         self.invoice = invoice
+        language = get_ui_language()
         self.values["invoice"].setText(invoice.invoice_no)
         self.values["date"].setText(invoice.datetime)
         self.values["customer"].setText(invoice.customer_name or "Walk-in Customer")
@@ -83,6 +100,35 @@ class InvoiceDetailsDialog(QDialog):
         self.values["discount"].setText(f"{invoice.discount:.2f}")
         self.values["total"].setText(f"{invoice.total:.2f}")
         self.values["returns"].setText(", ".join(list_linked_invoices(invoice.invoice_no)) or "—")
+        self.delivery_section.setVisible(invoice.delivery_enabled)
+        if invoice.delivery_enabled:
+            self.delivery_section.setTitle(t("invoice.delivery_details_title", language=language))
+            label_keys = {
+                "company": "invoice.delivery_company_label",
+                "status": "invoice.delivery_status_label",
+                "fee": "invoice.delivery_fee_label",
+                "customer": "invoice.details_delivery_customer",
+                "phone": "invoice.delivery_phone_label",
+                "address": "invoice.delivery_address_short_label",
+                "notes": "invoice.delivery_notes_label",
+            }
+            for key, translation_key in label_keys.items():
+                self.delivery_labels[key].setText(t(translation_key, language=language))
+            delivery_text = {
+                "company": invoice.delivery_company_name,
+                "status": choose_name(
+                    invoice.delivery_status_name_ar,
+                    invoice.delivery_status_name_en,
+                    language=language,
+                ),
+                "fee": f"{invoice.delivery_fee:.2f}",
+                "customer": invoice.delivery_customer_name,
+                "phone": invoice.delivery_phone,
+                "address": invoice.delivery_address,
+                "notes": invoice.notes,
+            }
+            for key, value in delivery_text.items():
+                self.delivery_values[key].setText(str(value).strip() or "—")
         self.items_table.setRowCount(0)
         for item in items:
             row = self.items_table.rowCount()

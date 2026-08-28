@@ -113,6 +113,11 @@ class JewelryInvoice:
     delivery_enabled: bool = False
     delivery_fee: float = 0.0
     delivery_address: str = ""
+    delivery_customer_name: str = ""
+    delivery_phone: str = ""
+    delivery_company_name: str = ""
+    delivery_status_name_ar: str = ""
+    delivery_status_name_en: str = ""
 
 
 @dataclass
@@ -3938,8 +3943,13 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
                   COALESCE(loyalty_redeemed, 0), total, payment_method, COALESCE(paid_total, 0),
                   COALESCE(remaining_total, 0), COALESCE(delivery_enabled, 0), COALESCE(delivery_fee, 0),
                   COALESCE(delivery_address, ''), COALESCE(order_source, 'in_store'),
-                  COALESCE(website_order_ref, ''), notes, return_reason
-           FROM jw_invoices WHERE invoice_no = ?""",
+                  COALESCE(website_order_ref, ''), i.notes, i.return_reason,
+                  COALESCE(i.delivery_customer_name, ''), COALESCE(i.delivery_phone, ''),
+                  COALESCE(dc.name, ''), COALESCE(ds.name_ar, ''), COALESCE(ds.name_en, '')
+           FROM jw_invoices i
+           LEFT JOIN jw_delivery_companies dc ON dc.id = i.delivery_company_id
+           LEFT JOIN jw_statuses ds ON ds.id = i.delivery_status_id
+           WHERE i.invoice_no = ?""",
         (invoice_no,),
     )
     row = cur.fetchone()
@@ -3971,6 +3981,11 @@ def fetch_invoice_details(invoice_no: str) -> Tuple[JewelryInvoice, List[Jewelry
         website_order_ref=row[21],
         notes=row[22],
         return_reason=row[23],
+        delivery_customer_name=row[24],
+        delivery_phone=row[25],
+        delivery_company_name=row[26],
+        delivery_status_name_ar=row[27],
+        delivery_status_name_en=row[28],
     )
     cur.execute(
         """SELECT product_id, product_name, product_code, qty, unit_price, line_total,

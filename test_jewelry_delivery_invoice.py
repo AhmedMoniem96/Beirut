@@ -66,9 +66,7 @@ def test_delivery_total_payment_default_status_and_clear(application, monkeypatc
     tab = _make_tab(monkeypatch, companies)
     tab.items_table.setRowCount(1)
     tab.items_table.setItem(0, tab.ITEM_COL_LINE_TOTAL, QtWidgets.QTableWidgetItem("500.00"))
-    tab.delivery_enabled_checkbox.blockSignals(True)
-    tab.delivery_enabled_checkbox.setChecked(True)
-    tab.delivery_enabled_checkbox.blockSignals(False)
+    tab._delivery_company_id = 11
     tab._refresh_delivery_statuses(required=True)
     assert tab.delivery_status_combo.currentData() == 21
 
@@ -84,7 +82,7 @@ def test_delivery_total_payment_default_status_and_clear(application, monkeypatc
     tab._delivery_address = "Street"
     tab._delivery_notes = "Ring bell"
     tab.delivery_address_input.setText("Street")
-    tab._update_delivery_state(False)
+    tab._remove_delivery()
     assert tab.delivery_company_combo.currentData() is None
     assert tab.delivery_status_combo.currentData() is None
     assert tab.delivery_fee_input.value() == 0
@@ -95,15 +93,13 @@ def test_delivery_total_payment_default_status_and_clear(application, monkeypatc
     tab.close()
 
 
-def test_delivery_company_required_and_non_delivery_unchanged(application, monkeypatch, companies):
+def test_non_delivery_invoice_is_unchanged(application, monkeypatch, companies):
     tab = _make_tab(monkeypatch, companies)
     tab.items_table.setRowCount(1)
     tab.items_table.setItem(0, tab.ITEM_COL_LINE_TOTAL, QtWidgets.QTableWidgetItem("500.00"))
-    tab.delivery_enabled_checkbox.blockSignals(True)
-    tab.delivery_enabled_checkbox.setChecked(True)
-    tab.delivery_enabled_checkbox.blockSignals(False)
-    assert tab._validation_message() == "Please select a delivery company."
-    tab.delivery_enabled_checkbox.setChecked(False)
+    assert not tab._delivery_is_active()
+    assert tab._validation_message() == ""
+    tab._remove_delivery()
     assert tab._compute_invoice_totals("sale")["total"] == 500
     tab.close()
 
@@ -126,7 +122,7 @@ def test_dialog_company_id_survives_validation_and_is_persisted(
         return QtWidgets.QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(DeliveryDetailsDialog, "exec", accept_company_a)
-    tab.delivery_enabled_checkbox.setChecked(True)
+    tab._add_or_edit_delivery()
 
     assert tab._delivery_company_id == 11
     assert tab.delivery_company_combo.currentData() == 11
@@ -164,4 +160,50 @@ def test_dialog_company_id_survives_validation_and_is_persisted(
     tab._save_invoice()
 
     assert persisted["delivery_company_id"] == 12
+    tab.close()
+
+
+def test_delivery_actions_cancel_remove_reset_and_localize(
+        application, monkeypatch, companies):
+    tab = _make_tab(monkeypatch, companies)
+    assert not hasattr(tab, "delivery_enabled_checkbox")
+    assert tab.delivery_button.text() == "Add Delivery"
+    assert not tab.remove_delivery_button.isVisible()
+
+    monkeypatch.setattr(
+        DeliveryDetailsDialog, "exec", lambda _dialog: QtWidgets.QDialog.DialogCode.Rejected
+    )
+    tab._add_or_edit_delivery()
+    assert not tab._delivery_is_active()
+    assert tab.delivery_fee_input.value() == 0
+    assert tab.delivery_button.text() == "Add Delivery"
+
+    def accept(dialog):
+        dialog.delivery_company_combo.setCurrentIndex(
+            dialog.delivery_company_combo.findData(11)
+        )
+        dialog.customer_name_input.setText("Delivery customer")
+        dialog.phone_input.setText("123")
+        dialog.address_input.setText("Street")
+        dialog.notes_input.setPlainText("Ring bell")
+        dialog.delivery_fee_input.setValue(70)
+        return QtWidgets.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(DeliveryDetailsDialog, "exec", accept)
+    tab._add_or_edit_delivery()
+    assert tab._delivery_is_active()
+    assert tab._delivery_company_id == 11
+    assert tab.delivery_button.text() == "Delivery: In-house Delivery — 70.00"
+
+    tab._remove_delivery()
+    assert not tab._delivery_is_active()
+    assert tab.delivery_fee_input.value() == 0
+    assert not any((tab._delivery_customer_name, tab._delivery_phone,
+                    tab._delivery_address, tab._delivery_notes))
+    assert tab.delivery_button.text() == "Add Delivery"
+
+    tab._language = "ar"
+    tab.apply_language("ar")
+    assert tab.delivery_button.text() == "إضافة توصيل"
+    assert "Delivery" not in tab.delivery_button.text()
     tab.close()

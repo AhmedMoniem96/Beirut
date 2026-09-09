@@ -646,13 +646,12 @@ class BarcodeValidationError(BarcodePrintRequestError):
 def validate_barcode_printer_settings(
     settings: BarcodePrinterSettings,
 ) -> BarcodePrinterSettings:
-    """Validate settings used by the RP310 bitmap pipeline.
+    """Validate settings used by the RAW bitmap pipeline.
 
-    The confirmed RP310 ESC/POS path supports a 203-DPI raster, feed/cut, and
-    application-side copy repetition.  ``density``, ``speed``, and ``gap_mm``
-    are persisted for printer-language profiles, but are deliberately *not*
-    emitted here: no corresponding RP310 ESC/POS commands have been confirmed.
-    They are still type/range checked so invalid persisted data is visible.
+    ESC/POS and TSPL both receive the same application-rendered monochrome
+    image, so Arabic does not depend on a printer-resident font. TSPL consumes
+    the configured media gap, density, and speed; ESC/POS intentionally does
+    not emit unconfirmed equivalents for those settings.
     """
     numeric_fields = (("width_mm", settings.width_mm), ("height_mm", settings.height_mm))
     for field, value in numeric_fields:
@@ -660,11 +659,13 @@ def validate_barcode_printer_settings(
             raise BarcodeValidationError(field, f"{field} must be a finite value of at least 10 mm.")
     if settings.dpi != _LABEL_DPI:
         raise BarcodeValidationError(
-            "dpi", f"RP310 ESC/POS bitmap output is confirmed only at {_LABEL_DPI} DPI."
+            "dpi", f"Barcode bitmap output is supported only at {_LABEL_DPI} DPI."
         )
-    if settings.command_language.strip().upper() != "ESC/POS":
+    command_language = settings.command_language.strip().upper()
+    if command_language not in {"ESC/POS", "TSPL"}:
         raise BarcodeValidationError(
-            "command_language", "The merged RP310 RAW bitmap flow requires ESC/POS."
+            "command_language",
+            "Direct barcode printing supports only ESC/POS or TSPL bitmap output.",
         )
     if isinstance(settings.default_copies, bool) or not isinstance(settings.default_copies, int) or settings.default_copies < 1:
         raise BarcodeValidationError("default_copies", "Default copies must be a positive integer.")
@@ -998,6 +999,50 @@ def build_rp310_escpos_commands(img: Image.Image) -> bytes:
     return b"\x1b@" + raster + b"\n\x1b\x64\x03\x1b\x4a\x30\x1d\x56\x00"
 
 
+def _tspl_bitmap_bytes(img: Image.Image) -> tuple[int, bytes]:
+    """Pack a monochrome PIL image for TSPL's ``BITMAP`` command.
+
+    TSPL treats a set bit as a printed (black) dot, which is the inverse of
+    PIL mode ``1``. Rows are padded with white dots to a whole byte as required
+    by the printer command.
+    """
+    monochrome = img.convert("1")
+    width_bytes = (monochrome.width + 7) // 8
+    payload = bytearray(width_bytes * monochrome.height)
+    pixels = monochrome.load()
+    for y in range(monochrome.height):
+        row_offset = y * width_bytes
+        for x in range(monochrome.width):
+            if pixels[x, y] == 0:
+                payload[row_offset + (x // 8)] |= 0x80 >> (x % 8)
+    return width_bytes, bytes(payload)
+
+
+def build_tspl_commands(img: Image.Image, settings: BarcodePrinterSettings) -> bytes:
+    """Build one TSPL bitmap label, preserving Arabic in the rendered image."""
+    width_bytes, bitmap = _tspl_bitmap_bytes(img)
+    header = (
+        f"SIZE {settings.width_mm:g} mm,{settings.height_mm:g} mm\r\n"
+        f"GAP {settings.gap_mm:g} mm,0 mm\r\n"
+        f"SPEED {settings.speed}\r\n"
+        f"DENSITY {settings.density}\r\n"
+        "DIRECTION 1\r\n"
+        "CLS\r\n"
+        f"BITMAP 0,0,{width_bytes},{img.height},0,"
+    ).encode("ascii")
+    return header + bitmap + b"\r\nPRINT 1,1\r\n"
+
+
+def build_barcode_printer_commands(
+    img: Image.Image, settings: BarcodePrinterSettings
+) -> bytes:
+    """Select the RAW payload from the explicitly configured printer language."""
+    language = settings.command_language.strip().upper()
+    if language == "TSPL":
+        return build_tspl_commands(img, settings)
+    return build_rp310_escpos_commands(img)
+
+
 def submit_rp310_raw_commands(
     printer_name: str,
     commands: bytes,
@@ -1062,39 +1107,40 @@ def print_barcode_label_image(
             final_canvas_height_px=img.height,
         )
 
-        rp310_commands = build_rp310_escpos_commands(img)
+        printer_commands = build_barcode_printer_commands(img, printer_settings)
+        command_language = printer_settings.command_language.strip().upper()
 
         if printer_service._IS_WINDOWS:
             printer_service._log_struct("barcode.print.backend", backend="windows-raw", target_printer_name=target_printer)
-            submit_rp310_raw_commands(target_printer, rp310_commands, copies=context.copies)
-            printer_service._log_struct("barcode.print.result", success=True, backend="windows-raw", target_printer_name=target_printer, raster_bytes_len=len(rp310_commands))
+            submit_rp310_raw_commands(target_printer, printer_commands, copies=context.copies)
+            printer_service._log_struct("barcode.print.result", success=True, backend="windows-raw", target_printer_name=target_printer, command_language=command_language, raster_bytes_len=len(printer_commands))
             return
 
-        printer_service._log_struct("barcode.print.backend", backend="escpos-usb", target_printer_name=target_printer)
+        printer_service._log_struct("barcode.print.backend", backend="raw-usb", target_printer_name=target_printer, command_language=command_language)
         escpos_printer = printer_service._find_thermal_printer()
         if not escpos_printer:
             raise RuntimeError("Configured barcode printer backend unavailable (USB/ESC-POS not found).")
 
         for _ in range(context.copies):
             if hasattr(escpos_printer, "_raw"):
-                escpos_printer._raw(rp310_commands)
+                escpos_printer._raw(printer_commands)
             elif hasattr(escpos_printer, "image"):
                 escpos_printer.image(img)
                 printer_service._post_feed_and_cut(escpos_printer)
             else:
                 raise RuntimeError("Configured barcode backend does not support image dispatch.")
-        printer_service._log_struct("barcode.print.result", success=True, backend="escpos-usb", target_printer_name=target_printer, raster_bytes_len=len(rp310_commands))
+        printer_service._log_struct("barcode.print.result", success=True, backend="raw-usb", target_printer_name=target_printer, command_language=command_language, raster_bytes_len=len(printer_commands))
     except BarcodePrintRequestError:
         raise
     except BaseException as exc:
         printer_service._log_struct(
             "barcode.print.failed",
-            backend="windows-raw" if printer_service._IS_WINDOWS else "escpos-usb",
+            backend="windows-raw" if printer_service._IS_WINDOWS else "raw-usb",
             target_printer_name=target_printer,
             error=str(exc),
         )
-        backend = "windows-raw" if printer_service._IS_WINDOWS else "escpos-usb"
-        stage = "RAW dispatch" if printer_service._IS_WINDOWS else "ESC/POS dispatch"
+        backend = "windows-raw" if printer_service._IS_WINDOWS else "raw-usb"
+        stage = "RAW dispatch"
         raise _diagnostic_error(
             exc,
             context=context,

@@ -67,7 +67,8 @@ class BarcodePrinterSettings:
     density: int = 8
     speed: int = 4
     default_copies: int = 1
-    command_language: str = "ESC/POS"
+    command_language: str = "TSPL"
+    native_font: str = "0"
 
 
 
@@ -162,8 +163,9 @@ def _load_barcode_printer_settings() -> BarcodePrinterSettings:
             get_config_value("jw_barcode_printer_default_copies", 1), 1, minimum=1
         ),
         command_language=str(
-            get_config_value("jw_barcode_printer_command_language", "ESC/POS") or "ESC/POS"
+            get_config_value("jw_barcode_printer_command_language", "TSPL") or "TSPL"
         ).strip(),
+        native_font=str(get_config_value("jw_barcode_printer_native_font", "0") or "0").strip(),
     )
 
 
@@ -240,6 +242,7 @@ def save_gallery_settings(settings: GallerySettings) -> None:
     set_config_value("jw_barcode_printer_speed", barcode_printer.speed)
     set_config_value("jw_barcode_printer_default_copies", barcode_printer.default_copies)
     set_config_value("jw_barcode_printer_command_language", barcode_printer.command_language)
+    set_config_value("jw_barcode_printer_native_font", barcode_printer.native_font)
     set_config_value("jw_printer_profiles", [{"name": "Admin Override", "vendor_id": settings.printer_vendor_id, "product_id": settings.printer_product_id, "interface": settings.printer_interface, "out_ep": settings.printer_out_ep, "in_ep": settings.printer_in_ep}])
 
 

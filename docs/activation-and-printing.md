@@ -52,3 +52,36 @@ For more details see [activation-simple-vouchers](activation-simple-vouchers.md)
 
 With activation completed and printers configured, daily café operations can resume with
 confidence that licensing, receipts, and recovery safeguards are in place.
+# Native TSPL barcode labels
+
+Jewelry barcode labels use one production route: label data is converted to
+TSPL (`TEXT`, Code 128 `BARCODE`, and `PRINT`) and submitted to the exact
+configured Windows printer queue as a `RAW` job. The label queue, dimensions,
+gap, 203-DPI profile, density, speed, and default copies are configured under
+**Settings → Printing**. Receipt printing remains independent.
+
+English names and prices use native TSPL `TEXT`. Because the RP3xx built-in
+font does not reliably cover or contextually shape Arabic, an Arabic or mixed
+product name is shaped by the application's existing preview renderer and only
+that name row is emitted with TSPL `BITMAP`. Barcode, price, copies, queue, and
+RAW transport remain unchanged. Unsupported characters on native-text fields
+stop the job instead of becoming question marks.
+
+Operational events are appended to
+`%ProgramData%\BeirutPOS\logs\barcode-print.log`. Every generated command stream
+is saved separately as a `.tspl` file under the barcode debug output directory;
+exception logs include the real traceback and never masquerade as printer
+payload files.
+
+From a Windows Python 3.12 command prompt in the repository, run:
+
+```bat
+python -m pip install -r requirements.txt
+python -m pytest -q test_barcode_tspl.py test_barcode_print_diagnostics.py test_barcode_test_label.py test_barcode_printing_panel.py
+python launcher.py
+```
+
+Select **RP3xx Series 200DPI TSPL**, save the settings, then use **Test RP310**
+before printing a selected product label. A successful RAW submission confirms
+Windows spooler acceptance; only observing the physical label confirms media
+calibration, font coverage, Arabic shaping, barcode scanning, and final output.

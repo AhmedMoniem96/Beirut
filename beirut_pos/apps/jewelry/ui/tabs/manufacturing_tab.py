@@ -292,6 +292,7 @@ class ManufacturingTab(BaseTabContainer):
                 barcode_type="code128",
                 header_lines=(name, material.code, f"EGP {price:.2f}"),
                 print_stage="Material label",
+                price_text=f"{price:.2f} LE",
             )
             printer_name = load_gallery_settings().barcode_printer_settings.exact_windows_name or "auto"
             barcode_printer.print_barcode_label_image(

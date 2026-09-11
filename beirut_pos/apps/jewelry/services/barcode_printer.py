@@ -20,6 +20,7 @@ import json
 import logging
 import math
 import string
+from types import SimpleNamespace
 from dataclasses import dataclass
 
 try:
@@ -48,17 +49,30 @@ from reportlab.graphics import renderPM
 from reportlab.graphics.barcode import createBarcodeDrawing, qr
 from reportlab.graphics.shapes import Drawing
 
-from beirut_pos.services import printer as printer_service
-from beirut_pos.services.arabic_bitmap import pil_image_to_escpos_raster
 from beirut_pos.utils import error_handling
+from beirut_pos.core.paths import LOG_DIR
 from .settings import BarcodePrinterSettings, load_gallery_settings
-from .windows_raw_printer import submit_raw_print_job
+from .tspl_label import TsplLabel, TsplValidationError, build_native_tspl
+from .windows_raw_printer import get_printer_port, submit_raw_print_job
 
 
 _LABEL_DPI = 203
 _MM_PER_INCH = 25.4
 _QR_LABEL_WIDTH_MM = 38.0
 _QR_LABEL_HEIGHT_MM = 25.0
+
+
+def _printer_event(event_name: str, **fields: object) -> None:
+    """Keep label diagnostics independent from the receipt-printer stack."""
+    try:
+        _log_barcode_diagnostic("INFO", event_name, **fields)
+    except OSError:
+        logger.exception("Unable to write barcode printer diagnostic event")
+
+
+# Compatibility namespace retained for focused tests and older integrations.
+# It intentionally does not import the unrelated ESC/POS receipt service.
+printer_service = SimpleNamespace(_IS_WINDOWS=os.name == "nt", _log_struct=_printer_event)
 
 
 def _mm_to_px(mm: float, dpi: int = _LABEL_DPI) -> int:
@@ -209,6 +223,15 @@ def _coerce_ascii_barcode_value(*candidates: str) -> str:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _contains_arabic(text: str) -> bool:
+    return any(
+        "\u0600" <= char <= "\u06ff"
+        or "\u0750" <= char <= "\u077f"
+        or "\u08a0" <= char <= "\u08ff"
+        for char in text
+    )
 
 
 _ARABIC_LABEL_MODE_ENV = "BEIRUT_POS_LABEL_AR_MODE"
@@ -443,6 +466,7 @@ def render_barcode_label_image(
     barcode_type: str,
     header_lines: Sequence[str] | None = None,
     print_stage: str = "Product label",
+    price_text: str = "0.00 LE",
 ) -> Image.Image:
     calib = get_label_calibration()
     label_width_px = int(calib["width_px"])
@@ -572,6 +596,7 @@ def render_barcode_label_image(
             "beirut_product_name": (product_name or "").strip(),
             "beirut_barcode_value": encoded_value,
             "beirut_print_stage": print_stage,
+            "beirut_price_text": str(price_text or "").strip(),
             "beirut_width_mm": float(calib["width_mm"]),
             "beirut_height_mm": float(calib["height_mm"]),
         }
@@ -646,26 +671,20 @@ class BarcodeValidationError(BarcodePrintRequestError):
 def validate_barcode_printer_settings(
     settings: BarcodePrinterSettings,
 ) -> BarcodePrinterSettings:
-    """Validate settings used by the RAW bitmap pipeline.
-
-    ESC/POS and TSPL both receive the same application-rendered monochrome
-    image, so Arabic does not depend on a printer-resident font. TSPL consumes
-    the configured media gap, density, and speed; ESC/POS intentionally does
-    not emit unconfirmed equivalents for those settings.
-    """
+    """Validate settings used by the native TSPL pipeline."""
     numeric_fields = (("width_mm", settings.width_mm), ("height_mm", settings.height_mm))
     for field, value in numeric_fields:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 10:
             raise BarcodeValidationError(field, f"{field} must be a finite value of at least 10 mm.")
     if settings.dpi != _LABEL_DPI:
         raise BarcodeValidationError(
-            "dpi", f"Barcode bitmap output is supported only at {_LABEL_DPI} DPI."
+            "dpi", f"The RP3xx 200-DPI profile requires {_LABEL_DPI} DPI."
         )
     command_language = settings.command_language.strip().upper()
-    if command_language not in {"ESC/POS", "TSPL"}:
+    if command_language != "TSPL":
         raise BarcodeValidationError(
             "command_language",
-            "Direct barcode printing supports only ESC/POS or TSPL bitmap output.",
+            "Barcode label printing requires native TSPL.",
         )
     if isinstance(settings.default_copies, bool) or not isinstance(settings.default_copies, int) or settings.default_copies < 1:
         raise BarcodeValidationError("default_copies", "Default copies must be a positive integer.")
@@ -919,7 +938,7 @@ def render_test_label_image(data: BarcodeLabelData | None = None) -> Image.Image
     data = data or create_test_barcode_label_data()
     timestamp = data.generated_at.isoformat(sep=" ", timespec="seconds") if data.generated_at else ""
     return render_barcode_label_image(
-        product_name="",
+        product_name=data.model_name or "RP3xx TSPL Test",
         sku=data.barcode_value,
         barcode_value=data.barcode_value,
         barcode_type="code128",
@@ -936,7 +955,7 @@ def print_barcode_label_data(
     barcode_type: str = "code128",
     test: bool = False,
 ) -> None:
-    """Run a prepared request through the normal merged-bitmap RAW orchestration."""
+    """Run prepared values through the single native-TSPL production path."""
     if test:
         image = render_test_label_image(data)
     else:
@@ -945,6 +964,7 @@ def print_barcode_label_data(
             sku=sku or data.barcode_value,
             barcode_value=data.barcode_value,
             barcode_type=barcode_type,
+            price_text=f"{data.price:.2f} LE" if data.price is not None else "0.00 LE",
         )
     printer_settings = validate_barcode_printer_settings(load_gallery_settings().barcode_printer_settings)
     printer_service._log_struct(
@@ -988,72 +1008,36 @@ def print_barcode_label(
     )
 
 
-def build_rp310_escpos_commands(img: Image.Image) -> bytes:
-    """Build one confirmed RP310 ESC/POS label command stream.
-
-    Arabic stays in the merged bitmap.  Density, speed and media-gap settings
-    are not injected because their ESC/POS representations have not been
-    confirmed for the RP310.
-    """
-    raster = pil_image_to_escpos_raster(img)
-    return b"\x1b@" + raster + b"\n\x1b\x64\x03\x1b\x4a\x30\x1d\x56\x00"
-
-
-def _tspl_bitmap_bytes(img: Image.Image) -> tuple[int, bytes]:
-    """Pack a monochrome PIL image for TSPL's ``BITMAP`` command.
-
-    TSPL treats a set bit as a printed (black) dot, which is the inverse of
-    PIL mode ``1``. Rows are padded with white dots to a whole byte as required
-    by the printer command.
-    """
-    monochrome = img.convert("1")
-    width_bytes = (monochrome.width + 7) // 8
-    payload = bytearray(width_bytes * monochrome.height)
-    pixels = monochrome.load()
-    for y in range(monochrome.height):
-        row_offset = y * width_bytes
-        for x in range(monochrome.width):
-            if pixels[x, y] == 0:
-                payload[row_offset + (x // 8)] |= 0x80 >> (x % 8)
-    return width_bytes, bytes(payload)
-
-
-def build_tspl_commands(img: Image.Image, settings: BarcodePrinterSettings) -> bytes:
-    """Build one TSPL bitmap label, preserving Arabic in the rendered image."""
-    width_bytes, bitmap = _tspl_bitmap_bytes(img)
-    header = (
-        f"SIZE {settings.width_mm:g} mm,{settings.height_mm:g} mm\r\n"
-        f"GAP {settings.gap_mm:g} mm,0 mm\r\n"
-        f"SPEED {settings.speed}\r\n"
-        f"DENSITY {settings.density}\r\n"
-        "DIRECTION 1\r\n"
-        "CLS\r\n"
-        f"BITMAP 0,0,{width_bytes},{img.height},0,"
-    ).encode("ascii")
-    return header + bitmap + b"\r\nPRINT 1,1\r\n"
-
-
-def build_barcode_printer_commands(
-    img: Image.Image, settings: BarcodePrinterSettings
-) -> bytes:
-    """Select the RAW payload from the explicitly configured printer language."""
-    language = settings.command_language.strip().upper()
-    if language == "TSPL":
-        return build_tspl_commands(img, settings)
-    return build_rp310_escpos_commands(img)
-
-
-def submit_rp310_raw_commands(
+def submit_tspl_commands(
     printer_name: str,
     commands: bytes,
     *,
     copies: int,
 ) -> None:
-    """Submit one independently initialized RAW job per validated copy."""
+    """Submit one TSPL job; its PRINT command contains the copy count."""
     if isinstance(copies, bool) or not isinstance(copies, int) or copies < 1:
         raise BarcodeValidationError("copies", "Copies must be a positive integer.")
-    for _ in range(copies):
-        submit_raw_print_job(printer_name, commands)
+    submit_raw_print_job(printer_name, commands)
+
+
+def _write_tspl_debug_payload(payload: bytes, barcode: str) -> Path:
+    """Keep command data separate from exception/diagnostic log files."""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    safe_barcode = "".join(char for char in barcode if char.isalnum() or char in "-_")[:40] or "label"
+    directory = default_barcode_output_dir() / "debug"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{stamp}-{safe_barcode}.tspl"
+    path.write_bytes(payload)
+    return path
+
+
+def _log_barcode_diagnostic(level: str, message: str, **fields: object) -> None:
+    """Append a human-readable operational log, never the raw TSPL body."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    details = " ".join(f"{key}={value!r}" for key, value in fields.items())
+    with (LOG_DIR / "barcode-print.log").open("a", encoding="utf-8") as stream:
+        stream.write(f"[{timestamp}] [{level}] {message}{' ' + details if details else ''}\n")
 
 
 def print_barcode_label_image(
@@ -1107,32 +1091,70 @@ def print_barcode_label_image(
             final_canvas_height_px=img.height,
         )
 
-        printer_commands = build_barcode_printer_commands(img, printer_settings)
-        command_language = printer_settings.command_language.strip().upper()
+        label = TsplLabel(
+            product_name=str(img.info.get("beirut_product_name", "")),
+            barcode=str(img.info.get("beirut_barcode_value", "")),
+            price_text=str(img.info.get("beirut_price_text", "0.00 LE")),
+            copies=context.copies,
+        )
+        try:
+            shaped_name_bitmap = None
+            if _contains_arabic(label.product_name):
+                shaped_name_bitmap = _render_fitted_center_line(
+                    label.product_name,
+                    width=expected_size[0],
+                    max_font_size=22,
+                    min_font_size=14,
+                    mode="bidi",
+                )
+            printer_commands = build_native_tspl(
+                label,
+                printer_settings,
+                shaped_name_bitmap=shaped_name_bitmap,
+            )
+        except TsplValidationError as exc:
+            raise _validation_error(exc.field, str(exc), context) from exc
+        payload_path = _write_tspl_debug_payload(printer_commands, label.barcode)
+        command_language = "TSPL"
+        port = get_printer_port(target_printer) if printer_service._IS_WINDOWS else "unavailable"
+        printer_service._log_struct(
+            "barcode.print.request",
+            printer=target_printer,
+            port=port,
+            language=command_language,
+            product=label.product_name,
+            barcode=label.barcode,
+            price=label.price_text,
+            copies=label.copies,
+            payload_size=len(printer_commands),
+            payload_path=str(payload_path),
+        )
+        _log_barcode_diagnostic(
+            "INFO", "Print requested", printer=target_printer, port=port,
+            language="TSPL", product=label.product_name, barcode=label.barcode,
+            price=label.price_text, copies=label.copies,
+            payload_size=len(printer_commands), payload_path=payload_path,
+        )
 
         if printer_service._IS_WINDOWS:
             printer_service._log_struct("barcode.print.backend", backend="windows-raw", target_printer_name=target_printer)
-            submit_rp310_raw_commands(target_printer, printer_commands, copies=context.copies)
+            submit_tspl_commands(target_printer, printer_commands, copies=context.copies)
             printer_service._log_struct("barcode.print.result", success=True, backend="windows-raw", target_printer_name=target_printer, command_language=command_language, raster_bytes_len=len(printer_commands))
+            _log_barcode_diagnostic("INFO", "Print job sent successfully", printer=target_printer, port=port)
             return
 
-        printer_service._log_struct("barcode.print.backend", backend="raw-usb", target_printer_name=target_printer, command_language=command_language)
-        escpos_printer = printer_service._find_thermal_printer()
-        if not escpos_printer:
-            raise RuntimeError("Configured barcode printer backend unavailable (USB/ESC-POS not found).")
-
-        for _ in range(context.copies):
-            if hasattr(escpos_printer, "_raw"):
-                escpos_printer._raw(printer_commands)
-            elif hasattr(escpos_printer, "image"):
-                escpos_printer.image(img)
-                printer_service._post_feed_and_cut(escpos_printer)
-            else:
-                raise RuntimeError("Configured barcode backend does not support image dispatch.")
-        printer_service._log_struct("barcode.print.result", success=True, backend="raw-usb", target_printer_name=target_printer, command_language=command_language, raster_bytes_len=len(printer_commands))
+        raise RuntimeError("Native TSPL label printing is available only through a configured Windows RAW printer queue.")
     except BarcodePrintRequestError:
         raise
     except BaseException as exc:
+        try:
+            _log_barcode_diagnostic(
+                "ERROR", "Print failed", printer=target_printer,
+                stage=str(getattr(exc, "stage", "RAW dispatch")),
+                exception=f"{type(exc).__name__}: {exc}",
+            )
+        except OSError:
+            pass
         printer_service._log_struct(
             "barcode.print.failed",
             backend="windows-raw" if printer_service._IS_WINDOWS else "raw-usb",

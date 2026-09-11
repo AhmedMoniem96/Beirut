@@ -136,11 +136,9 @@ class SettingsTab(BaseTabContainer):
         self.barcode_model.addItem("Generic", "")
         self.barcode_model.addItem("Rongta RP310", "Rongta RP310")
         self.barcode_command_language = QComboBox()
-        # Only expose languages for which the direct-print service has a real
-        # encoder. Offering ZPL here previously allowed a setting the bitmap
-        # pipeline could not honor.
-        for language in ("ESC/POS", "TSPL"):
-            self.barcode_command_language.addItem(language, language)
+        # Barcode labels have one production command language. Receipts retain
+        # their independent ESC/POS configuration.
+        self.barcode_command_language.addItem("TSPL", "TSPL")
 
         self.barcode_label_width = self._make_mm_spin_box(0.1, 300.0)
         self.barcode_label_height = self._make_mm_spin_box(0.1, 300.0)
@@ -668,5 +666,6 @@ class SettingsTab(BaseTabContainer):
             density=self.barcode_density.value(),
             speed=self.barcode_speed.value(),
             default_copies=self.barcode_copies.value(),
-            command_language=str(self.barcode_command_language.currentData() or "ESC/POS"),
+            command_language="TSPL",
+            native_font=load_gallery_settings().barcode_printer_settings.native_font,
         )

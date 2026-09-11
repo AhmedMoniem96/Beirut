@@ -609,19 +609,12 @@ class InventoryTab(BaseTabContainer):
             label_data = label_data or self._barcode_label_data(product)
             product_name_ar = str(getattr(product, "name_ar", "") or "")
             product_name_en = str(getattr(product, "name_en", "") or "")
-            print(
-                "[DEBUG][InventoryTab] barcode label input before render_barcode_label_image:",
-                {
-                    "product.name_ar": product_name_ar,
-                    "product.name_english": product_name_en,
-                    "product_repr": repr(product),
-                },
-            )
             return render_barcode_label_image(
                 product_name=label_data.product_name,
                 sku=product.sku,
                 barcode_value=label_data.barcode_value,
                 barcode_type="code128",
+                price_text=f"{label_data.price:.2f} LE" if label_data.price is not None else "0.00 LE",
             )
         except BarcodeRenderError as exc:
             self.barcode_printing_panel.report_failure("Print Barcode", exc)

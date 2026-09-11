@@ -67,6 +67,7 @@ class BarcodePrintingPanel(QGroupBox):
             value.density,
             value.speed,
             value.default_copies,
+            getattr(value, "native_font", "0"),
             settings.barcode_horizontal_offset_px,
             settings.barcode_vertical_offset_px,
         )

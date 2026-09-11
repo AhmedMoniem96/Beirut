@@ -62,6 +62,19 @@ def list_printers() -> list[str]:
     return enumerate_printers()
 
 
+def get_printer_port(printer_name: str) -> str:
+    """Return the configured Windows port (for example ``USB001``)."""
+    win32print = _load_win32print()
+    target = _find_exact_printer(win32print, (printer_name or "").strip())
+    handle = win32print.OpenPrinter(target)
+    try:
+        return str(win32print.GetPrinter(handle, 2).get("pPortName", "") or "")
+    except Exception as exc:
+        raise WindowsRawPrinterError("GetPrinter", exc) from exc
+    finally:
+        win32print.ClosePrinter(handle)
+
+
 def _find_exact_printer(win32print: Any, printer_name: str) -> str:
     try:
         flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS

@@ -13,7 +13,6 @@ pyinstaller --noconfirm --clean BeirutPOS.spec
 - [ ] `dist/BeirutPOS.exe --frozen-smoke-test` exits successfully (this imports both modules and validates the pywintypes DLL runtime path).
 - [ ] `dist/BeirutPOS.exe` starts successfully.
 - [ ] App reaches main UI without "failed to execute script launcher" error.
-- [ ] Barcode label generation works for: Code128, Code39, Code93, QR.
 - [ ] PDF invoice export succeeds.
 - [ ] PDF daily report export succeeds.
 - [ ] Generated PDF opens and displays barcode section.

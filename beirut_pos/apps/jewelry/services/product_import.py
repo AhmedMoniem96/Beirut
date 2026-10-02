@@ -5,7 +5,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
-from .barcode_printer import _SUPPORTED_BARCODE_TYPES
+_SUPPORTED_BARCODE_TYPES = {"code128": "CODE128", "code39": "CODE39", "code93": "CODE93", "qr": "QR"}
 from .db import upsert_product_by_sku
 from beirut_pos.utils.excel import write_protected_workbook
 

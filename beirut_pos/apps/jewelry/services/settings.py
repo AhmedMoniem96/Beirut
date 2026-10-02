@@ -47,6 +47,7 @@ class GallerySettings:
     rtl_enabled: bool
     receipt_print_mode: Optional[str]
     receipt_printer_name: str
+    jewelry_label_printer_name: str
     website_name: str
     website_url: str
     website_orders_enabled: bool
@@ -81,6 +82,7 @@ def load_gallery_settings() -> GallerySettings:
         rtl_enabled=bool(get_config_value("jw_rtl_enabled", False)),
         receipt_print_mode=get_config_value("jw_receipt_print_mode", "auto"),
         receipt_printer_name=get_config_value("jw_receipt_printer_name", "auto"),
+        jewelry_label_printer_name=str(get_config_value("jw_jewelry_label_printer_name", "") or ""),
         website_name=get_config_value("jw_website_name", ""),
         website_url=get_config_value("jw_website_url", ""),
         website_orders_enabled=bool(get_config_value("jw_website_orders_enabled", False)),
@@ -105,6 +107,7 @@ def save_gallery_settings(settings: GallerySettings) -> None:
     set_config_value("jw_rtl_enabled", settings.rtl_enabled)
     set_config_value("jw_receipt_print_mode", settings.receipt_print_mode or "auto")
     set_config_value("jw_receipt_printer_name", settings.receipt_printer_name)
+    set_config_value("jw_jewelry_label_printer_name", settings.jewelry_label_printer_name)
     set_config_value("jw_website_name", settings.website_name)
     set_config_value("jw_website_url", settings.website_url)
     set_config_value("jw_website_orders_enabled", settings.website_orders_enabled)

@@ -127,12 +127,18 @@ class SettingsTab(BaseTabContainer):
         self.receipt_printer.addItem("", "auto")
         for name in windows_printers:
             self.receipt_printer.addItem(name, name)
+        self.jewelry_label_printer = QComboBox()
+        self.jewelry_label_printer.setEditable(True)
+        self.jewelry_label_printer.addItem("", "")
+        for name in self._windows_printer_names():
+            self.jewelry_label_printer.addItem(name, name)
 
         self.refresh_printers_btn = QPushButton("Refresh Printers")
         self.refresh_printers_btn.clicked.connect(self._refresh_printers)
 
         self.receipt_mode_label = QLabel()
         self.receipt_printer_label = QLabel()
+        self.jewelry_label_printer_label = QLabel("Jewelry Label Printer")
         self.invoice_auto_print_after_save_check = QCheckBox()
         self.invoice_print_preview_check = QCheckBox()
 
@@ -157,6 +163,7 @@ class SettingsTab(BaseTabContainer):
         self.receipt_paper_preset_label = QLabel("Receipt paper")
         printer_layout.addRow(self.receipt_mode_label, self.receipt_mode)
         printer_layout.addRow(self.receipt_printer_label, self.receipt_printer)
+        printer_layout.addRow(self.jewelry_label_printer_label, self.jewelry_label_printer)
         printer_layout.addRow("", self.refresh_printers_btn)
         printer_layout.addRow(self.receipt_paper_preset_label, self.receipt_paper_preset)
         printer_layout.addRow("", self.print_test_receipt_btn)
@@ -266,6 +273,7 @@ class SettingsTab(BaseTabContainer):
         self.rtl_check.setChecked(settings.rtl_enabled)
         self._set_combo_value(self.receipt_mode, settings.receipt_print_mode or "auto")
         self._set_combo_value(self.receipt_printer, settings.receipt_printer_name)
+        self._set_combo_value(self.jewelry_label_printer, settings.jewelry_label_printer_name)
         self.website_name_input.setText(settings.website_name)
         self.website_url_input.setText(settings.website_url)
         self.website_orders_check.setChecked(settings.website_orders_enabled)
@@ -294,6 +302,7 @@ class SettingsTab(BaseTabContainer):
             rtl_enabled=self.rtl_check.isChecked(),
             receipt_print_mode=self.receipt_mode.currentData() or "auto",
             receipt_printer_name=self.receipt_printer.currentData() or "auto",
+            jewelry_label_printer_name=self.jewelry_label_printer.currentText().strip(),
             website_name=self.website_name_input.text().strip(),
             website_url=self.website_url_input.text().strip(),
             website_orders_enabled=self.website_orders_check.isChecked(),
@@ -447,6 +456,7 @@ class SettingsTab(BaseTabContainer):
     def _refresh_printers(self) -> None:
         """Repopulate printer queues while preserving explicit user choices."""
         receipt_name = self.receipt_printer.currentText()
+        label_name = self.jewelry_label_printer.currentText()
         names = self._windows_printer_names()
 
         receipt_blocker = QSignalBlocker(self.receipt_printer)
@@ -463,6 +473,17 @@ class SettingsTab(BaseTabContainer):
             self.receipt_printer.setCurrentText(receipt_name)
         finally:
             del receipt_blocker
+        label_blocker = QSignalBlocker(self.jewelry_label_printer)
+        try:
+            self.jewelry_label_printer.clear()
+            self.jewelry_label_printer.addItem("", "")
+            for name in names:
+                self.jewelry_label_printer.addItem(name, name)
+            if label_name and self.jewelry_label_printer.findText(label_name) < 0:
+                self.jewelry_label_printer.addItem(label_name, label_name)
+            self._set_combo_value(self.jewelry_label_printer, label_name)
+        finally:
+            del label_blocker
 
     def _test_printers(self) -> None:
         receipt_name = self.receipt_printer.currentData() or "auto"

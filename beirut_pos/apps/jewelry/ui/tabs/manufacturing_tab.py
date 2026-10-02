@@ -111,12 +111,10 @@ class ManufacturingTab(BaseTabContainer):
             "design_other_cost",
             "design_profit_pct",
             "bom_qty_input",
-            "produced_qty_input",
         ):
             widget = getattr(self, widget_name, None)
             if widget is not None:
                 widget.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-
     def _build_materials_tab(self) -> None:
         self.materials_tab = QWidget()
         tab_layout = QVBoxLayout(self.materials_tab)
@@ -230,6 +228,8 @@ class ManufacturingTab(BaseTabContainer):
         form_and_actions_layout.addWidget(form_box)
         form_and_actions_layout.addWidget(self.material_edit_indicator)
         form_and_actions_layout.addLayout(actions_row)
+        tab_layout.addWidget(form_and_actions)
+        tab_layout.addWidget(self.materials_table, 1)
 
         self.tabs.addTab(self.materials_tab, "")
 

@@ -44,8 +44,17 @@ hiddenimports = sorted(set(hiddenimports))
 
 # Keep application data separate from dependency data so neither collection can
 # accidentally replace the other as the bundle grows.
-existing_datas = []
+font_path = project_root / "beirut_pos" / "assets" / "fonts" / "NotoNaskhArabic-Regular.ttf"
 
+if not font_path.is_file() or font_path.stat().st_size <= 0:
+    raise SystemExit(f"Missing or empty jewelry label font: {font_path}")
+
+existing_datas = [
+    (
+        str(font_path),
+        "beirut_pos/assets/fonts",
+    ),
+]
 # python-escpos reads this package resource while importing its capabilities
 # module. In one-file builds it must be extracted into the _MEI package tree.
 # Limit collection to the required file and validate both the source and the

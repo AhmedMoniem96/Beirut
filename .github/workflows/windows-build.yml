@@ -188,21 +188,22 @@ jobs:
 
           $archiveOutput = Join-Path $PWD "archive-contents.txt"
           pyi-archive_viewer -l $exe.FullName | Tee-Object -FilePath $archiveOutput
-          Write-Host "Archive lines matching escpos or capabilities:"
+          Write-Host "Archive lines matching required printing resources:"
           Select-String `
             -Path $archiveOutput `
-            -Pattern 'escpos|capabilities' `
+            -Pattern 'escpos|capabilities|NotoNaskh|assets/fonts' `
             -CaseSensitive:$false
 
           $archiveText = Get-Content $archiveOutput -Raw
           $normalizedArchiveText = $archiveText -replace '[\\/]+', '/'
           $normalizedArchiveText `
             -split "`r?`n" |
-            Where-Object { $_ -match 'escpos|capabilities|win32print|pywintypes' } |
+            Where-Object { $_ -match 'escpos|capabilities|win32print|pywintypes|NotoNaskh|assets/fonts' } |
             ForEach-Object { Write-Host $_ }
 
           $requiredEntries = @(
-            'escpos/capabilities.json'
+            'escpos/capabilities.json',
+            'beirut_pos/assets/fonts/NotoNaskhArabic-Regular.ttf'
           )
 
           foreach ($required in $requiredEntries) {

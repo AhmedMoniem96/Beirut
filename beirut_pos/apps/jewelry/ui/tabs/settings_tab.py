@@ -122,6 +122,8 @@ class SettingsTab(BaseTabContainer):
         self.receipt_mode = QComboBox()
         self.receipt_mode.addItem("", "auto")
         self.receipt_mode.addItem("", "windows")
+        windows_printers = self._windows_printer_names()
+
         self.receipt_printer = QComboBox()
         self.receipt_printer.setEditable(True)
         self.receipt_printer.addItem("", "auto")

@@ -28,6 +28,8 @@ from ...services.db import barcode_exists, delete_product, list_products, save_p
 from ...services.product_import import generate_import_template, import_products_from_excel
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
+from ...label_printing import LabelData, print_label
+from ...services.settings import load_gallery_settings
 
 
 class InventoryTab(BaseTabContainer):
@@ -158,6 +160,9 @@ class InventoryTab(BaseTabContainer):
         self.download_template_btn = QPushButton()
         self.download_template_btn.clicked.connect(self._download_import_template)
         self.auto_save_barcode_check = QCheckBox()
+        self.print_label_btn = QPushButton("Print Label")
+        self.print_label_btn.clicked.connect(self._print_label)
+        self.print_label_btn.setEnabled(False)
 
         products_layout.addWidget(form_box)
         for btn in [self.download_template_btn, self.import_excel_btn, self.clear_btn, self.delete_btn, self.save_btn]:
@@ -170,6 +175,7 @@ class InventoryTab(BaseTabContainer):
         self.footer_layout.addWidget(self.clear_btn)
         self.footer_layout.addWidget(self.delete_btn)
         self.footer_layout.addWidget(self.save_btn)
+        self.footer_layout.addWidget(self.print_label_btn)
         self.footer_layout.addWidget(self.auto_save_barcode_check)
 
         self.table = QTableWidget(0, 12)
@@ -349,6 +355,7 @@ class InventoryTab(BaseTabContainer):
 
     def _load_selected_product(self, row: int) -> None:
         self._selected_product_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self.print_label_btn.setEnabled(True)
         self.name_ar_input.setText(self.table.item(row, 0).text())
         self.name_en_input.setText(self.table.item(row, 1).text())
         self.sku_input.setText(self.table.item(row, 2).text())
@@ -457,6 +464,7 @@ class InventoryTab(BaseTabContainer):
             )
             return
         self._selected_product_id = None
+        self.print_label_btn.setEnabled(False)
         self.name_ar_input.clear()
         self.name_en_input.clear()
         self.sku_input.clear()
@@ -469,6 +477,32 @@ class InventoryTab(BaseTabContainer):
         self.handmade_check.setChecked(False)
         self.stone_type_input.clear()
         self.color_input.clear()
+
+    def _print_label(self) -> None:
+        if not self._selected_product_id:
+            return
+        product = next((p for p in self._products if p.id == self._selected_product_id), None)
+        if product is None:
+            return
+        barcode = product.barcode.strip()
+        if not barcode:
+            QMessageBox.warning(self, "Print Label", "Product has no barcode")
+            return
+        printer_name = load_gallery_settings().jewelry_label_printer_name.strip()
+        if not printer_name:
+            QMessageBox.warning(self, "Print Label", "Configure Jewelry Label Printer in Settings.")
+            return
+        label_data = LabelData(
+            product_name=choose_name(product.name_ar, product.name_en, language=self._language),
+            barcode=barcode,
+            price=f"{product.price:.2f} LE",
+        )
+        try:
+            print_label(label_data, printer_name, copies=1)
+        except Exception as exc:
+            QMessageBox.critical(self, "Print Label", f"Label submission failed: {exc}")
+            return
+        QMessageBox.information(self, "Print Label", "Label submitted to printer")
 
 
     def _download_import_template(self) -> None:

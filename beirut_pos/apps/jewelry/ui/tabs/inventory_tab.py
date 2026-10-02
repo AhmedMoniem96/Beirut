@@ -2,18 +2,10 @@
 
 from __future__ import annotations
 
-from io import BytesIO
-from pathlib import Path
-import platform
-import logging
 
-from PyQt6.QtCore import QElapsedTimer, QEvent, Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QDialog,
-    QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QGroupBox,
@@ -34,10 +26,8 @@ from PyQt6.QtWidgets import (
 
 from ...services.db import barcode_exists, delete_product, list_products, save_product
 from ...services.product_import import generate_import_template, import_products_from_excel
-from ...services.settings import load_gallery_settings
 from ...services.i18n import choose_name, get_ui_language, t
 from .base_tab import BaseTabContainer
-from ..widgets.barcode_printing_panel import BarcodePrintingPanel
 
 
 class InventoryTab(BaseTabContainer):
@@ -163,15 +153,11 @@ class InventoryTab(BaseTabContainer):
         self.delete_btn.clicked.connect(self._delete_product)
         self.clear_btn = QPushButton()
         self.clear_btn.clicked.connect(self._clear_form)
-        self.barcode_printing_panel = BarcodePrintingPanel(self)
-        self.barcode_printing_panel.print_requested.connect(self._print_barcode_label)
-        self.print_barcode_btn = self.barcode_printing_panel.print_button
         self.import_excel_btn = QPushButton()
         self.import_excel_btn.clicked.connect(self._import_excel)
         self.download_template_btn = QPushButton()
         self.download_template_btn.clicked.connect(self._download_import_template)
         self.auto_save_barcode_check = QCheckBox()
-        self.auto_print_barcode_check = QCheckBox()
 
         products_layout.addWidget(form_box)
         for btn in [self.download_template_btn, self.import_excel_btn, self.clear_btn, self.delete_btn, self.save_btn]:
@@ -180,7 +166,6 @@ class InventoryTab(BaseTabContainer):
         self.footer_layout.addWidget(self.download_template_btn)
         self.footer_layout.addWidget(self.import_excel_btn)
         self.footer_layout.addSpacing(12)
-        self.footer_layout.addWidget(self.auto_print_barcode_check)
         self.footer_layout.addSpacing(12)
         self.footer_layout.addWidget(self.clear_btn)
         self.footer_layout.addWidget(self.delete_btn)
@@ -202,7 +187,6 @@ class InventoryTab(BaseTabContainer):
         self.table.setColumnWidth(2, 120)
         self.table.setColumnWidth(3, 140)
         products_layout.addWidget(self.table, 1)
-        products_layout.addWidget(self.barcode_printing_panel)
 
         alerts_layout_root = QVBoxLayout(self.alerts_tab)
         self.alerts_box = QGroupBox()
@@ -332,9 +316,7 @@ class InventoryTab(BaseTabContainer):
         self.save_btn.setText(t("inventory.save_product", language=language))
         self.delete_btn.setText(t("inventory.delete", language=language))
         self.clear_btn.setText(t("inventory.clear", language=language))
-        self.print_barcode_btn.setText(t("inventory.print_barcode", language=language))
         self.auto_save_barcode_check.setText(t("inventory.auto_save_copy", language=language))
-        self.auto_print_barcode_check.setText(t("inventory.auto_print", language=language))
         self.import_excel_btn.setText(t("inventory.import_excel", language=language))
         self.download_template_btn.setText(t("inventory.download_template", language=language))
         self.table.setHorizontalHeaderLabels(
@@ -546,225 +528,6 @@ class InventoryTab(BaseTabContainer):
         self.refresh()
         if self._on_products_changed:
             self._on_products_changed()
-
-    def _print_barcode_label(self, copies: int | None = None) -> None:
-        logger = logging.getLogger(__name__)
-        logger.info("Barcode label print button clicked.")
-        if not self._selected_product_id:
-            self.barcode_printing_panel.report_failure("Print Barcode", t("inventory.select_product", language=self._language))
-            return
-        product = next((p for p in self._products if p.id == self._selected_product_id), None)
-        if not product:
-            return
-        label_data = self._barcode_label_data(product)
-        barcode_value = label_data.barcode_value
-        settings = load_gallery_settings()
-        logger.info(
-            "Barcode print requested: os=%s barcode_printer=%s receipt_printer=%s barcode_value=%s",
-            platform.system(),
-            settings.barcode_printer_name,
-            settings.receipt_printer_name,
-            barcode_value,
-        )
-        if not barcode_value:
-            self.barcode_printing_panel.report_failure("Print Barcode", "Product has no barcode or SKU to print.")
-            return
-        label_img = self._build_barcode_label_image(product, label_data=label_data)
-        if label_img is None:
-            return
-        preview_action = self._show_label_preview_dialog(product, label_img)
-        if preview_action == "cancel":
-            return
-
-        requested_copies = copies if copies is not None else label_data.copies
-        self._dispatch_barcode_print(product, label_img, copies=requested_copies)
-
-    def _export_barcode_pdf(self, path: str, product, barcode_type_value: str) -> None:
-        try:
-            from ...services.pdf_exports import export_barcode_labels_pdf
-        except RuntimeError:
-            QMessageBox.critical(self, t("common.export", language=self._language), "PDF export is unavailable. Please install or rebuild with the missing dependency.")
-            return
-        export_barcode_labels_pdf(path, choose_name(product.name_ar, product.name_en, language=self._language), product.sku, product.barcode, barcode_type_value)
-        msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setWindowTitle(t("common.export", language=self._language))
-        msg.setText(t("inventory.exported_labels_path", language=self._language, path=path))
-        open_btn = msg.addButton(t("inventory.open_folder", language=self._language), QMessageBox.ButtonRole.ActionRole)
-        msg.addButton(QMessageBox.StandardButton.Ok)
-        msg.exec()
-        if msg.clickedButton() is open_btn:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
-
-    def _dispatch_barcode_print(self, product, label_img, *, copies: int | None = None) -> bool:
-        return self._print_barcode_direct(label_img, copies=copies)
-
-    def _build_barcode_label_image(self, product, *, label_data=None):
-        try:
-            from ...services.barcode_printer import BarcodeRenderError, render_barcode_label_image
-        except RuntimeError as exc:
-            self.barcode_printing_panel.report_failure("Print Barcode", exc)
-            return None
-        try:
-            label_data = label_data or self._barcode_label_data(product)
-            product_name_ar = str(getattr(product, "name_ar", "") or "")
-            product_name_en = str(getattr(product, "name_en", "") or "")
-            return render_barcode_label_image(
-                product_name=label_data.product_name,
-                sku=product.sku,
-                barcode_value=label_data.barcode_value,
-                barcode_type="code128",
-                price_text=f"{label_data.price:.2f} LE" if label_data.price is not None else "0.00 LE",
-            )
-        except BarcodeRenderError as exc:
-            self.barcode_printing_panel.report_failure("Print Barcode", exc)
-            return None
-
-    def _show_label_preview_dialog(self, product, label_img) -> str:
-        class _LabelPreviewDialog(QDialog):
-            def keyPressEvent(self, event) -> None:  # type: ignore[override]
-                if event.key() == Qt.Key.Key_Escape:
-                    self.reject()
-                    return
-                super().keyPressEvent(event)
-
-        dialog = _LabelPreviewDialog(self)
-        dialog.setWindowTitle("Label Preview")
-        layout = QVBoxLayout(dialog)
-        name = self._barcode_label_product_name(product) or "-"
-        layout.addWidget(QLabel(f"Product: {name}"))
-        layout.addWidget(QLabel(f"SKU/Barcode: {product.sku or '-'} / {product.barcode or '-'}"))
-        settings = load_gallery_settings()
-        layout.addWidget(QLabel(f"Dimensions: {settings.barcode_label_width_mm:g} x {settings.barcode_label_height_mm:g} mm ({label_img.width} x {label_img.height} px)"))
-
-        preview = QLabel()
-        preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        png_data = BytesIO()
-        label_img.convert("L").save(png_data, format="PNG")
-        pixmap = QPixmap()
-        pixmap.loadFromData(png_data.getvalue(), "PNG")
-        preview.setPixmap(pixmap.scaled(520, 340, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        layout.addWidget(preview)
-
-        buttons = QDialogButtonBox(dialog)
-        test_btn = buttons.addButton("Arabic Mode Test", QDialogButtonBox.ButtonRole.ActionRole)
-        print_btn = buttons.addButton("Print", QDialogButtonBox.ButtonRole.AcceptRole)
-        cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.ButtonRole.RejectRole)
-
-        def _show_arabic_mode_test() -> None:
-            try:
-                from ...services.barcode_printer import render_arabic_mode_test_label
-                test_img = render_arabic_mode_test_label(sample_text=str(getattr(product, "name_ar", "") or name), sku=str(product.sku or product.barcode or ""))
-            except Exception as exc:
-                QMessageBox.critical(dialog, "Arabic Mode Test", f"Failed to render test label: {exc}")
-                return
-            test_dialog = QDialog(dialog)
-            test_dialog.setWindowTitle("Arabic Mode Test Preview")
-            test_layout = QVBoxLayout(test_dialog)
-            test_layout.addWidget(QLabel("RAW / RESHAPE / BIDI / REVERSE_BIDI / REVERSE_RAW"))
-            test_preview = QLabel()
-            test_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            data = BytesIO()
-            test_img.convert("L").save(data, format="PNG")
-            test_pix = QPixmap()
-            test_pix.loadFromData(data.getvalue(), "PNG")
-            test_preview.setPixmap(test_pix.scaled(520, 340, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-            test_layout.addWidget(test_preview)
-            close_buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-            close_buttons.rejected.connect(test_dialog.reject)
-            close_buttons.accepted.connect(test_dialog.accept)
-            test_layout.addWidget(close_buttons)
-            test_dialog.exec()
-
-        test_btn.clicked.connect(_show_arabic_mode_test)
-        print_btn.clicked.connect(dialog.accept)
-        cancel_btn.clicked.connect(dialog.reject)
-        layout.addWidget(buttons)
-        result = dialog.exec()
-        if result == QDialog.DialogCode.Accepted:
-            return "print"
-        return "cancel"
-
-    @staticmethod
-    def _barcode_label_product_name(product) -> str:
-        arabic_name = str(getattr(product, "name_ar", "") or "").strip()
-        if arabic_name:
-            return arabic_name
-        return str(getattr(product, "name_en", "") or "").strip()
-
-    def _barcode_label_data(self, product):
-        """Build label data from the selected persisted product and settings."""
-        from ...services.barcode_printer import BarcodeLabelData
-
-        settings = load_gallery_settings()
-        configured_copies = settings.barcode_printer_settings.default_copies
-        copies = configured_copies if isinstance(configured_copies, int) and not isinstance(configured_copies, bool) and configured_copies > 0 else 1
-
-        raw_weight = getattr(product, "weight", None)
-        weight = None if raw_weight is None or raw_weight == "" else float(raw_weight)
-        raw_karat = getattr(product, "karat", None)
-        karat = None if raw_karat is None or str(raw_karat).strip() == "" else str(raw_karat).strip()
-        raw_price = getattr(product, "price", None)
-
-        return BarcodeLabelData(
-            product_name=self._barcode_label_product_name(product),
-            barcode_value=str(getattr(product, "barcode", "") or getattr(product, "sku", "") or "").strip(),
-            price=None if raw_price is None else float(raw_price),
-            weight=weight,
-            karat=karat,
-            copies=copies,
-        )
-
-    def _print_barcode_via_pdf_dispatch(self, label_img) -> bool:
-        try:
-            from ...services.barcode_printer import (
-                BarcodePrintRequestError,
-                BarcodePrinterError,
-                try_print_barcode_label_image,
-            )
-        except RuntimeError as exc:
-            self.barcode_printing_panel.report_failure("Print Barcode", exc)
-            return False
-        try:
-            try_print_barcode_label_image(label_img, printer_name=load_gallery_settings().barcode_printer_name)
-            self.barcode_printing_panel.report_success(t("inventory.printed", language=self._language))
-            return True
-        except (BarcodePrinterError, BarcodePrintRequestError) as exc:
-            self.barcode_printing_panel.report_failure("Print Barcode", exc)
-            return False
-
-    def _print_barcode_direct(self, label_img, *, copies: int | None = None) -> bool:
-        settings = load_gallery_settings()
-        if not settings.barcode_printer_name or settings.barcode_printer_name.strip().lower() == "auto":
-            self.barcode_printing_panel.report_failure(
-                "Print Barcode",
-                "No barcode label printer selected. Please choose the Rongta printer in Settings.",
-            )
-            return False
-        try:
-            from ...services.barcode_printer import (
-                BarcodePrintRequestError,
-                BarcodePrinterError,
-                try_print_barcode_label_image,
-            )
-        except RuntimeError as exc:
-            self.barcode_printing_panel.report_failure("Print Barcode", exc)
-            return False
-        try:
-            dispatched = try_print_barcode_label_image(
-                label_img,
-                printer_name=settings.barcode_printer_name,
-                copies=copies,
-            )
-            if dispatched:
-                self.barcode_printing_panel.report_success("Barcode label sent to printer.")
-                return True
-            self.barcode_printing_panel.report_failure("Print Barcode", "Barcode print job was not dispatched.")
-            return False
-        except (BarcodePrinterError, BarcodePrintRequestError) as exc:
-            self.barcode_printing_panel.report_failure("Print Barcode", exc)
-            return False
-
 
     def handle_scan(self, code: str) -> str:
         normalized_code = self._normalize_scan_text(code)

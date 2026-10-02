@@ -53,10 +53,7 @@ from ...services.db import (
 )
 from ...services.reports import production_history
 from ...services.i18n import choose_name, get_ui_language, t
-from ...services import barcode_printer
-from ...services.settings import load_gallery_settings
 from .base_tab import BaseTabContainer
-from ..widgets.barcode_printing_panel import BarcodePrintingPanel
 
 
 class ManufacturingTab(BaseTabContainer):
@@ -234,75 +231,10 @@ class ManufacturingTab(BaseTabContainer):
         form_and_actions_layout.addWidget(self.material_edit_indicator)
         form_and_actions_layout.addLayout(actions_row)
 
-        self.material_barcode_printing_panel = BarcodePrintingPanel(self)
-        self.material_barcode_printing_panel.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
-        )
-        self.material_barcode_printing_panel.diagnostics.setMinimumHeight(60)
-        self.material_barcode_printing_panel.print_requested.connect(
-            self._print_material_barcode
-        )
-
-        # Keep the form and printing controls at their preferred heights and
-        # dedicate all surplus vertical space to the material list.  A splitter
-        # used size hints for its initial allocation, allowing the diagnostics
-        # panel to squeeze the table before the user moved a handle.
-        tab_layout.addWidget(form_and_actions, 0)
-        tab_layout.addWidget(self.materials_table, 1)
-        tab_layout.addWidget(self.material_barcode_printing_panel, 0)
-        tab_layout.setStretch(0, 0)
-        tab_layout.setStretch(1, 1)
-        tab_layout.setStretch(2, 0)
-
         self.tabs.addTab(self.materials_tab, "")
 
         self._selected_material_id: Optional[int] = None
         self._editing_material_id: Optional[int] = None
-
-    def _print_material_barcode(self, copies: int) -> None:
-        """Print the selected persisted material through the shared label backend."""
-        material = next(
-            (item for item in list_materials() if item.id == self._selected_material_id),
-            None,
-        )
-        if material is None:
-            self.material_barcode_printing_panel.report_failure(
-                "Print Barcode", "Select a material first."
-            )
-            return
-        barcode_value = str(material.barcode or "").strip()
-        if not barcode_value:
-            self.material_barcode_printing_panel.report_failure(
-                "Print Barcode", "The selected material has no stored barcode."
-            )
-            return
-        name = choose_name(material.name_ar, material.name_en, language=self._language)
-        price = float(material.sale_price or 0.0)
-        try:
-            label = barcode_printer.BarcodeLabelData(
-                product_name=name,
-                barcode_value=barcode_value,
-                price=price,
-                copies=copies,
-            )
-            image = barcode_printer.render_barcode_label_image(
-                product_name=label.product_name or name,
-                sku=material.code,
-                barcode_value=label.barcode_value,
-                barcode_type="code128",
-                header_lines=(name, material.code, f"EGP {price:.2f}"),
-                print_stage="Material label",
-                price_text=f"{price:.2f} LE",
-            )
-            printer_name = load_gallery_settings().barcode_printer_settings.exact_windows_name or "auto"
-            barcode_printer.print_barcode_label_image(
-                image, printer_name=printer_name, copies=label.copies
-            )
-            self.material_barcode_printing_panel.report_success(
-                "Material barcode label accepted by the printer."
-            )
-        except Exception as exc:
-            self.material_barcode_printing_panel.report_failure("Print Barcode", exc)
 
     def _build_design_tab(self) -> None:
         self.boms_tab = QWidget()

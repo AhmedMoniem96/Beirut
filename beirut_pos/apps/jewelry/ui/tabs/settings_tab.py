@@ -26,7 +26,6 @@ from PyQt6.QtWidgets import (
 
 from ...services.db import add_payment_method
 from ...services.settings import (
-    BarcodePrinterSettings,
     load_gallery_settings,
     normalize_scanner_payload,
     save_gallery_settings,
@@ -34,7 +33,6 @@ from ...services.settings import (
 from ...services.demo_seed import seed_demo_data
 from ...services.i18n import get_ui_language, set_ui_language, t
 from ...services import device_health
-from ...services.windows_raw_printer import enumerate_printers
 from ..dialogs.delivery_companies_dialog import DeliveryCompaniesDialog
 from ..dialogs.loyalty_settings_dialog import LoyaltySettingsDialog
 from ..dialogs.statuses_dialog import StatusesDialog
@@ -119,39 +117,7 @@ class SettingsTab(BaseTabContainer):
         printer_layout = QFormLayout(printer_box)
         printer_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._form_layouts.append(printer_layout)
-        self.barcode_mode = QComboBox()
-        self.barcode_mode.addItem("", "pdf")
-        self.barcode_mode.addItem("", "direct")
 
-        windows_printers = self._windows_printer_names()
-        self.barcode_enabled_check = QCheckBox()
-        self.barcode_printer = QComboBox()
-        self.barcode_printer.setEditable(True)
-        self.barcode_printer.addItem("")
-        for name in windows_printers:
-            if self.barcode_printer.findText(name) < 0:
-                self.barcode_printer.addItem(name)
-
-        self.barcode_model = QComboBox()
-        self.barcode_model.addItem("Generic", "")
-        self.barcode_model.addItem("Rongta RP310", "Rongta RP310")
-        self.barcode_command_language = QComboBox()
-        # Barcode labels have one production command language. Receipts retain
-        # their independent ESC/POS configuration.
-        self.barcode_command_language.addItem("TSPL", "TSPL")
-
-        self.barcode_label_width = self._make_mm_spin_box(0.1, 300.0)
-        self.barcode_label_height = self._make_mm_spin_box(0.1, 300.0)
-        self.barcode_label_gap = self._make_mm_spin_box(0.0, 50.0)
-        self.barcode_dpi = QSpinBox()
-        self.barcode_dpi.setRange(72, 1200)
-        self.barcode_dpi.setSuffix(" DPI")
-        self.barcode_density = QSpinBox()
-        self.barcode_density.setRange(0, 15)
-        self.barcode_speed = QSpinBox()
-        self.barcode_speed.setRange(1, 12)
-        self.barcode_copies = QSpinBox()
-        self.barcode_copies.setRange(1, 999)
 
         self.receipt_mode = QComboBox()
         self.receipt_mode.addItem("", "auto")
@@ -165,11 +131,8 @@ class SettingsTab(BaseTabContainer):
         self.refresh_printers_btn = QPushButton("Refresh Printers")
         self.refresh_printers_btn.clicked.connect(self._refresh_printers)
 
-        self.printer_mode_label = QLabel()
-        self.printer_label = QLabel()
         self.receipt_mode_label = QLabel()
         self.receipt_printer_label = QLabel()
-        self.active_printer_mode_label = QLabel()
         self.invoice_auto_print_after_save_check = QCheckBox()
         self.invoice_print_preview_check = QCheckBox()
 
@@ -180,17 +143,9 @@ class SettingsTab(BaseTabContainer):
         self.printer_in_ep = QLineEdit()
         self.printer_backend_priority = QLineEdit()
         self.receipt_paper_preset = QLineEdit("80mm")
-        self.qr_label_preset = QLineEdit("38×25mm")
-        self.barcode_offset_x = QSpinBox()
-        self.barcode_offset_x.setRange(-1000, 1000)
-        self.barcode_offset_x.setSuffix(" px")
-        self.barcode_offset_y = QSpinBox()
-        self.barcode_offset_y.setRange(-1000, 1000)
-        self.barcode_offset_y.setSuffix(" px")
         self.print_test_receipt_btn = QPushButton()
         self.preview_sample_receipt_btn = QPushButton()
         self.receipt_paper_preset.setReadOnly(True)
-        self.qr_label_preset.setReadOnly(True)
         self.print_test_receipt_btn.clicked.connect(self._print_test_receipt)
         self.preview_sample_receipt_btn.clicked.connect(self._preview_sample_receipt)
         self.printer_vendor_label = QLabel("Vendor ID")
@@ -200,26 +155,10 @@ class SettingsTab(BaseTabContainer):
         self.printer_in_ep_label = QLabel("IN Endpoint")
         self.printer_backend_priority_label = QLabel("Backend priority")
         self.receipt_paper_preset_label = QLabel("Receipt paper")
-        self.qr_label_preset_label = QLabel("QR label size")
-        printer_layout.addRow("Barcode printer enabled", self.barcode_enabled_check)
-        printer_layout.addRow(self.printer_mode_label, self.barcode_mode)
-        printer_layout.addRow(self.printer_label, self.barcode_printer)
-        printer_layout.addRow("Barcode printer model", self.barcode_model)
-        printer_layout.addRow("Command language", self.barcode_command_language)
         printer_layout.addRow(self.receipt_mode_label, self.receipt_mode)
         printer_layout.addRow(self.receipt_printer_label, self.receipt_printer)
         printer_layout.addRow("", self.refresh_printers_btn)
         printer_layout.addRow(self.receipt_paper_preset_label, self.receipt_paper_preset)
-        printer_layout.addRow(self.qr_label_preset_label, self.qr_label_preset)
-        printer_layout.addRow("Label Width (mm)", self.barcode_label_width)
-        printer_layout.addRow("Label Height (mm)", self.barcode_label_height)
-        printer_layout.addRow("Label Gap (mm)", self.barcode_label_gap)
-        printer_layout.addRow("Printer DPI", self.barcode_dpi)
-        printer_layout.addRow("Print density", self.barcode_density)
-        printer_layout.addRow("Print speed", self.barcode_speed)
-        printer_layout.addRow("Default copies", self.barcode_copies)
-        printer_layout.addRow("Horizontal Offset (px)", self.barcode_offset_x)
-        printer_layout.addRow("Vertical Offset (px)", self.barcode_offset_y)
         printer_layout.addRow("", self.print_test_receipt_btn)
         printer_layout.addRow("", self.preview_sample_receipt_btn)
         printer_layout.addRow("", self.invoice_auto_print_after_save_check)
@@ -318,7 +257,6 @@ class SettingsTab(BaseTabContainer):
 
     def _load_settings(self) -> None:
         settings = load_gallery_settings()
-        barcode_settings = settings.barcode_printer_settings
         self.name_en_input.setText(settings.name_en)
         self.name_ar_input.setText(settings.name_ar)
         self.address_input.setText(settings.address)
@@ -326,11 +264,6 @@ class SettingsTab(BaseTabContainer):
         self.logo_input.setText(settings.logo_path)
         self.font_input.setText(settings.font_path)
         self.rtl_check.setChecked(settings.rtl_enabled)
-        self._set_combo_value(self.barcode_mode, settings.barcode_print_mode)
-        self.barcode_enabled_check.setChecked(barcode_settings.enabled)
-        self.barcode_printer.setCurrentText(barcode_settings.exact_windows_name)
-        self._set_combo_value(self.barcode_model, barcode_settings.model)
-        self._set_combo_value(self.barcode_command_language, barcode_settings.command_language)
         self._set_combo_value(self.receipt_mode, settings.receipt_print_mode or "auto")
         self._set_combo_value(self.receipt_printer, settings.receipt_printer_name)
         self.website_name_input.setText(settings.website_name)
@@ -344,15 +277,6 @@ class SettingsTab(BaseTabContainer):
         self.printer_backend_priority.setText(settings.printer_backend_priority)
         self.invoice_auto_print_after_save_check.setChecked(settings.invoice_auto_print_after_save)
         self.invoice_print_preview_check.setChecked(settings.invoice_print_preview)
-        self.barcode_label_width.setValue(barcode_settings.width_mm)
-        self.barcode_label_height.setValue(barcode_settings.height_mm)
-        self.barcode_label_gap.setValue(barcode_settings.gap_mm)
-        self.barcode_dpi.setValue(barcode_settings.dpi)
-        self.barcode_density.setValue(barcode_settings.density)
-        self.barcode_speed.setValue(barcode_settings.speed)
-        self.barcode_copies.setValue(barcode_settings.default_copies)
-        self.barcode_offset_x.setValue(settings.barcode_horizontal_offset_px)
-        self.barcode_offset_y.setValue(settings.barcode_vertical_offset_px)
         self._set_language_combo(get_ui_language())
         self._refresh_device_status()
 
@@ -368,8 +292,6 @@ class SettingsTab(BaseTabContainer):
             logo_path=self.logo_input.text().strip(),
             font_path=self.font_input.text().strip(),
             rtl_enabled=self.rtl_check.isChecked(),
-            barcode_print_mode=self.barcode_mode.currentData() or "pdf",
-            barcode_printer_name=barcode_settings.exact_windows_name or "auto",
             receipt_print_mode=self.receipt_mode.currentData() or "auto",
             receipt_printer_name=self.receipt_printer.currentData() or "auto",
             website_name=self.website_name_input.text().strip(),
@@ -383,11 +305,6 @@ class SettingsTab(BaseTabContainer):
             printer_backend_priority=self.printer_backend_priority.text().strip() or "raw-usb-escpos,escpos-usb,file,windows",
             invoice_auto_print_after_save=self.invoice_auto_print_after_save_check.isChecked(),
             invoice_print_preview=self.invoice_print_preview_check.isChecked(),
-            barcode_label_width_mm=barcode_settings.width_mm,
-            barcode_label_height_mm=barcode_settings.height_mm,
-            barcode_horizontal_offset_px=self.barcode_offset_x.value(),
-            barcode_vertical_offset_px=self.barcode_offset_y.value(),
-            barcode_printer_settings=barcode_settings,
         )
         save_gallery_settings(app_settings)
         QMessageBox.information(
@@ -489,19 +406,13 @@ class SettingsTab(BaseTabContainer):
         self.website_orders_check.setText(t("settings.website_orders_toggle", language=language))
         self.logo_btn.setText(t("settings.browse_logo", language=language))
         self.font_btn.setText(t("settings.browse_font", language=language))
-        self.printer_mode_label.setText(t("settings.default_mode", language=language))
-        self.printer_label.setText(t("settings.barcode_label_printer", language=language))
         self.receipt_mode_label.setText(t("settings.receipt_mode", language=language))
         self.receipt_printer_label.setText(t("settings.receipt_printer", language=language))
         self.refresh_printers_btn.setText(
             "تحديث الطابعات" if language == "ar" else "Refresh Printers"
         )
         self.receipt_paper_preset_label.setText("ورق الإيصال" if language == "ar" else "Receipt paper")
-        self.qr_label_preset_label.setText("مقاس ملصق QR" if language == "ar" else "QR label size")
         self.receipt_paper_preset.setText("80mm (افتراضي)" if language == "ar" else "80mm (default)")
-        self.qr_label_preset.setText("38×25mm (افتراضي)" if language == "ar" else "38×25mm (default)")
-        self.barcode_mode.setItemText(0, t("settings.barcode_mode_pdf", language=language))
-        self.barcode_mode.setItemText(1, t("settings.barcode_mode_direct", language=language))
         self.receipt_mode.setItemText(0, t("settings.receipt_mode_auto", language=language))
         self.receipt_mode.setItemText(1, t("settings.receipt_mode_windows", language=language))
         self.receipt_printer.setItemText(0, t("settings.printer_auto", language=language))
@@ -529,28 +440,17 @@ class SettingsTab(BaseTabContainer):
     @staticmethod
     def _windows_printer_names() -> list[str]:
         try:
-            return enumerate_printers()
+            return printer_service.win_list_printers()
         except RuntimeError:
             return []
 
     def _refresh_printers(self) -> None:
         """Repopulate printer queues while preserving explicit user choices."""
-        barcode_name = self.barcode_printer.currentText()
         receipt_name = self.receipt_printer.currentText()
         names = self._windows_printer_names()
 
-        barcode_blocker = QSignalBlocker(self.barcode_printer)
         receipt_blocker = QSignalBlocker(self.receipt_printer)
         try:
-            self.barcode_printer.clear()
-            self.barcode_printer.addItem("")
-            for name in names:
-                if self.barcode_printer.findText(name) < 0:
-                    self.barcode_printer.addItem(name)
-            if barcode_name and self.barcode_printer.findText(barcode_name) < 0:
-                self.barcode_printer.addItem(barcode_name)
-            self.barcode_printer.setCurrentText(barcode_name)
-
             self.receipt_printer.clear()
             self.receipt_printer.addItem(
                 t("settings.printer_auto", language=self._language), "auto"
@@ -562,7 +462,7 @@ class SettingsTab(BaseTabContainer):
                 self.receipt_printer.addItem(receipt_name, receipt_name)
             self.receipt_printer.setCurrentText(receipt_name)
         finally:
-            del barcode_blocker, receipt_blocker
+            del receipt_blocker
 
     def _test_printers(self) -> None:
         receipt_name = self.receipt_printer.currentData() or "auto"
@@ -653,19 +553,3 @@ class SettingsTab(BaseTabContainer):
         spin_box.setSingleStep(0.1)
         spin_box.setSuffix(" mm")
         return spin_box
-
-    def _barcode_settings_from_controls(self) -> BarcodePrinterSettings:
-        return BarcodePrinterSettings(
-            enabled=self.barcode_enabled_check.isChecked(),
-            model=str(self.barcode_model.currentData() or ""),
-            exact_windows_name=self.barcode_printer.currentText().strip(),
-            width_mm=self.barcode_label_width.value(),
-            height_mm=self.barcode_label_height.value(),
-            gap_mm=self.barcode_label_gap.value(),
-            dpi=self.barcode_dpi.value(),
-            density=self.barcode_density.value(),
-            speed=self.barcode_speed.value(),
-            default_copies=self.barcode_copies.value(),
-            command_language="TSPL",
-            native_font=load_gallery_settings().barcode_printer_settings.native_font,
-        )

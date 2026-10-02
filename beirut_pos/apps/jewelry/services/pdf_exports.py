@@ -11,9 +11,6 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 try:
     from reportlab.lib.pagesizes import A4
-    from reportlab.graphics.barcode import code128, code39, code93, qr
-    from reportlab.graphics import renderPDF
-    from reportlab.graphics.shapes import Drawing
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.pdfgen import canvas
@@ -32,54 +29,6 @@ class GalleryInfo:
     logo_path: str | None = None
     font_path: str | None = None
 
-
-_SUPPORTED_BARCODE_TYPES = {
-    "code128": "Code128",
-    "code39": "Code39",
-    "code93": "Code93",
-    "qr": "QR",
-}
-
-def _normalize_barcode_type(barcode_type: str) -> str:
-    normalized = barcode_type.strip().lower()
-    normalized = normalized.replace(" ", "").replace("-", "")
-    if normalized == "qrcode":
-        normalized = "qr"
-    return normalized
-
-
-def _draw_barcode(
-    c: canvas.Canvas,
-    barcode_value: str,
-    barcode_type: str,
-    *,
-    x: float,
-    y: float,
-    max_width: float,
-    max_height: float,
-) -> str:
-    normalized = _normalize_barcode_type(barcode_type)
-    if normalized == "code39":
-        barcode_obj = code39.Standard39(barcode_value, barHeight=22, barWidth=0.6, checksum=False)
-        barcode_obj.drawOn(c, x, y)
-        return _SUPPORTED_BARCODE_TYPES["code39"]
-    if normalized == "code93":
-        barcode_obj = code93.Standard93(barcode_value, barHeight=22, barWidth=0.6)
-        barcode_obj.drawOn(c, x, y)
-        return _SUPPORTED_BARCODE_TYPES["code93"]
-    if normalized == "qr":
-        size = min(max_width, max_height, 40)
-        widget = qr.QrCodeWidget(barcode_value)
-        bounds = widget.getBounds()
-        width = bounds[2] - bounds[0]
-        height = bounds[3] - bounds[1]
-        drawing = Drawing(size, size, transform=[size / width, 0, 0, size / height, 0, 0])
-        drawing.add(widget)
-        renderPDF.draw(drawing, c, x, y)
-        return _SUPPORTED_BARCODE_TYPES["qr"]
-    barcode_obj = code128.Code128(barcode_value, barHeight=22, barWidth=0.6)
-    barcode_obj.drawOn(c, x, y)
-    return _SUPPORTED_BARCODE_TYPES["code128"]
 
 
 def _shape_arabic(text: str) -> str:
@@ -397,49 +346,4 @@ def export_daily_report_pdf(
             y -= 12
             c.drawString(55, y, f"{labels[5]}: {delivery} | {labels[6]}: {company} | {labels[7]}: {status} | {labels[8]}: {fee}")
             y -= 18
-    c.save()
-
-
-def export_barcode_labels_pdf(
-    path: str,
-    product_name: str,
-    sku: str,
-    barcode_value: str,
-    barcode_type: str,
-) -> None:
-    c = canvas.Canvas(path, pagesize=A4)
-    width, height = A4
-    columns = 3
-    rows = 8
-    margin_x = 30
-    margin_y = 30
-    gap_x = 10
-    gap_y = 8
-    label_width = (width - (2 * margin_x) - (gap_x * (columns - 1))) / columns
-    label_height = (height - (2 * margin_y) - (gap_y * (rows - 1))) / rows
-
-    label_text = f"{product_name}\n{sku}"
-    for row in range(rows):
-        for col in range(columns):
-            x = margin_x + col * (label_width + gap_x)
-            y = height - margin_y - (row + 1) * label_height - row * gap_y
-            c.roundRect(x, y, label_width, label_height, 6, stroke=1, fill=0)
-            c.setFont("Helvetica", 7)
-            text_y = y + label_height - 12
-            for line in label_text.splitlines():
-                c.drawString(x + 6, text_y, line[:40])
-                text_y -= 10
-            if barcode_value:
-                barcode_label = _draw_barcode(
-                    c,
-                    barcode_value,
-                    barcode_type,
-                    x=x + 6,
-                    y=y + 8,
-                    max_width=label_width - 12,
-                    max_height=label_height - 24,
-                )
-                c.setFont("Helvetica", 6)
-                c.drawString(x + 6, y + 4, f"{barcode_label}: {barcode_value}")
-    c.showPage()
     c.save()

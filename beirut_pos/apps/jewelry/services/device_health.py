@@ -47,25 +47,6 @@ def check_receipt_printer(printer_name: str, mode: str) -> HealthResult:
     return result
 
 
-def check_barcode_printer(printer_name: str, mode: str) -> HealthResult:
-    effective_mode = (mode or "pdf").strip().lower() or "pdf"
-    effective_name = (printer_name or "auto").strip() or "auto"
-    if effective_mode == "pdf":
-        result = {"status": "ok", "detail": "PDF export mode does not require direct printer access."}
-    else:
-        printers = printer_service.win_list_printers()
-        if platform.system().lower() != "windows":
-            result = {"status": "error", "detail": "Direct barcode print currently requires Windows printer backend."}
-        elif not printers:
-            result = {"status": "error", "detail": "No Windows printers found or required backend is unavailable."}
-        elif effective_name != "auto" and effective_name not in printers:
-            result = {"status": "error", "detail": f"Selected barcode printer '{effective_name}' is not installed."}
-        else:
-            result = {"status": "ok", "detail": f"Direct print backend ready ({effective_name})."}
-    _persist_result("barcode_printer", result)
-    return result
-
-
 def check_barcode_scanner() -> HealthResult:
     profile = load_scanner_profile()
     profile_name = profile.name or "keyboard-hid"
@@ -95,11 +76,7 @@ def load_last_health_result(key: str) -> dict[str, str]:
 
 def refresh_from_settings() -> dict[str, HealthResult]:
     settings = load_gallery_settings()
-    return {
-        "receipt": check_receipt_printer(settings.receipt_printer_name, settings.receipt_print_mode or "auto"),
-        "barcode": check_barcode_printer(settings.barcode_printer_name, settings.barcode_print_mode),
-        "scanner": check_barcode_scanner(),
-    }
+    return {"receipt": check_receipt_printer(settings.receipt_printer_name, settings.receipt_print_mode or "auto"), "scanner": check_barcode_scanner()}
 
 
 def test_receipt_bitmap_route(printer_name: str, mode: str) -> HealthResult:

@@ -292,7 +292,6 @@ class SettingsTab(BaseTabContainer):
 
     def _save_settings(self) -> None:
         current_settings = load_gallery_settings()
-        barcode_settings = self._barcode_settings_from_controls()
         app_settings = replace(
             current_settings,
             name_en=self.name_en_input.text().strip(),
@@ -567,6 +566,9 @@ class SettingsTab(BaseTabContainer):
             if combo.itemData(idx) == value or combo.itemText(idx) == value:
                 combo.setCurrentIndex(idx)
                 return
+
+        if combo.isEditable():
+            combo.setCurrentText(value)
 
     @staticmethod
     def _make_mm_spin_box(minimum: float, maximum: float) -> QDoubleSpinBox:

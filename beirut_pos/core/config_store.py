@@ -1,4 +1,4 @@
-"""Thread-safe JSON config store backed by ProgramData."""
+"""Thread-safe JSON config store backed by the user data directory."""
 
 from __future__ import annotations
 

@@ -85,7 +85,10 @@ class PrinterQuickDialog(QDialog):
         controls.addWidget(self.btn_save)
 
         self.btn_close = QPushButton("إغلاق")
-        self.btn_close.clicked.connect(self.accept)
+        # Flush any pending edit before the dialog is destroyed.  Without this,
+        # closing immediately after typing can cancel the debounced save and the
+        # next user session appears to reset the printer assignment.
+        self.btn_close.clicked.connect(self._close)
         controls.addWidget(self.btn_close)
 
         layout.addLayout(controls)
@@ -146,3 +149,7 @@ class PrinterQuickDialog(QDialog):
         stamp = datetime.now().strftime("%I:%M:%S %p")
         self.saved_status.setText(f"تم الحفظ تلقائياً ({stamp})")
         self.saved_status.setStyleSheet("color: #1f7a1f;")
+
+    def _close(self) -> None:
+        self._save_debouncer.flush()
+        self.accept()

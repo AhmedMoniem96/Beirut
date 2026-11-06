@@ -277,6 +277,13 @@ class SettingsDialog(BigDialog):
         prn_f.addRow("طابعة البار:", self.bar_prn)
         prn_f.addRow("طابعة الكاشير:", self.cash_prn)
 
+        # Printer assignments are operational settings and must be available to
+        # every cashier immediately.  Persist them as soon as either field
+        # changes instead of making users open the admin-only settings action
+        # and press the page-wide Save button.
+        self.bar_prn.currentTextChanged.connect(self._save_printer_settings)
+        self.cash_prn.currentTextChanged.connect(self._save_printer_settings)
+
         hint = QLabel("ملاحظة: على ويندوز، تأكد أن أسماء الطابعات هنا مطابقة تماماً لاسم الجهاز في \"Devices and Printers\".")
         hint.setWordWrap(True)
         prn_v.addWidget(hint)
@@ -619,6 +626,14 @@ class SettingsDialog(BigDialog):
         self.addAction(act_escape)
 
     # ==================== Handlers ===========================================
+    def _save_printer_settings(self, _value: str = "") -> None:
+        """Persist printer assignments immediately when either field changes."""
+        bar = self.bar_prn.currentText().strip()
+        cash = self.cash_prn.currentText().strip()
+        setting_set("bar_printer", bar)
+        setting_set("cashier_printer", cash)
+        bus.emit("printers_changed", bar, cash)
+
     def _load_payroll_rows(self):
         try:
             rows = staff_service.list_payroll_rows()
